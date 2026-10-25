@@ -168,10 +168,8 @@ def _unregister_lifecycle_wait(waiter: int) -> None:
         _lifecycle_thread_waits_for.pop(waiter, None)
 
 
-def _dispose_children_then_self(
-    children: Iterable[_Disposable | None], dispose_self: Callable[[], None]
-) -> None:
-    """Finish a LIFE-013 cascade and then re-raise its first failure."""
+def _dispose_children(children: Iterable[_Disposable | None]) -> BaseException | None:
+    """Dispose every child in order and return the first failure, if any."""
     first_error: BaseException | None = None
     for child in children:
         if child is None:
@@ -181,6 +179,14 @@ def _dispose_children_then_self(
         except BaseException as error:
             if first_error is None:
                 first_error = error
+    return first_error
+
+
+def _dispose_children_then_self(
+    children: Iterable[_Disposable | None], dispose_self: Callable[[], None]
+) -> None:
+    """Finish a LIFE-013 cascade and then re-raise its first failure."""
+    first_error = _dispose_children(children)
 
     try:
         dispose_self()
@@ -354,6 +360,9 @@ class _ComponentVMBase(ABC):
         self._lifecycle_waiters: list[Future[None]] = []
         self._deferred_lifecycle_future: Future[None] | None = None
         self._active_hook_lease: _LifecycleHookLease | None = None
+        # Set while a container disposes its children ahead of its own terminal
+        # transition, so no lifecycle hook is admitted during the cascade.
+        self._hook_admission_closed: bool = False
 
         # Serializes every lifecycle state transition — the ``_status`` RMW, the
         # hub publish, and the status-trigger emission inside ``_set_status`` —
@@ -947,6 +956,23 @@ class _ComponentVMBase(ABC):
         Disposes commands and completes the status trigger / property_changed
         subjects.
         """
+        self._dispose_at_hook_boundary(None)
+
+    def _dispose_with_children(self, children: Iterable[_Disposable | None]) -> None:
+        """Dispose a container's children (LIFE-013), then this VM, at the
+        same admitted-hook boundary as :meth:`dispose` (LIFE-015).
+
+        With no foreign hook running, hook admission closes and the children
+        are disposed before this VM publishes Disposed. A foreign dispose of a
+        VM whose hook is admitted publishes Disposed, then waits for the hook's
+        lease (or, when the wait would close a cycle, defers to it) before the
+        cascade and the remaining cleanup run. The caller must hold no lock
+        that the hook may need.
+        """
+        snapshot = tuple(children)
+        self._dispose_at_hook_boundary(lambda: _dispose_children(snapshot))
+
+    def _dispose_at_hook_boundary(self, cascade: Callable[[], BaseException | None] | None) -> None:
         first_error: BaseException | None = None
 
         def attempt(action: Callable[[], None]) -> None:
@@ -961,23 +987,51 @@ class _ComponentVMBase(ABC):
             if self._status == ConstructionStatus.DISPOSED:
                 return
 
-            # Terminal notification is best-effort: an observer failure must not
-            # prevent the remaining channels or mandatory cleanup from running.
-            self._status = ConstructionStatus.DISPOSED
             hook_lease = self._active_hook_lease
-            publication, should_drain = self._enqueue_lifecycle_publication_locked(
-                ConstructionStatus.DISPOSED
+            cascade_first = cascade is not None and (
+                hook_lease is None or hook_lease.owner_thread == threading.get_ident()
             )
-            self._terminal_publication_pending = True
-            waiters = self._take_lifecycle_waiters_locked()
-            _waiter_publication, waiter_should_drain = self._enqueue_waiter_completion_locked(
-                waiters
-            )
-            should_drain |= waiter_should_drain
+            if cascade_first:
+                # No foreign hook is running, and none may start while the
+                # children are disposed: the cascade keeps its depth-first
+                # order ahead of this VM's terminal publication.
+                self._hook_admission_closed = True
+            else:
+                # Terminal notification is best-effort: an observer failure must
+                # not prevent the remaining channels or mandatory cleanup from
+                # running.
+                self._status = ConstructionStatus.DISPOSED
+                publication, should_drain = self._enqueue_lifecycle_publication_locked(
+                    ConstructionStatus.DISPOSED
+                )
+                self._terminal_publication_pending = True
+                waiters = self._take_lifecycle_waiters_locked()
+                _waiter_publication, waiter_should_drain = self._enqueue_waiter_completion_locked(
+                    waiters
+                )
+                should_drain |= waiter_should_drain
+
+        if cascade_first and cascade is not None:
+            cascade_error = cascade()
+            try:
+                self._dispose_at_hook_boundary(None)
+            except BaseException as error:
+                if cascade_error is None:
+                    cascade_error = error
+            if cascade_error is not None:
+                raise cascade_error
+            return
 
         attempt(lambda: self._await_lifecycle_publication(publication, should_drain))
 
         def finish_disposal() -> None:
+            nonlocal first_error
+            # A container reaches its child cascade only after the admitted
+            # foreign hook released its lease (LIFE-013 within LIFE-015).
+            if cascade is not None:
+                cascade_error = cascade()
+                if first_error is None:
+                    first_error = cascade_error
             attempt(self._on_dispose)
             attempt(self._dispose_owned_resources)
 
@@ -1061,7 +1115,11 @@ class _ComponentVMBase(ABC):
     ) -> bool:
         """Atomically admit and run a hook unless disposal already won."""
         with self._lifecycle_lock:
-            if self._status is not expected_status or self._active_hook_lease is not None:
+            if (
+                self._status is not expected_status
+                or self._active_hook_lease is not None
+                or self._hook_admission_closed
+            ):
                 return False
             lease = _LifecycleHookLease()
             self._active_hook_lease = lease

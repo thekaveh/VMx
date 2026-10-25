@@ -163,9 +163,6 @@ ADR-0037 and ADR-0053.
 
 ## 4. Tests parked as known defects
 
-- LIFE-015, C#: skipped. `CompositeVMBase.Dispose` cleans children while an
-  admitted construct hook still runs
-  (`langs/csharp/tests/VMx.Conformance.Tests/CompositeVMConformanceTests.cs:987`).
 - COMP-026, Rust: two tests ignored. Selection holds its membership transaction
   across the collection callback and across a concurrent selection
   (`langs/rust/tests/conformance/composite_vm.rs:1685`, `:1759`).

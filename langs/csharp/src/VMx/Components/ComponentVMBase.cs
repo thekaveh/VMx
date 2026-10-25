@@ -358,6 +358,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private readonly List<TaskCompletionSource<bool>> _lifecycleWaiters = [];
     private Task? _deferredLifecycleTask;
     private LifecycleHookLease? _activeHookLease;
+    // Set while a container disposes its children ahead of its own terminal
+    // transition, so no lifecycle hook is admitted during the cascade.
+    private bool _hookAdmissionClosed;
 
     // ── Selection state ─────────────────────────────────────────────────────
     private bool _isCurrent;
@@ -1323,20 +1326,64 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     }
 
     /// <inheritdoc/>
-    public virtual void Dispose()
+    public virtual void Dispose() => DisposeAtHookBoundary(cascade: null);
+
+    /// <summary>
+    /// Disposes a container: its LIFE-013 child cascade, then this VM, at the
+    /// same admitted-hook boundary as <see cref="Dispose()"/> (LIFE-015). With
+    /// no foreign hook running, hook admission closes and the children are
+    /// disposed before this VM publishes Disposed. A foreign disposal of a VM
+    /// whose hook is admitted publishes Disposed, then waits for the hook's
+    /// lease (or, when the wait would close a cycle, defers to it) before the
+    /// cascade and the remaining cleanup run. The caller must hold no lock
+    /// that the hook may need.
+    /// </summary>
+    private protected void DisposeWithChildren(IEnumerable<IDisposable?> children)
+        => DisposeAtHookBoundary(() => DisposeChildren(children));
+
+    private void DisposeAtHookBoundary(Func<ExceptionDispatchInfo?>? cascade)
     {
         ExceptionDispatchInfo? firstError = null;
         bool shouldDrain;
         LifecycleDelivery? delivery;
         LifecycleHookLease? hookLease;
+        var cascadeFirst = false;
         lock (_gate)
         {
             if (_status == ConstructionStatus.Disposed) return;
 
+            hookLease = _activeHookLease;
+            if (cascade is not null &&
+                (hookLease is null ||
+                 hookLease.OwnerThreadId == Environment.CurrentManagedThreadId))
+            {
+                // No foreign hook is running, and none may start while the
+                // children are disposed: the cascade keeps its depth-first
+                // order ahead of this VM's terminal publication.
+                _hookAdmissionClosed = true;
+                cascadeFirst = true;
+                delivery = null;
+                shouldDrain = false;
+            }
+            else
+            {
+                delivery = BeginTerminalPublicationLocked(out shouldDrain);
+            }
+        }
+        if (cascadeFirst)
+        {
+            var cascadeError = cascade!();
+            try { DisposeAtHookBoundary(cascade: null); }
+            catch (Exception error) { cascadeError ??= ExceptionDispatchInfo.Capture(error); }
+            cascadeError?.Throw();
+            return;
+        }
+
+        LifecycleDelivery BeginTerminalPublicationLocked(out bool drain)
+        {
             // Terminal publication is best-effort: an observer failure must not
             // prevent the remaining channels or mandatory cleanup from running.
             _status = ConstructionStatus.Disposed;
-            hookLease = _activeHookLease;
             var notifyTrigger = !_triggerDisposed;
             var statusDelivery = QueueLifecycleDeliveryLocked(() =>
             {
@@ -1350,15 +1397,21 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 if (notifyTrigger)
                     CaptureDisposalFailure(ref firstError, () =>
                         _statusTrigger.OnNext(Unit.Default));
-            }, out shouldDrain);
+            }, out drain);
 
             var waiterDelivery = QueueSettledLifecycleWaitersLocked(out var waiterShouldDrain);
-            shouldDrain |= waiterShouldDrain;
-            delivery = waiterDelivery ?? statusDelivery;
+            drain |= waiterShouldDrain;
+            return waiterDelivery ?? statusDelivery;
         }
+
         DrainAndThrow(delivery!, shouldDrain);
         void FinishDisposal()
         {
+            // A container reaches its child cascade only after the admitted
+            // foreign hook released its lease (LIFE-013 within LIFE-015).
+            if (cascade is not null)
+                firstError ??= cascade();
+
             // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
             // TS `_onDispose` (componentVMBase.ts). Runs immediately after the
             // status reaches Disposed and *before* the status trigger is
@@ -1497,7 +1550,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     {
         lock (_gate)
         {
-            if (_status != expectedStatus || _activeHookLease is not null)
+            if (_status != expectedStatus || _activeHookLease is not null || _hookAdmissionClosed)
                 return null;
             return _activeHookLease = new LifecycleHookLease();
         }

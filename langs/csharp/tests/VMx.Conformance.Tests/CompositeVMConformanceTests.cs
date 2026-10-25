@@ -984,11 +984,7 @@ public class CompositeVMConformanceTests
     /// terminal cleanup too, so it must not overlap the composite's admitted
     /// construct hook, and no child work may begin after the hook returns.
     /// </summary>
-    [Fact(Skip = "Library defect: CompositeVMBase.Dispose cascades children before " +
-                 "publishing Disposed or waiting for the admitted construct hook " +
-                 "(CompositeVMBase.Dispose), so children are cleaned " +
-                 "while the hook runs: the log is hook-enter, cleanup:first, " +
-                 "cleanup:second, hook-exit instead of cleanup after hook-exit.")]
+    [Fact]
     [Trait("Conformance", "LIFE-015")]
     public async Task LIFE_015_Child_Cascade_Waits_For_Admitted_Container_Hook()
     {
@@ -1048,6 +1044,127 @@ public class CompositeVMConformanceTests
         second.Status.Should().Be(ConstructionStatus.Disposed);
         constructedNames.Should().BeEmpty(
             "terminal supersession prevents post-hook container lifecycle work");
+    }
+
+    /// <summary>
+    /// LIFE-015 (container cascade, cycle-broken deferral): two composites whose
+    /// admitted construct hooks each dispose the other's composite. The wait
+    /// graph defers one disposal to its hook's lease release; the deferred
+    /// disposal includes the child cascade. Every child is cleaned once, only
+    /// after its own container's hook exits, and nothing reaches Constructed.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-015")]
+    public async Task LIFE_015_Opposing_Container_Disposal_Defers_Child_Cascade_To_Hook_Release()
+    {
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var barrier = new Barrier(2);
+        var composites = new CompositeVM<IComponentVM>[2];
+        var children = new HookCleanupProbeVM[2][];
+        var constructedNames = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        for (var index = 0; index < 2; index++)
+        {
+            var hub = new TestHub();
+            var dispatcher = new TestDispatcher();
+            var self = index;
+            composites[index] = CompositeVM<IComponentVM>.Builder()
+                .Name($"composite{index}").Services(hub, dispatcher)
+                .Children(() => Array.Empty<IComponentVM>())
+                .OnConstruct(() =>
+                {
+                    log.Enqueue($"hook-enter:{self}");
+                    barrier.SignalAndWait(HangGuard).Should().BeTrue();
+                    composites[1 - self].Dispose();
+                    log.Enqueue($"hook-exit:{self}");
+                })
+                .Build();
+            children[index] =
+            [
+                new HookCleanupProbeVM($"{index}a", hub, dispatcher, log),
+                new HookCleanupProbeVM($"{index}b", hub, dispatcher, log),
+            ];
+            composites[index].Add(children[index][0]);
+            composites[index].Add(children[index][1]);
+            hub.Messages.Subscribe(m =>
+            {
+                if (m is IConstructionStatusChangedMessage csm
+                    && csm.Status == ConstructionStatus.Constructed)
+                    constructedNames.Enqueue(csm.SenderName);
+            });
+        }
+
+        var transitions = Task.WhenAll(
+            Task.Factory.StartNew(() => Record.Exception(composites[0].Construct),
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default),
+            Task.Factory.StartNew(() => Record.Exception(composites[1].Construct),
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default));
+        (await Task.WhenAny(transitions, Task.Delay(HangGuard)))
+            .Should().BeSameAs(transitions, "opposing container disposals must not deadlock");
+        await transitions;
+
+        var entries = log.ToList();
+        for (var index = 0; index < 2; index++)
+        {
+            var hookExit = entries.IndexOf($"hook-exit:{index}");
+            hookExit.Should().BeGreaterThanOrEqualTo(0);
+            foreach (var child in children[index])
+            {
+                entries.IndexOf($"cleanup:{child.Name}").Should().BeGreaterThan(hookExit,
+                    "a child cascade never overlaps its container's admitted hook");
+                child.Cleanups.Should().Be(1);
+                child.Status.Should().Be(ConstructionStatus.Disposed);
+            }
+            composites[index].Status.Should().Be(ConstructionStatus.Disposed);
+        }
+        constructedNames.Should().BeEmpty(
+            "terminal supersession prevents post-hook container lifecycle work");
+    }
+
+    /// <summary>
+    /// LIFE-015 (same-thread re-entrancy): a composite disposed from inside its
+    /// own admitted construct hook, on the hook's thread, cascades immediately,
+    /// exactly as the base disposes immediately on the owner thread. The
+    /// superseded construct then publishes no Constructed for anyone.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-015")]
+    public void LIFE_015_Same_Thread_Container_Disposal_Inside_Hook_Cascades_Immediately()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var first = new HookCleanupProbeVM("first", hub, dispatcher, log);
+        var second = new HookCleanupProbeVM("second", hub, dispatcher, log);
+        CompositeVM<IComponentVM>? composite = null;
+        composite = CompositeVM<IComponentVM>.Builder()
+            .Name("composite").Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>())
+            .OnConstruct(() =>
+            {
+                log.Enqueue("hook-enter");
+                composite!.Dispose();
+                log.Enqueue("dispose-returned");
+                log.Enqueue("hook-exit");
+            })
+            .Build();
+        composite.Add(first);
+        composite.Add(second);
+        var constructedNames = new List<string>();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is IConstructionStatusChangedMessage csm
+                && csm.Status == ConstructionStatus.Constructed)
+                constructedNames.Add(csm.SenderName);
+        });
+
+        _ = Record.Exception(composite.Construct);
+        composite.Dispose();
+
+        log.Should().Equal(
+            ["hook-enter", "cleanup:first", "cleanup:second", "dispose-returned", "hook-exit"],
+            "an owner-thread disposal is not deferred behind its own hook");
+        first.Cleanups.Should().Be(1);
+        second.Cleanups.Should().Be(1);
+        composite.Status.Should().Be(ConstructionStatus.Disposed);
+        constructedNames.Should().BeEmpty();
     }
 
     /// <summary>
