@@ -675,6 +675,66 @@ describe("FormVM – approval admission edges", () => {
     expect(approved).toEqual([m("B", 2), m("B", 2)]);
     expect(form.approveCommand.canExecute()).toBe(true);
   });
+
+  // #721: a null candidate is rejected before the settlement deferral, as in
+  // C# and Python, so it cannot fail the approval that already persisted.
+  function settlingForm() {
+    const persisted: IModel[] = [];
+    const form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: (model) => {
+        persisted.push(model);
+        return Promise.resolve();
+      },
+    });
+    const approved: IModel[] = [];
+    const errors: unknown[] = [];
+    form.onApproved.subscribe((value) => approved.push(value));
+    form.approveErrors.subscribe((error) => errors.push(error));
+    form.setModel(m("B", 2));
+    const rejected: unknown[] = [];
+    let notifications = 0;
+    form.approveCommand.canExecuteChanged.subscribe(() => {
+      notifications++;
+      // The first settlement notification (after the admission one).
+      if (notifications !== 2) return;
+      try {
+        form.setModel(null as unknown as IModel);
+      } catch (error) {
+        rejected.push(error);
+        // The rejected call changed nothing.
+        expect(form.model).toEqual(m("B", 2));
+      }
+      form.setModel(m("C", 42));
+    });
+    return { form, persisted, approved, errors, rejected };
+  }
+
+  it("rejects setModel(null) from a settlement observer and keeps the approval", async () => {
+    const { form, persisted, approved, errors, rejected } = settlingForm();
+
+    await form.approveAsync();
+
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as Error).message).toBe("model must not be null or undefined");
+    expect(persisted).toEqual([m("B", 2)]);
+    expect(approved).toEqual([m("B", 2)]);
+    expect(errors).toEqual([]);
+    expect(form.model).toEqual(m("C", 42));
+  });
+
+  it("routes the settled outcome to onApproved only on the command path", async () => {
+    const { form, approved, errors, rejected } = settlingForm();
+
+    form.approveCommand.execute();
+    await vi.waitFor(() => expect(approved).toHaveLength(1));
+    await Promise.resolve();
+
+    expect(rejected).toHaveLength(1);
+    expect(approved).toEqual([m("B", 2)]);
+    expect(errors).toEqual([]);
+    expect(form.model).toEqual(m("C", 42));
+  });
 });
 
 // ---------------------------------------------------------------------------

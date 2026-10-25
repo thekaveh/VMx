@@ -595,15 +595,17 @@ export class FormVM<TM> {
    */
   setModel(model: TM): void {
     if (this.#disposed) return;
+    // Reject a missing model before any deferral (spec/20 §5.2), so a null
+    // queued during approval settlement cannot fail that approval later.
+    if (model === null || model === undefined) {
+      throw new Error("model must not be null or undefined");
+    }
     if (this.#approvalPrePublishing) {
       this.#deferredApprovalModels.push(model);
       return;
     }
     this.#beginSyncOperation();
     try {
-      if (model === null || model === undefined) {
-        throw new Error("model must not be null or undefined");
-      }
       // Preparation: every consumer callback runs before any commit.
       const generation = this.#generation;
       if (this.#equals(this.#model, model)) return;
