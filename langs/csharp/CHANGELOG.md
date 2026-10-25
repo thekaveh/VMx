@@ -14,6 +14,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   `ComponentVMBaseOfM<M>` overload also makes `modeledHinter` optional, with
   an empty hint by default, and takes the remaining arguments as optional
   parameters (#663).
+- Fixed: a throwing local `CollectionChanged` handler on `CompositeVM` or
+  `GroupVM`, including a `FilteredCompositeVM` predicate that runs inside it,
+  no longer suppresses the hub `CollectionChangedMessage` for the committed
+  change. The container sends the hub message, then rethrows the first
+  failure, the handler's exception, as Python does (spec/01 §1.4). A container
+  already disposed by the handler still publishes no hub message (#723).
 - Fixed: `PropertyValueChangedMessagesFor(source, x => x.Prop)` now emits for
   real viewmodel property changes. It matched only
   `IPropertyChangedMessage<TSource>` for the inferred concrete type, while VMs
