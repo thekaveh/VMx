@@ -4,6 +4,7 @@ using System.Reactive.Disposables;
 using System.Runtime.ExceptionServices;
 using VMx.Collections;
 using VMx.Components;
+using VMx.Groups;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
@@ -298,6 +299,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             {
                 _membershipTransactionActive = false;
                 _membershipTransactionOwnerThreadId = 0;
+                MembershipTransactionWaitGraph.Shared.Release(_membershipGate);
                 Monitor.PulseAll(_membershipGate);
                 throw new InvalidOperationException("The recorded parent does not contain the child identity.");
             }
@@ -959,12 +961,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         lock (_membershipGate)
         {
             if (_disposeRequested != 0) return;
-            while (_membershipTransactionActive
-                   && _membershipTransactionOwnerThreadId != Environment.CurrentManagedThreadId)
-            {
-                Monitor.Wait(_membershipGate);
-                if (_disposeRequested != 0) return;
-            }
+            if (!WaitForForeignTransactionLocked()) return;
             if (_membershipTransactionActive || _activeCurrentPublications > 0)
             {
                 _disposeDeferred = true;
@@ -1000,11 +997,39 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 "A container membership transaction is already in progress.");
     }
 
+    /// <summary>
+    /// Waits, under <c>_membershipGate</c>, until no other thread holds this
+    /// container's membership transaction (ADR-0122). A wait that would close a
+    /// wait-for cycle records the disposal for the transaction owner instead,
+    /// which disposes this container when its transaction ends (#717). Returns
+    /// <c>false</c> when the caller has nothing left to do.
+    /// </summary>
+    private bool WaitForForeignTransactionLocked()
+    {
+        var caller = Environment.CurrentManagedThreadId;
+        var waits = MembershipTransactionWaitGraph.Shared;
+        while (_membershipTransactionActive && _membershipTransactionOwnerThreadId != caller)
+        {
+            if (!waits.TryBeginWait(_membershipGate, caller))
+            {
+                _disposeDeferred = true;
+                return false;
+            }
+            try { Monitor.Wait(_membershipGate); }
+            finally { waits.EndWait(caller); }
+            if (_disposeRequested != 0) return false;
+        }
+        return true;
+    }
+
     private void BeginMembershipTransactionLocked()
     {
         EnsureChildAdmission();
         _membershipTransactionActive = true;
         _membershipTransactionOwnerThreadId = Environment.CurrentManagedThreadId;
+        // Recorded so a group transfer or a disposal that waits for this
+        // transaction can see a wait-for cycle (#717).
+        MembershipTransactionWaitGraph.Shared.Acquire(_membershipGate, _membershipTransactionOwnerThreadId);
     }
 
     private void BeginMembershipTransaction()
@@ -1026,6 +1051,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         {
             _membershipTransactionActive = false;
             _membershipTransactionOwnerThreadId = 0;
+            MembershipTransactionWaitGraph.Shared.Release(_membershipGate);
             dispose = _disposeDeferred && _activeCurrentPublications == 0;
             if (dispose) _disposeDeferred = false;
             Monitor.PulseAll(_membershipGate);

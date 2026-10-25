@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A cross-thread `CompositeVM` or `GroupVM` `dispose()` no longer deadlocks
+  when the transaction owner it waits for already waits for the disposing
+  thread, with no hub involved (#717, ADR-0153). The disposal records its
+  intent, and the owner disposes the container when its transaction ends.
+  The shared wait-for graph from #703 detects the cycle; regression tests
+  cover composites, groups, and a disposal without a cycle.
 - `CompositeVM` no longer traps when the construct walk assigns the
   initial-current selector's pick (#705). The walk checks the pick against
   live membership, so a pick that has left is a silent no-op, as spec/06
