@@ -55,6 +55,11 @@ var ui = new Thread(() =>
                 Check(box.Text == string.Empty, "Add clears the bound TextBox");
                 Check(!add.IsEnabled, "Add disables again for an empty title");
 
+                // Leave a title in the box, so after close only disposal can
+                // make the Add command non-executable.
+                box.Text = "Left unsaved";
+                Check(vm.AddCommand.CanExecute(null), "a title left in the box keeps Add executable");
+
                 window.Close();
                 Check(vm.Items.All(item => item.VM.Status == VMx.Lifecycle.ConstructionStatus.Disposed),
                     "closing the window disposes every item");
