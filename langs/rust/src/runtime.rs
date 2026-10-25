@@ -2794,6 +2794,9 @@ impl<D: Dispatcher> ComponentCore<D> {
         F: FnOnce() -> VmxResult<()>,
     {
         let hub = lock(&self.inner).hub.clone();
+        // A stale settle can still queue a step that owns a view-model's last
+        // handle; it drops after `send_status` releases the hub lock.
+        let mut stale_settle = None;
         let started = self.send_status(&hub, || {
             let (sender_id, sender_name, hook, transition_status, target, generation) = {
                 let mut inner = lock(&self.inner);
@@ -2831,7 +2834,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 let generation = inner.transition_generation;
                 inner.transitioning = true;
                 inner.status = transition_status;
-                inner.child_settle = None;
+                stale_settle = inner.child_settle.take();
                 if operation != LifecycleOperation::Dispose {
                     inner.active_hook_owner = Some(thread::current().id());
                 }
@@ -2860,6 +2863,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 Some(message),
             )
         })?;
+        drop(stale_settle);
         let Some((sender_id, sender_name, hook, target, generation)) = started else {
             return Ok(());
         };
@@ -2949,17 +2953,17 @@ impl<D: Dispatcher> ComponentCore<D> {
                 LifecycleOperation::Destruct => ConstructionStatus::Constructed,
                 LifecycleOperation::Dispose => ConstructionStatus::Disposed,
             };
-            let rolled_back = {
+            let (rolled_back, cleared) = {
                 let mut inner = lock(&self.inner);
                 if inner.transition_generation == generation {
                     inner.status = rollback;
                     inner.transitioning = false;
-                    inner.child_settle = None;
-                    true
+                    (true, inner.child_settle.take())
                 } else {
-                    false
+                    (false, None)
                 }
             };
+            drop(cleared);
             if !rolled_back {
                 if let Some(payload) = panic_payload {
                     resume_unwind(payload);
@@ -3405,7 +3409,9 @@ impl<D: Dispatcher> ComponentCore<D> {
                     settle.failure.take()
                 }
                 _ => {
-                    inner.child_settle = None;
+                    let cleared = inner.child_settle.take();
+                    drop(inner);
+                    drop(cleared);
                     return false;
                 }
             }
@@ -3426,6 +3432,10 @@ impl<D: Dispatcher> ComponentCore<D> {
             (inner.hub.clone(), inner.background_errors.clone())
         };
         let emission = error.as_ref().and_then(|_| errors.begin_emission());
+        // A queued step can own the last handle to a view-model, whose drop
+        // locks the hub; drop the cleared settle only after `send_status`
+        // releases the hub and core locks.
+        let mut cleared = None;
         let published = self.send_status(&hub, || {
             let mut inner = lock(&self.inner);
             if !self.settle_is_current(&inner, generation) {
@@ -3436,7 +3446,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 | (ConstructionStatus::Destructing, true) => ConstructionStatus::Constructed,
                 _ => ConstructionStatus::Destructed,
             };
-            inner.child_settle = None;
+            cleared = inner.child_settle.take();
             inner.status = settled;
             inner.transitioning = false;
             (
@@ -3456,6 +3466,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
         }
         drop(emission);
+        drop(cleared);
         self.release_settle_waiters();
     }
 
