@@ -915,3 +915,70 @@ fn disposal_during_an_in_flight_approval_suppresses_settlement() {
         assert_eq!(persister.calls(), vec![2], "{path} {outcome:?}");
     }
 }
+
+/// An approval races `set_model` on another thread. Admission checks validity
+/// and captures the model in one step, so the persister, the snapshotter and
+/// `on_approved` never receive a model the validators reject (#719).
+#[test]
+fn concurrent_edits_never_let_an_invalid_model_through_approval() {
+    let seen: Arc<Mutex<Vec<(&'static str, i32)>>> = Arc::default();
+    let record = |stage: &'static str| {
+        let seen = Arc::clone(&seen);
+        move |model: i32| {
+            if model < 0 {
+                seen.lock().unwrap().push((stage, model));
+            }
+        }
+    };
+    let (persisted, snapshotted, approved) = (
+        record("persister"),
+        record("snapshot"),
+        record("on_approved"),
+    );
+    let form = FormVm::builder()
+        .initial(1)
+        .validator("value", |model: &i32| {
+            (*model < 0).then(|| "negative".to_string())
+        })
+        .persister(move |model: &i32| {
+            persisted(*model);
+            Ok(())
+        })
+        .snapshotter(move |model: &i32| {
+            snapshotted(*model);
+            *model
+        })
+        .hub(MessageHub::new())
+        .build()
+        .unwrap();
+    let _approved = form.subscribe_approved(approved);
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let editor = {
+        let (form, stop) = (form.clone(), Arc::clone(&stop));
+        thread::spawn(move || {
+            let mut i = 1;
+            while !stop.load(Ordering::SeqCst) {
+                form.set_model(-i);
+                form.set_model(i);
+                i = i % 1_000 + 1;
+            }
+        })
+    };
+    // At least 100,000 approve calls, and long enough for the editor to interleave.
+    let started = std::time::Instant::now();
+    let mut approvals = 0_u64;
+    while approvals < 100_000 || started.elapsed() < Duration::from_secs(2) {
+        form.approve().unwrap();
+        approvals += 1;
+    }
+    stop.store(true, Ordering::SeqCst);
+    editor.join().unwrap();
+
+    let leaked = seen.lock().unwrap();
+    assert!(
+        leaked.is_empty(),
+        "invalid models reached approval: {:?}",
+        &leaked[..leaked.len().min(5)]
+    );
+}
