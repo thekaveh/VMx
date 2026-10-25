@@ -143,9 +143,11 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 let _ = reconstruct_core.construct_after_destruct(move || {
                     construct_core.transition_with(LifecycleOperation::Construct, || {
                         let members = construct_items.clone();
+                        // Read the flag before the walk: a child hook may lock it.
+                        let join_late = *lock(&auto);
                         construct_core.construct_children(
                             Arc::new(move || members.to_vec()),
-                            *lock(&auto),
+                            join_late,
                             Box::new(|| Ok(())),
                         )
                     })
@@ -732,9 +734,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
                 let members = self.items.clone();
+                // Read the flag before the walk: a child hook or hub
+                // subscriber may add a child, which locks it.
+                let join_late = *lock(&self.auto_construct_on_add);
                 self.core.construct_children(
                     Arc::new(move || members.to_vec()),
-                    *lock(&self.auto_construct_on_add),
+                    join_late,
                     Box::new(|| Ok(())),
                 )
             })

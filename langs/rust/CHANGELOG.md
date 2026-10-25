@@ -22,6 +22,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   hub and container locks are released. Before, dropping the composite while a
   failing background child settled, or removing a queued child and dropping
   its handle, blocked the hub (#701).
+- `GroupVm::construct`, `reconstruct()` and the reconstruct command no longer
+  deadlock when a child hook or hub subscriber adds a child or calls
+  `set_auto_construct_on_add` during the construct walk. The group reads its
+  auto-construct flag before the walk, as `CompositeVm` does. Before, the walk
+  held the flag's lock, so the re-entrant call waited forever (#702).
 
 ## [0.35.0] — unreleased source version
 
