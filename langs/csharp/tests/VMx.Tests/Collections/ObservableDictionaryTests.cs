@@ -140,6 +140,63 @@ public class ObservableDictionaryTests
         indices.Should().BeEquivalentTo(new Dictionary<string, int> { ["a"] = 0, ["b"] = 1 });
     }
 
+    // #733: a key-view handler runs before the hub publication.
+    [Theory]
+    [InlineData("Keys1")]
+    [InlineData("Keys2")]
+    public void Hub_Add_Index_Is_Captured_Before_A_Key_View_Reentrant_Add(string view)
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, string, int>(hub);
+        var indices = new Dictionary<string, int>();
+        hub.Messages.Subscribe(m =>
+        {
+            var change = (ICollectionChangedMessage<KeyValuePair<(string, string), int>>)m;
+            foreach (var item in change.NewItems) indices[item.Key.Item1] = change.Index;
+        });
+        var nested = false;
+        EventHandler<ItemAddedEventArgs<string>> addNested = (_, _) =>
+        {
+            if (nested) return;
+            nested = true;
+            sut.Add("z", "z", 1);
+        };
+        if (view == "Keys1") sut.Keys1.ItemAdded += addNested;
+        else sut.Keys2.ItemAdded += addNested;
+
+        sut.Add("a", "a", 0);
+
+        indices.Should().BeEquivalentTo(new Dictionary<string, int> { ["a"] = 0, ["z"] = 1 });
+    }
+
+    [Theory]
+    [InlineData("Remove", 0)]
+    [InlineData("Clear", -1)]
+    public void Hub_Add_Index_Follows_A_Key_View_Reentrant_Remove_Or_Clear(string nested, int expected)
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, string, int>(hub);
+        sut.Add("x", "x", 9);
+        var indices = new Dictionary<string, int>();
+        hub.Messages.Subscribe(m =>
+        {
+            var change = (ICollectionChangedMessage<KeyValuePair<(string, string), int>>)m;
+            foreach (var item in change.NewItems) indices[item.Key.Item1] = change.Index;
+        });
+        var done = false;
+        sut.Keys1.ItemAdded += (_, _) =>
+        {
+            if (done) return;
+            done = true;
+            if (nested == "Remove") sut.Remove("x", "x");
+            else sut.Clear();
+        };
+
+        sut.Add("a", "a", 0);
+
+        indices.Should().BeEquivalentTo(new Dictionary<string, int> { ["a"] = expected });
+    }
+
     [Fact]
     public void Hub_Injection_PublishesRemoveMessageOnRemove()
     {

@@ -449,6 +449,64 @@ def test_hub_add_index_is_captured_before_a_reentrant_add() -> None:
     assert indices == {("a", "x", 1): 0, ("b", "y", 2): 1}
 
 
+@pytest.mark.parametrize("view", ["keys1", "keys2"])
+def test_hub_add_index_is_captured_before_a_key_view_reentrant_add(view: str) -> None:
+    # #733: a key-view subscriber runs before the hub publication.
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    d: ObservableDictionary[str, str, int] = ObservableDictionary(hub)
+    indices: dict[object, int] = {}
+
+    def record(message: CollectionChangedMessage[object]) -> None:
+        for item in message.new_items:
+            indices[item] = message.index
+
+    hub.messages.subscribe(record)
+    nested: list[bool] = []
+
+    def add_nested(_: object) -> None:
+        if not nested:
+            nested.append(True)
+            d.add("z", "z", 1)
+
+    getattr(d, view).on_item_added.subscribe(add_nested)
+    d.add("a", "a", 0)
+
+    assert indices == {("a", "a", 0): 0, ("z", "z", 1): 1}
+
+
+@pytest.mark.parametrize(
+    ("nested", "expected"),
+    [("remove", 0), ("clear", -1)],
+)
+def test_hub_add_index_follows_a_key_view_reentrant_remove_or_clear(
+    nested: str, expected: int
+) -> None:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    d: ObservableDictionary[str, str, int] = ObservableDictionary(hub)
+    d.add("x", "x", 9)
+    indices: dict[object, int] = {}
+
+    def record(message: CollectionChangedMessage[object]) -> None:
+        for item in message.new_items:
+            indices[item] = message.index
+
+    hub.messages.subscribe(record)
+    done: list[bool] = []
+
+    def mutate(_: object) -> None:
+        if not done:
+            done.append(True)
+            if nested == "remove":
+                d.remove("x", "x")
+            else:
+                d.clear()
+
+    d.keys1.on_item_added.subscribe(mutate)
+    d.add("a", "a", 0)
+
+    assert indices == {("a", "a", 0): expected}
+
+
 def test_nan_key_is_one_axis_key_like_a_dict_key() -> None:
     sut: ObservableDictionary[float, str, int] = ObservableDictionary()
     nan = float("nan")

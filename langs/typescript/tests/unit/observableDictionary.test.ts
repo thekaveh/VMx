@@ -473,4 +473,88 @@ describe("ObservableDictionary hub add index", () => {
 
     expect(Object.fromEntries(indices)).toEqual({ a: 0, b: 1 });
   });
+
+  // #733: a key-view subscriber runs before the hub publication.
+  it.each(["keys1", "keys2"] as const)(
+    "captures the add index before a %s subscriber's reentrant add",
+    (view) => {
+      const hub = new MessageHub();
+      const sut = new ObservableDictionary<string, string, number>(hub);
+      const indices = new Map<string, number>();
+      hub.messages.subscribe((message) => {
+        if (!(message instanceof CollectionChangedMessage)) return;
+        for (const item of message.newItems as { key1: string }[]) {
+          indices.set(item.key1, message.index);
+        }
+      });
+      let nested = false;
+      sut[view].itemAdded.subscribe(() => {
+        if (nested) return;
+        nested = true;
+        sut.set("z", "z", 1);
+      });
+
+      sut.set("a", "a", 0);
+
+      expect(Object.fromEntries(indices)).toEqual({ a: 0, z: 1 });
+    },
+  );
+
+  it.each([
+    ["delete", 0],
+    ["clear", -1],
+  ] as const)(
+    "reports the current add index after a keys1 subscriber's nested %s",
+    (nested, expected) => {
+      const hub = new MessageHub();
+      const sut = new ObservableDictionary<string, string, number>(hub);
+      sut.set("x", "x", 9);
+      const indices = new Map<string, number>();
+      hub.messages.subscribe((message) => {
+        if (!(message instanceof CollectionChangedMessage)) return;
+        for (const item of message.newItems as { key1: string }[]) {
+          indices.set(item.key1, message.index);
+        }
+      });
+      let done = false;
+      sut.keys1.itemAdded.subscribe(() => {
+        if (done) return;
+        done = true;
+        if (nested === "delete") sut.delete("x", "x");
+        else sut.clear();
+      });
+
+      sut.set("a", "a", 0);
+
+      expect(Object.fromEntries(indices)).toEqual({ a: expected });
+    },
+  );
+
+  it("reports the re-added key pair's index after a nested clear and re-add", () => {
+    // As in C# and Python, the index follows the key pair, not the entry object.
+    const hub = new MessageHub();
+    const sut = new ObservableDictionary<string, string, number>(hub);
+    const adds: [number, number][] = [];
+    hub.messages.subscribe((message) => {
+      if (!(message instanceof CollectionChangedMessage)) return;
+      if (message.action !== "add") return;
+      for (const item of message.newItems as { value: number }[]) {
+        adds.push([item.value, message.index]);
+      }
+    });
+    let done = false;
+    sut.keys1.itemAdded.subscribe(() => {
+      if (done) return;
+      done = true;
+      sut.clear();
+      sut.set("a", "a", 7);
+    });
+
+    sut.set("a", "a", 0);
+
+    expect(adds).toEqual([
+      [7, 0],
+      [0, 0],
+    ]);
+  });
 });
