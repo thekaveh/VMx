@@ -521,3 +521,116 @@ fn a_composite_parent_constructs_and_disposes_a_nested_group_and_its_members() {
     assert_eq!(group.status(), ConstructionStatus::Disposed);
     assert_eq!(leaf.status(), ConstructionStatus::Disposed);
 }
+
+mod reentrant_construct {
+    //! Child hooks and hub subscribers that change a group during its construct
+    //! walk do not deadlock it (#702).
+
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+    use vmx::{Command, ComponentVm, ConstructionStatus, GroupVm, Message, MessageHub, VmxResult};
+
+    type Leaf = ComponentVm<i32>;
+    type Group = GroupVm<Leaf>;
+
+    const BOUND: Duration = Duration::from_secs(5);
+
+    fn leaf(hub: &MessageHub, name: &str) -> Leaf {
+        Leaf::with_model(name, 1, hub.clone(), vmx::NullDispatcher::new())
+    }
+
+    fn group_with_leaf(auto_construct: bool) -> (MessageHub, Group, Leaf) {
+        let hub = MessageHub::new();
+        let group = Group::with_services("group", hub.clone(), vmx::NullDispatcher::new());
+        group.set_auto_construct_on_add(auto_construct);
+        let first = leaf(&hub, "a");
+        group.add(first.clone()).unwrap();
+        (hub, group, first)
+    }
+
+    /// Runs `action` on a worker thread and fails the test if it does not
+    /// return within `BOUND`.
+    fn bounded<R: Send + 'static>(action: impl FnOnce() -> R + Send + 'static) -> R {
+        let (sent, received) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sent.send(action());
+        });
+        received
+            .recv_timeout(BOUND)
+            .expect("group call did not return: re-entrant change deadlocked")
+    }
+
+    /// Makes `child`'s construct hook add one more leaf on its `nth` run.
+    fn add_on_construct(hub: &MessageHub, group: &Group, child: &Leaf, nth: usize) {
+        let (hub, group, runs) = (hub.clone(), group.clone(), Arc::new(AtomicUsize::new(0)));
+        child.on_construct(move || -> VmxResult<()> {
+            if runs.fetch_add(1, Ordering::SeqCst) + 1 == nth {
+                group.add(leaf(&hub, "late"))?;
+            }
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn child_hook_adds_during_construct() {
+        for auto_construct in [false, true] {
+            let (hub, group, first) = group_with_leaf(auto_construct);
+            add_on_construct(&hub, &group, &first, 1);
+            let worker = group.clone();
+            assert_eq!(bounded(move || worker.construct()), Ok(()));
+            assert_eq!(group.len(), 2, "auto_construct = {auto_construct}");
+            assert_eq!(group.status(), ConstructionStatus::Constructed);
+        }
+    }
+
+    #[test]
+    fn hub_subscriber_adds_during_construct() {
+        let (hub, group, first) = group_with_leaf(false);
+        let (adder_hub, adder, added) =
+            (hub.clone(), group.clone(), Arc::new(AtomicBool::new(false)));
+        let first_id = first.id();
+        let _subscription = hub.subscribe(move |message| {
+            if let Message::ConstructionStatusChanged(change) = message {
+                if change.sender_id == first_id && !added.swap(true, Ordering::SeqCst) {
+                    adder.add(leaf(&adder_hub, "late")).unwrap();
+                }
+            }
+        });
+        let worker = group.clone();
+        assert_eq!(bounded(move || worker.construct()), Ok(()));
+        assert_eq!(group.len(), 2);
+    }
+
+    #[test]
+    fn child_hook_sets_auto_construct_during_construct() {
+        let (_hub, group, first) = group_with_leaf(false);
+        let toggler = group.clone();
+        first.on_construct(move || -> VmxResult<()> {
+            toggler.set_auto_construct_on_add(true);
+            Ok(())
+        });
+        let worker = group.clone();
+        assert_eq!(bounded(move || worker.construct()), Ok(()));
+    }
+
+    #[test]
+    fn child_hook_adds_during_reconstruct() {
+        let (hub, group, first) = group_with_leaf(false);
+        add_on_construct(&hub, &group, &first, 2);
+        group.construct().unwrap();
+        let worker = group.clone();
+        assert_eq!(bounded(move || worker.reconstruct()), Ok(()));
+        assert_eq!(group.len(), 2);
+    }
+
+    #[test]
+    fn child_hook_adds_during_reconstruct_command() {
+        let (hub, group, first) = group_with_leaf(false);
+        add_on_construct(&hub, &group, &first, 2);
+        group.construct().unwrap();
+        let command = group.reconstruct_command();
+        bounded(move || command.execute());
+        assert_eq!(group.len(), 2);
+    }
+}
