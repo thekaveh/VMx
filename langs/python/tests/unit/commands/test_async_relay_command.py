@@ -556,3 +556,136 @@ async def test_throwing_start_observer_releases_the_admission() -> None:
     assert not command.is_executing
     assert command.can_execute()
     command.dispose()
+
+
+# ---------------------------------------------------------------------------
+# A run that never starts releases its admission (issue #731, spec/04 §10.2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_execute_task_cancelled_before_its_first_step_releases_the_admission() -> None:
+    calls = 0
+
+    async def task() -> None:
+        nonlocal calls
+        calls += 1
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    events: list[bool] = []
+    command.can_execute_changed.subscribe(lambda _: events.append(command.is_executing))
+    current = asyncio.current_task()
+    before = asyncio.all_tasks()
+
+    command.execute()
+
+    (scheduled,) = asyncio.all_tasks() - before
+    assert scheduled is not current
+    scheduled.cancel()
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    assert scheduled.cancelled()
+    assert calls == 0
+    assert command.is_executing is False
+    assert command.can_execute() is True
+    assert events == [True, False], "start and exactly one completion notification"
+
+    await command.execute_async()
+    assert calls == 1
+    command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_execute_task_cancelled_after_it_started_notifies_completion_once() -> None:
+    started = asyncio.Event()
+
+    async def task() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    events: list[bool] = []
+    command.can_execute_changed.subscribe(lambda _: events.append(command.is_executing))
+    before = asyncio.all_tasks()
+
+    command.execute()
+    (scheduled,) = asyncio.all_tasks() - before
+    await asyncio.wait_for(started.wait(), 1)
+    scheduled.cancel()
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    assert scheduled.done()
+    assert command.is_executing is False
+    assert command.can_execute() is True
+    assert events == [True, False]
+    command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_execute_with_raising_task_factory_raises_and_releases_the_admission() -> None:
+    calls = 0
+
+    async def task() -> None:
+        nonlocal calls
+        calls += 1
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    events: list[bool] = []
+    command.can_execute_changed.subscribe(lambda _: events.append(command.is_executing))
+    loop = asyncio.get_running_loop()
+    original = loop.get_task_factory()
+
+    def factory(*_args: object, **_kwargs: object) -> asyncio.Task[None]:
+        raise RuntimeError("task factory failed")
+
+    loop.set_task_factory(factory)  # type: ignore[arg-type]
+    try:
+        with pytest.raises(RuntimeError, match="task factory failed"):
+            command.execute()
+    finally:
+        loop.set_task_factory(original)
+
+    assert calls == 0
+    assert command.is_executing is False
+    assert command.can_execute() is True
+    assert events == [True, False], "start and exactly one completion notification"
+
+    await command.execute_async()
+    assert calls == 1
+    command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_raising_task_factory_error_wins_over_a_raising_completion_observer() -> None:
+    async def task() -> None:
+        pass
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    notifications = 0
+
+    def observer(_: object) -> None:
+        nonlocal notifications
+        notifications += 1
+        if notifications == 2:
+            raise ValueError("completion observer failed")
+
+    command.can_execute_changed.subscribe(observer)
+    loop = asyncio.get_running_loop()
+    original = loop.get_task_factory()
+
+    def factory(*_args: object, **_kwargs: object) -> asyncio.Task[None]:
+        raise RuntimeError("task factory failed")
+
+    loop.set_task_factory(factory)  # type: ignore[arg-type]
+    try:
+        with pytest.raises(RuntimeError, match="task factory failed"):
+            command.execute()
+    finally:
+        loop.set_task_factory(original)
+
+    assert notifications == 2
+    assert command.is_executing is False
+    assert command.can_execute() is True
+    command.dispose()

@@ -602,3 +602,121 @@ def test_approval_notifications_are_delivered_without_the_state_lock(notificatio
         asyncio.run(sut.approve_async())
 
     assert reads == [True]
+
+
+# ---------------------------------------------------------------------------
+# An approval that never starts releases its admission (issue #731, spec/20 §5.3)
+# ---------------------------------------------------------------------------
+
+
+async def test_approve_task_cancelled_before_its_first_step_settles_then_routes() -> None:
+    import asyncio
+
+    persisted: list[Model] = []
+
+    async def persister(m: Model) -> None:
+        persisted.append(m)
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    log: list[str] = []
+    sut.approve_command.can_execute_changed.subscribe(
+        lambda _: log.append(f"can_execute_changed:{sut.approve_command.can_execute()}")
+    )
+    sut.approve_errors.subscribe(
+        lambda error: log.append(
+            f"approve_errors:{type(error).__name__}:{sut.approve_command.can_execute()}"
+        )
+    )
+    before = asyncio.all_tasks()
+
+    sut.approve_command.execute()
+
+    (scheduled,) = asyncio.all_tasks() - before
+    scheduled.cancel()
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    assert scheduled.cancelled()
+    assert persisted == []
+    assert sut.approve_command.can_execute() is True
+    assert log == [
+        "can_execute_changed:False",
+        "can_execute_changed:True",
+        "approve_errors:CancelledError:True",
+    ]
+
+    await sut.approve_async()
+    assert persisted == [Model("A", 1)]
+    sut.dispose()
+
+
+async def test_approve_task_cancelled_mid_persist_settles_once() -> None:
+    import asyncio
+
+    entered = asyncio.Event()
+
+    async def persister(m: Model) -> None:
+        entered.set()
+        await asyncio.Event().wait()
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    log: list[str] = []
+    sut.approve_command.can_execute_changed.subscribe(
+        lambda _: log.append(f"can_execute_changed:{sut.approve_command.can_execute()}")
+    )
+    sut.approve_errors.subscribe(
+        lambda error: log.append(
+            f"approve_errors:{type(error).__name__}:{sut.approve_command.can_execute()}"
+        )
+    )
+    before = asyncio.all_tasks()
+
+    sut.approve_command.execute()
+    (scheduled,) = asyncio.all_tasks() - before
+    await asyncio.wait_for(entered.wait(), 1)
+    scheduled.cancel()
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    assert scheduled.cancelled()
+    assert sut.approve_command.can_execute() is True
+    assert log == [
+        "can_execute_changed:False",
+        "can_execute_changed:True",
+        "approve_errors:CancelledError:True",
+    ]
+    sut.dispose()
+
+
+async def test_approve_with_raising_task_factory_raises_and_releases_the_admission() -> None:
+    import asyncio
+
+    persisted: list[Model] = []
+
+    async def persister(m: Model) -> None:
+        persisted.append(m)
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    log: list[bool] = []
+    sut.approve_command.can_execute_changed.subscribe(
+        lambda _: log.append(sut.approve_command.can_execute())
+    )
+    loop = asyncio.get_running_loop()
+    original = loop.get_task_factory()
+
+    def factory(*_args: object, **_kwargs: object) -> asyncio.Task[None]:
+        raise RuntimeError("task factory failed")
+
+    loop.set_task_factory(factory)  # type: ignore[arg-type]
+    try:
+        with pytest.raises(RuntimeError, match="task factory failed"):
+            sut.approve_command.execute()
+    finally:
+        loop.set_task_factory(original)
+
+    assert persisted == []
+    assert sut.approve_command.can_execute() is True
+    assert log == [False, True]
+    await sut.approve_async()
+    assert persisted == [Model("A", 1)]
+    sut.dispose()
