@@ -3100,7 +3100,10 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// disposing its children does not publish a rollback for the children
     /// it is about to dispose itself; the container then settles at Disposed.
     pub(crate) fn abandon_child_settle(&self) {
-        lock(&self.inner).child_settle = None;
+        // A queued step can own the last handle to a view-model whose `Drop`
+        // reads this container; drop it after the core guard is released.
+        let abandoned = lock(&self.inner).child_settle.take();
+        drop(abandoned);
     }
 
     /// Runs settle continuations once no construct or destruct is in flight.

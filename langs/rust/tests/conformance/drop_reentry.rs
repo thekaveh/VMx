@@ -10,8 +10,8 @@ use std::time::Duration;
 use vmx::{
     AggregateChangeStream, AggregateObserveOptions, AsyncResourceRetention, AsyncResourceVm,
     CancellationToken, ComponentVm, CompositeVm, DerivedProperty, FilteredCompositeVm, FormVm,
-    GroupVm, HierarchicalVm, MessageHub, MissingParentPolicy, NullDispatcher, PagedComposition,
-    ValueStream,
+    GroupVm, HierarchicalVm, ManualDispatcher, MessageHub, MissingParentPolicy, NullDispatcher,
+    PagedComposition, ValueStream,
 };
 
 /// Runs `body` on a worker and fails if it does not finish in time, so a
@@ -456,5 +456,42 @@ fn async_resource_retained_reload_drop_may_read_the_resource() {
         let resource = resource.clone();
         move || resource.reload_async().join().unwrap().unwrap()
     });
+    assert!(hook.disarm() > 0);
+}
+
+/// A child removed while its construct step is queued, whose last handle the
+/// queue owns, drops after the core lock when the waiting composite is disposed.
+#[test]
+fn dispose_while_waiting_drops_a_queued_removed_child_after_the_core_lock() {
+    let hook = Hook::default();
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = |name: &str, id: u32, background: bool| {
+        ComponentVm::builder()
+            .name(name)
+            .model(DropProbe::new(id, &hook))
+            .background(background)
+            .services(hub.clone(), dispatcher.clone())
+            .build()
+            .unwrap()
+    };
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child("anchor", 1, true)).unwrap();
+    let queued = child("queued", 2, false);
+    composite.add(queued.clone()).unwrap();
+    composite.construct().unwrap();
+    assert_eq!(composite.status(), vmx::ConstructionStatus::Constructing);
+    composite.remove(&queued).unwrap();
+    drop(queued);
+
+    let reader = composite.clone();
+    hook.arm(move || {
+        let _ = reader.status();
+    });
+    within_timeout("CompositeVm::dispose while waiting", {
+        let composite = composite.clone();
+        move || composite.dispose()
+    })
+    .unwrap();
     assert!(hook.disarm() > 0);
 }
