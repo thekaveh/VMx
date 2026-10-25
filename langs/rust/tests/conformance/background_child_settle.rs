@@ -619,3 +619,83 @@ fn removed_queued_child_drops_outside_the_hub_lock_when_a_sibling_fails() {
         .expect("drain blocked: a queued child dropped under the hub lock");
     assert_eq!(status, ConstructionStatus::Destructed);
 }
+
+/// Disposes an awaited background child whose `on_dispose` hook panics (or
+/// fails) while its container waits, then lets the container settle.
+fn dispose_awaited_child_with_hook<C: VmNode>(
+    container: &C,
+    child: &Child,
+    dispatcher: &ManualDispatcher,
+    panics: bool,
+) {
+    if panics {
+        child.on_dispose(|| panic!("dispose hook panicked"));
+    } else {
+        child.on_dispose(|| Err(VmxError::Other("dispose hook failed".to_string())));
+    }
+    container.construct().unwrap();
+    assert_eq!(container.status(), ConstructionStatus::Constructing);
+    let disposal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| child.dispose()));
+    // #738: the panic still reaches the caller of `dispose()`.
+    assert_eq!(disposal.is_err(), panics);
+    dispatcher.drain();
+}
+
+/// #738 — a panicking `on_dispose` hook on an awaited background child still
+/// releases the container's settle waiters, as a failing hook does.
+#[test]
+fn panicking_dispose_hook_on_an_awaited_child_settles_the_composite() {
+    for panics in [false, true] {
+        let hub = MessageHub::new();
+        let dispatcher = ManualDispatcher::new();
+        let child = background_child(&hub, &dispatcher, "child");
+        let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+        composite.add(child.clone()).unwrap();
+
+        dispose_awaited_child_with_hook(&composite, &child, &dispatcher, panics);
+
+        assert_eq!(
+            composite.status(),
+            ConstructionStatus::Destructed,
+            "panics: {panics}"
+        );
+        // A later construct and destruct run normally, without
+        // `ConcurrentOperation`, once the disposed child is removed.
+        composite.remove(&child).unwrap();
+        composite.construct().unwrap();
+        dispatcher.drain();
+        assert_eq!(composite.status(), ConstructionStatus::Constructed);
+        composite.destruct().unwrap();
+        dispatcher.drain();
+        assert_eq!(composite.status(), ConstructionStatus::Destructed);
+    }
+}
+
+/// #738 — the same regression for a `GroupVm`.
+#[test]
+fn panicking_dispose_hook_on_an_awaited_child_settles_the_group() {
+    for panics in [false, true] {
+        let hub = MessageHub::new();
+        let dispatcher = ManualDispatcher::new();
+        let child = background_child(&hub, &dispatcher, "child");
+        let group = GroupVm::with_services("group", hub.clone(), dispatcher.clone());
+        group.add(child.clone()).unwrap();
+
+        dispose_awaited_child_with_hook(&group, &child, &dispatcher, panics);
+
+        assert_eq!(
+            group.status(),
+            ConstructionStatus::Destructed,
+            "panics: {panics}"
+        );
+        // A later construct and destruct run normally, without
+        // `ConcurrentOperation`, once the disposed child is removed.
+        group.remove(&child).unwrap();
+        group.construct().unwrap();
+        dispatcher.drain();
+        assert_eq!(group.status(), ConstructionStatus::Constructed);
+        group.destruct().unwrap();
+        dispatcher.drain();
+        assert_eq!(group.status(), ConstructionStatus::Destructed);
+    }
+}
