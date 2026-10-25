@@ -37,12 +37,20 @@ final class ThreadWaitGraph: @unchecked Sendable {
     private let lock = NSLock()
     private var waitingOn: [UInt64: Edge] = [:]
     private var waitDecidedHook: ((UInt64, Bool) -> Void)?
+    private var membershipWaitWokeHook: (() -> Void)?
 
     // Test-only seam: called with the caller and the decision after each
     // `beginWait`, outside the graph lock.
     var onWaitDecidedForTesting: ((UInt64, Bool) -> Void)? {
         get { lock.withLock { waitDecidedHook } }
         set { lock.withLock { waitDecidedHook = newValue } }
+    }
+
+    // Test-only seam: called on a woken membership waiter before it ends its
+    // own edge, so a test can hold the interval between wake and `endWait`.
+    var onMembershipWaitWokeForTesting: (() -> Void)? {
+        get { lock.withLock { membershipWaitWokeHook } }
+        set { lock.withLock { membershipWaitWokeHook = newValue } }
     }
 
     /// Records that `caller` waits for `owner` to free `resource`. Returns

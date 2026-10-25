@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A container no longer refuses an add, a removal or a selection because of
+  a stale membership wait edge (#736). Before, a waiter kept its edge until it
+  woke and ended its wait, so the thread that had just ended the transaction
+  could see a cycle that no longer existed. The shared wait-for graph from
+  #703 removes the edges on a transaction before it wakes the waiters; new
+  regression tests hold a woken waiter before its own `endWait` and check
+  `addResult`, `remove`, `selectChild` and `setCurrent` on composites and
+  `addResult` on groups, with a composite or a group releasing the waiter.
 - `GroupVM` `remove`, `removeAt` and `clear` now wait for another thread's
   open membership transaction and then apply, as `CompositeVM` does (#728).
   Before, they did nothing while any transaction was open, and `remove`
