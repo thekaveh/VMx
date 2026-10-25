@@ -77,9 +77,40 @@ def test_later_failing_child_is_joined_and_rolls_the_container_back(kind: str) -
     assert container.can_construct()
 
 
+class _SettleAfterJoinRead:
+    """Wraps a child's lifecycle lock and settles the child inside a join.
+
+    The first time the lock is released while `_join_transition_future` runs,
+    the wrapper runs the child's pending background construct, which settles
+    the child. A join that reads the status and registers its waiter in one
+    lock scope has already registered by then, so the settle resolves the
+    waiter. A join that releases the lock between the two steps registers on a
+    settled child, and the container never settles.
+    """
+
+    def __init__(self, lock: Any, settle: Any) -> None:
+        self._lock = lock
+        self._settle = settle
+        self.in_join = False
+        self.injections = 0
+
+    def __enter__(self) -> Any:
+        return self._lock.__enter__()
+
+    def __exit__(self, *exc: Any) -> Any:
+        result = self._lock.__exit__(*exc)
+        if self.in_join and self.injections == 0:
+            self.injections += 1
+            self._settle()
+        return result
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._lock, name)
+
+
 @pytest.mark.parametrize("kind", ["composite", "group"])
 def test_joined_child_that_settles_during_the_join_check_is_never_restarted(kind: str) -> None:
-    """A joined child that fails between the status check and the join stays final."""
+    """A joined child that settles right after the join reads its status stays final."""
     bg = _LifoScheduler()
     dispatcher = RxDispatcher(ImmediateScheduler(), bg)  # type: ignore[arg-type]
     hub: MessageHub[object] = MessageHub()
@@ -98,36 +129,38 @@ def test_joined_child_that_settles_during_the_join_check_is_never_restarted(kind
         .on_construct(fail)
         .build()
     )
-    base = type(bad)
-    armed = [False]
-    bad_action: list[Any] = []
-
-    def racy_status(self: ComponentVM) -> ConstructionStatus:
-        # Settle the child to Destructed right after a reader observes Constructing.
-        status = base.status.fget(self)  # type: ignore[attr-defined]
-        if armed[0] and status is ConstructionStatus.CONSTRUCTING:
-            armed[0] = False
-            bg.actions.remove(bad_action[0])
-            try:
-                bad_action[0](bg, None)
-            except RuntimeError as error:
-                bg.errors.append(error)
-        return status  # type: ignore[no-any-return]
-
-    bad.__class__ = type("RacyComponentVM", (base,), {"status": property(racy_status)})
     builder = (
         CompositeVMBuilder[ComponentVM]() if kind == "composite" else GroupVMBuilder[ComponentVM]()
     )
     container = builder.name("root").services(hub, dispatcher).children(lambda: [ok, bad]).build()
 
     container.construct()
-    ok_action, bad_work = bg.actions
-    bad_action.append(bad_work)
-    armed[0] = True
+    ok_action, bad_action = bg.actions
+
+    def settle_bad() -> None:
+        bg.actions.remove(bad_action)
+        try:
+            bad_action(bg, None)
+        except RuntimeError as error:
+            bg.errors.append(error)
+
+    lock = _SettleAfterJoinRead(bad._lifecycle_lock, settle_bad)
+    bad._lifecycle_lock = lock  # type: ignore[assignment]
+    join = bad._join_transition_future
+
+    def joining(*, construct: bool) -> Any:
+        lock.in_join = True
+        try:
+            return join(construct=construct)
+        finally:
+            lock.in_join = False
+
+    bad._join_transition_future = joining  # type: ignore[method-assign]
     bg.actions.remove(ok_action)
     ok_action(bg, None)
     bg.run_all()
 
+    assert lock.injections == 1
     assert len(bad_hook_runs) == 1
     assert bad.status is ConstructionStatus.DESTRUCTED
     assert container.status is ConstructionStatus.DESTRUCTED
