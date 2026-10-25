@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVM.setModel(null)` called during approval settlement now throws to its
+  caller and changes nothing, as in C# and Python (spec/20 §5.2). Before, the
+  call returned and queued the `null`, whose replay then rejected the
+  approval that had already persisted and been reported, and dropped later
+  queued models (#721).
 - `CompositeVM` and `GroupVM` with auto-construct-on-add construct a child
   added while the container is still `Constructing` (waiting on a background
   child) and wait for it before reaching `Constructed` (spec/02 §6, spec/06
