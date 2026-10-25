@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Adding a container beneath a parented `ForwardingCompositeVM`, directly, in
+  a nested group, or in an aggregate slot, is now rejected as a cycle when
+  that container is the decorator's parent (#724, COMP-039). The ancestor
+  walk climbs through the decorator's parent, which the decorator and the
+  wrapped composite share as one ownership identity (spec/09 §1-2). Before,
+  the add succeeded, and a later `construct()` stalled and `walk` crashed.
 - A cross-thread `CompositeVM` or `GroupVM` `dispose()` no longer deadlocks
   when the transaction owner it waits for already waits for the disposing
   thread, with no hub involved (#717, ADR-0153). The disposal records its

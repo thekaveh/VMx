@@ -56,7 +56,7 @@ private final class GroupParent<Child: ComponentVMBase>: ParentVM, Transactional
     func deselectChild(_ vm: ComponentVMBase) { /* no-op */ }
 
     var ownershipOwner: ComponentVMBase { group! }
-    var ownershipOwnerParent: OwnershipParentVM? { group?._ownershipParent }
+    var ownershipOwnerParent: OwnershipParentVM? { group?._transferOwnershipParent }
     func containsIdentity(_ vm: ComponentVMBase) -> Bool {
         group?.containsIdentity(vm) ?? false
     }
