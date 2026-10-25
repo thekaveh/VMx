@@ -448,8 +448,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         foreach (var child in children)
         {
             // An abandoned walk (its hook threw after deferring) drives no
-            // further children, matching Python and TypeScript.
-            if (scope is not null && scope.Abandoned) return;
+            // further children, matching Python and TypeScript; nor does a walk
+            // whose owner was disposed, as TypeScript abandons it on dispose.
+            if (WalkStopped(scope)) return;
             Task pending;
             if (construct)
             {
@@ -479,10 +480,15 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
 
         // Inline: either still inside the hook (no child yielded) or already on the
-        // owner's foreground. An abandoned walk never runs its continuation.
-        if (after is null || (scope is not null && scope.Abandoned)) return;
+        // owner's foreground. An abandoned walk, or one whose owner was disposed
+        // while it waited to resume, never runs its continuation: the user
+        // onDestruct or the Current selector would run after Dispose() (#735).
+        if (after is null || WalkStopped(scope)) return;
         after();
     }
+
+    private static bool WalkStopped(LifecycleHookScope? scope)
+        => scope is not null && (scope.Abandoned || scope.Owner.IsDisposed());
 
     /// <summary>The lifecycle hook currently running on this thread, if any.</summary>
     [ThreadStatic]
