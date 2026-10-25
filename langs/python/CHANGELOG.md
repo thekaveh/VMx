@@ -10,6 +10,15 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `AsyncRelayCommand.execute()` and the `FormVM` approve command no longer
+  stay busy when their scheduled task is cancelled before its first step.
+  The done callback now releases the admission and raises one completion
+  `can_execute_changed` (spec/04 §10.2). For `FormVM`, it clears the in-flight
+  mark and raises `can_execute_changed` before `approve_errors` receives the
+  cancellation (spec/20 §5.3). If the loop task factory raises in
+  `execute()`, the error reaches the caller and the command is idle again.
+  The `AsyncResourceVM` and `TokenPagedComposition` commands inherit the
+  fix (#731).
 - A disposed `NotificationVM` or `ConfirmationVM` no longer resolves its
   notification on the hub. `_dismiss` and `_resolve_with` now return once the
   VM is disposed, as the C# and TypeScript resolution paths do (DISP-004).

@@ -60,3 +60,36 @@ async def test_loader_cancelled_by_another_owner_keeps_the_previous_profile() ->
     # docs-snippet:end loader-cancellation
 
     profile.dispose()
+
+
+async def test_load_command_task_cancelled_before_its_first_step_releases_the_command() -> None:
+    """Issue #731: the inherited AsyncRelayCommand admission is released."""
+    calls = 0
+
+    async def loader() -> str:
+        nonlocal calls
+        calls += 1
+        return "ada"
+
+    resource = AsyncResourceVM(
+        name="profile",
+        loader=loader,
+        hub=MessageHub(),
+        dispatcher=NULL_DISPATCHER,
+    )
+    before = asyncio.all_tasks()
+
+    resource.load_command.execute()
+    (scheduled,) = asyncio.all_tasks() - before
+    scheduled.cancel()
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    assert calls == 0
+    assert resource.state.status is AsyncResourceStatus.IDLE
+    assert resource.load_command.is_executing is False
+    assert resource.load_command.can_execute()
+
+    await resource.load_command.execute_async()
+    assert resource.state.status is AsyncResourceStatus.READY
+    assert resource.state.value == "ada"

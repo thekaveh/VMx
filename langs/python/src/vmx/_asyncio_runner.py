@@ -54,6 +54,36 @@ def submit_background(coroutine: Coroutine[Any, Any, T]) -> Future[T]:
     return _BACKGROUND_EVENT_LOOP.submit(coroutine)
 
 
+class ScheduledRun:
+    """Decide once whether an admitted, scheduled run starts or is released.
+
+    A task cancelled before its first step never runs its body, so the body
+    cannot clear the admission it inherited. The body calls :meth:`claim_start`
+    first; the done callback or a failed schedule calls :meth:`claim_release`.
+    Exactly one of the two claims succeeds, so the admission is released once.
+    """
+
+    __slots__ = ("_claimed", "_lock")
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._claimed: str | None = None
+
+    def claim_start(self) -> bool:
+        """Return True when the run may start; False when it was released."""
+        return self._claim("start")
+
+    def claim_release(self) -> bool:
+        """Return True when the caller must release an admission never started."""
+        return self._claim("release")
+
+    def _claim(self, claim: str) -> bool:
+        with self._lock:
+            if self._claimed is None:
+                self._claimed = claim
+            return self._claimed == claim
+
+
 def post_to_loop(loop: asyncio.AbstractEventLoop, callback: Callable[[], None]) -> bool:
     """Enqueue even on a stopped owner; only confirmed closure rejects delivery."""
     try:

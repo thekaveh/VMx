@@ -17,7 +17,7 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
-from vmx._asyncio_runner import submit_background
+from vmx._asyncio_runner import ScheduledRun, submit_background
 from vmx._disposal import _run_disposal_steps
 from vmx.commands.relay_command import RelayCommand
 from vmx.forms.builders import FormVMBuilder
@@ -344,8 +344,15 @@ class FormVM(Generic[TM]):
                 return None
         return (captured,)
 
-    async def _run_admitted_approval(self, current: TM) -> None:
-        """Persist the captured model of an admitted approval and settle it."""
+    async def _run_admitted_approval(
+        self, current: TM, scheduled: ScheduledRun | None = None
+    ) -> None:
+        """Persist the captured model of an admitted approval and settle it.
+
+        ``scheduled`` is the start claim of an approval scheduled as a task.
+        """
+        if scheduled is not None and not scheduled.claim_start():
+            return
         try:
             # May raise — intentional.  No state mutation if this raises.
             await self._persister(current)
@@ -655,7 +662,8 @@ class FormVM(Generic[TM]):
         admission = self._admit_approval()
         if admission is None:
             return
-        approval = self._run_admitted_approval(admission[0])
+        scheduled_run = ScheduledRun()
+        approval = self._run_admitted_approval(admission[0], scheduled_run)
         try:
             loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
@@ -667,15 +675,24 @@ class FormVM(Generic[TM]):
         except BaseException:
             # Nothing was scheduled: release the admission instead of wedging.
             approval.close()
-            self._settle_failed_approval()
+            if scheduled_run.claim_release():
+                self._settle_failed_approval()
             raise
         # Mirror the C# continuation: surface the persister failure on the error
         # channel. A cancelled approval is also a non-success outcome (spec/20
         # §5.3); Task.exception() raises for it, so it is reported explicitly.
-        scheduled.add_done_callback(self._on_approve_done)
+        scheduled.add_done_callback(lambda done: self._on_approve_done(done, scheduled_run))
 
-    def _on_approve_done(self, task: asyncio.Future[None] | Future[None]) -> None:
+    def _on_approve_done(
+        self,
+        task: asyncio.Future[None] | Future[None],
+        scheduled_run: ScheduledRun,
+    ) -> None:
         if task.cancelled():
+            # A task cancelled before its first step never ran the body that
+            # settles the approval: settle it here, before routing (spec/20 §5.3).
+            if scheduled_run.claim_release():
+                self._settle_failed_approval()
             self._emit_approve_error(asyncio.CancelledError())
             return
         exc = task.exception()
