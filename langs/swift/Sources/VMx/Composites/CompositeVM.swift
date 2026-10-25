@@ -770,10 +770,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             if let selector = currentSelector,
                let initial = selector(snapshot),
                snapshot.contains(where: { $0 === initial }) {
-                // Non-raising validated assignment (spec/06 §3.1 / COMP-025):
-                // the membership is already checked above, so the internal
-                // setter never hits its non-child trap here.
-                _setCurrent(initial)
+                _assignInitialCurrent(initial)
             }
         }
     }
@@ -1078,6 +1075,20 @@ open class CompositeVM<Child: ComponentVMBase>:
         }
         completion?.leave()
         if shouldDispose { dispose() }
+    }
+
+    /// Non-raising validated assignment of the selector's pick (spec/06 §3.2,
+    /// COMP-025). Hooks run during the walk, and a deferred walk resumes on
+    /// the settling thread, so the pick is checked against live membership:
+    /// a pick that has left is a silent no-op (#705). A walk that resumes on
+    /// a thread holding this composite's membership transaction joins it.
+    private func _assignInitialCurrent(_ initial: Child) {
+        let heldByCaller = membershipGate.withLock { membershipTransactionHeldByCallerLocked }
+        if heldByCaller {
+            _applyCurrentChange(initial, internalTransaction: true)
+        } else {
+            _requestCurrentChange(initial)
+        }
     }
 
     private func _setCurrent(_ value: Child?) {
