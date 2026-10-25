@@ -508,9 +508,13 @@ public sealed class FormVM<TM> : IDisposable
         catch
         {
             // A throwing admission observer abandons this approval before the
-            // persister runs; release the mark so the form is not left busy.
+            // persister runs; release the mark so the form is not left busy,
+            // and tell observers that saw the admission edge (#732). The
+            // original failure wins over one from the release notification.
             lock (_stateGate)
                 _approvalInFlight = false;
+            try { _canExecuteChangedTrigger.OnNext(Unit.Default); }
+            catch { /* The admission failure is the one the caller sees. */ }
             throw;
         }
         finally

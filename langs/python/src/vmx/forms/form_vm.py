@@ -332,10 +332,14 @@ class FormVM(Generic[TM]):
         try:
             self._can_execute_trigger.on_next(None)
         except BaseException as error:
-            # The persister never runs; do not leave the form wedged in flight.
+            # The persister never runs; do not leave the form wedged in flight,
+            # and tell observers that saw the admission edge (#732). The
+            # original failure wins over one from the release notification.
             failure = error
             with self._state_changed:
                 self._approval_in_flight = False
+            with contextlib.suppress(BaseException):
+                self._can_execute_trigger.on_next(None)
             raise
         finally:
             self._end_mutation(failure)

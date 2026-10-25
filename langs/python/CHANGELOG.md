@@ -10,6 +10,12 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- When an `approve_command.can_execute_changed` observer raises during
+  approval admission, `FormVM` now raises `can_execute_changed` again after it
+  releases the in-flight mark, so observers that saw the admission's `False`
+  learn the form is approvable again. The observer's exception still reaches
+  the caller, and a failure in the release notification does not replace it
+  (#732).
 - `AsyncRelayCommand.execute()` and the `FormVM` approve command no longer
   stay busy when their scheduled task is cancelled before its first step.
   The done callback now releases the admission and raises one completion
