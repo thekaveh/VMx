@@ -51,10 +51,13 @@ All notable changes to the C# flavor are documented here. The format is based on
   task or throwing "A lifecycle hook already deferred completion." forever, the
   abandoned child transition never runs its continuation, and its fault is
   observed (ADR-0109).
-- Fixed: A container whose child transition finishes asynchronously runs its
-  continuation on the foreground dispatcher. The initial `Current` selection,
-  `IsCurrent`, `OnCurrentChanged`, and the user `onDestruct` callback no longer
-  run on a pool thread (spec/11 §3).
+- Fixed: A container whose child transition finishes asynchronously runs the
+  rest of its child walk, as well as its continuation, on the foreground
+  dispatcher. Later siblings' `CollectionChanged`, `IsCurrent`,
+  `OnCurrentChanged`, `onConstruct`, and `onDestruct`, the initial `Current`
+  selection, and the user `onDestruct` callback no longer run on a pool thread
+  (spec/11 §3). A walk whose children all settle synchronously still completes
+  on the calling thread before `Construct()` or `Destruct()` returns.
 - Fixed: `ForwardingCompositeVM` shares parent membership with the composite it
   wraps, as `ForwardingComponentVM` does. As a child it reports `IsCurrent`,
   moves between parents, and never belongs to two parents at once

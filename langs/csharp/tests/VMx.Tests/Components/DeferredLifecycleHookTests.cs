@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reactive.Concurrency;
 using FluentAssertions;
+using FluentAssertions.Execution;
 using VMx.Components;
 using VMx.Composites;
 using VMx.Lifecycle;
@@ -183,5 +184,246 @@ public class DeferredLifecycleHookTests
             ["child IsCurrent", "composite Current", "OnCurrentChanged", "onDestruct"]);
         observed.Should().OnlyContain(entry => entry.ThreadId == foregroundThreadId);
         composite.Dispose();
+    }
+
+    // ── Issue #725: the rest of the walk after a background child ─────────────
+
+    /// <summary>A named foreground event loop with thread-tagged recording.</summary>
+    private sealed class ForegroundLoop : IDisposable
+    {
+        private readonly EventLoopScheduler _loop = new(start => new Thread(start)
+        {
+            Name = "vmx-test-foreground",
+            IsBackground = true,
+        });
+
+        public ForegroundLoop()
+        {
+            Dispatcher = new RxDispatcher(_loop, TaskPoolScheduler.Default);
+            Run(() => ThreadId = Environment.CurrentManagedThreadId);
+        }
+
+        public int ThreadId { get; private set; }
+        public RxDispatcher Dispatcher { get; }
+        public MessageHub Hub { get; } = new();
+        public ConcurrentQueue<(string Phase, string What, int ThreadId)> Observed { get; } = new();
+        public string Phase { get; set; } = "build";
+
+        public void Record(string what)
+            => Observed.Enqueue((Phase, what, Environment.CurrentManagedThreadId));
+
+        /// <summary>Runs <paramref name="action"/> on the loop and waits for it.</summary>
+        public void Run(Action action)
+        {
+            Exception? failure = null;
+            using var done = new ManualResetEventSlim();
+            _loop.Schedule(() =>
+            {
+                try { action(); }
+                catch (Exception error) { failure = error; }
+                finally { done.Set(); }
+            });
+            done.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            if (failure is not null) throw new InvalidOperationException("loop action failed", failure);
+        }
+
+        /// <summary>Runs one lifecycle phase on the loop and waits for the root to settle.</summary>
+        public void Transition(string phase, IComponentVM root, Action<IComponentVM> start, ConstructionStatus settled)
+        {
+            Phase = phase;
+            Run(() => start(root));
+            SpinWait.SpinUntil(() => root.Status == settled, TimeSpan.FromSeconds(5)).Should().BeTrue();
+            Run(() => { }); // flush anything the terminal emission queued behind it
+        }
+
+        public void Dispose() => _loop.Dispose();
+    }
+
+    private static ComponentVM BackgroundChild(ForegroundLoop loop) => ComponentVM.Builder()
+        .Name("background")
+        .Services(loop.Hub, loop.Dispatcher)
+        .Background(true)
+        .Build();
+
+    /// <summary>A composite sibling with one child, recording every emission it owns.</summary>
+    private static CompositeVM<IComponentVM> RecordingSibling(ForegroundLoop loop)
+    {
+        var x = ComponentVM.Builder().Name("x").Services(loop.Hub, loop.Dispatcher).Build();
+        x.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(IComponentVM.IsCurrent)) loop.Record("X IsCurrent");
+        };
+        var sibling = CompositeVM<IComponentVM>.Builder()
+            .Name("sibling")
+            .Services(loop.Hub, loop.Dispatcher)
+            .Children(() => [x])
+            .Current(items => items.First())
+            .OnCurrentChanged(_ => loop.Record("C OnCurrentChanged"))
+            .OnConstruct(() => loop.Record("C onConstruct"))
+            .OnDestruct(() => loop.Record("C onDestruct"))
+            .Build();
+        sibling.CollectionChanged += (_, _) => loop.Record("C CollectionChanged");
+        sibling.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == "Current") loop.Record("C Current");
+        };
+        return sibling;
+    }
+
+    private static readonly string[] s_constructEmissions =
+        ["C onConstruct", "C CollectionChanged", "X IsCurrent", "C Current", "C OnCurrentChanged"];
+
+    private static readonly string[] s_destructEmissions =
+        ["X IsCurrent", "C Current", "C OnCurrentChanged", "C onDestruct"];
+
+    private static void ShouldAllRunOnForeground(ForegroundLoop loop, string phase, string[] expected)
+    {
+        var entries = loop.Observed.Where(entry => entry.Phase == phase).ToArray();
+        entries.Select(entry => entry.What).Should().Contain(expected);
+        entries.Should().OnlyContain(
+            entry => entry.ThreadId == loop.ThreadId,
+            $"every {phase} emission must run on the foreground thread {loop.ThreadId}");
+    }
+
+    [Fact]
+    public void BackgroundChild_ThenAddedCompositeSibling_WalkStaysOnForeground()
+    {
+        using var loop = new ForegroundLoop();
+        var parent = CompositeVM<IComponentVM>.Builder()
+            .Name("parent")
+            .Services(loop.Hub, loop.Dispatcher)
+            .Children(() => [])
+            .Build();
+        loop.Run(() =>
+        {
+            parent.Add(BackgroundChild(loop));
+            parent.Add(RecordingSibling(loop));
+        });
+
+        loop.Transition("construct", parent, vm => vm.Construct(), ConstructionStatus.Constructed);
+        loop.Transition("destruct", parent, vm => vm.Destruct(), ConstructionStatus.Destructed);
+
+        using (new AssertionScope())
+        {
+            ShouldAllRunOnForeground(loop, "construct", s_constructEmissions);
+            ShouldAllRunOnForeground(loop, "destruct", s_destructEmissions);
+        }
+        loop.Run(parent.Dispose);
+    }
+
+    [Fact]
+    public void BackgroundChild_ThenFactoryCompositeSibling_DestructWalkStaysOnForeground()
+    {
+        using var loop = new ForegroundLoop();
+        var parent = CompositeVM<IComponentVM>.Builder()
+            .Name("parent")
+            .Services(loop.Hub, loop.Dispatcher)
+            .Children(() => [BackgroundChild(loop), RecordingSibling(loop)])
+            .Build();
+
+        loop.Transition("construct", parent, vm => vm.Construct(), ConstructionStatus.Constructed);
+        loop.Transition("destruct", parent, vm => vm.Destruct(), ConstructionStatus.Destructed);
+
+        using (new AssertionScope())
+        {
+            ShouldAllRunOnForeground(loop, "construct", s_constructEmissions);
+            ShouldAllRunOnForeground(loop, "destruct", s_destructEmissions);
+        }
+        loop.Run(parent.Dispose);
+    }
+
+    [Fact]
+    public void BackgroundSlot_ThenCompositeSlot_AggregateWalkStaysOnForeground()
+    {
+        using var loop = new ForegroundLoop();
+        var aggregate = VMx.Aggregates.AggregateVM2<IComponentVM, IComponentVM>.Builder()
+            .Name("aggregate")
+            .Services(loop.Hub, loop.Dispatcher)
+            .Component1(() => BackgroundChild(loop))
+            .Component2(() => RecordingSibling(loop))
+            .Build();
+
+        loop.Transition("construct", aggregate, vm => vm.Construct(), ConstructionStatus.Constructed);
+        loop.Transition("destruct", aggregate, vm => vm.Destruct(), ConstructionStatus.Destructed);
+
+        using (new AssertionScope())
+        {
+            ShouldAllRunOnForeground(loop, "construct", s_constructEmissions);
+            ShouldAllRunOnForeground(loop, "destruct", s_destructEmissions);
+        }
+        loop.Run(aggregate.Dispose);
+    }
+
+    [Fact]
+    public void SynchronousChildren_ConstructCompletesWalkOnCallingThreadBeforeReturning()
+    {
+        using var loop = new ForegroundLoop();
+        var plain = ComponentVM.Builder().Name("plain").Services(loop.Hub, loop.Dispatcher).Build();
+        var parent = CompositeVM<IComponentVM>.Builder()
+            .Name("parent")
+            .Services(loop.Hub, loop.Dispatcher)
+            .Children(() => [plain, RecordingSibling(loop)])
+            .Current(items => items.Last())
+            .OnCurrentChanged(_ => loop.Record("P OnCurrentChanged"))
+            .Build();
+        var caller = Environment.CurrentManagedThreadId;
+        caller.Should().NotBe(loop.ThreadId);
+
+        loop.Phase = "construct";
+        parent.Construct();
+        parent.Status.Should().Be(ConstructionStatus.Constructed);
+        var constructed = loop.Observed.ToArray();
+        constructed.Select(entry => entry.What).Should().Contain([.. s_constructEmissions, "P OnCurrentChanged"]);
+        constructed.Should().OnlyContain(entry => entry.ThreadId == caller);
+
+        loop.Phase = "destruct";
+        parent.Destruct();
+        parent.Status.Should().Be(ConstructionStatus.Destructed);
+        var destructed = loop.Observed.Where(entry => entry.Phase == "destruct").ToArray();
+        destructed.Select(entry => entry.What).Should().Contain([.. s_destructEmissions, "P OnCurrentChanged"]);
+        destructed.Should().OnlyContain(entry => entry.ThreadId == caller);
+        parent.Dispose();
+    }
+
+    private sealed class RejectingForeground : IScheduler
+    {
+        public DateTimeOffset Now => DateTimeOffset.UtcNow;
+
+        public IDisposable Schedule<TState>(TState state, Func<IScheduler, TState, IDisposable> action)
+            => throw new InvalidOperationException("foreground rejected work");
+
+        public IDisposable Schedule<TState>(
+            TState state, TimeSpan dueTime, Func<IScheduler, TState, IDisposable> action)
+            => throw new InvalidOperationException("foreground rejected work");
+
+        public IDisposable Schedule<TState>(
+            TState state, DateTimeOffset dueTime, Func<IScheduler, TState, IDisposable> action)
+            => throw new InvalidOperationException("foreground rejected work");
+    }
+
+    [Fact]
+    public async Task BackgroundChild_RejectedForegroundResumption_FaultsTheParentTransition()
+    {
+        using var loop = new ForegroundLoop();
+        var siblingConstructed = 0;
+        var sibling = ComponentVM.Builder()
+            .Name("sibling")
+            .Services(loop.Hub, loop.Dispatcher)
+            .OnConstruct(() => Interlocked.Exchange(ref siblingConstructed, 1))
+            .Build();
+        var parent = CompositeVM<IComponentVM>.Builder()
+            .Name("parent")
+            .Services(new MessageHub(), new RxDispatcher(new RejectingForeground(), ImmediateScheduler.Instance))
+            .Children(() => [])
+            .Build();
+        parent.Add(BackgroundChild(loop));
+        parent.Add(sibling);
+
+        var construct = () => parent.ConstructAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        await construct.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("foreground rejected work");
+        parent.Status.Should().Be(ConstructionStatus.Destructed);
+        Volatile.Read(ref siblingConstructed).Should().Be(0);
     }
 }
