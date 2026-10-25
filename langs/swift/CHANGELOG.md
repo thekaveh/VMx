@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `GroupVM` `remove`, `removeAt` and `clear` now wait for another thread's
+  open membership transaction and then apply, as `CompositeVM` does (#728).
+  Before, they did nothing while any transaction was open, and `remove`
+  returned `false` for a member. A call on the thread that holds the
+  transaction, a wait that would close a cycle, or a disposed group still
+  leaves the group unchanged. The removal is now published inside the
+  group's transaction, as an add already is, so a `collectionChanged`
+  handler that changes the group on the same thread during a removal is
+  refused (spec/06 §4.2).
 - Adding a container beneath a parented `ForwardingCompositeVM`, directly, in
   a nested group, or in an aggregate slot, is now rejected as a cycle when
   that container is the decorator's parent (#724, COMP-039). The ancestor
@@ -44,16 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   its escape instead (spec/03, ADR-0119). Each wait names the hub, container,
   publication or hook lease it waits on, and the thread that frees it removes
   those waits before it wakes the waiters. So a hub drain, hub batch or
-  membership transaction that has ended causes no refusal. On a cycle, the
-  hub enqueues the send or borrows the batch. `addResult`, `insertResult`
-  and `replaceResult` fail with `attachmentFailed`. `CompositeVM.remove`
-  returns `false`, and `CompositeVM.removeAt` and `clear` do nothing;
-  `GroupVM` `remove`, `removeAt` and `clear` already did nothing while any
-  transaction was open. `selectChild`, `deselectChild`, `setCurrent`, the
-  `current` setter, `selectComponent` and `deselectComponent` leave `current`
-  unchanged. `dispose()` records its intent and returns, and the transaction
-  owner disposes the container when its transaction ends.
-
+  membership transaction that has ended causes no refusal. On a cycle, the hub
+  enqueues the send or borrows the batch. `addResult`, `insertResult` and
+  `replaceResult` fail with `attachmentFailed`. `remove` returns `false`, and
+  `removeAt` and `clear` do nothing. `selectChild`, `deselectChild`,
+  `setCurrent`, the `current` setter, `selectComponent` and
+  `deselectComponent` leave `current` unchanged. `dispose()` records its
+  intent and returns, and the transaction owner disposes the container when
+  its transaction ends.
 - `CompositeVM` selection made while another thread has the composite's
   membership transaction open (an add, insert, replace, population or another
   selection) now waits for that transaction and then applies (COMP-026,
