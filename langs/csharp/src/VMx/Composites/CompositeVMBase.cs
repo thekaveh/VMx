@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Specialized;
 using System.Reactive.Disposables;
+using System.Runtime.ExceptionServices;
 using VMx.Collections;
 using VMx.Components;
 using VMx.Lifecycle;
@@ -703,9 +704,18 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     private void DeliverCollectionChanged(NotifyCollectionChangedEventArgs args)
     {
-        CollectionChanged?.Invoke(this, args);
-        if (Volatile.Read(ref _disposeRequested) != 0 || IsDisposed()) return;
-        Hub.Send(CollectionChangedMessage<VM>.From(this, args));
+        // A throwing local handler must not suppress the hub message for the
+        // committed change (spec/01 §1.4, #723): send it, then rethrow.
+        // The first failure wins, as in NotifyPropertyChanged and Python.
+        ExceptionDispatchInfo? firstFailure = null;
+        try { CollectionChanged?.Invoke(this, args); }
+        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
+        if (Volatile.Read(ref _disposeRequested) == 0 && !IsDisposed())
+        {
+            try { Hub.Send(CollectionChangedMessage<VM>.From(this, args)); }
+            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+        }
+        firstFailure?.Throw();
     }
 
     private void MaybeAutoConstruct(VM item)
