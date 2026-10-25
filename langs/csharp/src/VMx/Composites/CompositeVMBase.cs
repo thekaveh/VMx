@@ -25,28 +25,214 @@ internal static class ContainerConstructWalk
 {
     /// <summary>
     /// Enumerates lazily, so the walk sees children added while it waits on a
-    /// background child. A late child was already started by auto-construct,
-    /// so it is added to <paramref name="joined"/> and joined like a population
-    /// child: one whose construction failed rolls the container back instead
-    /// of being restarted.
+    /// background child. The walk never starts a late child. A late child
+    /// whose add registered a start record in this <paramref name="walk"/> is
+    /// added to <paramref name="joined"/>: the walk waits for the add's start
+    /// attempt, then joins it, so one whose own construction failed rolls the
+    /// container back. A late child without a record was not started by an
+    /// add, so the walk skips it. When the walk ends, for any reason, it ends
+    /// its own scope, never another walk's.
     /// </summary>
     internal static IEnumerable<IComponentVM> Enumerate<VM>(
-        Func<VM[]> snapshot, bool includeLate, ISet<IComponentVM> joined)
+        Func<VM[]> snapshot,
+        bool includeLate,
+        ISet<IComponentVM> joined,
+        LateChildStarts.Walk walk)
         where VM : class, IComponentVM
     {
-        var initial = snapshot();
-        var visited = new HashSet<IComponentVM>(initial, ComponentVMBase.ChildReferenceComparer.Instance);
-        foreach (var child in initial) yield return child;
-        if (!includeLate) yield break;
-        while (true)
+        try
         {
-            var late = snapshot().FirstOrDefault(child => !visited.Contains(child));
-            if (late is null) yield break;
-            visited.Add(late);
-            joined.Add(late);
-            yield return late;
+            var initial = snapshot();
+            var visited = new HashSet<IComponentVM>(initial, ComponentVMBase.ChildReferenceComparer.Instance);
+            foreach (var child in initial) yield return child;
+            if (!includeLate) yield break;
+            while (true)
+            {
+                var late = snapshot().FirstOrDefault(child => !visited.Contains(child));
+                if (late is null) yield break;
+                visited.Add(late);
+                if (!walk.Take(late)) continue;
+                joined.Add(late);
+                yield return late;
+            }
+        }
+        finally
+        {
+            walk.End();
         }
     }
+}
+
+/// <summary>Test-only probe points of <see cref="LateChildStarts"/>.</summary>
+internal enum LateChildStage
+{
+    /// <summary>An add attached the child with a start record and has not started it.</summary>
+    Attached,
+
+    /// <summary>The walk waits for an add to finish its start attempt.</summary>
+    WalkWaitingOnAdd,
+
+    /// <summary>A construct walk ended its scope (the probe's child is the container).</summary>
+    WalkEnded,
+}
+
+/// <summary>
+/// Start records of the children that an auto-construct-on-add attaches
+/// while the container is Constructing (spec/06 §5.1). The add attaches the
+/// child under the membership gate and starts it only after it releases the
+/// gate, so the construct walk can pull the child first. The add registers a
+/// record in the current walk's scope as it attaches the child, and marks it
+/// done right after its construct attempt. The walk never starts a late
+/// child: it waits for that attempt, then joins the child. Each walk owns its
+/// scope, so a stale walk (abandoned, failed, or no longer current) never
+/// takes or clears another walk's records, and a scope's records go with it.
+/// </summary>
+internal sealed class LateChildStarts
+{
+    private readonly object _gate = new();
+    private Walk? _current;
+
+    /// <summary>
+    /// Test-only seam: runs at each <see cref="LateChildStage"/>. Production
+    /// code never sets it.
+    /// </summary>
+    internal Action<IComponentVM, LateChildStage>? ProbeForTesting { get; set; }
+
+    /// <summary>One add's start attempt of its child.</summary>
+    internal sealed class Record
+    {
+        private readonly TaskCompletionSource<bool> _attempted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>The walk scope the record was registered in, if any.</summary>
+        internal Walk? Scope { get; init; }
+
+        /// <summary>Completes once the add's construct attempt returned or threw.</summary>
+        internal Task Attempted => _attempted.Task;
+
+        internal void MarkDone() => _attempted.TrySetResult(true);
+    }
+
+    /// <summary>One construct walk's scope of start records.</summary>
+    internal sealed class Walk
+    {
+        private readonly LateChildStarts _owner;
+        private readonly IComponentVM _container;
+        private readonly Dictionary<IComponentVM, Record> _records =
+            new(ComponentVMBase.ChildReferenceComparer.Instance);
+        // The records this walk took; only the sequential walk reads it.
+        private readonly Dictionary<IComponentVM, Record> _taken =
+            new(ComponentVMBase.ChildReferenceComparer.Instance);
+        private bool _ended;
+
+        internal Walk(LateChildStarts owner, IComponentVM container)
+        {
+            _owner = owner;
+            _container = container;
+        }
+
+        /// <summary>Under the owner's lock: registers or drops a child's record.</summary>
+        internal void SetLocked(IComponentVM child, Record? record)
+        {
+            if (_ended) return;
+            if (record is null) _records.Remove(child);
+            else _records[child] = record;
+        }
+
+        /// <summary>Under the owner's lock: removes a record if it is still the child's.</summary>
+        internal void RemoveLocked(IComponentVM child, Record record)
+        {
+            if (_records.TryGetValue(child, out var registered) && ReferenceEquals(registered, record))
+                _records.Remove(child);
+        }
+
+        /// <summary>Takes the record of a late child this walk visits.</summary>
+        internal bool Take(IComponentVM child)
+        {
+            Record? record;
+            lock (_owner._gate)
+            {
+                if (!_records.TryGetValue(child, out record)) return false;
+                _records.Remove(child);
+            }
+            _taken[child] = record;
+            return true;
+        }
+
+        /// <summary>Ends this walk's scope; another walk's scope is never touched.</summary>
+        internal void End()
+        {
+            lock (_owner._gate)
+            {
+                if (_ended) return;
+                _ended = true;
+                _records.Clear();
+                if (ReferenceEquals(_owner._current, this)) _owner._current = null;
+            }
+            _owner.Probe(_container, LateChildStage.WalkEnded);
+        }
+
+        /// <summary>
+        /// The walk's join of a joined child: a late child is joined after its
+        /// add's start attempt; a population child is joined at once.
+        /// </summary>
+        internal Task Join(IComponentVM child)
+            => _taken.TryGetValue(child, out var record)
+                ? JoinAfterAttemptAsync(child, record)
+                : child.JoinConstructAsync();
+
+        private Task JoinAfterAttemptAsync(IComponentVM child, Record record)
+        {
+            if (record.Attempted.IsCompleted) return child.JoinConstructAsync();
+            _owner.Probe(child, LateChildStage.WalkWaitingOnAdd);
+            return JoinAfterPendingAttemptAsync(child, record);
+        }
+
+        private static async Task JoinAfterPendingAttemptAsync(IComponentVM child, Record record)
+        {
+            await record.Attempted.ConfigureAwait(false);
+            await child.JoinConstructAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Starts a construct walk's scope; call it before the walk's initial
+    /// snapshot. An older walk's scope stops being current.
+    /// </summary>
+    internal Walk BeginWalk(IComponentVM container)
+    {
+        var walk = new Walk(this, container);
+        lock (_gate) _current = walk;
+        return walk;
+    }
+
+    /// <summary>
+    /// Called under the membership gate as an add attaches
+    /// <paramref name="child"/>. When the add will start the child
+    /// (auto-construct-on-add while Constructing), returns its record and
+    /// registers it in the current walk's scope, if any; otherwise drops any
+    /// earlier record of that child from that scope.
+    /// </summary>
+    internal Record? AttachLocked(IComponentVM child, bool willStart)
+    {
+        lock (_gate)
+        {
+            var scope = _current;
+            var record = willStart ? new Record { Scope = scope } : null;
+            scope?.SetLocked(child, record);
+            return record;
+        }
+    }
+
+    /// <summary>Removes <paramref name="record"/> from its scope if it is still <paramref name="child"/>'s.</summary>
+    internal void Remove(IComponentVM child, Record? record)
+    {
+        if (record?.Scope is not { } scope) return;
+        lock (_gate) scope.RemoveLocked(child, record);
+    }
+
+    internal void Probe(IComponentVM child, LateChildStage stage)
+        => ProbeForTesting?.Invoke(child, stage);
 }
 
 /// <summary>
@@ -85,6 +271,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private bool _membershipTransactionActive;
     private int _membershipTransactionOwnerThreadId;
     private readonly object _membershipGate = new();
+    // Start records of the children an auto-construct add attaches while
+    // Constructing; the construct walk waits on them (spec/06 §5.1).
+    private readonly LateChildStarts _lateStarts = new();
+
+    /// <summary>Test-only access to the late-child start claims.</summary>
+    internal LateChildStarts LateStartsForTesting => _lateStarts;
 
     // ── INotifyCollectionChanged ──────────────────────────────────────────────
     /// <inheritdoc/>
@@ -139,6 +331,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             BeginMembershipTransaction();
             ParentTransferToken? transfer = null;
             VM? old = null;
+            LateChildStarts.Record? record = null;
             var admissionComplete = false;
             var propagateDisposeFailure = true;
             var originalStatus = value.Status;
@@ -152,8 +345,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     _children[index] = value;
                     old.SetParent(null);
                     value.SetParent(this);
+                    record = AttachLateStartLocked(value);
                 }
-                MaybeAutoConstruct(value);
+                AutoConstructAttached(value, record);
                 lock (_membershipGate) EnsureTransactionCanContinueLocked();
                 admissionComplete = true;
                 ComponentOwnership.CommitThenPublish(transfer, () =>
@@ -185,6 +379,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                         old.SetParent(this);
                         value.SetParent(null);
                     }
+                    _lateStarts.Remove(value, record);
                 }
                 if (originalStatus == ConstructionStatus.Destructed &&
                     value.Status == ConstructionStatus.Constructed)
@@ -391,6 +586,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         ParentTransferToken? transfer = null;
         var attached = false;
         var originalStatus = item.Status;
+        LateChildStarts.Record? record = null;
         int idx;
         try
         {
@@ -402,8 +598,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 item.SetParent(this);
                 idx = _children.Count - 1;
                 attached = true;
+                record = AttachLateStartLocked(item);
             }
-            MaybeAutoConstruct(item);
+            AutoConstructAttached(item, record);
             lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch (Exception originalError)
@@ -419,6 +616,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     _children.RemoveAt(attachedIndex);
                     item.SetParent(null);
                 }
+                _lateStarts.Remove(item, record);
             }
             if (originalStatus == ConstructionStatus.Destructed &&
                 item.Status == ConstructionStatus.Constructed)
@@ -497,6 +695,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         ParentTransferToken? transfer = null;
         var attached = false;
         var originalStatus = item.Status;
+        LateChildStarts.Record? record = null;
         try
         {
             transfer = ComponentOwnership.BeginTransfer(item, this);
@@ -508,8 +707,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 _children.Insert(index, item);
                 item.SetParent(this);
                 attached = true;
+                record = AttachLateStartLocked(item);
             }
-            MaybeAutoConstruct(item);
+            AutoConstructAttached(item, record);
             lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch (Exception originalError)
@@ -525,6 +725,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     _children.RemoveAt(attachedIndex);
                     item.SetParent(null);
                 }
+                _lateStarts.Remove(item, record);
             }
             if (originalStatus == ConstructionStatus.Destructed &&
                 item.Status == ConstructionStatus.Constructed)
@@ -720,16 +921,44 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         firstFailure?.Throw();
     }
 
+    /// <summary>
+    /// Called under the gate as an add attaches <paramref name="item"/>: an
+    /// add that will auto-start the child while this container is
+    /// Constructing registers a start record the construct walk waits on.
+    /// </summary>
+    private LateChildStarts.Record? AttachLateStartLocked(VM item)
+        => _lateStarts.AttachLocked(
+            item, _autoConstructOnAdd && Status == ConstructionStatus.Constructing);
+
+    /// <summary>The add's auto-construct of a child it attached with <paramref name="record"/>.</summary>
+    private void AutoConstructAttached(VM item, LateChildStarts.Record? record)
+    {
+        if (record is null)
+        {
+            MaybeAutoConstruct(item);
+            return;
+        }
+        // The construct walk never starts a late child; it waits for this
+        // attempt, then joins the child (spec/06 §5.1). The record is done
+        // before this add publishes or ends its transaction.
+        try
+        {
+            _lateStarts.Probe(item, LateChildStage.Attached);
+            if (item.Status == ConstructionStatus.Destructed) item.Construct();
+        }
+        finally
+        {
+            record.MarkDone();
+            if (Status != ConstructionStatus.Constructing) _lateStarts.Remove(item, record);
+        }
+    }
+
     private void MaybeAutoConstruct(VM item)
     {
         if (!_autoConstructOnAdd) return;
+        // While Constructing, only an add with a start record starts its
+        // child; any other child is in the construct walk's snapshot.
         var status = Status;
-        if (status == ConstructionStatus.Constructing)
-        {
-            // The construct walk joins a child added while it runs.
-            if (item.Status == ConstructionStatus.Destructed) item.Construct();
-            return;
-        }
         if (status != ConstructionStatus.Constructed) return;
         if (item.Status == ConstructionStatus.Constructed) return;
         item.Construct();
@@ -796,10 +1025,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // Children whose construct population started are joined, not restarted.
         var joined = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
         _populationJoined = joined;
+
         try { PopulateChildren(); }
         finally { _populationJoined = null; }
+        // This walk's scope of start records; begun before its snapshot.
+        var lateWalk = _lateStarts.BeginWalk(this);
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            ContainerConstructWalk.Enumerate(() => Snapshot().ToArray(), _autoConstructOnAdd, joined),
+            ContainerConstructWalk.Enumerate(
+                () => Snapshot().ToArray(), _autoConstructOnAdd, joined, lateWalk),
             construct: true,
             after: () =>
             {
@@ -809,7 +1042,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 if (initial is not null && IndexOfIdentity(initial) >= 0)
                     SetCurrent(initial, async: false);
             },
-            joined: joined));
+            joined: joined,
+            join: lateWalk.Join));
     }
 
     /// <summary>Constructs all current children sequentially.</summary>

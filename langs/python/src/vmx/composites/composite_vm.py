@@ -18,6 +18,12 @@ from reactivex.subject import Subject
 from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.collections._vm_collection_hub_message import collection_changed_message_for
+from vmx.components._late_child_starts import (
+    _LateChildStage,
+    _LateChildStarts,
+    _LateWalk,
+    _StartRecord,
+)
 from vmx.components.base import (
     _begin_parent_transfer,
     _commit_parent_transfer,
@@ -91,6 +97,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._membership_transaction_active: bool = False
         self._membership_transaction_owner: int | None = None
         self._membership_gate = RLock()
+        # Start records of the children an auto-construct add attaches while
+        # Constructing; the construct walk waits on them (spec/06 §5.1).
+        self._late_starts = _LateChildStarts()
         self._membership_condition = Condition(self._membership_gate)
         self._current_selector: Callable[[Iterable[VM]], VM | None] | None = current_selector
         self._on_current_changed: Callable[[VM | None], None] | None = on_current_changed
@@ -288,6 +297,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         transfer: _ParentTransfer | None = None
         old: VM | None = None
         original_status = value.status
+        record: _StartRecord | None = None
         try:
             transfer = _begin_parent_transfer(value, self)
             with self._membership_gate:
@@ -297,7 +307,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._children[index] = value
                 old._set_parent(None)
                 value._set_parent(self)
-            self._maybe_auto_construct(value)
+                record = self._attach_late_start_locked(value)
+            self._auto_construct_attached(value, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
         except BaseException as original_error:
@@ -310,6 +321,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     self._children[actual_index] = old
                     old._set_parent(self)
                     value._set_parent(None)
+                self._late_starts.remove(value, record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and value.status is ConstructionStatus.CONSTRUCTED
@@ -378,6 +390,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         transfer: _ParentTransfer | None = None
         attached = False
         original_status = item.status
+        record: _StartRecord | None = None
         try:
             transfer = _begin_parent_transfer(item, self)
             with self._membership_gate:
@@ -389,7 +402,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._children.insert(index, item)
                 item._set_parent(self)
                 attached = True
-            self._maybe_auto_construct(item)
+                record = self._attach_late_start_locked(item)
+            self._auto_construct_attached(item, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
         except BaseException as original_error:
@@ -398,6 +412,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 if attached and any(child is item for child in self._children):
                     self._children.remove(item)
                     item._set_parent(None)
+                self._late_starts.remove(item, record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and item.status is ConstructionStatus.CONSTRUCTED
@@ -427,6 +442,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         transfer: _ParentTransfer | None = None
         attached = False
         original_status = item.status
+        record: _StartRecord | None = None
         try:
             transfer = _begin_parent_transfer(item, self)
             with self._membership_gate:
@@ -435,7 +451,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 item._set_parent(self)
                 idx = len(self._children) - 1
                 attached = True
-            self._maybe_auto_construct(item)
+                record = self._attach_late_start_locked(item)
+            self._auto_construct_attached(item, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
         except BaseException as original_error:
@@ -444,6 +461,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 if attached and any(child is item for child in self._children):
                     self._children.remove(item)
                     item._set_parent(None)
+                self._late_starts.remove(item, record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and item.status is ConstructionStatus.CONSTRUCTED
@@ -679,40 +697,73 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         if first_error is not None:
             raise first_error
 
+    def _attach_late_start_locked(self, child: VM) -> _StartRecord | None:
+        """Called under the gate as an add attaches *child*.
+
+        An add that will auto-start the child while this container is
+        Constructing registers a start record the construct walk waits on.
+        """
+        return self._late_starts.attach_locked(
+            child,
+            will_start=self._auto_construct_on_add
+            and self._status is ConstructionStatus.CONSTRUCTING,
+        )
+
+    def _auto_construct_attached(self, child: VM, record: _StartRecord | None) -> None:
+        """The add's auto-construct of a child it attached with *record*."""
+        if record is None:
+            self._maybe_auto_construct(child)
+            return
+        # The construct walk never starts a late child; it waits for this
+        # attempt, then joins the child (spec/06 §5.1). The record is done
+        # before this add publishes or ends its transaction.
+        try:
+            self._late_starts.probe(child, _LateChildStage.ATTACHED)
+            if child.status is ConstructionStatus.DESTRUCTED:
+                child.construct()
+        finally:
+            record.mark_done()
+            if self._status is not ConstructionStatus.CONSTRUCTING:
+                self._late_starts.remove(child, record)
+
     def _maybe_auto_construct(self, child: VM) -> None:
         if not self._auto_construct_on_add:
             return
-        if self._status is ConstructionStatus.CONSTRUCTING:
-            # The construct walk joins a child added while it runs.
-            if child.status is ConstructionStatus.DESTRUCTED:
-                child.construct()
-            return
+        # While Constructing, only an add with a start record starts its
+        # child; any other child is in the construct walk's snapshot.
         if self._status != ConstructionStatus.CONSTRUCTED:
             return
         if child.status == ConstructionStatus.CONSTRUCTED:
             return
         child.construct()
 
-    def _construct_walk(self, joined: list[VM]) -> Iterator[VM]:
+    def _construct_walk(self, joined: list[VM], walk: _LateWalk) -> Iterator[VM]:
         """Yield the construct walk's children, extended by late additions.
 
         The membership snapshot comes first. With auto-construct-on-add, each
-        child added while the walk runs follows; ``_maybe_auto_construct``
-        already started it, so it is joined like a population child and never
-        restarted (spec/02 §6, spec/06 §5.1).
+        child added while the walk runs follows when its add registered a
+        start record in this walk's scope: it is joined like a population
+        child after that add's start attempt, so one whose own construction
+        failed rolls the container back. The walk never starts a late child;
+        one without a record was not started by an add, so it is skipped. The
+        last scan ends the walk's scope; a failed walk ends it from
+        ``_on_construct`` (spec/02 §6, spec/06 §5.1).
         """
         snapshot = list(self.snapshot())
         visited = {id(child) for child in snapshot}
         yield from snapshot
         if not self._auto_construct_on_add:
+            walk.end()
             return
         while True:
             late = next((c for c in self.snapshot() if id(c) not in visited), None)
             if late is None:
+                walk.end()
                 return
             visited.add(id(late))
-            joined.append(late)
-            yield late
+            if walk.take(late):
+                joined.append(late)
+                yield late
 
     def _validate_move_index(self, index: int) -> None:
         if isinstance(index, bool):
@@ -755,14 +806,19 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             if initial is not None and any(child is initial for child in self.snapshot()):
                 self._set_current(initial, async_sel=False)
 
-        self._complete_lifecycle_hook_after(
-            self._transition_children(
-                self._construct_walk(joined),
-                construct=True,
-                after=apply_initial_current,
-                joined=joined,
-            )
+        # This walk's scope of start records, begun before its snapshot.
+        walk = self._late_starts.begin_walk(self)
+        walking = self._transition_children(
+            self._construct_walk(joined, walk),
+            construct=True,
+            after=apply_initial_current,
+            joined=joined,
+            join=walk.join,
         )
+
+        # A failed walk ends its own scope when it fails, not at a later GC.
+        walking.add_done_callback(lambda _: walk.end())
+        self._complete_lifecycle_hook_after(walking)
 
     def _on_destruct(self) -> None:
         """Set current=None then destruct all children."""

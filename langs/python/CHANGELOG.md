@@ -10,6 +10,19 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- With `auto_construct_on_add=True`, a `CompositeVM` or `GroupVM` construct
+  walk no longer rolls the container back when it pulls a child that a
+  cross-thread add attached but has not started yet (spec/06 §5.1). An add
+  that will start its child while the container is `CONSTRUCTING` now
+  registers a start record as it attaches the child, and marks it done right
+  after its construct attempt, before it emits the collection change. The
+  walk never starts a late child: it waits for that attempt, then joins the
+  child, so the container reaches `CONSTRUCTED` only after it. If the add's
+  construct fails, the add fails and is undone, and the container rolls
+  back. The walk skips a late child that no add started. Records belong to
+  the walk that was current when the add attached the child, so a failed or
+  stale walk never takes or clears another walk's records, and a walk's
+  records are dropped when it ends rather than at garbage collection (#743).
 - A `CompositeVM` or `GroupVM` `dispose()` from another thread no longer
   cleans its children while the container's admitted `on_construct` or
   `on_destruct` hook still runs (LIFE-015). The child cascade now runs at the

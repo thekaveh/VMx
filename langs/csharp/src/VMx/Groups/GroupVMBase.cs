@@ -43,6 +43,12 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     private bool _membershipTransactionActive;
     private int _membershipTransactionOwnerThreadId;
     private readonly object _membershipGate = new();
+    // Start records of the children an auto-construct add attaches while
+    // Constructing; the construct walk waits on them (spec/06 §5.1).
+    private readonly LateChildStarts _lateStarts = new();
+
+    /// <summary>Test-only access to the late-child start claims.</summary>
+    internal LateChildStarts LateStartsForTesting => _lateStarts;
 
     // ── INotifyCollectionChanged ──────────────────────────────────────────────
     /// <inheritdoc/>
@@ -184,6 +190,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             BeginMembershipTransaction();
             ParentTransferToken? transfer = null;
             VM? old = null;
+            LateChildStarts.Record? record = null;
             var propagateDisposeFailure = true;
             var originalStatus = value.Status;
             try
@@ -196,8 +203,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                     _children[index] = value;
                     old.SetParent(null);
                     value.SetParent(this);
+                    record = AttachLateStartLocked(value);
                 }
-                MaybeAutoConstruct(value);
+                AutoConstructAttached(value, record);
                 lock (_membershipGate) EnsureTransactionCanContinueLocked();
             }
             catch (Exception originalError)
@@ -214,6 +222,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                         old.SetParent(this);
                         value.SetParent(null);
                     }
+                    _lateStarts.Remove(value, record);
                 }
                 if (originalStatus == ConstructionStatus.Destructed &&
                     value.Status == ConstructionStatus.Constructed)
@@ -260,6 +269,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         ParentTransferToken? transfer = null;
         var attached = false;
         var originalStatus = item.Status;
+        LateChildStarts.Record? record = null;
         int idx;
         try
         {
@@ -271,8 +281,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 item.SetParent(this);
                 idx = _children.Count - 1;
                 attached = true;
+                record = AttachLateStartLocked(item);
             }
-            MaybeAutoConstruct(item);
+            AutoConstructAttached(item, record);
             lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch (Exception originalError)
@@ -288,6 +299,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                     _children.RemoveAt(attachedIndex);
                     item.SetParent(null);
                 }
+                _lateStarts.Remove(item, record);
             }
             if (originalStatus == ConstructionStatus.Destructed &&
                 item.Status == ConstructionStatus.Constructed)
@@ -342,6 +354,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         ParentTransferToken? transfer = null;
         var attached = false;
         var originalStatus = item.Status;
+        LateChildStarts.Record? record = null;
         try
         {
             transfer = ComponentOwnership.BeginTransfer(item, this);
@@ -353,8 +366,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 _children.Insert(index, item);
                 item.SetParent(this);
                 attached = true;
+                record = AttachLateStartLocked(item);
             }
-            MaybeAutoConstruct(item);
+            AutoConstructAttached(item, record);
             lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch (Exception originalError)
@@ -370,6 +384,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                     _children.RemoveAt(attachedIndex);
                     item.SetParent(null);
                 }
+                _lateStarts.Remove(item, record);
             }
             if (originalStatus == ConstructionStatus.Destructed &&
                 item.Status == ConstructionStatus.Constructed)
@@ -503,16 +518,44 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         firstFailure?.Throw();
     }
 
+    /// <summary>
+    /// Called under the gate as an add attaches <paramref name="item"/>: an
+    /// add that will auto-start the child while this container is
+    /// Constructing registers a start record the construct walk waits on.
+    /// </summary>
+    private LateChildStarts.Record? AttachLateStartLocked(VM item)
+        => _lateStarts.AttachLocked(
+            item, _autoConstructOnAdd && Status == ConstructionStatus.Constructing);
+
+    /// <summary>The add's auto-construct of a child it attached with <paramref name="record"/>.</summary>
+    private void AutoConstructAttached(VM item, LateChildStarts.Record? record)
+    {
+        if (record is null)
+        {
+            MaybeAutoConstruct(item);
+            return;
+        }
+        // The construct walk never starts a late child; it waits for this
+        // attempt, then joins the child (spec/06 §5.1). The record is done
+        // before this add publishes or ends its transaction.
+        try
+        {
+            _lateStarts.Probe(item, LateChildStage.Attached);
+            if (item.Status == ConstructionStatus.Destructed) item.Construct();
+        }
+        finally
+        {
+            record.MarkDone();
+            if (Status != ConstructionStatus.Constructing) _lateStarts.Remove(item, record);
+        }
+    }
+
     private void MaybeAutoConstruct(VM item)
     {
         if (!_autoConstructOnAdd) return;
+        // While Constructing, only an add with a start record starts its
+        // child; any other child is in the construct walk's snapshot.
         var status = Status;
-        if (status == ConstructionStatus.Constructing)
-        {
-            // The construct walk joins a child added while it runs.
-            if (item.Status == ConstructionStatus.Destructed) item.Construct();
-            return;
-        }
         if (status != ConstructionStatus.Constructed) return;
         if (item.Status == ConstructionStatus.Constructed) return;
         item.Construct();
@@ -583,13 +626,18 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         // Children whose construct population started are joined, not restarted.
         var joined = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
         _populationJoined = joined;
+
         try { PopulateChildren(); }
         finally { _populationJoined = null; }
+        // This walk's scope of start records; begun before its snapshot.
+        var lateWalk = _lateStarts.BeginWalk(this);
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            ContainerConstructWalk.Enumerate(() => Snapshot().ToArray(), _autoConstructOnAdd, joined),
+            ContainerConstructWalk.Enumerate(
+                () => Snapshot().ToArray(), _autoConstructOnAdd, joined, lateWalk),
             construct: true,
             after: null,
-            joined: joined));
+            joined: joined,
+            join: lateWalk.Join));
     }
 
     /// <summary>

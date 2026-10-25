@@ -76,6 +76,9 @@ open class CompositeVM<Child: ComponentVMBase>:
     private var membershipWaits = 0
     private var activeCurrentPublications = 0
     private let membershipGate = NSRecursiveLock()
+    /// Start records of the auto-construct adds the construct walk can pull
+    /// as late children (spec/06 §5.1).
+    private let lateStarts = LateChildStarts()
 
     // ── Batch-update state ──────────────────────────────────────────────
 
@@ -386,26 +389,26 @@ open class CompositeVM<Child: ComponentVMBase>:
         children.append(child)
         child._parent = self
         child._ownershipParent = self
+        let lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         // When autoConstructOnAdd is set and the composite is already
         // Constructed, construct the child BEFORE emitting the Add event
         // (COMP-012). `add` is non-throwing per the public API contract;
         // failures surface through assertionFailure in debug/test builds.
         // Divergence from TS (which throws on failure) is recorded in ADR-0060.
-        if shouldAutoConstruct(child) {
-            do { try child.construct() } catch {
-                membershipGate.withLock {
-                    if let attached = children.firstIndex(where: { $0 === child }) {
-                        children.remove(at: attached)
-                    }
-                    if child._ownershipParent === self {
-                        child._parent = nil
-                        child._ownershipParent = nil
-                    }
+        if let error = autoConstructAttached(child, record: lateStart) {
+            membershipGate.withLock {
+                lateStarts.remove(child, lateStart)
+                if let attached = children.firstIndex(where: { $0 === child }) {
+                    children.remove(at: attached)
                 }
-                transfer?.rollback()
-                return .failure(.attachmentFailed(error))
+                if child._ownershipParent === self {
+                    child._parent = nil
+                    child._ownershipParent = nil
+                }
             }
+            transfer?.rollback()
+            return .failure(.attachmentFailed(error))
         }
         do {
             try membershipGate.withLock { try requireTransactionCanContinueLocked() }
@@ -484,21 +487,21 @@ open class CompositeVM<Child: ComponentVMBase>:
         children.insert(child, at: index)
         child._parent = self
         child._ownershipParent = self
+        let lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
-        if shouldAutoConstruct(child) {
-            do { try child.construct() } catch {
-                membershipGate.withLock {
-                    if let attached = children.firstIndex(where: { $0 === child }) {
-                        children.remove(at: attached)
-                    }
-                    if child._ownershipParent === self {
-                        child._parent = nil
-                        child._ownershipParent = nil
-                    }
+        if let error = autoConstructAttached(child, record: lateStart) {
+            membershipGate.withLock {
+                lateStarts.remove(child, lateStart)
+                if let attached = children.firstIndex(where: { $0 === child }) {
+                    children.remove(at: attached)
                 }
-                transfer?.rollback()
-                return .failure(.attachmentFailed(error))
+                if child._ownershipParent === self {
+                    child._parent = nil
+                    child._ownershipParent = nil
+                }
             }
+            transfer?.rollback()
+            return .failure(.attachmentFailed(error))
         }
         do {
             try membershipGate.withLock { try requireTransactionCanContinueLocked() }
@@ -607,23 +610,23 @@ open class CompositeVM<Child: ComponentVMBase>:
         old._ownershipParent = nil
         child._parent = self
         child._ownershipParent = self
+        let lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
-        if shouldAutoConstruct(child) {
-            do { try child.construct() } catch {
-                membershipGate.withLock {
-                    if let attached = children.firstIndex(where: { $0 === child }) {
-                        children[attached] = old
-                        old._parent = self
-                        old._ownershipParent = self
-                    }
-                    if child._ownershipParent === self {
-                        child._parent = nil
-                        child._ownershipParent = nil
-                    }
+        if let error = autoConstructAttached(child, record: lateStart) {
+            membershipGate.withLock {
+                lateStarts.remove(child, lateStart)
+                if let attached = children.firstIndex(where: { $0 === child }) {
+                    children[attached] = old
+                    old._parent = self
+                    old._ownershipParent = self
                 }
-                transfer?.rollback()
-                return .failure(.attachmentFailed(error))
+                if child._ownershipParent === self {
+                    child._parent = nil
+                    child._ownershipParent = nil
+                }
             }
+            transfer?.rollback()
+            return .failure(.attachmentFailed(error))
         }
         do {
             try membershipGate.withLock { try requireTransactionCanContinueLocked() }
@@ -719,27 +722,78 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     // ── Lifecycle overrides ─────────────────────────────────────────────
 
-    /// Supplies the construct walk with each child added while it runs.
-    /// Auto-construct-on-add already started such a child, so the walk joins
-    /// it rather than restarting it (spec/02 §6, spec/06 §5.1).
-    private func lateChildSource(after snapshot: [Child]) -> LateChildSource? {
-        guard _autoConstructOnAdd else { return nil }
+    /// Supplies the construct walk with each child added while it runs whose
+    /// add starts it, with that add's start record; the walk joins such a
+    /// child and never starts it. A late child no add starts is skipped
+    /// (spec/02 §6, spec/06 §5.1). The final pull drops every record.
+    private func lateChildSource(
+        after snapshot: [Child],
+        scope: LateChildStarts.Scope?
+    ) -> LateChildSource? {
+        guard _autoConstructOnAdd, let scope else { return nil }
         var visited = Set(snapshot.map(ObjectIdentifier.init))
-        return LateChildSource { [weak self] in
+        let starts = lateStarts
+        return LateChildSource(starts: starts, scope: scope) { [weak self] in
             guard let self else { return nil }
-            let late = self.snapshot().first { !visited.contains(ObjectIdentifier($0)) }
-            if let late { visited.insert(ObjectIdentifier(late)) }
-            return late
+            return self.membershipGate.withLock {
+                while true {
+                    guard let late = self.children.first(where: {
+                        !visited.contains(ObjectIdentifier($0))
+                    }) else {
+                        starts.endWalk(scope)
+                        return nil
+                    }
+                    visited.insert(ObjectIdentifier(late))
+                    if let record = starts.take(late, from: scope) { return (late, record) }
+                }
+            }
         }
     }
 
-    /// Auto-construct-on-add: a `Destructed` child added while this container
-    /// is still `Constructing` starts now and the construct walk joins it.
-    private func shouldAutoConstruct(_ child: Child) -> Bool {
-        guard _autoConstructOnAdd else { return false }
-        if isConstructed { return true }
-        return status == .constructing && child.status == .destructed
+    /// Call under `membershipGate`, in the section that attaches `child`.
+    /// Registers a start record when this add will start the child: with
+    /// auto-construct-on-add while this container is `Constructing`.
+    private func registerLateStartLocked(_ child: Child) -> LateChildStarts.Record? {
+        lateStarts.attachLocked(
+            child, starting: _autoConstructOnAdd && status == .constructing
+        )
     }
+
+    /// Auto-construct-on-add of a child an add attached; returns the child's
+    /// construct error. With a start `record` (this container was
+    /// `Constructing` at the attach), a `Destructed` child starts now and the
+    /// record is marked done right after the attempt, before the add
+    /// publishes anything. Without one, the child starts only when this
+    /// container is `Constructed`: one attached before the walk's snapshot is
+    /// constructed by the walk (spec/06 §5.1).
+    private func autoConstructAttached(
+        _ child: Child,
+        record: LateChildStarts.Record?
+    ) -> Error? {
+        guard _autoConstructOnAdd else { return nil }
+        guard let record else {
+            guard isConstructed else { return nil }
+            do { try child.construct() } catch { return error }
+            return nil
+        }
+        lateStarts.probe(child, .attached)
+        defer {
+            lateStarts.finish(child, record, constructing: status == .constructing)
+        }
+        guard child.status == .destructed else { return nil }
+        do { try child.construct() } catch { return error }
+        return nil
+    }
+
+    /// Test-only seam: runs at each `LateChildStage` of this container's
+    /// late-child start records. Production code never sets it.
+    var lateChildProbeForTesting: ((ComponentVMBase, LateChildStage) -> Void)? {
+        get { lateStarts.probeForTesting }
+        set { lateStarts.probeForTesting = newValue }
+    }
+
+    /// Test-only: the start records the current construct walk holds.
+    var lateStartRecordCountForTesting: Int { lateStarts.recordCountForTesting }
 
     open override func _onConstruct() throws {
         try super._onConstruct()
@@ -762,12 +816,16 @@ open class CompositeVM<Child: ComponentVMBase>:
         // from population hooks are rejected until the transaction completes.
         // A background child defers the composite's Constructed status (and the
         // selector) until every child has reached Constructed (spec/02 §6).
-        let snapshot = snapshot()
+        // Begin this walk's start-record scope with the snapshot, so an add
+        // attached after the snapshot registers its record in this walk.
+        let (snapshot, scope) = membershipGate.withLock {
+            (children, _autoConstructOnAdd ? lateStarts.beginWalkLocked() : nil)
+        }
         try _transitionChildren(
             snapshot,
             construct: true,
             joined: joined,
-            lateChild: lateChildSource(after: snapshot)
+            lateChild: lateChildSource(after: snapshot, scope: scope)
         ) { [self] in
             if let selector = currentSelector,
                let initial = selector(snapshot),
