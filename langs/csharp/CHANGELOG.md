@@ -14,6 +14,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   `ComponentVMBaseOfM<M>` overload also makes `modeledHinter` optional, with
   an empty hint by default, and takes the remaining arguments as optional
   parameters (#663).
+- Fixed: when an `ApproveCommand.CanExecuteChanged` observer throws during
+  approval admission, `FormVM` now raises `CanExecuteChanged` again after it
+  releases the in-flight mark, so observers that saw the admission's `false`
+  learn the form is approvable again. The observer's exception still reaches
+  the caller, and a failure in the release notification does not replace it
+  (#732).
 - Fixed: `AsyncResourceVM` no longer calls its loader when an observer of the
   `Loading` publication calls `Cancel()`. The operation's token was cancelled
   but the operation stayed current until its cancellation handler ran, so the

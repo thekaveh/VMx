@@ -790,6 +790,56 @@ async def test_failing_admission_observer_does_not_wedge_the_form() -> None:
     assert persister.calls == [Model("initial")]
 
 
+async def test_failing_admission_observer_releases_earlier_observers() -> None:
+    # #732: observers that saw the admission's False also see the release.
+    persister = GatedPersister()
+    form = FormVM(Model("initial"), persister)
+    boom = RuntimeError("observer failed")
+    seen: list[bool] = []
+    failures = [boom]
+    form.approve_command.can_execute_changed.subscribe(
+        lambda _: seen.append(form.approve_command.can_execute())
+    )
+
+    def fail_once(_: None) -> None:
+        if failures:
+            raise failures.pop()
+
+    form.approve_command.can_execute_changed.subscribe(fail_once)
+
+    with pytest.raises(RuntimeError) as raised:
+        await asyncio.wait_for(form.approve_async(), _TIMEOUT)
+    assert raised.value is boom
+    assert persister.calls == []
+    assert seen[0] is False
+    assert seen[-1] is True
+
+    approval = asyncio.create_task(form.approve_async())
+    await persister.wait_entered(1)
+    persister.release(0)
+    await asyncio.wait_for(approval, _TIMEOUT)
+    assert persister.calls == [Model("initial")]
+
+
+async def test_release_notification_failure_does_not_replace_the_admission_failure() -> None:
+    persister = GatedPersister()
+    form = FormVM(Model("initial"), persister)
+    boom = RuntimeError("admission observer failed")
+    errors = [boom, RuntimeError("release observer failed")]
+
+    def fail_twice(_: None) -> None:
+        if errors:
+            raise errors.pop(0)
+
+    form.approve_command.can_execute_changed.subscribe(fail_twice)
+
+    with pytest.raises(RuntimeError) as raised:
+        await asyncio.wait_for(form.approve_async(), _TIMEOUT)
+    assert raised.value is boom
+    assert persister.calls == []
+    assert form.approve_command.can_execute()
+
+
 async def test_failure_settlement_observer_error_does_not_replace_persister_failure() -> None:
     persister = GatedPersister()
     form = FormVM(Model("initial"), persister)
