@@ -285,6 +285,15 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
             operation.Dispose();
             return;
         }
+        // An observer of the Loading publication may have called Cancel(), which
+        // cancels the token but leaves the operation current until its handler
+        // runs: restore the baseline and never call the loader (#729).
+        if (operation.Cancellation.IsCancellationRequested)
+        {
+            try { HandleCancellation(operation); }
+            finally { operation.Dispose(); }
+            return;
+        }
         Task<T> loaderTask;
         try
         {
