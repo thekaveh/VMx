@@ -216,3 +216,30 @@ def test_swift_example_tests_fail_fast_and_name_a_hung_case() -> None:
         " -- swift test --parallel"
     ) in examples
     assert '"tools/swift-test-watchdog.py"' in swift.split("\njobs:\n", maxsplit=1)[0]
+
+
+def _dotnet_test_commands(workflow: str) -> list[str]:
+    """Each `dotnet test` command with its continuation and folded lines."""
+    lines = workflow.splitlines()
+    commands = []
+    for index, line in enumerate(lines):
+        if "dotnet test" not in line:
+            continue
+        indent = len(line) - len(line.lstrip())
+        command = [line.strip()]
+        for follow in lines[index + 1 :]:
+            stripped = follow.strip()
+            follow_indent = len(follow) - len(follow.lstrip())
+            if not stripped or follow_indent < indent or stripped.startswith(("done", "- ", "#")):
+                break
+            command.append(stripped)
+        commands.append(" ".join(command))
+    return commands
+
+
+def test_filtered_csharp_test_steps_fail_when_no_test_matches() -> None:
+    csharp = (WORKFLOWS / "csharp.yml").read_text(encoding="utf-8")
+    filtered = [command for command in _dotnet_test_commands(csharp) if "--filter" in command]
+    assert filtered, "csharp.yml has no filtered dotnet test command"
+    for command in filtered:
+        assert "RunConfiguration.TreatNoTestsAsError=true" in command, command
