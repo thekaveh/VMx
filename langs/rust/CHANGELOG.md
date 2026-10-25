@@ -40,6 +40,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   callback can replace itself. A callback fired by `set_current` still gets
   `OwnershipTransactionInProgress` if it changes the current child
   (spec/06 §3.2). Before, each call ran under the mutex that stores it (#716).
+- `FormVm::approve` no longer persists an invalid model while another thread
+  calls `set_model`. Admission now checks validity, marks the approval in
+  flight and captures the model under the form's update lock, which
+  `set_model` also takes. Before, an edit could commit between the check and
+  the capture, so the persister, the snapshotter and `on_approved` received a
+  model the validators reject (#719).
 
 ## [0.35.0] — unreleased source version
 
