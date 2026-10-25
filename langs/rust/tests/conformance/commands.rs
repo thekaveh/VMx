@@ -1388,3 +1388,65 @@ fn a_dropped_token_pager_is_released() {
 
     assert_eq!(Arc::strong_count(&marker), 1, "the pager was freed");
 }
+
+/// The commands the shared action reaches; `take` it to break the cycle.
+type CommandSlot = Arc<Mutex<Option<(RelayCommand, RelayCommand)>>>;
+
+/// #739 — commands built from clones of one builder share the action; each
+/// deferred nested call keeps its own command's disposal state.
+fn cloned_builder_commands(
+    nested: impl Fn(&RelayCommand, &RelayCommand) + Send + Sync + 'static,
+) -> (
+    RelayCommand,
+    RelayCommand,
+    Arc<Mutex<Vec<&'static str>>>,
+    CommandSlot,
+) {
+    let slot: CommandSlot = Arc::default();
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let runs = Arc::clone(&log);
+    let commands = Arc::clone(&slot);
+    let builder = RelayCommand::builder().action(move || {
+        let first = runs.lock().unwrap().is_empty();
+        runs.lock().unwrap().push("run");
+        if first {
+            let (x, y) = commands.lock().unwrap().clone().unwrap();
+            nested(&x, &y);
+            runs.lock().unwrap().push("first run returns");
+        }
+    });
+    let x = builder.clone().build();
+    let y = builder.build();
+    *slot.lock().unwrap() = Some((x.clone(), y.clone()));
+    (x, y, log, slot)
+}
+
+#[test]
+fn deferred_call_of_a_disposed_cloned_builder_command_does_not_run() {
+    let (x, _y, log, slot) = cloned_builder_commands(|_, y| {
+        y.execute();
+        y.dispose();
+    });
+
+    x.execute();
+
+    assert_eq!(*log.lock().unwrap(), vec!["run", "first run returns"]);
+    slot.lock().unwrap().take();
+}
+
+#[test]
+fn deferred_call_survives_disposal_of_the_outer_cloned_builder_command() {
+    let (x, _y, log, slot) = cloned_builder_commands(|x, y| {
+        y.execute();
+        x.dispose();
+    });
+
+    x.execute();
+
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec!["run", "first run returns", "run"],
+        "y's admitted call runs once, after the first run returns"
+    );
+    slot.lock().unwrap().take();
+}

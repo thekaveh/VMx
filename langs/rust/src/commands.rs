@@ -209,12 +209,12 @@ impl<P> RelayAction<P> {
         }))
     }
 
-    /// Runs an execution that `can_execute` admitted. `live` reports that
-    /// the command is not disposed.
-    fn execute(&self, parameter: P, live: impl Fn() -> bool) {
+    /// Runs an execution that `can_execute` admitted. `disposed` is the
+    /// calling command's disposal flag.
+    fn execute(&self, parameter: P, disposed: &Arc<Mutex<bool>>) {
         match self {
             Self::Shared(action) => action(parameter),
-            Self::Exclusive(action) => action.execute(parameter, live),
+            Self::Exclusive(action) => action.execute(parameter, disposed),
         }
     }
 }
@@ -227,37 +227,40 @@ impl<P> RelayAction<P> {
 /// run inline because the action is already borrowed. It is deferred: it runs
 /// after the running action returns, before the outermost `execute` returns.
 /// Deferred executions start in the order inline recursion would start them.
-/// An execution that waited, for either reason, does not run once the command
-/// is disposed.
+/// An execution that waited, for either reason, does not run once its own
+/// command is disposed; commands built from clones of one builder share the
+/// action but not the disposal state (#739).
 struct ExclusiveAction<P> {
     body: Mutex<Box<dyn FnMut(P) + Send + 'static>>,
     turn: Mutex<ExclusiveTurn<P>>,
 }
 
-/// The thread running an [`ExclusiveAction`], and the executions it deferred.
+/// The thread running an [`ExclusiveAction`], and the executions it deferred,
+/// each with its own command's disposal flag.
 struct ExclusiveTurn<P> {
     owner: Option<ThreadId>,
-    deferred: Vec<P>,
+    deferred: Vec<(P, Arc<Mutex<bool>>)>,
 }
 
 impl<P> ExclusiveAction<P> {
-    fn execute(&self, parameter: P, live: impl Fn() -> bool) {
+    fn execute(&self, parameter: P, disposed: &Arc<Mutex<bool>>) {
         let current = thread::current().id();
         {
             let mut turn = lock(&self.turn);
             if turn.owner == Some(current) {
                 // This thread is running the action further up its stack.
-                turn.deferred.push(parameter);
+                turn.deferred.push((parameter, Arc::clone(disposed)));
                 return;
             }
         }
         // A stack, so nested executions start in inline-recursion order.
-        let mut pending = vec![parameter];
-        while let Some(parameter) = pending.pop() {
+        let mut pending = vec![(parameter, Arc::clone(disposed))];
+        while let Some((parameter, disposed)) = pending.pop() {
             let mut body = lock(&self.body);
-            if !live() {
-                // Disposal is final: no waiting execution runs.
-                return;
+            if *lock(&disposed) {
+                // Disposal of the execution's own command is final: it does
+                // not run, but executions of other commands still do.
+                continue;
             }
             let run = ExclusiveRun::claim(&self.turn, current);
             body(parameter);
@@ -282,11 +285,11 @@ impl<'a, P> ExclusiveRun<'a, P> {
     }
 
     /// Ends the run and returns the executions deferred during it.
-    fn end(mut self) -> Vec<P> {
+    fn end(mut self) -> Vec<(P, Arc<Mutex<bool>>)> {
         self.turn.take().map(Self::release).unwrap_or_default()
     }
 
-    fn release(turn: &Mutex<ExclusiveTurn<P>>) -> Vec<P> {
+    fn release(turn: &Mutex<ExclusiveTurn<P>>) -> Vec<(P, Arc<Mutex<bool>>)> {
         let mut turn = lock(turn);
         turn.owner = None;
         std::mem::take(&mut turn.deferred)
@@ -321,7 +324,7 @@ type CommandPredicate = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
 /// does in the other flavors. It is deferred instead: it runs after the
 /// running action returns and before the outermost `execute` returns. Nested
 /// executions start in the order inline recursion would start them. An
-/// execution that waited does not run once the command is disposed.
+/// execution that waited does not run once its own command is disposed.
 ///
 /// ```
 /// use std::sync::{Arc, Mutex};
@@ -510,7 +513,7 @@ impl Command for RelayCommand {
             return;
         }
         if let Some(action) = &self.action {
-            action.execute((), || !*lock(&self.disposed));
+            action.execute((), &self.disposed);
         }
     }
 
@@ -640,7 +643,7 @@ impl<T: Clone + Send + 'static> CommandOf<T> for RelayCommandOf<T> {
             return;
         }
         if let Some(action) = &self.action {
-            action.execute(parameter, || !*lock(&self.disposed));
+            action.execute(parameter, &self.disposed);
         }
     }
 }
