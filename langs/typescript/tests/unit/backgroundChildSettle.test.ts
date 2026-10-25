@@ -27,6 +27,13 @@ class DeferredScheduler {
     return { unsubscribe() {} };
   }
 
+  /** Run the work queued so far; work it schedules waits for the next call. */
+  runOne(): void {
+    const batch = this.#work;
+    this.#work = [];
+    for (const work of batch) work();
+  }
+
   runAll(): void {
     while (this.#work.length > 0) {
       const batch = this.#work;
@@ -423,4 +430,60 @@ describe("factory population – background children are joined, never restarted
       expect(container.canConstruct()).toBe(true);
     },
   );
+});
+
+describe("joined reconstructing child – the parent acts on the child's live status (#722)", () => {
+  /** Composite P → composite C → background ComponentVM G, constructed and drained. */
+  function nested() {
+    const s = setup();
+    const c = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(s.hub, s.dispatcher)
+      .children(() => [s.child("g")()])
+      .build();
+    const p = CompositeVM.builder<ComponentVMBase>()
+      .name("p")
+      .services(s.hub, s.dispatcher)
+      .children(() => [c])
+      .build();
+    p.construct();
+    s.bg.runAll();
+    expect(p.status).toBe(S.Constructed);
+    expect(c.status).toBe(S.Constructed);
+    return { s, p, c, g: s.vm("g") };
+  }
+
+  it("a destruct that joins a reconstructing child rolls back when the child ends Constructed", () => {
+    const { s, p, c, g } = nested();
+
+    c.reconstruct();
+    p.destruct();
+    expect(p.status).toBe(S.Destructing);
+    s.bg.runAll();
+
+    expect(c.status).toBe(S.Constructed);
+    expect(g.status).toBe(S.Constructed);
+    // The child missed Destructed, so the parent rolls back as for any such child.
+    expect(p.status).toBe(S.Constructed);
+    expect(p.canDestruct()).toBe(true);
+  });
+
+  it("a destruct waiting on a child that is disposed before it releases settles the parent", () => {
+    const { s, p, c } = nested();
+
+    c.reconstruct();
+    p.destruct();
+    // Run one batch: G's destruct work. C then waits on G's construct.
+    s.bg.runOne();
+    c.dispose();
+    s.bg.runAll();
+
+    expect(c.status).toBe(S.Disposed);
+    // The disposed child missed Destructed, so the parent rolls back.
+    expect(p.status).toBe(S.Constructed);
+    expect(p.canReconstruct()).toBe(true);
+    // P's own guard is released: a destruct reaches the disposed child, which
+    // rejects it, instead of P rejecting it from Destructing.
+    expect(() => p.destruct()).toThrow("Cannot destruct from state Disposed.");
+  });
 });
