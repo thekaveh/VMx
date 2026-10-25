@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- With `autoConstructOnAdd`, the construct walk of a `CompositeVM` or
+  `GroupVM` no longer rolls the container back when it pulls a child that a
+  cross-thread add attached but has not started yet (#743, spec/06 §5.1).
+  Before, the walk found that child `destructed` and failed with "did not
+  reach constructed". An add that attaches a child while the container is
+  `constructing` now registers a start record under the membership gate, and
+  marks it done right after its construct attempt, before it publishes the
+  change. The walk never starts a late child: it waits until the record is
+  done, then joins the child. If that construct fails, the add fails and is
+  undone, and the container rolls back. A late child that no add starts is
+  skipped. An add no longer starts a child that it attached before the walk's
+  snapshot, since the walk constructs that child. Start records belong to one
+  walk: each walk begins its own scope with its snapshot, takes and drops only
+  that scope's records, and never touches a later walk's records. An add that
+  attaches after the walk's last pull keeps no record.
 - A container no longer refuses an add, a removal or a selection because of
   a stale membership wait edge (#736). Before, a waiter kept its edge until it
   woke and ended its wait, so the thread that had just ended the transaction

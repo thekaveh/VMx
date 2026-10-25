@@ -2128,6 +2128,235 @@ pub type LifecycleSettleCallback = Box<dyn FnOnce() + Send + 'static>;
 
 type ChildStep = Box<dyn FnOnce() -> VmxResult<()> + Send + 'static>;
 
+struct StartRecordState {
+    done: bool,
+    waiter: Option<LifecycleSettleCallback>,
+}
+
+/// An add's attempt to auto-start the child it attached while its container
+/// was Constructing (spec/06 §5.1). The construct walk never starts a late
+/// child: it waits until the attempt is done, then joins the child.
+pub(crate) struct StartRecord {
+    state: Mutex<StartRecordState>,
+}
+
+impl StartRecord {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(StartRecordState {
+                done: false,
+                waiter: None,
+            }),
+        }
+    }
+
+    /// Registers `callback` to run once the attempt is done. Returns `false`
+    /// (dropping `callback`) when it already is.
+    fn when_done(&self, callback: LifecycleSettleCallback) -> bool {
+        let mut state = lock(&self.state);
+        if state.done {
+            return false;
+        }
+        state.waiter = Some(callback);
+        true
+    }
+
+    /// Marks the attempt done and returns the walk continuation waiting on it.
+    fn finish(&self) -> Option<LifecycleSettleCallback> {
+        let mut state = lock(&self.state);
+        state.done = true;
+        state.waiter.take()
+    }
+}
+
+type StartRecords = HashMap<usize, Arc<StartRecord>>;
+
+/// The start records of one construct walk (spec/06 §5.1). Only that walk
+/// takes them, and they drop with it, so a stale walk (failed, abandoned, or
+/// superseded by a later construct) never takes or clears another walk's
+/// records.
+pub(crate) struct WalkScope {
+    records: Mutex<StartRecords>,
+}
+
+impl WalkScope {
+    fn take(&self, child_id: usize) -> Option<Arc<StartRecord>> {
+        lock(&self.records).remove(&child_id)
+    }
+
+    fn forget(&self, child_id: usize, record: &Arc<StartRecord>) {
+        let mut records = lock(&self.records);
+        if records
+            .get(&child_id)
+            .is_some_and(|registered| Arc::ptr_eq(registered, record))
+        {
+            records.remove(&child_id);
+        }
+    }
+}
+
+/// A container's start records (spec/06 §5.1). An add registers one, under
+/// the membership gate that attaches the child, only when it will auto-start
+/// the child: auto-construct-on-add is on and the container is Constructing.
+/// The record goes into the scope of the walk that is current then. That
+/// walk takes the record of each late member, under the same gate: without
+/// one, no add tried to start the member, so the walk skips it; with one, the
+/// walk waits until the attempt is done and then joins the member, so a
+/// failed attempt rolls the container back.
+#[derive(Clone)]
+pub(crate) struct LateStarts {
+    /// The container's membership gate.
+    gate: Arc<Mutex<()>>,
+    /// The scope of the walk that still scans for late members, if any.
+    current: Arc<Mutex<Option<Arc<WalkScope>>>>,
+}
+
+impl LateStarts {
+    /// Start records guarded by the container's membership `gate`.
+    pub(crate) fn new(gate: Arc<Mutex<()>>) -> Self {
+        Self {
+            gate,
+            current: Arc::default(),
+        }
+    }
+
+    /// Records the attach of `child_id`; call it under the membership gate
+    /// that attaches the child. With `will_start` it returns the add's
+    /// attempt, registered in the current walk's scope if a walk still scans;
+    /// otherwise it drops any record of the child from that scope.
+    pub(crate) fn attach(&self, child_id: usize, will_start: bool) -> Option<StartAttempt> {
+        let scope = lock(&self.current).clone();
+        if !will_start {
+            if let Some(scope) = scope {
+                lock(&scope.records).remove(&child_id);
+            }
+            return None;
+        }
+        let record = Arc::new(StartRecord::new());
+        if let Some(scope) = &scope {
+            lock(&scope.records).insert(child_id, Arc::clone(&record));
+        }
+        Some(StartAttempt {
+            scope,
+            child_id,
+            record,
+            finished: false,
+        })
+    }
+
+    /// Opens the scope of a new walk; an older walk's scope is orphaned.
+    fn begin_walk(&self) -> LateWalk {
+        let scope = Arc::new(WalkScope {
+            records: Mutex::default(),
+        });
+        *lock(&self.current) = Some(Arc::clone(&scope));
+        LateWalk {
+            starts: self.clone(),
+            scope,
+        }
+    }
+}
+
+/// One construct walk's hold on its scope. Ending it (at the walk's final
+/// late scan, or when the walk's steps drop because it failed or was
+/// abandoned) retires only this walk's scope.
+struct LateWalk {
+    starts: LateStarts,
+    scope: Arc<WalkScope>,
+}
+
+impl LateWalk {
+    fn end(&self) {
+        {
+            let mut current = lock(&self.starts.current);
+            if current
+                .as_ref()
+                .is_some_and(|scope| Arc::ptr_eq(scope, &self.scope))
+            {
+                *current = None;
+            }
+        }
+        lock(&self.scope.records).clear();
+    }
+}
+
+impl Drop for LateWalk {
+    fn drop(&mut self) {
+        self.end();
+    }
+}
+
+/// An add's attempt to auto-start the child it attached; see [`LateStarts`].
+pub(crate) struct StartAttempt {
+    /// The walk scope the record was registered in, if a walk still scanned.
+    scope: Option<Arc<WalkScope>>,
+    child_id: usize,
+    record: Arc<StartRecord>,
+    finished: bool,
+}
+
+impl StartAttempt {
+    /// Constructs `item` when it is Destructed, then marks the attempt done,
+    /// even when the construct fails or panics. A walk waiting on the attempt
+    /// resumes here, before the add publishes its collection change.
+    pub(crate) fn run<N: VmNode, D: Dispatcher>(
+        &mut self,
+        core: &ComponentCore<D>,
+        item: &N,
+    ) -> VmxResult<()> {
+        let attempt = catch_unwind(AssertUnwindSafe(|| {
+            if item.status() == ConstructionStatus::Destructed {
+                item.construct()
+            } else {
+                Ok(())
+            }
+        }));
+        if core.status() != ConstructionStatus::Constructing {
+            self.forget();
+        }
+        self.finish();
+        match attempt {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
+    }
+
+    /// Ends a failed add: its record no longer stands for an attached child.
+    /// It only removes the record; a pending attempt still finishes when it
+    /// drops, outside the caller's membership gate.
+    pub(crate) fn forget(&mut self) {
+        if let Some(scope) = &self.scope {
+            scope.forget(self.child_id, &self.record);
+        }
+    }
+
+    fn finish(&mut self) {
+        self.finished = true;
+        if let Some(waiter) = self.record.finish() {
+            waiter();
+        }
+    }
+}
+
+impl Drop for StartAttempt {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        // An attempt dropped without running (an early return) still ends,
+        // so a waiting walk never hangs. While unwinding, the walk resumes on
+        // its own thread, where a second panic cannot abort.
+        if let Some(waiter) = self.record.finish() {
+            if thread::panicking() {
+                thread::spawn(waiter);
+            } else {
+                waiter();
+            }
+        }
+    }
+}
+
 /// A container transition waiting for children that settle asynchronously
 /// (spec/02 §6): later child steps queue behind the child being awaited, and
 /// the container publishes its terminal status only after the queue drains.
@@ -3164,32 +3393,31 @@ impl<D: Dispatcher> ComponentCore<D> {
         }))
     }
 
-    /// Whether auto-construct-on-add constructs a child added now: always
-    /// while the container is Constructed; while it is Constructing only a
-    /// Destructed child, since the construct walk joins a child that is
-    /// already Constructing or Constructed (spec/02 §6).
-    pub(crate) fn auto_constructs_on_add(&self, enabled: bool, child: ConstructionStatus) -> bool {
-        enabled
-            && match self.status() {
-                ConstructionStatus::Constructed => true,
-                ConstructionStatus::Constructing => child == ConstructionStatus::Destructed,
-                _ => false,
-            }
+    /// Whether auto-construct-on-add constructs a child added now without a
+    /// start record: only while the container is Constructed. While it is
+    /// Constructing, only an add that registered a start record starts its
+    /// child (see [`LateStarts`]).
+    pub(crate) fn auto_constructs_when_constructed(&self, enabled: bool) -> bool {
+        enabled && self.status() == ConstructionStatus::Constructed
     }
 
     /// The construct walk of a container: constructs each current member
-    /// (joining one already Constructing), then, when `join_late`
-    /// (auto-construct-on-add) is set, joins each member added while the walk
-    /// runs until none remain, then runs `then`.
-    /// A late member was already started by its add, so it is awaited, never
-    /// restarted; one that is not Constructing or Constructed by then failed
-    /// and rolls the container back (spec/02 §6).
+    /// (joining one already Constructing), then joins each member added while
+    /// the walk runs until none remain, then runs `then`.
+    /// The walk never starts a late member (spec/02 §6, spec/06 §5.1). It
+    /// takes the member's start record from `late` (see [`LateStarts`]):
+    /// without one, no add tried to start the member, so the walk skips it;
+    /// with one, it waits until that add's attempt is done and then joins the
+    /// member, so a member whose construct failed rolls the container back.
     pub(crate) fn construct_children<N: VmNode>(
         &self,
         members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
-        join_late: bool,
+        late: LateStarts,
         then: ChildStep,
     ) -> VmxResult<()> {
+        // This walk's own scope: an add that registered a record before this
+        // point attached a member of the snapshot below.
+        let walk = Arc::new(late.begin_walk());
         let snapshot = members();
         let visited: HashSet<usize> = snapshot.iter().map(VmNode::id).collect();
         for child in snapshot {
@@ -3205,36 +3433,125 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
             }))?;
         }
-        if !join_late {
-            return self.child_step(then);
-        }
         let core = self.clone();
         self.child_step(Box::new(move || {
-            core.join_late_children(visited, members, then)
+            core.join_late_children(visited, members, walk, then)
         }))
     }
 
+    /// Scans for the next late member under the container's membership
+    /// gate, so it never sees a member whose add has not yet registered its
+    /// start record. `then` and every child step run outside the gate.
     fn join_late_children<N: VmNode>(
         &self,
         mut visited: HashSet<usize>,
         members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
+        walk: Arc<LateWalk>,
         then: ChildStep,
     ) -> VmxResult<()> {
-        let Some(child) = members()
-            .into_iter()
-            .find(|child| !visited.contains(&child.id()))
-        else {
+        let next = {
+            let _gate = lock(&walk.starts.gate);
+            loop {
+                let Some(child) = members()
+                    .into_iter()
+                    .find(|child| !visited.contains(&child.id()))
+                else {
+                    // The walk ends: later adds register no record for it.
+                    walk.end();
+                    break None;
+                };
+                visited.insert(child.id());
+                // A member without a record was not started by an add (for
+                // example, auto-construct-on-add was off): skip it.
+                if let Some(record) = walk.scope.take(child.id()) {
+                    break Some((child, record));
+                }
+            }
+        };
+        let Some((child, record)) = next else {
+            drop(walk);
             return then();
         };
-        visited.insert(child.id());
+        let core = self.clone();
+        self.child_step(Box::new(move || core.await_add_then_child(&record, &child)))?;
         let core = self.clone();
         self.child_step(Box::new(move || {
-            core.await_child(&child, ConstructionStatus::Constructed)
-        }))?;
-        let core = self.clone();
-        self.child_step(Box::new(move || {
-            core.join_late_children(visited, members, then)
+            core.join_late_children(visited, members, walk, then)
         }))
+    }
+
+    /// Holds the container transition until the add attempt behind `record`
+    /// is done, then joins `child` like [`Self::await_child`].
+    fn await_add_then_child<N: VmNode>(
+        &self,
+        record: &Arc<StartRecord>,
+        child: &N,
+    ) -> VmxResult<()> {
+        let generation = {
+            let mut inner = lock(&self.inner);
+            let generation = inner.transition_generation;
+            if !inner.transitioning || inner.status == ConstructionStatus::Disposed {
+                return Ok(());
+            }
+            let settle = inner
+                .child_settle
+                .get_or_insert_with(|| ChildSettle::new(generation));
+            if settle.generation != generation {
+                *settle = ChildSettle::new(generation);
+            }
+            settle.waiting = true;
+            generation
+        };
+        let core = self.clone();
+        let awaited = child.clone();
+        if record.when_done(Box::new(move || {
+            core.join_after_add(generation, &awaited);
+        })) {
+            return Ok(());
+        }
+        {
+            let mut inner = lock(&self.inner);
+            if let Some(settle) = inner.child_settle.as_mut() {
+                if settle.generation == generation {
+                    settle.waiting = false;
+                }
+            }
+        }
+        self.await_child(child, ConstructionStatus::Constructed)
+    }
+
+    /// Continues a walk that waited for an add: joins `child`, keeping the
+    /// transition waiting until it settles.
+    fn join_after_add<N: VmNode>(&self, generation: u64, child: &N) {
+        {
+            let inner = lock(&self.inner);
+            if !self.settle_is_current(&inner, generation) {
+                return;
+            }
+        }
+        let core = self.clone();
+        let awaited = child.clone();
+        if child.when_lifecycle_settled(Box::new(move || {
+            core.child_settled(generation, &awaited, ConstructionStatus::Constructed);
+        })) {
+            return;
+        }
+        if child.status() == ConstructionStatus::Constructing {
+            // A node without settle notification is accepted in flight, as
+            // `await_child` does.
+            {
+                let mut inner = lock(&self.inner);
+                if !self.settle_is_current(&inner, generation) {
+                    return;
+                }
+                if let Some(settle) = inner.child_settle.as_mut() {
+                    settle.waiting = false;
+                }
+            }
+            self.advance_children(generation, false);
+            return;
+        }
+        self.child_settled(generation, child, ConstructionStatus::Constructed);
     }
 
     fn run_child_transition<N: VmNode>(

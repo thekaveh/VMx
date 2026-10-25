@@ -381,7 +381,15 @@ struct ChildTransitionError: Error, CustomStringConvertible {
 /// `_transitionChildren`). A struct, not a bare closure, so trailing-closure
 /// matching of `after` stays unambiguous.
 struct LateChildSource {
-    let next: () -> ComponentVMBase?
+    /// The start records of the adds that attached late children
+    /// (spec/06 §5.1).
+    let starts: LateChildStarts
+    /// This walk's records; the walk ends only this scope.
+    let scope: LateChildStarts.Scope
+    /// The next late child and the start record of the add that starts it,
+    /// or `nil` when none is left. A late child that no add starts is
+    /// skipped here, never returned.
+    let next: () -> (child: ComponentVMBase, record: LateChildStarts.Record)?
 }
 
 final class ChildTransitionWalker {
@@ -391,11 +399,17 @@ final class ChildTransitionWalker {
     private var index = 0
     private var cancelled = false
     private var waiting: (child: ComponentVMBase, id: UInt64)?
+    /// A late child whose add has not finished its start attempt yet.
+    private var waitingStart: ComponentVMBase?
     /// Children that already started this transition (factory population or
     /// a late auto-constructed child): joined, never restarted. Only the
     /// sequential walk itself reads or extends it.
     private var joined: Set<ObjectIdentifier>
-    /// Supplies children added while the walk runs; each is joined.
+    /// The start records of the late children among `joined`. Only the
+    /// sequential walk reads or extends it.
+    private var lateRecords: [ObjectIdentifier: LateChildStarts.Record] = [:]
+    /// Supplies children added while the walk runs; each is joined, never
+    /// started by the walk.
     private let lateChild: LateChildSource?
     private let target: ConstructionStatus
     private let transient: ConstructionStatus
@@ -418,17 +432,38 @@ final class ChildTransitionWalker {
 
     /// Returns `true` while a child is pending; the walk then resumes when
     /// that child settles and finally settles `deferral`.
-    func start() throws -> Bool { try advance() }
+    func start() throws -> Bool {
+        do {
+            return try advance()
+        } catch {
+            endLate()
+            throw error
+        }
+    }
 
     func cancel() {
         lock.lock()
         cancelled = true
         let waiting = self.waiting
         self.waiting = nil
+        waitingStart = nil
         children = []
         after = nil
         lock.unlock()
+        endLate()
         if let waiting { waiting.child._cancelSettleWait(waiting.id) }
+    }
+
+    /// The walk pulls no further late children: drop its own start records.
+    private func endLate() {
+        guard let lateChild else { return }
+        lateChild.starts.endWalk(lateChild.scope)
+    }
+
+    /// Settles a deferred walk; a failed one pulls no further late children.
+    private func settle(_ succeeded: Bool) {
+        if !succeeded { endLate() }
+        deferral.settle(succeeded)
     }
 
     private func advance() throws -> Bool {
@@ -442,7 +477,7 @@ final class ChildTransitionWalker {
                 // Pull a late child outside `lock`: the source takes the
                 // container's membership gate.
                 lock.unlock()
-                guard let late = lateChild.next() else {
+                guard let (late, record) = lateChild.next() else {
                     lock.lock()
                     if cancelled {
                         lock.unlock()
@@ -458,6 +493,7 @@ final class ChildTransitionWalker {
                 lock.lock()
                 if !cancelled {
                     joined.insert(ObjectIdentifier(late))
+                    lateRecords[ObjectIdentifier(late)] = record
                     children.append(late)
                 }
                 lock.unlock()
@@ -473,6 +509,25 @@ final class ChildTransitionWalker {
             }
             let child = children[index]
             lock.unlock()
+
+            // A late child is never started here: wait until its add's start
+            // attempt is done, then join the child (spec/06 §5.1).
+            if let record = lateRecords[ObjectIdentifier(child)], !record.isDone {
+                lateChild?.starts.probe(child, .walkWaitingOnAdd)
+                lock.lock()
+                if cancelled {
+                    lock.unlock()
+                    return true
+                }
+                // Register under `lock` so an add finishing on another thread
+                // observes `waitingStart` before it resumes the walk.
+                if record.whenDone({ [self] in self.startAttempted(child) }) {
+                    waitingStart = child
+                    lock.unlock()
+                    return true
+                }
+                lock.unlock()
+            }
 
             let status = child.status
             if status != target && status != transient
@@ -508,6 +563,25 @@ final class ChildTransitionWalker {
         }
     }
 
+    /// A late child's add finished its start attempt: resume the walk,
+    /// which now joins that child.
+    private func startAttempted(_ child: ComponentVMBase) {
+        lock.lock()
+        guard !cancelled, let waitingStart, waitingStart === child else {
+            lock.unlock()
+            return
+        }
+        self.waitingStart = nil
+        lock.unlock()
+        do {
+            if try advance() { return }
+            settle(true)
+        } catch {
+            // A deferred failure has no caller to rethrow to: roll back.
+            settle(false)
+        }
+    }
+
     private func childSettled(_ child: ComponentVMBase) {
         lock.lock()
         guard !cancelled, let waiting, waiting.child === child else {
@@ -518,7 +592,7 @@ final class ChildTransitionWalker {
         lock.unlock()
         // The child rolled back or was disposed: roll the parent back.
         guard child.status == target else {
-            deferral.settle(false)
+            settle(false)
             return
         }
         lock.lock()
@@ -526,10 +600,10 @@ final class ChildTransitionWalker {
         lock.unlock()
         do {
             if try advance() { return }
-            deferral.settle(true)
+            settle(true)
         } catch {
             // A deferred failure has no caller to rethrow to: roll back.
-            deferral.settle(false)
+            settle(false)
         }
     }
 }
@@ -1180,7 +1254,9 @@ open class ComponentVMBase {
     /// started this transition (factory population): it is joined and its
     /// settled status is final, so it is never restarted. After `children`,
     /// the walk pulls each child `lateChild` returns (a child added while the
-    /// walk runs) and joins it, until `lateChild` returns `nil`.
+    /// walk runs) and joins it, until `lateChild` returns `nil`. The walk
+    /// never starts a late child: it waits until the add's start attempt is
+    /// done, then joins the child (`LateChildStarts`, spec/06 §5.1).
     func _transitionChildren(
         _ children: [ComponentVMBase],
         construct: Bool,

@@ -1188,14 +1188,16 @@ class _ComponentVMBase(ABC):
         construct: bool,
         after: Callable[[], None] | None = None,
         joined: Iterable[object] = (),
+        join: Callable[[object], Future[None] | None] | None = None,
     ) -> Future[None]:
         """Transition children sequentially and validate each settled state.
 
         A child in ``joined`` already started this transition (factory
-        population): it is joined and its settled status is final, so it is
-        never restarted. ``children`` is pulled lazily, one child at a time,
-        and a ``joined`` list is read live, so a container can extend its walk
-        while it runs.
+        population) or is a late auto-constructed add: it is joined through
+        ``join`` when that returns a future (default: join only), and its
+        settled status is final, so it is never restarted once started.
+        ``children`` is pulled lazily, one child at a time, and a ``joined``
+        list is read live, so a container can extend its walk while it runs.
         """
         result: Future[None] = Future()
         _CHILD_WALK_FUTURES.add(result)
@@ -1230,7 +1232,10 @@ class _ComponentVMBase(ABC):
 
                 try:
                     child_joined = is_joined(child)
-                    if child_joined and isinstance(child, _ComponentVMBase):
+                    joining = join(child) if child_joined and join is not None else None
+                    if joining is not None:
+                        pending = joining
+                    elif child_joined and isinstance(child, _ComponentVMBase):
                         # Check and join under the child's lifecycle lock so a
                         # child that settles meanwhile is never started again.
                         pending = child._join_transition_future(construct=construct)
