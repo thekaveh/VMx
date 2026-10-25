@@ -8,6 +8,7 @@ periodically while the notification fades.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 from reactivex.testing import TestScheduler
@@ -125,3 +126,41 @@ async def test_external_resolve_after_dispose_is_inert() -> None:
 
     assert vm.is_resolved is False
     assert changed == []
+
+
+async def test_reject_during_confirmation_teardown_does_not_resolve_the_hub() -> None:
+    # #730: a command executed from a teardown observer is inert after dispose.
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notif = Notification(NotificationType.CONFIRMATION, "confirm")
+    result = hub.post(notif)
+    vm = ConfirmationVM(notif, hub, scheduler)
+    rejects: list[None] = []
+
+    def reject_during_teardown(*_: object) -> None:
+        rejects.append(None)
+        vm.reject_command.execute()
+
+    vm.approve_command.can_execute_changed.subscribe(reject_during_teardown)
+
+    vm.dispose()
+    await asyncio.sleep(0)  # the hub completes post results on the next loop turn
+
+    assert rejects, "the teardown observer ran"
+    assert vm.is_resolved is False
+    assert not result.done()
+
+
+async def test_expiry_admitted_before_dispose_does_not_resolve_the_hub() -> None:
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notif = Notification(NotificationType.NOTIFICATION, "late expiry")
+    result = hub.post(notif)
+    vm = NotificationVM(notif, hub, scheduler, lifespan=timedelta(seconds=10))
+    vm.dispose()
+
+    vm._on_expire()
+    await asyncio.sleep(0)  # the hub completes post results on the next loop turn
+
+    assert vm.is_resolved is False
+    assert not result.done()
