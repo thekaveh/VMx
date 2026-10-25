@@ -62,7 +62,10 @@ fn assign_current_state<T: VmNode, D: Dispatcher>(
         next_current.set_current_flag(true);
     }
     core.notify_property_changed("current");
-    if let Some(callback) = lock(on_current_changed).clone() {
+    // Clone in a `let` so the guard drops before the call: the callback may
+    // replace itself or change the selection (#716).
+    let callback = lock(on_current_changed).clone();
+    if let Some(callback) = callback {
         callback(next);
     }
 }
@@ -464,7 +467,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                             Arc::new(move || members.to_vec()),
                             join_late,
                             Box::new(move || {
-                                if let Some(selector) = lock(&selector_slot).clone() {
+                                let selector = lock(&selector_slot).clone();
+                                if let Some(selector) = selector {
                                     if let Some(selected) = selector(items.to_vec()) {
                                         if items
                                             .to_vec()
@@ -1148,7 +1152,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     Arc::new(move || members.to_vec()),
                     join_late,
                     Box::new(move || {
-                        if let Some(selector) = lock(&composite.current_selector).clone() {
+                        // Clone in a `let` so the guard drops before the
+                        // selector and the selection callbacks run (#716).
+                        let selector = lock(&composite.current_selector).clone();
+                        if let Some(selector) = selector {
                             if let Some(selected) = selector(composite.items()) {
                                 if composite
                                     .items()

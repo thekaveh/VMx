@@ -1999,3 +1999,146 @@ fn queued_async_selection_is_inert_after_dispose() {
 
     assert!(composite.current().is_none());
 }
+
+mod reentrant_selection {
+    //! The current selector and the `on_current_changed` callback may re-enter
+    //! the composite without deadlocking it (#716).
+
+    use super::{child, Child};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::Duration;
+    use vmx::{Command, CompositeVm, Message, VmxResult};
+
+    type Composite = CompositeVm<Child>;
+
+    /// Runs `action` on a worker and fails if it does not return in time.
+    fn bounded<R: Send + 'static>(what: &str, action: impl FnOnce() -> R + Send + 'static) -> R {
+        let (sent, received) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sent.send(action());
+        });
+        received
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|_| panic!("{what} did not return: re-entrant selection deadlocked"))
+    }
+
+    fn two_children() -> (Composite, Child, Child) {
+        let composite = Composite::new("composite");
+        let (a, b) = (child("a"), child("b"));
+        composite.add(a.clone()).unwrap();
+        composite.add(b.clone()).unwrap();
+        composite.set_current_selector(|items| items.first().cloned());
+        (composite, a, b)
+    }
+
+    fn reselect_from_callback(composite: &Composite) {
+        let target = composite.clone();
+        let once = Arc::new(AtomicBool::new(false));
+        // Fire on a selection, which runs inside the selector step, not on the
+        // `None` that a destruct publishes.
+        composite.on_current_changed(move |current| {
+            if current.is_some() && !once.swap(true, Ordering::SeqCst) {
+                target.set_current_selector(|items| items.last().cloned());
+            }
+        });
+    }
+
+    #[test]
+    fn construct_callback_sets_the_selector() {
+        let (composite, _, _) = two_children();
+        reselect_from_callback(&composite);
+        let worker = composite.clone();
+        assert_eq!(bounded("construct", move || worker.construct()), Ok(()));
+    }
+
+    #[test]
+    fn construct_callback_sets_the_current_child() {
+        let (composite, _, b) = two_children();
+        let (target, once) = (composite.clone(), Arc::new(AtomicBool::new(false)));
+        composite.on_current_changed(move |_| {
+            if !once.swap(true, Ordering::SeqCst) {
+                let _ = target.set_current(Some(b.clone()));
+            }
+        });
+        let worker = composite.clone();
+        assert_eq!(bounded("construct", move || worker.construct()), Ok(()));
+    }
+
+    #[test]
+    fn set_current_callback_replaces_itself() {
+        let (composite, a, b) = two_children();
+        let replacement_saw: Arc<Mutex<Vec<Option<&'static str>>>> = Arc::default();
+        let (target, seen) = (composite.clone(), Arc::clone(&replacement_saw));
+        composite.on_current_changed(move |_| {
+            let seen = Arc::clone(&seen);
+            target.on_current_changed(move |current| {
+                seen.lock().unwrap().push(current.map(|item| item.model()));
+            });
+        });
+        let worker = composite.clone();
+        assert_eq!(
+            bounded("set_current", move || worker.set_current(Some(a))),
+            Ok(())
+        );
+        composite.set_current(Some(b)).unwrap();
+        assert_eq!(*replacement_saw.lock().unwrap(), vec![Some("b")]);
+    }
+
+    #[test]
+    fn reconstruct_callback_sets_the_selector() {
+        let (composite, _, _) = two_children();
+        composite.construct().unwrap();
+        reselect_from_callback(&composite);
+        let worker = composite.clone();
+        assert_eq!(bounded("reconstruct", move || worker.reconstruct()), Ok(()));
+
+        let (composite, _, _) = two_children();
+        composite.construct().unwrap();
+        reselect_from_callback(&composite);
+        let command = composite.reconstruct_command();
+        bounded("reconstruct_command", move || command.execute());
+    }
+
+    #[test]
+    fn construct_hub_subscriber_sets_the_selector() {
+        let hub = vmx::MessageHub::new();
+        let composite =
+            Composite::with_services("composite", hub.clone(), vmx::NullDispatcher::new());
+        composite.add(child("a")).unwrap();
+        composite.add(child("b")).unwrap();
+        composite.set_current_selector(|items| items.first().cloned());
+        let (target, once, id) = (
+            composite.clone(),
+            Arc::new(AtomicBool::new(false)),
+            composite.id(),
+        );
+        let _subscription = hub.subscribe(move |message| {
+            if let Message::PropertyChanged(change) = message {
+                if change.sender_id == id
+                    && change.property_name == "current"
+                    && !once.swap(true, Ordering::SeqCst)
+                {
+                    target.set_current_selector(|items| items.last().cloned());
+                }
+            }
+        });
+        let worker = composite.clone();
+        assert_eq!(bounded("construct", move || worker.construct()), Ok(()));
+    }
+
+    #[test]
+    fn destruct_callback_sets_the_current_child_on_none() {
+        let (composite, a, _) = two_children();
+        composite.construct().unwrap();
+        let (target, once) = (composite.clone(), Arc::new(AtomicBool::new(false)));
+        composite.on_current_changed(move |current| {
+            if current.is_none() && !once.swap(true, Ordering::SeqCst) {
+                let _ = target.set_current(Some(a.clone()));
+            }
+        });
+        let worker = composite.clone();
+        let result: VmxResult<()> = bounded("destruct", move || worker.destruct());
+        assert_eq!(result, Ok(()));
+    }
+}

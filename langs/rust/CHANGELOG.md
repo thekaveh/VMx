@@ -32,6 +32,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
   handle to a removed child whose model `Drop` reads the container. The
   abandoned settle queue now drops after the container's core lock is
   released (#741).
+- `CompositeVm` no longer deadlocks when its current selector, its
+  `on_current_changed` callback or a hub subscriber to `current` re-enters the
+  composite. The selector and callback are cloned out before they run. A
+  callback fired by `construct()`, `reconstruct()`, the reconstruct command or
+  `destruct()` can now change the selector or the current child, and any
+  callback can replace itself. A callback fired by `set_current` still gets
+  `OwnershipTransactionInProgress` if it changes the current child
+  (spec/06 §3.2). Before, each call ran under the mutex that stores it (#716).
 
 ## [0.35.0] — unreleased source version
 
