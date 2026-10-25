@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A container that waits on a busy child now checks the child's status when
+  it acts on it, as in C#, Python, and Swift (spec/02 §6). Before, a container
+  whose `destruct()` joined a reconstructing child reported `Destructed` while
+  the child was `Constructed` again. A container whose waiting child was
+  disposed after it published a settled status but before it released its
+  transition guard, such as mid-reconstruct, stayed `Destructing`, and its
+  next lifecycle call threw `StatusTransitionError` from `Destructing`. In both
+  cases the container now rolls back to `Constructed` (#722).
 - `FormVM.setModel(null)` called during approval settlement now throws to its
   caller and changes nothing, as in C# and Python (spec/20 §5.2). Before, the
   call returned and queued the `null`, whose replay then rejected the
