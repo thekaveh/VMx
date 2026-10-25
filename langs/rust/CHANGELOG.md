@@ -16,6 +16,23 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The construct walk of `CompositeVm` and `GroupVm` no longer rolls the
+  container back when it reaches a child that a cross-thread add attached
+  during `Constructing` but has not started yet (#743, spec/06 §5.1). Before,
+  the walk found that child `Destructed` and failed. Now an add that will
+  auto-start its child registers a start record as it attaches the child, and
+  marks it done right after its construct attempt, before it publishes the
+  collection change. The walk never starts a late child: it waits for that
+  attempt and then joins the child. A late child without a record (for
+  example, one added while `auto_construct_on_add` was off) is skipped. The
+  walk no longer reads the flag at all, so `set_auto_construct_on_add(false)`
+  during the walk no longer makes it fail on a child added later. A late child
+  whose construct fails still rolls the container back, and its add fails
+  and is undone. The walk scans for late children under the membership gate,
+  so it never sees a child whose add has not registered its record yet. Each
+  walk keeps its records in its own scope, which ends with that walk, so a
+  failed or superseded walk never takes or clears a later walk's records, and
+  an add after the walk's last scan keeps no record.
 - `FormVm` replays a model edit deferred during an approval settlement even
   when an approval subscriber panics, then lets the panic continue to the
   `approve()` caller, as the other flavors do in `finally`. Before, the edit

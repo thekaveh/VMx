@@ -6,11 +6,11 @@ use super::{
     begin_membership_transaction, begin_parent_transfer, catch_unwind, finish_with_first_error,
     finish_with_first_failure, lock, replace_locked, resume_unwind, retain_first_error,
     retain_first_failure, retain_parent_transfer_commit, Arc, AssertUnwindSafe, AtomicBool,
-    ComponentCore, ConstructionStatus, Dispatcher, HashSet, LifecycleOperation,
+    ComponentCore, ConstructionStatus, Dispatcher, HashSet, LateStarts, LifecycleOperation,
     MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
     MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
-    ParentTransfer, PropertyChangedStream, RelayCommand, TreeNode, ViewModelType, VmNode, VmxError,
-    VmxResult,
+    ParentTransfer, PropertyChangedStream, RelayCommand, StartAttempt, TreeNode, ViewModelType,
+    VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -231,6 +231,8 @@ pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     ownership: ParentRegistration,
     current: Arc<Mutex<Option<T>>>,
     auto_construct_on_add: Arc<Mutex<bool>>,
+    /// Decides who starts a child an auto-construct add attaches.
+    late_starts: LateStarts,
     async_selection: Arc<Mutex<bool>>,
     current_selector: Arc<Mutex<Option<CurrentSelector<T>>>>,
     on_current_changed: Arc<Mutex<Option<CurrentChangedCallback<T>>>>,
@@ -429,7 +431,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             },
         );
         let auto_construct_on_add = Arc::new(Mutex::new(false));
-        let reconstruct_auto = Arc::clone(&auto_construct_on_add);
+        let late_starts = LateStarts::new(Arc::clone(&membership_gate));
+        let reconstruct_late = late_starts.clone();
         let reconstruct_core = core.clone();
         let reconstruct_items = items.clone();
         let reconstruct_current = Arc::clone(&current);
@@ -456,16 +459,15 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 let selector_slot = Arc::clone(&reconstruct_selector);
                 let current = Arc::clone(&reconstruct_current);
                 let callback = Arc::clone(&reconstruct_callback);
-                let auto = Arc::clone(&reconstruct_auto);
+                let late = reconstruct_late.clone();
                 let _ = reconstruct_core.construct_after_destruct(move || {
                     core.transition_with(LifecycleOperation::Construct, || {
                         let members = items.clone();
-                        let join_late = *lock(&auto);
                         let core = core.clone();
                         let items = items.clone();
                         core.clone().construct_children(
                             Arc::new(move || members.to_vec()),
-                            join_late,
+                            late.clone(),
                             Box::new(move || {
                                 let selector = lock(&selector_slot).clone();
                                 if let Some(selector) = selector {
@@ -498,6 +500,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             ownership,
             current,
             auto_construct_on_add,
+            late_starts,
             async_selection,
             current_selector,
             on_current_changed,
@@ -612,6 +615,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let original_status = item.status();
+        let mut late_start;
         let index = {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -623,25 +627,23 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             let index = self.len();
             item.set_parent_handle(Some(self.ownership.handle()));
             self.items.insert_silent(index, item.clone())?;
+            late_start = self.attach_start(&item);
             index
         };
-        let should_construct = self
-            .core
-            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
-        let admission = (if should_construct {
-            item.construct()
-        } else {
-            Ok(())
-        })
-        .and_then(|()| {
-            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
-                Err(VmxError::Disposed)
-            } else {
-                Ok(())
-            }
-        });
+        let admission = self
+            .auto_construct_attached(late_start.as_mut(), &item)
+            .and_then(|()| {
+                if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+                    Err(VmxError::Disposed)
+                } else {
+                    Ok(())
+                }
+            });
         if let Err(error) = admission {
             let _gate = lock(&self.membership_gate);
+            if let Some(start) = late_start.as_mut() {
+                start.forget();
+            }
             if let Some(index) = self
                 .items()
                 .iter()
@@ -791,6 +793,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let original_status = item.status();
+        let mut late_start;
         {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -807,24 +810,22 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             item.set_parent_handle(Some(self.ownership.handle()));
             self.items.insert_silent(index, item.clone())?;
+            late_start = self.attach_start(&item);
         }
-        let should_construct = self
-            .core
-            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
-        let admission = (if should_construct {
-            item.construct()
-        } else {
-            Ok(())
-        })
-        .and_then(|()| {
-            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
-                Err(VmxError::Disposed)
-            } else {
-                Ok(())
-            }
-        });
+        let admission = self
+            .auto_construct_attached(late_start.as_mut(), &item)
+            .and_then(|()| {
+                if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+                    Err(VmxError::Disposed)
+                } else {
+                    Ok(())
+                }
+            });
         if let Err(error) = admission {
             let _gate = lock(&self.membership_gate);
+            if let Some(start) = late_start.as_mut() {
+                start.forget();
+            }
             if let Some(position) = self
                 .items()
                 .iter()
@@ -937,6 +938,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let original_status = item.status();
+        let mut late_start;
         let old = {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() {
@@ -947,7 +949,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             item.set_parent_handle(Some(self.ownership.handle()));
             match self.items.replace_silent(index, item.clone()) {
-                Ok(old) => old,
+                Ok(old) => {
+                    late_start = self.attach_start(&item);
+                    old
+                }
                 Err(error) => {
                     item.set_parent_handle(None);
                     drop(_gate);
@@ -958,23 +963,20 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             }
         };
-        let should_construct = self
-            .core
-            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
-        let admission = (if should_construct {
-            item.construct()
-        } else {
-            Ok(())
-        })
-        .and_then(|()| {
-            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
-                Err(VmxError::Disposed)
-            } else {
-                Ok(())
-            }
-        });
+        let admission = self
+            .auto_construct_attached(late_start.as_mut(), &item)
+            .and_then(|()| {
+                if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+                    Err(VmxError::Disposed)
+                } else {
+                    Ok(())
+                }
+            });
         if let Err(error) = admission {
             let _gate = lock(&self.membership_gate);
+            if let Some(start) = late_start.as_mut() {
+                start.forget();
+            }
             if let Some(attached) = self
                 .items()
                 .iter()
@@ -1106,6 +1108,33 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             && item.status() == ConstructionStatus::Constructed
     }
 
+    /// Registers this add's start record for `item` in the current construct
+    /// walk's scope, under the membership gate that attaches it, when the add
+    /// will auto-start the child: auto-construct-on-add is on and the
+    /// container is Constructing (spec/06 §5.1). Otherwise drops any record
+    /// for `item` from that scope.
+    fn attach_start(&self, item: &T) -> Option<StartAttempt> {
+        let will_start =
+            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructing;
+        self.late_starts.attach(item.id(), will_start)
+    }
+
+    /// The add's auto-construct of `item`. With a start record, it constructs
+    /// a Destructed child and marks the record done, which lets a construct
+    /// walk waiting on it join the child. Without one, it constructs only for
+    /// a Constructed container.
+    fn auto_construct_attached(&self, start: Option<&mut StartAttempt>, item: &T) -> VmxResult<()> {
+        if let Some(start) = start {
+            return start.run(&self.core, item);
+        }
+        let enabled = *lock(&self.auto_construct_on_add);
+        if self.core.auto_constructs_when_constructed(enabled) {
+            item.construct()
+        } else {
+            Ok(())
+        }
+    }
+
     /// Controls construction of additions to a constructed composite.
     pub fn set_auto_construct_on_add(&self, enabled: bool) {
         *lock(&self.auto_construct_on_add) = enabled;
@@ -1145,12 +1174,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
                 let members = self.items.clone();
-                let join_late = *lock(&self.auto_construct_on_add);
                 // The selector runs after every child settled (spec/02 §6).
                 let composite = self.clone();
                 self.core.construct_children(
                     Arc::new(move || members.to_vec()),
-                    join_late,
+                    self.late_starts.clone(),
                     Box::new(move || {
                         // Clone in a `let` so the guard drops before the
                         // selector and the selection callbacks run (#716).

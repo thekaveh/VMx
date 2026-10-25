@@ -434,16 +434,18 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     /// <summary>
     /// Transitions children sequentially. A child in <paramref name="joined"/>
-    /// already started this transition (factory population or a late
-    /// auto-constructed add): it is joined and its settled status is final, so
-    /// it is never restarted. The set is read live, so a lazy
+    /// already started this transition (factory population) or is a late
+    /// child whose auto-construct add started it: it is joined through
+    /// <paramref name="join"/> (default: join only) and its settled status is
+    /// final, so it is never restarted. The set is read live, so a lazy
     /// <paramref name="children"/> walk may add to it.
     /// </summary>
     private protected static async Task TransitionChildrenAsync(
         IEnumerable<IComponentVM> children,
         bool construct,
         Action? after,
-        ISet<IComponentVM>? joined)
+        ISet<IComponentVM>? joined,
+        Func<IComponentVM, Task>? join = null)
     {
         // Captured synchronously while the owner's lifecycle hook runs, before
         // the first await, so the walk can return to the owner's foreground.
@@ -457,8 +459,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             Task pending;
             if (construct)
             {
-                var join = joined is not null && joined.Contains(child);
-                pending = join ? child.JoinConstructAsync() : child.ConstructOrJoinAsync();
+                var isJoined = joined is not null && joined.Contains(child);
+                pending = !isJoined
+                    ? child.ConstructOrJoinAsync()
+                    : join is not null ? join(child) : child.JoinConstructAsync();
             }
             else
             {
