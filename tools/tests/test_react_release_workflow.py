@@ -171,6 +171,93 @@ def test_release_notes_empty_level_two_heading_ends_section(tmp_path: Path) -> N
     assert notes == "- Selected.\n"
 
 
+def test_release_notes_link_form_heading(tmp_path: Path) -> None:
+    fixture = (
+        "## [0.2.0](https://github.com/thekaveh/VMx/compare/a...b) (2026-10-01)\n"
+        "- Linked.\n## [0.1.0]\n- Old.\n"
+    )
+    result, notes, _ = _run_notes(tmp_path, fixture)
+    assert result.returncode == 0, result.stderr
+    assert notes == "- Linked.\n"
+
+
+def test_release_notes_keep_an_indented_heading_inside_a_list_item(tmp_path: Path) -> None:
+    fixture = "## [0.2.0]\n- Item.\n  ## Detail\n- Next.\n## [0.1.0]\n- Old.\n"
+    result, notes, _ = _run_notes(tmp_path, fixture)
+    assert result.returncode == 0, result.stderr
+    assert notes == "- Item.\n  ## Detail\n- Next.\n"
+
+
+def test_release_notes_link_form_similarly_prefixed_version(tmp_path: Path) -> None:
+    fixture = (
+        "## [0.1.30](https://example.test/30) (2026-10-02)\n- Thirty.\n"
+        "## [0.1.3](https://example.test/3) (2026-10-01)\n- Exact.\n"
+    )
+    result, notes, _ = _run_notes(tmp_path, fixture, "0.1.3")
+    assert result.returncode == 0, result.stderr
+    assert notes == "- Exact.\n"
+
+
+def test_four_space_indented_heading_is_not_a_section(tmp_path: Path) -> None:
+    fixture = "## [0.2.0]\n- Selected.\n    ## [0.1.0]\n- Still selected.\n"
+    result, notes, _ = _run_notes(tmp_path, fixture)
+    assert result.returncode == 0, result.stderr
+    assert notes == "- Selected.\n    ## [0.1.0]\n- Still selected.\n"
+
+
+@pytest.mark.parametrize(
+    ("heading", "accepted"),
+    [
+        ("## [0.2.0] - 2026-10-01", True),
+        ("## [0.2.0](https://github.com/thekaveh/VMx/compare/a...b) (2026-10-01)", True),
+        ("## [0.2.0]\t- 2026-10-01", True),
+        (" ## [0.2.0] - 2026-10-01", False),
+        ("   ## [0.2.0](https://example.test/x)", False),
+        ("## [0.2.0](https://x y) (2026-10-01)", False),
+        ("## [0.2.0]( https://x)", False),
+        ("## [0.2.0]\u00a02026-10-01", False),
+    ],
+    ids=("plain", "link", "tab", "indented", "indented-link", "spaced-link", "padded-link", "nbsp"),
+)
+def test_gate_accepts_only_headings_the_extractor_reads(
+    tmp_path: Path, heading: str, accepted: bool
+) -> None:
+    import check_version_consistency as cvc
+
+    changelog = f"## [Unreleased]\n\n{heading}\n\n- Accepted.\n"
+    package = tmp_path / "gate/packages/react"
+    package.mkdir(parents=True)
+    (package / "package.json").write_text(json.dumps({"version": "0.2.0"}))
+    (package / "CHANGELOG.md").write_text(changelog)
+    errors = cvc.check_react_changelog_section(tmp_path / "gate")
+    if not accepted:
+        assert errors and "release-notes extractor" in errors[0], errors
+        return
+    assert errors == []
+    result, notes, _ = _run_notes(tmp_path, changelog)
+    assert result.returncode == 0, result.stderr
+    assert notes == "\n- Accepted.\n"
+
+
+@pytest.mark.parametrize(
+    "separator",
+    ["\r", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"],
+)
+def test_gate_rejects_line_breaks_awk_does_not_split_on(tmp_path: Path, separator: str) -> None:
+    import check_version_consistency as cvc
+
+    package = tmp_path / "packages/react"
+    package.mkdir(parents=True)
+    (package / "package.json").write_text(json.dumps({"version": "0.2.0"}))
+    (package / "CHANGELOG.md").write_text(
+        f"## [Unreleased]\n\n## [0.2.0]{separator}- 2026-10-01\n\n- Notes.\n",
+        newline="",
+    )
+    assert cvc.check_react_changelog_section(tmp_path) == [
+        "  react: CHANGELOG contains a line break other than \\n"
+    ]
+
+
 @pytest.mark.parametrize(
     ("changelog", "expected_returncode", "expected_stdout"),
     [

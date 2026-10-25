@@ -105,6 +105,23 @@ _SEMVER_TRIPLE = rf"{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT
 _VERSION_RE = re.compile(rf"\b({_SEMVER_TRIPLE})\b", re.ASCII)
 _STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
 _CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
+# The React release-notes extractor (tools/extract-react-release-notes.awk)
+# reads awk fields, so a React release heading must start in column 0, keep
+# its optional link free of whitespace, and use only ASCII spaces or tabs.
+_AWK_INVISIBLE_LINE_BREAKS = (
+    "\r",
+    "\x0b",
+    "\x0c",
+    "\x1c",
+    "\x1d",
+    "\x1e",
+    "\x85",
+    "\u2028",
+    "\u2029",
+)
+_REACT_CHANGELOG_HEADING_RE = re.compile(
+    r"^## \[([^\]\s]+)\](?:\([^)\s]*\))?(?:[ \t]+.*)?$", re.ASCII
+)
 _COMMONMARK = MarkdownIt("commonmark")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
@@ -497,6 +514,19 @@ def check_react_changelog_section(repo_root: Path) -> list[str]:
     sections, parse_errors = _parse_changelog_sections(changelog, ())
     if parse_errors:
         return parse_errors
+    text = changelog.read_bytes().decode("utf-8")
+    if any(separator in text for separator in _AWK_INVISIBLE_LINE_BREAKS):
+        # Python splits lines on these, awk does not, so the two would disagree.
+        return ["  react: CHANGELOG contains a line break other than \\n"]
+    lines = text.splitlines()
+    extractable = [
+        f"  react: CHANGELOG heading {lines[index]!r} is not in a form the release-notes "
+        "extractor reads (column 0, a link without spaces, ASCII spacing)"
+        for index, _, _ in _top_level_headings(lines, 2)
+        if not _REACT_CHANGELOG_HEADING_RE.fullmatch(lines[index])
+    ]
+    if extractable:
+        return extractable
     if version not in sections:
         return [f"  react: CHANGELOG section {version!r} is missing for current version"]
     if not _has_substantive_markdown(sections[version]):
