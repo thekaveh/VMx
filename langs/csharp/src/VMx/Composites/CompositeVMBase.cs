@@ -955,7 +955,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <summary>
     /// Dispose cascade (LIFE-013): recursively dispose each child depth-first, then self.
     /// </summary>
+#pragma warning disable CA2215 // DisposeWithChildren runs the base disposal at its hook-lease boundary (LIFE-015).
     public override void Dispose()
+#pragma warning restore CA2215
     {
         VM[] snapshot;
         lock (_membershipGate)
@@ -970,16 +972,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             _disposeRequested = 1;
             snapshot = _children.ToArray();
         }
-        var firstError = DisposeChildren(snapshot);
-        try
-        {
-            base.Dispose();
-        }
-        catch (Exception error)
-        {
-            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-        }
-        firstError?.Throw();
+        // The cascade runs at the base's admitted-hook boundary (LIFE-015): a
+        // foreign disposal cleans no child while this container's hook runs.
+        // No lock is held here, so the hook can finish while this call waits.
+        DisposeWithChildren(snapshot);
     }
 
     // ── IComponentVM.Type ─────────────────────────────────────────────────────

@@ -10,6 +10,18 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- A `CompositeVM` or `GroupVM` `dispose()` from another thread no longer
+  cleans its children while the container's admitted `on_construct` or
+  `on_destruct` hook still runs (LIFE-015). The child cascade now runs at the
+  same hook-lease boundary as the base `dispose()`: the container publishes
+  `DISPOSED`, waits for the hook to release its lease (or, on a wait-for
+  cycle, defers the whole disposal to that release), and then disposes its
+  children depth-first before its own cleanup. In that case the children's
+  `DISPOSED` messages now follow the container's. With no foreign hook running,
+  hook admission closes and the children are still disposed before the
+  container publishes `DISPOSED`.
+  A same-thread `dispose()` from inside the hook still runs immediately
+  (#742).
 - When an `approve_command.can_execute_changed` observer raises during
   approval admission, `FormVM` now raises `can_execute_changed` again after it
   releases the in-flight mark, so observers that saw the admission's `False`

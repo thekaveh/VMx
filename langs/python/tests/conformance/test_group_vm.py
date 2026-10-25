@@ -11,13 +11,17 @@ GRP-011 — Group children are peers; inherited child select command is disabled
 
 from __future__ import annotations
 
+from threading import Event, Thread
+
 import pytest
 
 from vmx.collections import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder
+from vmx.components.component_vm import ComponentVM
 from vmx.groups.builders import GroupVMBuilder
 from vmx.groups.group_vm import GroupVM
 from vmx.lifecycle.status import ConstructionStatus
+from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
 
@@ -250,3 +254,101 @@ def test_GRP_006_batch_update_emits_one_reset() -> None:
     assert len(events) == 1, f"Expected one Reset event, got {[e.action for e in events]}"
     assert events[0].action == "reset"
     assert len(grp) == 3
+
+
+# ===========================================================================
+# LIFE-015 — container cascade waits for the admitted hook
+# ===========================================================================
+
+
+class _CleanupProbe(ComponentVM):
+    """Records each terminal cleanup in a shared log."""
+
+    def __init__(self, name: str, hub: MessageHub[object], log: list[str]) -> None:
+        super().__init__(name=name, hint="", hub=hub, dispatcher=_dispatcher())
+        self._log = log
+        self.cleanups = 0
+
+    def _on_dispose(self) -> None:
+        self.cleanups += 1
+        self._log.append(f"cleanup:{self.name}")
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_child_cascade_waits_for_admitted_group_hook() -> None:
+    """LIFE-015: a foreign dispose of a group whose construct hook is admitted
+    and blocked cleans no child until the hook releases its lease; each child
+    is then cleaned once, and nothing publishes Constructed."""
+    hook_entered = Event()
+    release_hook = Event()
+    log: list[str] = []
+    hub = _hub()
+    first = _CleanupProbe("first", hub, log)
+    second = _CleanupProbe("second", hub, log)
+
+    def block_construct() -> None:
+        log.append("hook-enter")
+        hook_entered.set()
+        assert release_hook.wait(5)
+        log.append("hook-exit")
+
+    grp: GroupVM[ComponentVM] = (
+        GroupVMBuilder()
+        .name("grp")
+        .services(hub, _dispatcher())
+        .on_construct(block_construct)
+        .children(lambda: ())
+        .build()
+    )
+    grp.add(first)
+    grp.add(second)
+    constructed: list[str] = []
+    hub.messages.subscribe(
+        lambda m: (
+            constructed.append(m.sender.name)
+            if isinstance(m, ConstructionStatusChangedMessage)
+            and m.status is ConstructionStatus.CONSTRUCTED
+            else None
+        )
+    )
+    dispose_errors: list[BaseException] = []
+
+    def construct() -> None:
+        try:
+            grp.construct()
+        except BaseException:
+            pass
+
+    def dispose() -> None:
+        try:
+            grp.dispose()
+        except BaseException as error:
+            dispose_errors.append(error)
+
+    constructor = Thread(target=construct, daemon=True)
+    constructor.start()
+    assert hook_entered.wait(5)
+    disposer = Thread(target=dispose, daemon=True)
+    disposer.start()
+    disposer.join(0.1)
+    assert not any(entry.startswith("cleanup:") for entry in log), (
+        "terminal cleanup must not overlap the admitted hook"
+    )
+
+    release_hook.set()
+    constructor.join(5)
+    disposer.join(5)
+    assert not constructor.is_alive()
+    assert not disposer.is_alive()
+    grp.dispose()
+
+    assert dispose_errors == []
+    hook_exit = log.index("hook-exit")
+    assert log.index("cleanup:first") > hook_exit
+    assert log.index("cleanup:second") > hook_exit
+    assert first.cleanups == 1
+    assert second.cleanups == 1
+    assert grp.status is ConstructionStatus.DISPOSED
+    assert first.status is ConstructionStatus.DISPOSED
+    assert second.status is ConstructionStatus.DISPOSED
+    assert constructed == []

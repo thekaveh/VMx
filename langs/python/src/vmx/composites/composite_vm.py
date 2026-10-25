@@ -22,7 +22,6 @@ from vmx.components.base import (
     _begin_parent_transfer,
     _commit_parent_transfer,
     _ComponentVMBase,
-    _dispose_children_then_self,
     _ownership_reservation_batch,
     _ParentCompositeVM,
     _ParentTransfer,
@@ -794,7 +793,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 return
             self._dispose_requested = True
             snapshot = list(self._children)
-        _dispose_children_then_self(snapshot, super().dispose)
+        # The cascade runs at the base's admitted-hook boundary (LIFE-015): a
+        # foreign dispose cleans no child while this container's hook runs. No
+        # lock is held here, so the hook can finish while this call waits.
+        self._dispose_with_children(snapshot)
 
     def _require_child_admission(self) -> None:
         if self._dispose_requested or self._dispose_deferred:
