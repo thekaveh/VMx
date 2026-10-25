@@ -27,6 +27,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `set_auto_construct_on_add` during the construct walk. The group reads its
   auto-construct flag before the walk, as `CompositeVm` does. Before, the walk
   held the flag's lock, so the re-entrant call waited forever (#702).
+- Disposing a `CompositeVm`, `GroupVm` or aggregate while it waits on a
+  background child no longer deadlocks when a queued child step owns the last
+  handle to a removed child whose model `Drop` reads the container. The
+  abandoned settle queue now drops after the container's core lock is
+  released (#741).
 
 ## [0.35.0] — unreleased source version
 
