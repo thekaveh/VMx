@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM` no longer traps when the construct walk assigns the
+  initial-current selector's pick (#705). The walk checks the pick against
+  live membership, so a pick that has left is a silent no-op, as spec/06
+  §3.2 requires. A walk that resumes on a thread holding the composite's
+  membership transaction joins that transaction instead of trapping, so a
+  contained pick still becomes `current`, as in C#.
 - `FormVM` no longer deadlocks when an approval raises `canExecuteChanged`
   while `setModel` or deny raises it on another thread, and a sink calls
   `canExecute()` (#704). Top-level `setModel` and deny calls now send
