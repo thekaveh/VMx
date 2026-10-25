@@ -8,6 +8,17 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a `CompositeVM` or `GroupVM` `Dispose()` from another thread no
+  longer cleans its children while the container's admitted `OnConstruct` or
+  `OnDestruct` hook still runs (#742, LIFE-015). The child cascade now runs at
+  the same hook-lease boundary as the base `Dispose()`: the container publishes
+  `Disposed`, waits for the hook to release its lease (or, on a wait-for
+  cycle, defers the whole disposal to that release), and then disposes its
+  children depth-first before its own cleanup. In that case the children's
+  `Disposed` messages now follow the container's. With no foreign hook running,
+  hook admission closes and the children are still disposed before the
+  container publishes `Disposed`.
+  A same-thread `Dispose()` from inside the hook still runs immediately.
 - Fixed: a container's deferred child walk stops once its owner is
   `Disposed`. A `CompositeVM` or `GroupVM` disposed while the walk waits to
   resume on the foreground no longer runs the user `onDestruct` callback or

@@ -1985,6 +1985,205 @@ def test_LIFE_015_opposing_hook_disposals_do_not_deadlock() -> None:
     assert disposed_counts == [1, 1]
 
 
+class _CleanupProbe(ComponentVM):
+    """Records each terminal cleanup in a shared log."""
+
+    def __init__(self, name: str, hub: MessageHub[object], log: list[str]) -> None:
+        super().__init__(name=name, hint="", hub=hub, dispatcher=_dispatcher())
+        self._log = log
+        self.cleanups = 0
+
+    def _on_dispose(self) -> None:
+        self.cleanups += 1
+        self._log.append(f"cleanup:{self.name}")
+
+
+def _record_constructed(hub: MessageHub[object], names: list[str]) -> None:
+    hub.messages.subscribe(
+        lambda m: (
+            names.append(m.sender.name)
+            if isinstance(m, ConstructionStatusChangedMessage)
+            and m.status is ConstructionStatus.CONSTRUCTED
+            else None
+        )
+    )
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_child_cascade_waits_for_admitted_composite_hook() -> None:
+    """LIFE-015: a foreign dispose of a composite whose construct hook is
+    admitted and blocked cleans no child until the hook releases its lease;
+    each child is then cleaned once, and nothing publishes Constructed."""
+    hook_entered = Event()
+    release_hook = Event()
+    log: list[str] = []
+    hub = _hub()
+    first = _CleanupProbe("first", hub, log)
+    second = _CleanupProbe("second", hub, log)
+
+    def block_construct() -> None:
+        log.append("hook-enter")
+        hook_entered.set()
+        assert release_hook.wait(5)
+        log.append("hook-exit")
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, _dispatcher())
+        .on_construct(block_construct)
+        .children(lambda: ())
+        .build()
+    )
+    composite.add(first)
+    composite.add(second)
+    constructed: list[str] = []
+    _record_constructed(hub, constructed)
+    dispose_errors: list[BaseException] = []
+
+    def construct() -> None:
+        try:
+            composite.construct()
+        except BaseException:
+            pass
+
+    def dispose() -> None:
+        try:
+            composite.dispose()
+        except BaseException as error:
+            dispose_errors.append(error)
+
+    constructor = Thread(target=construct, daemon=True)
+    constructor.start()
+    assert hook_entered.wait(5)
+    disposer = Thread(target=dispose, daemon=True)
+    disposer.start()
+    disposer.join(0.1)
+    assert not any(entry.startswith("cleanup:") for entry in log), (
+        "terminal cleanup must not overlap the admitted hook"
+    )
+
+    release_hook.set()
+    constructor.join(5)
+    disposer.join(5)
+    assert not constructor.is_alive()
+    assert not disposer.is_alive()
+    composite.dispose()
+
+    assert dispose_errors == []
+    hook_exit = log.index("hook-exit")
+    assert log.index("cleanup:first") > hook_exit
+    assert log.index("cleanup:second") > hook_exit
+    assert first.cleanups == 1
+    assert second.cleanups == 1
+    assert composite.status is ConstructionStatus.DISPOSED
+    assert first.status is ConstructionStatus.DISPOSED
+    assert second.status is ConstructionStatus.DISPOSED
+    assert constructed == []
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_opposing_composite_disposal_defers_child_cascade() -> None:
+    """LIFE-015: two composites whose admitted hooks dispose each other. The
+    wait graph defers one disposal, child cascade included, to its hook's
+    lease release. Every child is cleaned once, only after its own
+    container's hook exits, and nothing publishes Constructed."""
+    barrier = Barrier(2)
+    log: list[str] = []
+    composites: list[CompositeVM[ComponentVM]] = []
+    children: list[list[_CleanupProbe]] = []
+    constructed: list[str] = []
+
+    def hook(index: int) -> None:
+        log.append(f"hook-enter:{index}")
+        barrier.wait(timeout=5)
+        composites[1 - index].dispose()
+        log.append(f"hook-exit:{index}")
+
+    for index in range(2):
+        hub = _hub()
+        composite: CompositeVM[ComponentVM] = (
+            CompositeVMBuilder()
+            .name(f"comp-{index}")
+            .services(hub, _dispatcher())
+            .on_construct(lambda index=index: hook(index))
+            .children(lambda: ())
+            .build()
+        )
+        pair = [_CleanupProbe(f"{index}a", hub, log), _CleanupProbe(f"{index}b", hub, log)]
+        for child in pair:
+            composite.add(child)
+        _record_constructed(hub, constructed)
+        composites.append(composite)
+        children.append(pair)
+
+    def construct(vm: CompositeVM[ComponentVM]) -> None:
+        try:
+            vm.construct()
+        except BaseException:
+            pass
+
+    threads = [Thread(target=construct, args=(vm,), daemon=True) for vm in composites]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+
+    assert all(not thread.is_alive() for thread in threads), "disposals must not deadlock"
+    for index in range(2):
+        hook_exit = log.index(f"hook-exit:{index}")
+        for child in children[index]:
+            assert log.index(f"cleanup:{child.name}") > hook_exit
+            assert child.cleanups == 1
+            assert child.status is ConstructionStatus.DISPOSED
+        assert composites[index].status is ConstructionStatus.DISPOSED
+    assert constructed == []
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_same_thread_composite_disposal_inside_hook_cascades_immediately() -> None:
+    """LIFE-015: a composite disposed inside its own admitted hook, on the
+    hook's thread, cascades immediately, as the base disposes immediately on
+    the owner thread. The superseded construct publishes no Constructed."""
+    log: list[str] = []
+    hub = _hub()
+    first = _CleanupProbe("first", hub, log)
+    second = _CleanupProbe("second", hub, log)
+    holder: list[CompositeVM[ComponentVM]] = []
+
+    def hook() -> None:
+        log.append("hook-enter")
+        holder[0].dispose()
+        log.append("dispose-returned")
+        log.append("hook-exit")
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, _dispatcher())
+        .on_construct(hook)
+        .children(lambda: ())
+        .build()
+    )
+    holder.append(composite)
+    composite.add(first)
+    composite.add(second)
+    constructed: list[str] = []
+    _record_constructed(hub, constructed)
+
+    try:
+        composite.construct()
+    except BaseException:
+        pass
+    composite.dispose()
+
+    assert log == ["hook-enter", "cleanup:first", "cleanup:second", "dispose-returned", "hook-exit"]
+    assert first.cleanups == 1
+    assert second.cleanups == 1
+    assert composite.status is ConstructionStatus.DISPOSED
+    assert constructed == []
+
+
 @pytest.mark.conformance("COMP-041")
 def test_COMP_041_transfer_publishes_old_remove_before_new_add() -> None:
     hub = _hub()

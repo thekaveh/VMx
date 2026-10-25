@@ -3,8 +3,10 @@ using FluentAssertions;
 using VMx.Components;
 using VMx.Groups;
 using VMx.Lifecycle;
+using VMx.Messages;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -181,5 +183,94 @@ public class GroupVMConformanceTests
         c2.Status.Should().Be(ConstructionStatus.Destructed);
         c3.Status.Should().Be(ConstructionStatus.Destructed);
         group.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    // ── LIFE-015 — container cascade waits for the admitted hook ───────────────
+
+    private sealed class HookCleanupProbeVM(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher,
+        System.Collections.Concurrent.ConcurrentQueue<string> log)
+        : ComponentVMBase(name, "", hub, dispatcher, null, null)
+    {
+        private int _cleanups;
+        public int Cleanups => _cleanups;
+        public override ViewModelType Type => ViewModelType.Component;
+
+        protected override void OnDispose()
+        {
+            Interlocked.Increment(ref _cleanups);
+            log.Enqueue($"cleanup:{Name}");
+        }
+    }
+
+    /// <summary>
+    /// LIFE-015 (container cascade): a foreign disposal of a group whose
+    /// construct hook is admitted and blocked cleans no child until the hook
+    /// releases its lease; then each child is cleaned once and nothing reaches
+    /// Constructed.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-015")]
+    public async Task LIFE_015_Child_Cascade_Waits_For_Admitted_Group_Hook()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var first = new HookCleanupProbeVM("first", hub, dispatcher, log);
+        var second = new HookCleanupProbeVM("second", hub, dispatcher, log);
+        var group = GroupVM<IComponentVM>.Builder()
+            .Name("group").Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>())
+            .OnConstruct(() =>
+            {
+                log.Enqueue("hook-enter");
+                entered.Set();
+                release.Wait(HangGuard).Should().BeTrue();
+                log.Enqueue("hook-exit");
+            })
+            .Build();
+        group.Add(first);
+        group.Add(second);
+        var constructedNames = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is IConstructionStatusChangedMessage csm
+                && csm.Status == ConstructionStatus.Constructed)
+                constructedNames.Enqueue(csm.SenderName);
+        });
+
+        var construct = Task.Factory.StartNew(
+            () => Record.Exception(group.Construct),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        entered.Wait(HangGuard).Should().BeTrue();
+        var dispose = Task.Factory.StartNew(
+            () => Record.Exception(group.Dispose),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        // Give the foreign disposal time to be requested while the hook is held.
+        await Task.Delay(100);
+        log.Should().NotContain(e => e.StartsWith("cleanup:", StringComparison.Ordinal),
+            "terminal cleanup must not overlap the admitted hook");
+        release.Set();
+        await Task.WhenAll(construct, dispose).WaitAsync(HangGuard);
+        (await dispose).Should().BeNull();
+        group.Dispose();
+
+        var entries = log.ToList();
+        var hookExit = entries.IndexOf("hook-exit");
+        hookExit.Should().BeGreaterThanOrEqualTo(0);
+        entries.IndexOf("cleanup:first").Should().BeGreaterThan(hookExit,
+            "terminal cleanup runs only after the admitted hook releases");
+        entries.IndexOf("cleanup:second").Should().BeGreaterThan(hookExit,
+            "terminal cleanup runs only after the admitted hook releases");
+        first.Cleanups.Should().Be(1);
+        second.Cleanups.Should().Be(1);
+        group.Status.Should().Be(ConstructionStatus.Disposed);
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+        constructedNames.Should().BeEmpty(
+            "terminal supersession prevents post-hook container lifecycle work");
     }
 }
