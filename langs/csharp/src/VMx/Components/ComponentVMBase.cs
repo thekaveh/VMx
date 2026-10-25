@@ -443,46 +443,45 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         ISet<IComponentVM>? joined)
     {
         // Captured synchronously while the owner's lifecycle hook runs, before
-        // the first await, so a deferred `after` can return to its foreground.
+        // the first await, so the walk can return to the owner's foreground.
         var scope = t_lifecycleHookScope;
-        var yielded = false;
         foreach (var child in children)
         {
             // An abandoned walk (its hook threw after deferring) drives no
             // further children, matching Python and TypeScript.
             if (scope is not null && scope.Abandoned) return;
+            Task pending;
             if (construct)
             {
                 var join = joined is not null && joined.Contains(child);
-                var pending = join ? child.JoinConstructAsync() : child.ConstructOrJoinAsync();
-                yielded |= !pending.IsCompleted;
-                await pending.ConfigureAwait(false);
-                if (child.Status != ConstructionStatus.Constructed)
-                    throw new InvalidOperationException(
-                        $"Child '{child.Name}' did not reach Constructed.");
+                pending = join ? child.JoinConstructAsync() : child.ConstructOrJoinAsync();
             }
             else
             {
-                var pending = child.DestructAsync();
-                yielded |= !pending.IsCompleted;
-                await pending.ConfigureAwait(false);
-                if (child.Status != ConstructionStatus.Destructed)
-                    throw new InvalidOperationException(
-                        $"Child '{child.Name}' did not reach Destructed.");
+                pending = child.DestructAsync();
             }
+            var resumes = !pending.IsCompleted;
+            await pending.ConfigureAwait(false);
+            if (construct && child.Status != ConstructionStatus.Constructed)
+                throw new InvalidOperationException(
+                    $"Child '{child.Name}' did not reach Constructed.");
+            if (!construct && child.Status != ConstructionStatus.Destructed)
+                throw new InvalidOperationException(
+                    $"Child '{child.Name}' did not reach Destructed.");
+
+            // spec/11 §3: a child that settled asynchronously resumes the walk on a
+            // pool thread. Later siblings raise CollectionChanged / IsCurrent and run
+            // user hooks, so the rest of the walk, and `after`, continue on the
+            // owner's foreground dispatcher, like the terminal status. A walk whose
+            // children all settle synchronously never hops: it stays on the caller.
+            if (resumes && scope is not null)
+                await new ForegroundResumption(scope.Owner);
         }
 
-        if (after is null) return;
-        if (!yielded || scope is null)
-        {
-            // All children settled synchronously: still inside the hook, inline.
-            after();
-            return;
-        }
-
-        // spec/11 §3: the continuation selects Current / runs user hooks, so it
-        // publishes on the owner's foreground dispatcher, like the terminal status.
-        await scope.Owner.RunDeferredOnForeground(after, scope).ConfigureAwait(false);
+        // Inline: either still inside the hook (no child yielded) or already on the
+        // owner's foreground. An abandoned walk never runs its continuation.
+        if (after is null || (scope is not null && scope.Abandoned)) return;
+        after();
     }
 
     /// <summary>The lifecycle hook currently running on this thread, if any.</summary>
@@ -495,28 +494,37 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         internal volatile bool Abandoned;
     }
 
-    private Task<bool> RunDeferredOnForeground(Action action, LifecycleHookScope scope)
+    /// <summary>
+    /// Awaitable that resumes the awaiting walk on the owner's foreground
+    /// dispatcher. A rejected schedule never escapes the awaiter: the walk resumes
+    /// on the pool and faults with the scheduling error.
+    /// </summary>
+    private sealed class ForegroundResumption(ComponentVMBase owner) : INotifyCompletion
     {
-        var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+        private ExceptionDispatchInfo? _failure;
+
+        public ForegroundResumption GetAwaiter() => this;
+
+        public bool IsCompleted => false;
+
+        public void OnCompleted(Action continuation)
         {
-            if (scope.Abandoned)
-            {
-                done.TrySetResult(false);
-                return Disposable.Empty;
-            }
             try
             {
-                action();
-                done.TrySetResult(true);
+                owner._dispatcher.Foreground.Schedule(continuation, static (_, resume) =>
+                {
+                    resume();
+                    return Disposable.Empty;
+                });
             }
             catch (Exception error)
             {
-                done.TrySetException(error);
+                _failure = ExceptionDispatchInfo.Capture(error);
+                ThreadPool.QueueUserWorkItem(static resume => ((Action)resume!)(), continuation);
             }
-            return Disposable.Empty;
-        });
-        return done.Task;
+        }
+
+        public void GetResult() => _failure?.Throw();
     }
 
     /// <summary>
