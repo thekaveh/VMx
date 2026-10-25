@@ -41,6 +41,79 @@ final class ObservableDictionaryTests: XCTestCase {
         XCTAssertEqual(indices, ["a": 0, "b": 1])
     }
 
+    // #733: key-view subscribers run before the hub publication.
+    private func hubAddIndices(_ hub: MessageHub) -> () -> [(Int, Int)] {
+        var adds: [(Int, Int)] = []
+        hub.messages
+            .compactMap { $0 as? CollectionChangedMessage<DictionaryEntry<String, String, Int>> }
+            .filter { $0.action == .add }
+            .sink { message in
+                for item in message.newItems { adds.append((item.value, message.index)) }
+            }
+            .store(in: &cancellables)
+        return { adds }
+    }
+
+    func testHubAddIndexIsCapturedBeforeAKeyViewReentrantAdd() {
+        for view in ["keys1", "keys2"] {
+            let hub = MessageHub()
+            let sut = ObservableDictionary<String, String, Int>(hub: hub)
+            let adds = hubAddIndices(hub)
+            var nested = false
+            let keyAdded = view == "keys1"
+                ? sut.keys1.itemAdded.map { _ in () }.eraseToAnyPublisher()
+                : sut.keys2.itemAdded.map { _ in () }.eraseToAnyPublisher()
+            keyAdded.sink {
+                guard !nested else { return }
+                nested = true
+                sut.set("z", "z", 1)
+            }.store(in: &cancellables)
+
+            sut.set("a", "a", 0)
+
+            XCTAssertEqual(adds().map { $0.0 }, [1, 0], view)
+            XCTAssertEqual(adds().map { $0.1 }, [1, 0], view)
+        }
+    }
+
+    func testHubAddIndexFollowsAKeyViewReentrantDeleteOrClear() {
+        for (nested, expected) in [("delete", 0), ("clear", -1)] {
+            let hub = MessageHub()
+            let sut = ObservableDictionary<String, String, Int>(hub: hub)
+            sut.set("x", "x", 9)
+            let adds = hubAddIndices(hub)
+            var done = false
+            sut.keys1.itemAdded.sink { _ in
+                guard !done else { return }
+                done = true
+                if nested == "delete" { _ = sut.delete("x", "x") } else { sut.clear() }
+            }.store(in: &cancellables)
+
+            sut.set("a", "a", 0)
+
+            XCTAssertEqual(adds().count, 1, nested)
+            XCTAssertEqual(adds().first?.1, expected, nested)
+        }
+    }
+
+    func testHubAddIndexFollowsTheKeyPairAfterANestedClearAndReAdd() {
+        let hub = MessageHub()
+        let sut = ObservableDictionary<String, String, Int>(hub: hub)
+        let adds = hubAddIndices(hub)
+        var done = false
+        sut.keys1.itemAdded.sink { _ in
+            guard !done else { return }
+            done = true
+            sut.clear()
+            sut.set("a", "a", 7)
+        }.store(in: &cancellables)
+
+        sut.set("a", "a", 0)
+
+        XCTAssertEqual(adds().map { $0.0 }, [7, 0])
+        XCTAssertEqual(adds().map { $0.1 }, [0, 0])
+    }
+
     // ── COL-010 ──────────────────────────────────────────────────────────────
 
     /// COL-010 — ObservableDictionary insert sets has() and get() returns value.

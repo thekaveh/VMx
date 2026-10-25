@@ -322,6 +322,8 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
 
     private func internalAdd(_ key: CompositeKey, key1: TKey1, key2: TKey2, value: TValue) {
         keyOrder.append(key)
+        // Capture the position now: a key-view or local subscriber may add another entry.
+        let index = keyOrder.count - 1
         data[key] = value
 
         // Update key-axis views and refcounts: append to the live view only on
@@ -334,8 +336,6 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
         key2Counts[key2] = key2Count + 1
         if key2Count == 0 { keys2View.append(key2) }
 
-        // Capture the position now: a local subscriber may add another entry.
-        let index = keyOrder.count - 1
         // 1. Local granular event first (COL-022 ordering).
         itemAddedSubject.send(
             DictionaryItemAddedEvent(key1: key1, key2: key2, value: value))
@@ -345,7 +345,14 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
             CollectionChangedMessage.forAdd(
                 sender: self, senderName: typeName,
                 item: DictionaryEntry(key1: key1, key2: key2, value: value),
-                index: index))
+                index: currentIndex(of: key, capturedAt: index)))
+    }
+
+    /// The key pair's position now: a subscriber may have removed an entry or
+    /// cleared since `index` was captured (#733). -1 when the pair is gone.
+    private func currentIndex(of key: CompositeKey, capturedAt index: Int) -> Int {
+        if index < keyOrder.count && keyOrder[index] == key { return index }
+        return keyOrder.firstIndex(of: key) ?? -1
     }
 
     /// Remove the first occurrence of `key` from a live key view (by value).
