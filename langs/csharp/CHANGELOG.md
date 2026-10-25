@@ -27,6 +27,14 @@ All notable changes to the C# flavor are documented here. The format is based on
   handler behind an Rx operator chain (`Where`, `OfType`) is still detached by
   Rx on its first throw. A late subscriber after `Dispose` still receives
   `ObjectDisposedException` through `OnError`.
+- Fixed: two threads that move children between two `GroupVM` instances in
+  opposite directions, through `Add`, `Insert` or the indexer (for example
+  `g1.Add(b)` and `g2.Add(a)`), no longer block forever. A group still waits
+  for another thread's membership transaction, but it refuses the one wait
+  that would close a wait-for cycle: that call throws
+  `InvalidOperationException` before it changes either group, and the other
+  call completes. A failed indexer set now also ends its membership
+  transaction, so it no longer blocks later callers on other threads (#718).
 - Fixed: an abandoned child walk (its hook threw after deferring) constructs
   no further children, as in Python and TypeScript.
 - Fixed: a construct walk over factory-started children checks each child
