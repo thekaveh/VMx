@@ -33,9 +33,13 @@
 import Foundation
 import Combine
 
-/// Thrown by `HierarchicalVM.reparentChild(_:)` when the requested reparent
-/// would create a cycle (HIER-018): the child is `self` or one of `self`'s
-/// ancestors.
+/// Errors from `HierarchicalVM` structural changes.
+///
+/// - `invalidReparent`: `reparentChild(_:)` would create a cycle (HIER-018):
+///   the child is `self` or one of `self`'s ancestors.
+/// - `invalidFactoryOutput`: the lazy children factory returned invalid output,
+///   or a structural change re-entered while children were loading (HIER-032).
+///   `addChild` and `removeChild` return it; `reparentChild` throws it.
 public enum HierarchyError: Error {
     case invalidReparent
     case invalidFactoryOutput
@@ -323,11 +327,21 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// Removes `child` from this node's children list, clears its parent, invalidates
     /// path caches, and publishes `TreeStructureChangedMessage(.removed, …)` (HIER-011).
-    public func removeChild(_ child: TVM) {
-        if rejectStructuralReentry() { return }
-        // Materialize lazy children first, as every other flavor does. Invalid
-        // factory output traps here, as it does in the `children` accessor.
-        guard let idx = children.firstIndex(where: { $0 === child }) else { return }
+    ///
+    /// Lazy children are materialized first, as every other flavor does. Invalid
+    /// factory output returns `.failure(.invalidFactoryOutput)` and changes nothing,
+    /// as `addChild` does (spec/18 §6). A `child` that is not a member is a no-op.
+    @discardableResult
+    public func removeChild(_ child: TVM) -> Result<Void, HierarchyError> {
+        if rejectStructuralReentry() { return .failure(.invalidFactoryOutput) }
+        let current: [TVM]
+        switch tryChildren() {
+        case .success(let children):
+            current = children
+        case .failure(let error):
+            return .failure(error)
+        }
+        guard let idx = current.firstIndex(where: { $0 === child }) else { return .success(()) }
         _children!.remove(at: idx)
         setHierarchicalParent(of: child, to: nil) // → PropertyChangedMessage
         hub.send(TreeStructureChangedMessage(
@@ -337,14 +351,17 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             affected: node(child),
             index: idx
         ))
+        return .success(())
     }
 
     /// Moves `child` from its current parent to this node and publishes
     /// `TreeStructureChangedMessage(.reparented, index: -1, …)` (HIER-011).
     ///
     /// - Throws: `HierarchyError.invalidReparent` when `child` is `self` or one of
-    ///   `self`'s ancestors — attaching would create a parent cycle (HIER-018). On
-    ///   rejection the tree is completely unchanged and no message is published.
+    ///   `self`'s ancestors — attaching would create a parent cycle (HIER-018).
+    ///   `HierarchyError.invalidFactoryOutput` when this node's lazy children
+    ///   factory returns invalid output. On rejection the tree is completely
+    ///   unchanged and no message is published.
     public func reparentChild(_ child: TVM) throws {
         if rejectStructuralReentry() { throw HierarchyError.invalidFactoryOutput }
         switch attachChild(child, explicitReparent: true) {
