@@ -204,6 +204,7 @@ func beginMembershipWait(owner: UInt64, container: AnyObject) -> Bool {
 /// Waits for a transaction recorded by `beginMembershipWait` to end.
 func awaitMembershipTransaction(_ completion: DispatchGroup) {
     completion.wait()
+    ThreadWaitGraph.shared.onMembershipWaitWokeForTesting?()
     ThreadWaitGraph.shared.endWait(caller: ThreadWaitGraph.currentThread)
 }
 
