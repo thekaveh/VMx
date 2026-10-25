@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a cross-thread `CompositeVM` or `GroupVM` `Dispose()` no longer
+  deadlocks when the transaction owner it waits for already waits for the
+  disposing thread (#717, ADR-0153). The disposal registers its wait in the
+  membership wait-for graph; on a cycle it records its intent, and the owner
+  disposes the container when its transaction ends. A composite now records
+  its transaction owner in that graph.
 - Added: `ComponentVMBase`, `ComponentVMBaseOfM<M>`, `CompositeVMBase<VM>`, and
   `GroupVMBase<VM>` have protected constructor overloads without `hint`, which
   default it to an empty string as the builders do (spec/10 §4). The
