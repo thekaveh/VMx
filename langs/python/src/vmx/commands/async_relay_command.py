@@ -23,6 +23,7 @@ Behavior contract:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
@@ -34,7 +35,7 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
-from vmx._asyncio_runner import post_to_loop, submit_background
+from vmx._asyncio_runner import ScheduledRun, post_to_loop, submit_background
 from vmx._disposal import _run_disposal_steps
 
 TEmission = TypeVar("TEmission")
@@ -185,12 +186,16 @@ class AsyncRelayCommand:
         task_factory: Callable[[], Awaitable[None]],
         *,
         start_notified: bool = False,
+        scheduled: ScheduledRun | None = None,
     ) -> None:
         """Run a task that :meth:`_admit` accepted.
 
         ``start_notified`` is True when the caller already raised the
-        execution-started ``can_execute_changed``.
+        execution-started ``can_execute_changed``. ``scheduled`` is the start
+        claim of a run that ``execute()`` scheduled as a task.
         """
+        if scheduled is not None and not scheduled.claim_start():
+            return
         first_error: tuple[BaseException, TracebackType | None] | None = None
         try:
             if not start_notified:
@@ -251,15 +256,26 @@ class AsyncRelayCommand:
                 self._is_executing = False
                 self._cancellation_origin = None
             raise
-        run = self._run_admitted(task_factory, start_notified=True)
+        scheduled = ScheduledRun()
+        run = self._run_admitted(task_factory, start_notified=True, scheduled=scheduled)
         try:
-            loop = asyncio.get_running_loop()
+            loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
-            future = submit_background(run)
-            future.add_done_callback(self._on_done)
-            return
-        task = loop.create_task(run)
-        task.add_done_callback(self._on_done)
+            loop = None
+        try:
+            task: asyncio.Task[None] | Future[None] = (
+                loop.create_task(run) if loop is not None else submit_background(run)
+            )
+        except BaseException:
+            # Nothing was scheduled: release the admission instead of wedging.
+            # The scheduling error reaches the caller and wins over an observer
+            # failure in the completion notification.
+            run.close()
+            if scheduled.claim_release():
+                with contextlib.suppress(BaseException):
+                    self._release_unstarted()
+            raise
+        task.add_done_callback(lambda done: self._on_done(done, scheduled))
 
     def cancel(self) -> None:
         """Request cancellation of the in-flight task; a no-op when idle."""
@@ -304,12 +320,32 @@ class AsyncRelayCommand:
         """
         return self._errors.pipe(ops.as_observable())
 
-    def _on_done(self, task: asyncio.Future[None] | Future[None]) -> None:
+    def _on_done(
+        self,
+        task: asyncio.Future[None] | Future[None],
+        scheduled: ScheduledRun,
+    ) -> None:
         if task.cancelled():
+            # A task cancelled before its first step never ran the body that
+            # clears the admission (spec/04 §10.2): release it here instead.
+            if scheduled.claim_release():
+                try:
+                    self._release_unstarted()
+                except BaseException as error:
+                    self._emit_error(error)
             return
         exc = task.exception()
         if exc is not None:
             self._emit_error(exc)
+
+    def _release_unstarted(self) -> None:
+        """Clear the admission of a run that never started; notify completion once."""
+        with self._gate:
+            self._is_executing = False
+            self._current_task = None
+            self._current_loop = None
+            self._cancellation_origin = None
+        self.raise_can_execute_changed()
 
     def _emit_error(self, exc: BaseException) -> None:
         self._emit_subject(self._errors, exc, self._errors_delivery_gate)
