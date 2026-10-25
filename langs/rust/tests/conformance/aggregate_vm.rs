@@ -1368,3 +1368,72 @@ fn aggregate_factory_returning_the_aggregate_fails_cycle_preflight() {
     );
     *own.lock().unwrap() = None;
 }
+
+/// A candidate that is an ancestor of the aggregate (its parent or its
+/// grandparent) fails cycle preflight before any slot commits: no slot
+/// notification, no slot change, and no ownership change on either side. A
+/// later construct with a valid factory succeeds.
+#[test]
+fn aggregate_factory_returning_an_ancestor_fails_cycle_preflight() {
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let candidate = Arc::new(Mutex::new(None::<CycleNode>));
+    let factory_candidate = Arc::clone(&candidate);
+    let inner = vmx::AggregateVm2::<CycleNode, CycleNode>::builder()
+        .name("inner")
+        .services(hub.clone(), NullDispatcher::new())
+        .component_1(move || {
+            factory_candidate
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| CycleNode::Leaf(Box::new(text("first"))))
+        })
+        .component_2(|| CycleNode::Leaf(Box::new(text("second"))))
+        .build()
+        .unwrap();
+    let parent = vmx::AggregateVm2::with_services(
+        "parent",
+        hub.clone(),
+        NullDispatcher::new(),
+        CycleNode::Aggregate(Box::new(inner.clone())),
+        CycleNode::Leaf(Box::new(text("uncle"))),
+    );
+    let grandparent = vmx::AggregateVm2::with_services(
+        "grandparent",
+        hub.clone(),
+        NullDispatcher::new(),
+        CycleNode::Aggregate(Box::new(parent.clone())),
+        CycleNode::Leaf(Box::new(text("great-uncle"))),
+    );
+    assert_eq!(VmNode::parent_id(&inner), Some(parent.id()));
+    assert_eq!(VmNode::parent_id(&parent), Some(grandparent.id()));
+
+    for (ancestor, ancestor_parent) in [
+        (parent.clone(), Some(grandparent.id())),
+        (grandparent.clone(), None),
+    ] {
+        *candidate.lock().unwrap() = Some(CycleNode::Aggregate(Box::new(ancestor.clone())));
+
+        assert_eq!(inner.construct(), Err(VmxError::OwnershipCycle));
+
+        assert_eq!(inner.status(), ConstructionStatus::Destructed);
+        assert!(inner.component_1().is_none());
+        assert!(inner.component_2().is_none());
+        assert_eq!(VmNode::parent_id(&inner), Some(parent.id()));
+        assert_eq!(VmNode::parent_id(&ancestor), ancestor_parent);
+        assert_eq!(ancestor.status(), ConstructionStatus::Destructed);
+    }
+    assert!(!recorder.messages().iter().any(|message| matches!(
+        message,
+        Message::PropertyChanged(change) if change.sender_id == inner.id()
+    )));
+
+    *candidate.lock().unwrap() = None;
+    inner.construct().unwrap();
+    assert_eq!(inner.status(), ConstructionStatus::Constructed);
+    assert_eq!(
+        inner.component_1().map(|node| node.status()),
+        Some(ConstructionStatus::Constructed)
+    );
+}

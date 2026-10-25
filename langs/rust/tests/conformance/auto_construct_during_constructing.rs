@@ -2,12 +2,40 @@
 //! construct walk joins a child added during it, and the container completes
 //! only when that child is Constructed.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 use vmx::{
     ComponentVm, CompositeVm, ConstructionStatus, GroupVm, LifecycleErrorStream,
     LifecycleSettleCallback, ManualDispatcher, Message, MessageHub, NullDispatcher, ParentHandle,
     Subscription, VmNode, VmxResult,
 };
+
+/// Runs `body` on a worker and fails if it does not finish in time, so a
+/// deadlock regression fails the test instead of hanging the suite. A worker
+/// panic is reported as a panic, with its message, not as a deadlock.
+fn within_timeout<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
+    let (tx, rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let _ = tx.send(body());
+    });
+    match rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(value) => value,
+        Err(RecvTimeoutError::Timeout) => panic!("{what} deadlocked"),
+        Err(RecvTimeoutError::Disconnected) => {
+            let message = match worker.join() {
+                Ok(()) => "worker exited without a result".to_string(),
+                Err(payload) => payload
+                    .downcast_ref::<&str>()
+                    .map(|text| (*text).to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "non-string panic payload".to_string()),
+            };
+            panic!("{what} worker panicked: {message}")
+        }
+    }
+}
 
 /// A node whose construct either completes at once (foreground) or stays
 /// Constructing until the test settles it (background).
@@ -405,4 +433,270 @@ fn composite_joins_child_added_by_its_construct_hook() {
 #[test]
 fn group_joins_child_added_by_its_construct_hook() {
     child_added_by_construct_hook_is_joined!(GroupVm);
+}
+
+/// Calls `reconstruct()` on a Constructed container whose construct hook adds
+/// a real background `ComponentVm`, and checks the reconstruct walk joins that
+/// already-started child: its construct hook runs once, while the container
+/// is still Constructing in that walk, and the container then completes.
+macro_rules! reconstruct_joins_child_added_by_construct_hook {
+    ($container:ident) => {{
+        let hub = MessageHub::new();
+        let dispatcher = ManualDispatcher::new();
+        let container: $container<Leaf, ManualDispatcher> =
+            $container::with_services("container", hub.clone(), dispatcher.clone());
+        container.set_auto_construct_on_add(true);
+        container.construct().unwrap();
+        assert_eq!(container.status(), ConstructionStatus::Constructed);
+
+        let hook_seen: Arc<Mutex<Vec<ConstructionStatus>>> = Arc::default();
+        let seen = Arc::clone(&hook_seen);
+        let observed = container.clone();
+        let child: Leaf = ComponentVm::builder()
+            .name("child")
+            .model(1)
+            .background(true)
+            .on_construct(move || {
+                seen.lock().unwrap().push(observed.status());
+                Ok(())
+            })
+            .services(hub.clone(), dispatcher.clone())
+            .build()
+            .unwrap();
+        let target = container.clone();
+        let added = child.clone();
+        container.on_construct(move || target.add(added.clone()));
+        let log: Arc<Mutex<Vec<(usize, ConstructionStatus)>>> = Arc::default();
+        let sink = Arc::clone(&log);
+        let _subscription = hub.subscribe(move |message| {
+            if let Message::ConstructionStatusChanged(change) = message {
+                sink.lock().unwrap().push((change.sender_id, change.status));
+            }
+        });
+
+        let result = within_timeout("reconstruct", {
+            let container = container.clone();
+            move || container.reconstruct()
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(container.status(), ConstructionStatus::Constructing);
+        assert_eq!(child.status(), ConstructionStatus::Constructing);
+        assert!(hook_seen.lock().unwrap().is_empty());
+        within_timeout("drain", {
+            let dispatcher = dispatcher.clone();
+            move || dispatcher.drain()
+        });
+
+        assert_eq!(
+            *hook_seen.lock().unwrap(),
+            vec![ConstructionStatus::Constructing]
+        );
+        assert_eq!(child.status(), ConstructionStatus::Constructed);
+        assert_eq!(container.status(), ConstructionStatus::Constructed);
+        assert_eq!(
+            statuses(&log, child.id()),
+            vec![
+                ConstructionStatus::Constructing,
+                ConstructionStatus::Constructed
+            ]
+        );
+        assert_eq!(
+            statuses(&log, container.id()),
+            vec![
+                ConstructionStatus::Destructing,
+                ConstructionStatus::Destructed,
+                ConstructionStatus::Constructing,
+                ConstructionStatus::Constructed
+            ]
+        );
+        container.on_construct(|| Ok(()));
+        child.on_construct(|| Ok(()));
+    }};
+}
+
+/// A composite's reconstruct walk joins the background child its construct
+/// hook adds and does not construct it a second time.
+#[test]
+fn composite_reconstruct_joins_child_added_by_its_construct_hook() {
+    reconstruct_joins_child_added_by_construct_hook!(CompositeVm);
+}
+
+/// A group's reconstruct walk joins the background child its construct hook
+/// adds and does not construct it a second time.
+#[test]
+fn group_reconstruct_joins_child_added_by_its_construct_hook() {
+    reconstruct_joins_child_added_by_construct_hook!(GroupVm);
+}
+
+type Foreground = ComponentVm<i32>;
+
+/// Where a child is added from during the synchronous construct walk.
+#[derive(Clone, Copy)]
+enum AddFrom {
+    /// The construct hook of a member the walk constructs.
+    ChildHook,
+    /// A hub subscriber that sees that member's Constructed status.
+    HubSubscriber,
+}
+
+/// Adds a child to a container from inside its synchronous construct walk,
+/// with auto-construct-on-add, and checks `construct()` returns, the added
+/// child is constructed exactly once, and the container completes.
+macro_rules! child_added_during_the_walk_is_constructed_once {
+    ($container:ident, $from:expr) => {{
+        let hub = MessageHub::new();
+        let container: $container<Foreground> =
+            $container::with_services("container", hub.clone(), NullDispatcher::new());
+        container.set_auto_construct_on_add(true);
+        let first = Foreground::with_model("first", 1, hub.clone(), NullDispatcher::new());
+        container.add(first.clone()).unwrap();
+        let late = Foreground::with_model("late", 2, hub.clone(), NullDispatcher::new());
+        let constructs = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&constructs);
+        late.on_construct(move || {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
+        // The container status and add result each time the child is added.
+        let adds: Arc<Mutex<Vec<(ConstructionStatus, bool)>>> = Arc::default();
+        let record_add = Arc::clone(&adds);
+        let target = container.clone();
+        let added = late.clone();
+        let add = move || {
+            let status = target.status();
+            let result = target.add(added.clone());
+            record_add.lock().unwrap().push((status, result.is_ok()));
+        };
+        let _subscription = match $from {
+            AddFrom::ChildHook => {
+                first.on_construct(move || {
+                    add();
+                    Ok(())
+                });
+                None
+            }
+            AddFrom::HubSubscriber => {
+                let first_id = first.id();
+                Some(hub.subscribe(move |message| {
+                    if let Message::ConstructionStatusChanged(change) = message {
+                        if change.sender_id == first_id
+                            && change.status == ConstructionStatus::Constructed
+                        {
+                            add();
+                        }
+                    }
+                }))
+            }
+        };
+
+        let result = within_timeout("construct with an add during the walk", {
+            let container = container.clone();
+            move || container.construct()
+        });
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            *adds.lock().unwrap(),
+            vec![(ConstructionStatus::Constructing, true)]
+        );
+        assert_eq!(container.len(), 2);
+        assert_eq!(constructs.load(Ordering::SeqCst), 1);
+        assert_eq!(late.status(), ConstructionStatus::Constructed);
+        assert_eq!(container.status(), ConstructionStatus::Constructed);
+        first.on_construct(|| Ok(()));
+    }};
+}
+
+/// A child that a composite member's construct hook adds during the
+/// composite's construct walk is constructed once and the walk returns.
+#[test]
+fn composite_constructs_once_a_child_added_by_a_child_construct_hook() {
+    child_added_during_the_walk_is_constructed_once!(CompositeVm, AddFrom::ChildHook);
+}
+
+/// A child that a hub subscriber adds during the composite's construct walk
+/// is constructed once and the walk returns.
+#[test]
+fn composite_constructs_once_a_child_added_by_a_hub_subscriber() {
+    child_added_during_the_walk_is_constructed_once!(CompositeVm, AddFrom::HubSubscriber);
+}
+
+/// A child that a group member's construct hook adds during the group's
+/// construct walk is constructed once and the walk returns.
+#[test]
+fn group_constructs_once_a_child_added_by_a_child_construct_hook() {
+    child_added_during_the_walk_is_constructed_once!(GroupVm, AddFrom::ChildHook);
+}
+
+/// A child that a hub subscriber adds during the group's construct walk is
+/// constructed once and the walk returns.
+#[test]
+fn group_constructs_once_a_child_added_by_a_hub_subscriber() {
+    child_added_during_the_walk_is_constructed_once!(GroupVm, AddFrom::HubSubscriber);
+}
+
+/// Adds a background child from a hub subscriber that sees the container's
+/// own Constructed status, i.e. once the walk has ended, and checks the child
+/// is constructed but not awaited: the container registers no settle callback
+/// on it and publishes no further status while the child is Constructing.
+fn background_child_added_after_the_walk_is_not_awaited<C>()
+where
+    C: Container + Clone + Send + Sync + 'static,
+{
+    let (hub, container, anchor, log, _subscription) = constructing::<C>(true);
+    let late = Node::new(true);
+    let adds: Arc<Mutex<Vec<(ConstructionStatus, bool)>>> = Arc::default();
+    let record_add = Arc::clone(&adds);
+    let target = container.clone();
+    let added = late.clone();
+    let container_id = container.id();
+    let _late_add = hub.subscribe(move |message| {
+        if let Message::ConstructionStatusChanged(change) = message {
+            if change.sender_id == container_id && change.status == ConstructionStatus::Constructed
+            {
+                let status = target.status();
+                let result = target.add(added.clone());
+                record_add.lock().unwrap().push((status, result.is_ok()));
+            }
+        }
+    });
+
+    within_timeout("settle with an add after the walk", {
+        let anchor = anchor.clone();
+        move || anchor.finish(ConstructionStatus::Constructed)
+    });
+
+    assert_eq!(
+        *adds.lock().unwrap(),
+        vec![(ConstructionStatus::Constructed, true)]
+    );
+    assert_eq!(late.constructs(), 1);
+    assert_eq!(late.status(), ConstructionStatus::Constructing);
+    assert!(late.settle.lock().unwrap().is_none());
+    assert_eq!(container.status(), ConstructionStatus::Constructed);
+
+    late.finish(ConstructionStatus::Constructed);
+    assert_eq!(late.constructs(), 1);
+    assert_eq!(container.status(), ConstructionStatus::Constructed);
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed
+        ]
+    );
+}
+
+/// A background child added to a composite once its construct walk has
+/// ended is constructed, and the composite does not wait for it.
+#[test]
+fn composite_does_not_wait_for_background_child_added_after_the_walk() {
+    background_child_added_after_the_walk_is_not_awaited::<CompositeVm<Node>>();
+}
+
+/// A background child added to a group once its construct walk has ended is
+/// constructed, and the group does not wait for it.
+#[test]
+fn group_does_not_wait_for_background_child_added_after_the_walk() {
+    background_child_added_after_the_walk_is_not_awaited::<GroupVm<Node>>();
 }

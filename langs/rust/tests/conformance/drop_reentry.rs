@@ -8,10 +8,11 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use vmx::{
-    AggregateChangeStream, AggregateObserveOptions, AsyncResourceRetention, AsyncResourceVm,
-    CancellationToken, ComponentVm, CompositeVm, DerivedProperty, FilteredCompositeVm, FormVm,
-    GroupVm, HierarchicalVm, ManualDispatcher, MessageHub, MissingParentPolicy, NullDispatcher,
-    PagedComposition, ValueStream,
+    AggregateChangeStream, AggregateObserveOptions, AggregateVm1, AsyncResourceRetention,
+    AsyncResourceVm, CancellationToken, ComponentVm, CompositeVm, ConstructionStatus,
+    DerivedProperty, FilteredCompositeVm, FormVm, GroupVm, HierarchicalVm,
+    KeyedServicedObservableCollection, ManualDispatcher, MessageHub, MissingParentPolicy,
+    NullDispatcher, PagedComposition, ValueStream,
 };
 
 /// Runs `body` on a worker and fails if it does not finish in time, so a
@@ -86,6 +87,14 @@ impl DropProbe {
 impl PartialEq for DropProbe {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+    }
+}
+
+impl Eq for DropProbe {}
+
+impl std::hash::Hash for DropProbe {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }
 
@@ -242,6 +251,102 @@ fn filtered_set_predicate_drop_may_read_the_projection() {
         move || filtered.set_predicate(|_| false)
     });
     assert!(hook.disarm() > 0);
+}
+
+/// A filtered current item that the source removed drops after the current
+/// lock when a read reconciles the selection, so its `Drop` may read the
+/// projection.
+#[test]
+fn filtered_current_item_drop_may_read_the_projection() {
+    let hook = Hook::default();
+    let source: CompositeVm<ComponentVm<DropProbe>> = CompositeVm::new("source");
+    source
+        .add(component("first", DropProbe::new(1, &hook)))
+        .unwrap();
+    source
+        .add(component("second", DropProbe::new(2, &Hook::default())))
+        .unwrap();
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    let first = filtered.current().unwrap();
+    assert_eq!(first.name(), "first");
+    source.remove(&first).unwrap();
+    // The projection's current slot now owns the removed item's last handle.
+    drop(first);
+
+    let reader = filtered.clone();
+    hook.arm(move || {
+        let _ = reader.current();
+        let _ = reader.visible();
+    });
+    let current = within_timeout("FilteredCompositeVm::current", {
+        let filtered = filtered.clone();
+        move || filtered.current().map(|item| item.name())
+    });
+    assert!(hook.disarm() > 0);
+    assert_eq!(current.as_deref(), Some("second"));
+}
+
+/// Keyed `replace`, `remove_at` and `remove_key` drop the captured key of the
+/// membership they release after the collection lock, so the key's `Drop`
+/// may read the collection.
+#[test]
+fn keyed_collection_replace_remove_at_and_remove_key_drop_may_read_the_collection() {
+    let hook = Hook::default();
+    // Only the captured keys carry the armed hook, so every count below comes
+    // from a key the collection itself drops.
+    let key_hook = hook.clone();
+    let collection = KeyedServicedObservableCollection::new(1, move |item: &DropProbe| {
+        Ok(DropProbe::new(item.id, &key_hook))
+    });
+    for id in 1..=4 {
+        collection
+            .push(DropProbe::new(id, &Hook::default()))
+            .unwrap();
+    }
+    let reader = collection.clone();
+    hook.arm(move || {
+        let _ = reader.len();
+        let _ = reader.to_vec();
+    });
+    let fired = |hook: &Hook| hook.fired.load(Ordering::SeqCst);
+
+    let before = fired(&hook);
+    let replaced = within_timeout("KeyedServicedObservableCollection::replace", {
+        let collection = collection.clone();
+        move || {
+            let old = collection
+                .replace(0, DropProbe::new(10, &Hook::default()))
+                .unwrap();
+            (old.id, collection.len())
+        }
+    });
+    assert_eq!(replaced, (1, 4));
+    assert!(fired(&hook) > before, "replace dropped no captured key");
+
+    let before = fired(&hook);
+    let removed = within_timeout("KeyedServicedObservableCollection::remove_at", {
+        let collection = collection.clone();
+        move || {
+            let old = collection.remove_at(0).unwrap();
+            (old.id, collection.len())
+        }
+    });
+    assert_eq!(removed, (10, 3));
+    assert!(fired(&hook) > before, "remove_at dropped no captured key");
+
+    let before = fired(&hook);
+    let removed = within_timeout("KeyedServicedObservableCollection::remove_key", {
+        let collection = collection.clone();
+        move || {
+            let old = collection
+                .remove_key(&DropProbe::new(3, &Hook::default()))
+                .unwrap();
+            (old.id, collection.len())
+        }
+    });
+    assert_eq!(removed, (3, 2));
+    assert!(fired(&hook) > before, "remove_key dropped no captured key");
+    hook.disarm();
 }
 
 /// A replaced current selector drops after the selector lock.
@@ -494,4 +599,92 @@ fn dispose_while_waiting_drops_a_queued_removed_child_after_the_core_lock() {
     })
     .unwrap();
     assert!(hook.disarm() > 0);
+}
+
+/// A group child removed while its construct step is queued, whose last
+/// handle the queue owns, drops after the core lock when the waiting group is
+/// disposed.
+#[test]
+fn group_dispose_while_waiting_drops_a_queued_removed_child_after_the_core_lock() {
+    let hook = Hook::default();
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = |name: &str, id: u32, background: bool| {
+        ComponentVm::builder()
+            .name(name)
+            .model(DropProbe::new(id, &hook))
+            .background(background)
+            .services(hub.clone(), dispatcher.clone())
+            .build()
+            .unwrap()
+    };
+    let group = GroupVm::with_services("group", hub.clone(), dispatcher.clone());
+    group.add(child("anchor", 1, true)).unwrap();
+    let queued = child("queued", 2, false);
+    group.add(queued.clone()).unwrap();
+    group.construct().unwrap();
+    assert_eq!(group.status(), ConstructionStatus::Constructing);
+    group.remove(&queued).unwrap();
+    drop(queued);
+
+    let reader = group.clone();
+    hook.arm(move || {
+        let _ = reader.status();
+    });
+    within_timeout("GroupVm::dispose while waiting", {
+        let group = group.clone();
+        move || group.dispose()
+    })
+    .unwrap();
+    assert!(hook.disarm() > 0);
+    assert_eq!(group.status(), ConstructionStatus::Disposed);
+}
+
+/// An `AggregateVm1` disposed while it waits on its component releases a
+/// value after every core lock: the component is a composite waiting on a
+/// background child, and its queued step owns the last handle to a removed
+/// child whose `Drop` reads the aggregate and the composite. The aggregate's
+/// own settle queue holds no step while it waits on its only component, so
+/// the released value comes from the component's queue.
+#[test]
+fn aggregate_dispose_while_waiting_drops_a_released_child_after_the_core_lock() {
+    let hook = Hook::default();
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = |name: &str, id: u32, background: bool| {
+        ComponentVm::builder()
+            .name(name)
+            .model(DropProbe::new(id, &hook))
+            .background(background)
+            .services(hub.clone(), dispatcher.clone())
+            .build()
+            .unwrap()
+    };
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child("anchor", 1, true)).unwrap();
+    let queued = child("queued", 2, false);
+    composite.add(queued.clone()).unwrap();
+    let aggregate =
+        AggregateVm1::with_services("aggregate", hub.clone(), dispatcher.clone(), composite);
+    aggregate.construct().unwrap();
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructing);
+    let composite = aggregate.component_1().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+    composite.remove(&queued).unwrap();
+    drop(queued);
+
+    let reader = aggregate.clone();
+    let component = composite.clone();
+    hook.arm(move || {
+        let _ = reader.status();
+        let _ = component.status();
+    });
+    drop(composite);
+    within_timeout("AggregateVm1::dispose while waiting", {
+        let aggregate = aggregate.clone();
+        move || aggregate.dispose()
+    })
+    .unwrap();
+    assert!(hook.disarm() > 0);
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
 }
