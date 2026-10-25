@@ -368,6 +368,8 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
       value,
     };
     this.#keyOrder.push(entry);
+    // Capture the position now: a key-view or local subscriber may add another entry.
+    const index = this.#keyOrder.length - 1;
     let bucket = this.#data.get(key1);
     if (bucket === undefined) {
       bucket = new Map();
@@ -384,8 +386,6 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#key2Counts.set(key2, key2Count + 1);
     if (key2Count === 0) this.#keys2.push(key2);
 
-    // Capture the position now: a local subscriber may add another entry.
-    const index = this.#keyOrder.length - 1;
     // 1. Local granular event first.
     this.#itemAdded.next({ key1, key2, value });
     // 2. Publish to hub (if present). Element type includes both keys + value
@@ -394,9 +394,16 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
       CollectionChangedMessage.forAdd<DictionaryEntry<TKey1, TKey2, TValue>>(
         this,
         { key1, key2, value },
-        index,
+        this.#currentIndex(key1, key2, index),
       ),
     );
+  }
+
+  // The key pair's position now: a subscriber may have removed an entry or cleared.
+  #currentIndex(key1: TKey1, key2: TKey2, index: number): number {
+    const current = this.#data.get(key1)?.get(key2);
+    if (current === undefined) return -1;
+    return this.#keyOrder[index] === current ? index : this.#keyOrder.indexOf(current);
   }
 
   #requireKeys(key1: TKey1, key2: TKey2): void {

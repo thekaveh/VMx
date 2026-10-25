@@ -300,6 +300,8 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
 
     def _internal_add(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         self._key_order.append((key1, key2))
+        # Capture the position now: a key-view or local subscriber may add another entry.
+        index = len(self._key_order) - 1
         self._data[(key1, key2)] = value
 
         # Update key-axis views on first appearance only.
@@ -308,7 +310,7 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         if not self._keys2_contains(key2):
             self._keys2.add(key2)
 
-        self._on_added(key1, key2, value)
+        self._on_added(key1, key2, value, index)
 
     def _keys1_contains(self, key1: TKey1) -> bool:
         # ObservableList does not expose __contains__; iterate to check.
@@ -322,15 +324,24 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         if self._hub is not None:
             self._hub.send(msg)
 
-    def _on_added(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
+    def _on_added(self, key1: TKey1, key2: TKey2, value: TValue, index: int) -> None:
         if self._disposed:
             return
-        # Capture the position now: a local subscriber may add another entry.
-        index = len(self._key_order) - 1
         # 1. Local granular event first.
         self._added_subject.on_next((key1, key2, value))
         # 2. Publish to hub (if present).
+        index = self._current_index(key1, key2, index)
         self._publish_to_hub(CollectionChangedMessage.for_add(self, (key1, key2, value), index))
+
+    def _current_index(self, key1: TKey1, key2: TKey2, index: int) -> int:
+        """The entry's position now: a subscriber may have removed an entry or cleared."""
+        key = (key1, key2)
+        if index < len(self._key_order) and self._key_order[index] == key:
+            return index
+        try:
+            return self._key_order.index(key)
+        except ValueError:
+            return -1
 
     def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         if self._disposed:

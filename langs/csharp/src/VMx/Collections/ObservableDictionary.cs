@@ -304,6 +304,8 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     private void InternalAdd(TKey1 key1, TKey2 key2, TValue value)
     {
         _keyOrder.Add((key1, key2));
+        // Capture the position now: a key-view or local handler may add another entry.
+        var index = _keyOrder.Count - 1;
         _data[(key1, key2)] = value;
 
         // Update key-axis views only on first appearance (O(1) via refcounts).
@@ -323,13 +325,11 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             _keys2.Add(key2);
         }
 
-        OnAdded(key1, key2, value);
+        OnAdded(key1, key2, value, index);
     }
 
-    private void OnAdded(TKey1 key1, TKey2 key2, TValue value)
+    private void OnAdded(TKey1 key1, TKey2 key2, TValue value, int index)
     {
-        // Capture the position now: a local handler may add another entry.
-        var index = _keyOrder.Count - 1;
         // 1. Raise granular local event first.
         ItemAdded?.Invoke(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value));
         CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
@@ -339,7 +339,16 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForAdd(
             this,
             new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value),
-            index));
+            CurrentIndex(key1, key2, index)));
+    }
+
+    // The entry's position now: a handler may have removed an entry or cleared.
+    private int CurrentIndex(TKey1 key1, TKey2 key2, int index)
+    {
+        var key = (key1, key2);
+        return index < _keyOrder.Count && EqualityComparer<(TKey1, TKey2)>.Default.Equals(_keyOrder[index], key)
+            ? index
+            : _keyOrder.IndexOf(key);
     }
 
     private void OnRemoved(TKey1 key1, TKey2 key2, TValue value)
