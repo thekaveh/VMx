@@ -1,13 +1,17 @@
 //! COL-065 — a token-paged refresh keeps `items` and `current_token`
 //! describing one loaded prefix (spec 21 §6.2, ADR-0136).
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc, Arc, Mutex,
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Condvar, Mutex,
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
 };
 use vmx::{
     AsyncRelayCommand, CollectionChangeAction, ComponentVm, ConstructionStatus, Message,
-    MessageHub, Subscription, TokenPagedComposition,
+    MessageHub, Subscription, TokenPagedComposition, VmNode, VmxResult,
 };
 
 type Page = (Vec<i32>, Option<&'static str>);
@@ -607,4 +611,233 @@ fn auto_construct_pager_drops_a_load_that_finishes_after_a_later_refresh() {
     assert_eq!(pages.items(), fresh);
     assert_eq!(pages.current_token(), Some("u2"));
     assert_eq!(stale[0].status(), ConstructionStatus::Destructed);
+}
+
+type ConstructHook = Arc<dyn Fn(i32) + Send + Sync>;
+
+/// An item VM whose `construct` records its value and then runs the shared hook.
+#[derive(Clone)]
+struct HookNode {
+    value: i32,
+    constructed: Arc<Mutex<Vec<i32>>>,
+    hook: Arc<Mutex<Option<ConstructHook>>>,
+}
+
+impl PartialEq for HookNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl VmNode for HookNode {
+    fn id(&self) -> usize {
+        self.value as usize
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        self.constructed.lock().unwrap().push(self.value);
+        let hook = self.hook.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(self.value);
+        }
+        Ok(())
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        Ok(())
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        Ok(())
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        ConstructionStatus::Constructed
+    }
+
+    fn set_parent_id(&self, _parent_id: Option<usize>) {}
+
+    fn parent_id(&self) -> Option<usize> {
+        None
+    }
+}
+
+type HookPager = TokenPagedComposition<HookNode, u32>;
+
+/// An auto-construct pager over `None -> first`, `1 -> [101]`, `2 -> third`.
+/// Every loader call is counted, so a construct hook can wait, with a bound,
+/// until an operation it started has fetched its page.
+struct ConstructRig {
+    pages: HookPager,
+    first_page: Arc<Mutex<Vec<i32>>>,
+    third_page: Arc<Mutex<Vec<i32>>>,
+    fetches: Arc<(Mutex<usize>, Condvar)>,
+    constructed: Arc<Mutex<Vec<i32>>>,
+    hook: Arc<Mutex<Option<ConstructHook>>>,
+    started: Arc<Mutex<Option<JoinHandle<()>>>>,
+}
+
+impl ConstructRig {
+    fn new() -> Self {
+        let first_page = Arc::new(Mutex::new(vec![1]));
+        let third_page = Arc::new(Mutex::new(vec![102]));
+        let fetches = Arc::new((Mutex::new(0usize), Condvar::new()));
+        let constructed = Arc::new(Mutex::new(Vec::new()));
+        let hook: Arc<Mutex<Option<ConstructHook>>> = Arc::new(Mutex::new(None));
+        let pages = TokenPagedComposition::with_auto_construct_loader(None, {
+            let (first_page, third_page) = (first_page.clone(), third_page.clone());
+            let (fetches, constructed, hook) = (fetches.clone(), constructed.clone(), hook.clone());
+            move |token: Option<u32>| {
+                let (values, next) = match token {
+                    None => (first_page.lock().unwrap().clone(), Some(1)),
+                    Some(1) => (vec![101], Some(2)),
+                    Some(2) => (third_page.lock().unwrap().clone(), Some(3)),
+                    Some(other) => panic!("unexpected token {other}"),
+                };
+                let page = values
+                    .into_iter()
+                    .map(|value| HookNode {
+                        value,
+                        constructed: constructed.clone(),
+                        hook: hook.clone(),
+                    })
+                    .collect();
+                let (count, fetched) = &*fetches;
+                *count.lock().unwrap() += 1;
+                fetched.notify_all();
+                (page, next)
+            }
+        });
+        Self {
+            pages,
+            first_page,
+            third_page,
+            fetches,
+            constructed,
+            hook,
+            started: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Loads `[1, 101]` with token `2`.
+    fn loaded_two_pages() -> Self {
+        let rig = Self::new();
+        rig.pages.load_next();
+        rig.pages.load_next();
+        assert_eq!(rig.values(), vec![1, 101]);
+        assert_eq!(rig.pages.current_token(), Some(2));
+        rig.constructed.lock().unwrap().clear();
+        rig
+    }
+
+    fn values(&self) -> Vec<i32> {
+        self.pages.items().iter().map(|item| item.value).collect()
+    }
+
+    fn constructed(&self) -> Vec<i32> {
+        self.constructed.lock().unwrap().clone()
+    }
+
+    /// The first time `trigger` is constructed, starts `operation` on another
+    /// thread and returns from the hook only once that operation has called
+    /// the loader, so it has started and made every earlier operation stale.
+    fn on_construct(&self, trigger: i32, operation: fn(&HookPager)) {
+        let fired = AtomicBool::new(false);
+        let pages = self.pages.clone();
+        let fetches = self.fetches.clone();
+        let started = self.started.clone();
+        *self.hook.lock().unwrap() = Some(Arc::new(move |value| {
+            if value != trigger || fired.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            let (count, fetched) = &*fetches;
+            let before = *count.lock().unwrap();
+            let pages = pages.clone();
+            *started.lock().unwrap() = Some(thread::spawn(move || operation(&pages)));
+            let (_count, timeout) = fetched
+                .wait_timeout_while(count.lock().unwrap(), Duration::from_secs(5), |count| {
+                    *count == before
+                })
+                .unwrap();
+            assert!(!timeout.timed_out(), "the started operation never fetched");
+        }));
+    }
+
+    /// Joins the operation the hook started and removes the hook.
+    fn join_started(&self) {
+        let started = self.started.lock().unwrap().take();
+        started
+            .expect("the construct hook started an operation")
+            .join()
+            .unwrap();
+        *self.hook.lock().unwrap() = None;
+    }
+}
+
+fn collection_changes(pages: &HookPager) -> (Arc<Mutex<usize>>, Subscription) {
+    let count = Arc::new(Mutex::new(0usize));
+    let subscription = pages.hub().subscribe({
+        let count = count.clone();
+        move |message| {
+            if matches!(message, Message::CollectionChanged(_)) {
+                *count.lock().unwrap() += 1;
+            }
+        }
+    });
+    (count, subscription)
+}
+
+#[test]
+fn auto_construct_refresh_superseded_by_a_load_its_construct_hook_starts_commits_nothing() {
+    let rig = ConstructRig::loaded_two_pages();
+    *rig.first_page.lock().unwrap() = vec![900];
+    rig.on_construct(900, HookPager::load_next);
+
+    rig.pages.refresh();
+    rig.join_started();
+
+    assert_eq!(rig.constructed(), vec![900, 102]);
+    assert_eq!(rig.values(), vec![1, 101, 102]);
+    assert_eq!(rig.pages.current_token(), Some(3));
+}
+
+#[test]
+fn auto_construct_load_superseded_by_a_refresh_its_construct_hook_starts_commits_nothing() {
+    let rig = ConstructRig::loaded_two_pages();
+    let (changes, _subscription) = collection_changes(&rig.pages);
+    rig.on_construct(102, HookPager::refresh);
+
+    rig.pages.load_next();
+    rig.join_started();
+
+    assert_eq!(rig.constructed(), vec![102]);
+    assert_eq!(rig.values(), vec![1, 101]);
+    assert_eq!(rig.pages.current_token(), Some(2));
+    assert_eq!(*changes.lock().unwrap(), 0);
+}
+
+#[test]
+fn auto_construct_load_stops_constructing_once_a_construct_hook_starts_a_newer_operation() {
+    let rig = ConstructRig::loaded_two_pages();
+    *rig.third_page.lock().unwrap() = vec![102, 103];
+    rig.on_construct(102, HookPager::refresh);
+
+    rig.pages.load_next();
+    rig.join_started();
+
+    assert_eq!(rig.constructed(), vec![102]);
+    assert_eq!(rig.values(), vec![1, 101]);
+}
+
+#[test]
+fn auto_construct_refresh_stops_constructing_once_a_construct_hook_starts_a_newer_operation() {
+    let rig = ConstructRig::loaded_two_pages();
+    *rig.first_page.lock().unwrap() = vec![900, 901];
+    rig.on_construct(900, HookPager::load_next);
+
+    rig.pages.refresh();
+    rig.join_started();
+
+    assert_eq!(rig.constructed(), vec![900, 102]);
+    assert_eq!(rig.values(), vec![1, 101, 102]);
 }
