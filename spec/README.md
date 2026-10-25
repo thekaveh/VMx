@@ -56,7 +56,7 @@ before any flavor releases a stable version.
 - `VERSION` — current spec SemVer (`3.30.0`).
 - `HISTORY.md` — the changes of each spec release.
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0151); see
+- `ADRs/` — Architecture Decision Records (0001-0152); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

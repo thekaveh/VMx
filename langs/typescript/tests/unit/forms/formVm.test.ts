@@ -1100,6 +1100,87 @@ describe("FormVM default equality – supported snapshot domain", () => {
     expect(deepEquals(symbolic, new Error("x"))).toBe(false);
   });
 
+  // #734: a DOMException clones as a DOMException with its name and message.
+  it("replaces a DOMException with a different name or message and publishes one model change", () => {
+    for (const next of [
+      new DOMException("aborted", "QuotaExceededError"),
+      new DOMException("quota exceeded", "AbortError"),
+    ]) {
+      const hub = new MessageHub();
+      const modelChanges: unknown[] = [];
+      hub.messages.subscribe((message) => {
+        if (message instanceof PropertyChangedMessage && message.propertyName === "model") {
+          modelChanges.push(message);
+        }
+      });
+      const sut = new FormVM<AnyModel>({
+        initial: { err: new DOMException("aborted", "AbortError") },
+        persister: noop,
+        hub,
+      });
+
+      sut.setModel({ err: next });
+
+      expect(sut.model.err).toBe(next);
+      expect(sut.isDirty).toBe(true);
+      expect(modelChanges).toHaveLength(1);
+      sut.dispose();
+    }
+  });
+
+  // Node 20's structuredClone turns a DOMException into a plain object.
+  const cloneKeepsDOMException =
+    structuredClone(new DOMException("m", "AbortError")) instanceof DOMException;
+
+  it.skipIf(!cloneKeepsDOMException)(
+    "keeps a model holding a DOMException clean against its own snapshot",
+    () => {
+      const sut = makeAny({ err: new DOMException("aborted", "AbortError") });
+      expect(sut.isDirty).toBe(false);
+      expect(deepEquals(sut.model, sut.snapshot)).toBe(true);
+      sut.dispose();
+
+      // The clone drops a cause and custom properties, and they are not compared.
+      const decorated = Object.assign(new DOMException("m", "AbortError"), {
+        cause: new Error("why"),
+        extra: 1,
+      });
+      expect(deepEquals(decorated, structuredClone(decorated))).toBe(true);
+    },
+  );
+
+  it("compares DOMException values by name and message only", () => {
+    const equalsCase = (x: unknown, y: unknown) => deepEquals({ value: x }, { value: y });
+    expect(equalsCase(new DOMException("m", "AbortError"), new DOMException("m", "AbortError"))).toBe(true);
+    expect(equalsCase(new DOMException("m", "AbortError"), new DOMException("m", "TimeoutError"))).toBe(false);
+    expect(equalsCase(new DOMException("m", "AbortError"), new DOMException("n", "AbortError"))).toBe(false);
+
+    // A cause, custom properties, and a subclass are not compared.
+    class AppAbort extends DOMException {
+      constructor() {
+        super("m", "AbortError");
+      }
+    }
+    const decorated = Object.assign(new DOMException("m", "AbortError"), {
+      cause: new Error("why"),
+      extra: 1,
+    });
+    expect(equalsCase(new AppAbort(), new DOMException("m", "AbortError"))).toBe(true);
+    expect(equalsCase(decorated, new DOMException("m", "AbortError"))).toBe(true);
+
+    // A value that only inherits DOMException.prototype is not a DOMException,
+    // and its throwing accessors do not make the comparator throw.
+    const forged = Object.create(DOMException.prototype) as DOMException;
+    expect(equalsCase(forged, new DOMException("m", "AbortError"))).toBe(false);
+    expect(() => equalsCase(forged, new Error("m"))).not.toThrow();
+    expect(equalsCase(forged, new Error("m"))).toBe(false);
+
+    // The clone keeps the DOMException type, so it never equals a plain Error.
+    const named = Object.assign(new Error("m"), { name: "AbortError" });
+    expect(equalsCase(new DOMException("m", "AbortError"), named)).toBe(false);
+    expect(equalsCase(named, new DOMException("m", "AbortError"))).toBe(false);
+  });
+
   it("tracks a changed Error through setModel, strict approval, deny, and reset", async () => {
     const approved: AnyModel[] = [];
     const sut = new FormVM<AnyModel>({
