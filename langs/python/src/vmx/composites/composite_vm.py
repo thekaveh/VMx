@@ -941,7 +941,13 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 if commit_error is None:
                     commit_error = commit_failure
             self._populated = True
-            for child in candidates:
+            population_error = commit_error
+
+            def raise_commit_error() -> None:
+                if population_error is not None:
+                    raise population_error
+
+            def publish_add(child: VM) -> None:
                 index = next(
                     (i for i, candidate in enumerate(self.snapshot()) if candidate is child),
                     -1,
@@ -954,8 +960,13 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                             new_index=index,
                         )
                     )
-            if commit_error is not None:
-                raise commit_error
+
+            # Every committed child publishes, even after a raising subscriber;
+            # the first failure is re-raised (#727).
+            _run_every_step(
+                raise_commit_error,
+                *(lambda child=child: publish_add(child) for child in candidates),
+            )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 

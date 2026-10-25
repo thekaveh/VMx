@@ -22,6 +22,7 @@ from reactivex import operators as ops
 from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.collections._vm_collection_hub_message import collection_changed_message_for
 from vmx.components.base import (
@@ -207,14 +208,26 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
+
+            def raise_commit_error() -> None:
+                if commit_error is not None:
+                    raise commit_error
+
+            # The change is committed: every publication step runs even when an
+            # earlier one raises, and the first failure is re-raised (#727).
+            _run_every_step(
+                raise_commit_error,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(
+                        action="remove", old_items=(old,), old_index=resolved_index
+                    )
+                ),
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(
+                        action="add", new_items=(value,), new_index=resolved_index
+                    )
+                ),
             )
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
-            )
-            if commit_error is not None:
-                raise commit_error
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
@@ -664,13 +677,24 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 if commit_error is None:
                     commit_error = commit_failure
             self._populated = True
-            for child in children:
+            population_error = commit_error
+
+            def raise_commit_error() -> None:
+                if population_error is not None:
+                    raise population_error
+
+            def publish_add(child: VM) -> None:
                 index = next(i for i, candidate in enumerate(self.snapshot()) if candidate is child)
                 self._emit_collection_changed(
                     CollectionChangedEvent(action="add", new_items=(child,), new_index=index)
                 )
-            if commit_error is not None:
-                raise commit_error
+
+            # Every committed child publishes, even after a raising subscriber;
+            # the first failure is re-raised (#727).
+            _run_every_step(
+                raise_commit_error,
+                *(lambda child=child: publish_add(child) for child in children),
+            )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
