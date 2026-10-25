@@ -3459,9 +3459,10 @@ The pre-v3 TypeScript `JSON.stringify` comparison was key-order sensitive and
 crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensitive
 and handles `Date`/`Map`/`Set`/`BigInt`/circular references. TypeScript binary
 buffers and views compare by concrete constructor and visible bytes (ADR-0113),
-and `Error` values by cloneable kind, own `message`, and own `cause` (ADR-0135),
-so the equal-values guarantee holds for value-equality-capable models in C#,
-Python, TypeScript, Swift, and Rust.
+`Error` values by cloneable kind, own `message`, and own `cause` (ADR-0135),
+and `DOMException` values by `name` and `message` (ADR-0152), so the
+equal-values guarantee holds for value-equality-capable models in C#, Python,
+TypeScript, Swift, and Rust.
 Consumers needing field-subset or reference semantics inject a custom `equals`
 (TypeScript/Swift) or define their model's own equality
 (C#/Python/Rust `PartialEq`).

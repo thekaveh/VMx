@@ -167,8 +167,14 @@ const CLONEABLE_ERROR_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 function errorKind(error: Error): string {
-  // Cloning reads `name` as it is, so a non-string name is not a kept kind.
-  const name: unknown = error.name;
+  // Cloning reads `name` as it is, so a non-string name is not a kept kind. An
+  // inherited accessor can throw, as on a forged DOMException; that is no kind.
+  let name: unknown;
+  try {
+    name = error.name;
+  } catch {
+    return "Error";
+  }
   return typeof name === "string" && CLONEABLE_ERROR_NAMES.has(name) ? name : "Error";
 }
 
@@ -186,6 +192,25 @@ function ownErrorValue(error: Error, key: "message" | "cause"): { value: unknown
 function errorMessage(error: Error): string | undefined {
   const message = ownErrorValue(error, "message");
   return message === undefined ? undefined : String(message.value);
+}
+
+// A DOMException clones as a DOMException with its `name` and `message`, which
+// it reads through prototype accessors. Its `cause`, custom properties, and
+// subclass are dropped.
+
+/** The cloned parts of a genuine DOMException; undefined for any other value. */
+function domExceptionParts(error: Error): { name: unknown; message: unknown } | undefined {
+  if (typeof DOMException === "undefined" || !(error instanceof DOMException)) return undefined;
+  try {
+    // The base accessors read the internal slots, so a subclass override is
+    // ignored, and they throw for a value that only inherits the prototype.
+    return {
+      name: Reflect.get(DOMException.prototype, "name", error),
+      message: Reflect.get(DOMException.prototype, "message", error),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function isBuffer(value: object): value is ArrayBuffer | SharedArrayBuffer {
@@ -297,6 +322,14 @@ export function deepEquals(
 
   if (a instanceof Error || b instanceof Error) {
     if (!(a instanceof Error) || !(b instanceof Error)) return false;
+    const aDom = domExceptionParts(a);
+    const bDom = domExceptionParts(b);
+    if (aDom !== undefined || bDom !== undefined) {
+      return aDom !== undefined
+        && bDom !== undefined
+        && aDom.name === bDom.name
+        && aDom.message === bDom.message;
+    }
     if (errorKind(a) !== errorKind(b) || errorMessage(a) !== errorMessage(b)) return false;
     const aCause = ownErrorValue(a, "cause");
     const bCause = ownErrorValue(b, "cause");

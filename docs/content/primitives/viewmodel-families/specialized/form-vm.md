@@ -348,6 +348,12 @@ compared: a model holding a custom error starts clean, and changing only its
 for an error whose `cause` chain leads back to itself, so on Node 20 a model
 holding one needs an injected `snapshotter`; Node 22 and later clone it.
 
+A `DOMException` compares by its `name` and `message` (ADR-0152), which its
+clone keeps on Node 22 and later. It never equals another error, and its
+`cause` and custom properties are not compared. Node 20's `structuredClone`
+returns a plain object for a `DOMException`, so on Node 20 a model holding one
+needs an injected `snapshotter` and `equals`.
+
 Field localization inspects data-property descriptors, performs no writes, and
 does not invoke getters a second time. User-defined accessors or proxy traps can
 have side effects during the original `structuredClone` call or descriptor
