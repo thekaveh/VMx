@@ -174,6 +174,12 @@ class DeferredLifecycle {
   }
 }
 
+/** Whether a background action is running inside its own `schedule()` call. */
+interface BackgroundScheduling {
+  active: boolean;
+  failure: { error: unknown } | null;
+}
+
 export abstract class ComponentVMBase {
   readonly #name: string;
   readonly #hint: string;
@@ -431,46 +437,41 @@ export abstract class ComponentVMBase {
         this.#releaseInFlight();
         throw error;
       }
-      this.#dispatcher.background.schedule(() => {
-        // dispose() may have run between scheduling and execution; Disposed is
-        // terminal (spec/02 invariant 3), so skip the work and the marshalled
-        // emission.
-        if (this.#status === ConstructionStatus.Disposed) {
-          this.#releaseInFlight();
-          return;
-        }
-        let deferred: DeferredLifecycle | null;
-        try {
-          deferred = this.#runLifecycleHookPhase(() => this._onConstruct());
-        } catch (e) {
-          // VMX-007: roll _status back to Destructed (marshalled onto the
-          // foreground per VMX-025; _setStatus re-checks Disposed) and clear the
-          // in-flight guard so a throwing background hook leaves the VM
-          // recoverable, then re-throw. Under the synchronous immediate
-          // dispatcher the rollback runs inline and the throw surfaces to the
-          // caller; on asapScheduler it is an unobserved async throw (delivering
-          // it to an awaiter is tracked by VMX-049).
-          this._scheduleForeground(() => {
-            try {
-              this._setStatus(ConstructionStatus.Destructed);
-            } finally {
-              this.#releaseInFlight();
-            }
-          });
-          throw e;
-        }
-        // VMX-025: marshal the terminal Constructed emission onto the foreground
-        // scheduler so subscribers observe the status change on the foreground
-        // (UI) thread, not the background (pool) thread. _setStatus re-checks
-        // Disposed, so a dispose() landing before this runs still aborts the
-        // transition — no resurrection, no post-dispose publish.
-        this.#completeTransition(
-          deferred,
-          ConstructionStatus.Constructed,
-          ConstructionStatus.Destructed,
-          true,
-        );
-      });
+      const scheduling: BackgroundScheduling = { active: true, failure: null };
+      try {
+        this.#dispatcher.background.schedule(() => {
+          // dispose() may have run between scheduling and execution; Disposed is
+          // terminal (spec/02 invariant 3), so skip the work and the marshalled
+          // emission.
+          if (this.#status === ConstructionStatus.Disposed) {
+            this.#releaseInFlight();
+            return;
+          }
+          let deferred: DeferredLifecycle | null;
+          try {
+            deferred = this.#runLifecycleHookPhase(() => this._onConstruct());
+          } catch (e) {
+            // VMX-007: roll _status back to Destructed and clear the in-flight
+            // guard so a throwing background hook leaves the VM recoverable.
+            this.#rollBackFailedBackgroundHook(ConstructionStatus.Destructed, e, scheduling);
+            return;
+          }
+          // VMX-025: marshal the terminal Constructed emission onto the foreground
+          // scheduler so subscribers observe the status change on the foreground
+          // (UI) thread, not the background (pool) thread. _setStatus re-checks
+          // Disposed, so a dispose() landing before this runs still aborts the
+          // transition — no resurrection, no post-dispose publish.
+          this.#completeTransition(
+            deferred,
+            ConstructionStatus.Constructed,
+            ConstructionStatus.Destructed,
+            true,
+          );
+        });
+      } finally {
+        scheduling.active = false;
+      }
+      if (scheduling.failure) throw scheduling.failure.error;
     } else {
       let pending = false;
       try {
@@ -522,44 +523,41 @@ export abstract class ComponentVMBase {
         this.#releaseInFlight();
         throw error;
       }
-      this.#dispatcher.background.schedule(() => {
-        // dispose() may have run between scheduling and execution; Disposed is
-        // terminal (spec/02 invariant 3), so skip the work and the marshalled
-        // emission.
-        if (this.#status === ConstructionStatus.Disposed) {
-          this.#releaseInFlight();
-          return;
-        }
-        let deferred: DeferredLifecycle | null;
-        try {
-          deferred = this.#runLifecycleHookPhase(() => this._onDestruct());
-        } catch (e) {
-          // VMX-007: roll _status back to Constructed (marshalled onto the
-          // foreground per VMX-025; _setStatus re-checks Disposed) and clear the
-          // in-flight guard so a throwing background hook leaves the VM
-          // recoverable, then re-throw (unobserved async throw on asapScheduler;
-          // VMX-049 tracks delivering it to an awaiter).
-          this._scheduleForeground(() => {
-            try {
-              this._setStatus(ConstructionStatus.Constructed);
-            } finally {
-              this.#releaseInFlight();
-            }
-          });
-          throw e;
-        }
-        // VMX-025: marshal the terminal Destructed emission onto the foreground
-        // scheduler so subscribers observe the status change on the foreground
-        // (UI) thread, not the background (pool) thread. _setStatus re-checks
-        // Disposed, so a dispose() landing before this runs still aborts the
-        // transition — no resurrection, no post-dispose publish.
-        this.#completeTransition(
-          deferred,
-          ConstructionStatus.Destructed,
-          ConstructionStatus.Constructed,
-          true,
-        );
-      });
+      const scheduling: BackgroundScheduling = { active: true, failure: null };
+      try {
+        this.#dispatcher.background.schedule(() => {
+          // dispose() may have run between scheduling and execution; Disposed is
+          // terminal (spec/02 invariant 3), so skip the work and the marshalled
+          // emission.
+          if (this.#status === ConstructionStatus.Disposed) {
+            this.#releaseInFlight();
+            return;
+          }
+          let deferred: DeferredLifecycle | null;
+          try {
+            deferred = this.#runLifecycleHookPhase(() => this._onDestruct());
+          } catch (e) {
+            // VMX-007: roll _status back to Constructed and clear the in-flight
+            // guard so a throwing background hook leaves the VM recoverable.
+            this.#rollBackFailedBackgroundHook(ConstructionStatus.Constructed, e, scheduling);
+            return;
+          }
+          // VMX-025: marshal the terminal Destructed emission onto the foreground
+          // scheduler so subscribers observe the status change on the foreground
+          // (UI) thread, not the background (pool) thread. _setStatus re-checks
+          // Disposed, so a dispose() landing before this runs still aborts the
+          // transition — no resurrection, no post-dispose publish.
+          this.#completeTransition(
+            deferred,
+            ConstructionStatus.Destructed,
+            ConstructionStatus.Constructed,
+            true,
+          );
+        });
+      } finally {
+        scheduling.active = false;
+      }
+      if (scheduling.failure) throw scheduling.failure.error;
     } else {
       let pending = false;
       try {
@@ -1121,6 +1119,50 @@ export abstract class ComponentVMBase {
 
   protected get _name(): string {
     return this.#name;
+  }
+
+  /**
+   * Roll a failed background hook back to `rollback` on the foreground (VMX-025;
+   * `_setStatus` re-checks Disposed), clear the in-flight guard, and surface
+   * `error`.
+   *
+   * When both channels share one scheduler (`RxDispatcher.immediate()` and
+   * `NullDispatcher` each use `queueScheduler` for both), a throw inside the
+   * background action makes the active flush drop the queued rollback (#726).
+   * If the action ran inside the `schedule()` call, the error is recorded and
+   * `construct()` / `destruct()` throws it after the flush drains, so the
+   * rollback and any work its observers queue still run. If the action ran
+   * later, inside an outer flush, the rollback action itself re-throws after
+   * restoring the status. With separate schedulers the throw stays on the
+   * background, an unobserved async throw on asyncScheduler (VMX-049 tracks
+   * delivering it to an awaiter).
+   */
+  #rollBackFailedBackgroundHook(
+    rollback: ConstructionStatus,
+    error: unknown,
+    scheduling: BackgroundScheduling,
+  ): void {
+    const restore = (): void => {
+      try {
+        this._setStatus(rollback);
+      } finally {
+        this.#releaseInFlight();
+      }
+    };
+    if (this.#dispatcher.foreground === this.#dispatcher.background) {
+      if (scheduling.active) {
+        scheduling.failure = { error };
+        this._scheduleForeground(restore);
+        return;
+      }
+      this._scheduleForeground(() => {
+        restore();
+        throw error;
+      });
+      return;
+    }
+    this._scheduleForeground(restore);
+    throw error;
   }
 
   /** Schedule work on the foreground scheduler. */
