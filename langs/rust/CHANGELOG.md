@@ -16,6 +16,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `RelayCommand`s built from clones of one `RelayCommandBuilder` share their
+  action, but a nested call deferred between them now uses its own command's
+  disposal state. Before, a deferred call ran after
+  its own command was disposed, or was dropped when the outer command was
+  disposed (#739).
 - A component whose lifecycle hook panics now releases its settle waiters as
   the panic unwinds. Before, a `CompositeVm` or `GroupVm` waiting on a
   background child whose `on_dispose` hook panicked stayed `Constructing`,
