@@ -114,7 +114,7 @@ fn component(name: &str, model: DropProbe) -> ComponentVm<DropProbe> {
     ComponentVm::with_model(name, model, MessageHub::new(), NullDispatcher::new())
 }
 
-/// FORM-016 — replacing a field validator drops the old one after the lock.
+/// Replacing a field validator drops the old one after the lock.
 #[test]
 fn form_replaced_field_validator_drop_may_read_the_form() {
     let hook = Hook::default();
@@ -134,7 +134,7 @@ fn form_replaced_field_validator_drop_may_read_the_form() {
     assert!(form.is_valid());
 }
 
-/// FORM-014 — disposing a form drops its validators after the lock.
+/// Disposing a form drops its validators after the lock.
 #[test]
 fn form_dispose_validator_drop_may_read_the_form() {
     let hook = Hook::default();
@@ -157,7 +157,7 @@ fn form_dispose_validator_drop_may_read_the_form() {
     assert!(hook.disarm() > 0);
 }
 
-/// HIER-019 — invalidated children drop after the topology gate is released.
+/// Invalidated children drop after the topology gate is released.
 #[test]
 fn hierarchical_invalidate_children_drop_may_read_the_node() {
     let hook = Hook::default();
@@ -192,7 +192,7 @@ fn hierarchical_invalidate_children_drop_may_read_the_node() {
     assert!(!materialized);
 }
 
-/// HIER-030 — parked batch items drop after the parked-state lock.
+/// Parked batch items drop after the parked-state lock.
 #[test]
 fn hierarchical_dispose_parked_drop_may_read_the_node() {
     let hook = Hook::default();
@@ -223,7 +223,7 @@ fn hierarchical_dispose_parked_drop_may_read_the_node() {
     assert_eq!(parked, 0);
 }
 
-/// COMP-031 — a replaced filter predicate drops after the predicate lock.
+/// A replaced filter predicate drops after the predicate lock.
 #[test]
 fn filtered_set_predicate_drop_may_read_the_projection() {
     let hook = Hook::default();
@@ -244,7 +244,7 @@ fn filtered_set_predicate_drop_may_read_the_projection() {
     assert!(hook.disarm() > 0);
 }
 
-/// COMP-025 — a replaced current selector drops after the selector lock.
+/// A replaced current selector drops after the selector lock.
 #[test]
 fn composite_set_current_selector_drop_may_read_the_composite() {
     let hook = Hook::default();
@@ -263,7 +263,7 @@ fn composite_set_current_selector_drop_may_read_the_composite() {
     assert!(hook.disarm() > 0);
 }
 
-/// COMP-026 — a replaced current-changed callback drops after its lock.
+/// A replaced current-changed callback drops after its lock.
 #[test]
 fn composite_on_current_changed_drop_may_read_the_composite() {
     let hook = Hook::default();
@@ -281,7 +281,7 @@ fn composite_on_current_changed_drop_may_read_the_composite() {
     assert!(hook.disarm() > 0);
 }
 
-/// COMP-042 — cleared children drop after the membership gate is released.
+/// Cleared children drop after the membership gate is released.
 #[test]
 fn composite_clear_drop_may_dispose_the_composite() {
     let hook = Hook::default();
@@ -304,7 +304,7 @@ fn composite_clear_drop_may_dispose_the_composite() {
     assert_eq!(len, 0);
 }
 
-/// GRP-012 — cleared group children drop after the membership gate.
+/// Cleared group children drop after the membership gate.
 #[test]
 fn group_clear_drop_may_dispose_the_group() {
     let hook = Hook::default();
@@ -327,7 +327,7 @@ fn group_clear_drop_may_dispose_the_group() {
     assert_eq!(len, 0);
 }
 
-/// AGCH-002 — a membership entry removed by resynchronization drops after the
+/// A membership entry removed by resynchronization drops after the
 /// stream lock is released.
 #[test]
 fn aggregate_stream_removed_entry_drop_may_observe_the_stream() {
@@ -351,7 +351,7 @@ fn aggregate_stream_removed_entry_drop_may_observe_the_stream() {
     assert!(hook.disarm() > 0);
 }
 
-/// CAP-022 — a replaced paging source drops after the source lock.
+/// A replaced paging source drops after the source lock.
 #[test]
 fn paged_set_source_drop_may_read_the_composition() {
     let hook = Hook::default();
@@ -371,7 +371,7 @@ fn paged_set_source_drop_may_read_the_composition() {
     assert!(pages <= 1);
 }
 
-/// DPROP-009 — the replaced current value of a value stream (the reactive
+/// The replaced current value of a value stream (the reactive
 /// facade behind `ValueChanged`) drops after the stream lock.
 #[test]
 fn value_stream_send_drop_may_read_the_stream() {
@@ -392,7 +392,7 @@ fn value_stream_send_drop_may_read_the_stream() {
     assert_eq!(id, 2);
 }
 
-/// DPROP-002 — a recomputed derived value drops the old value after the
+/// A recomputed derived value drops the old value after the
 /// value lock.
 #[test]
 fn derived_recompute_drop_may_read_the_property() {
@@ -424,7 +424,7 @@ fn probing_resource(hook: &Hook, retention: AsyncResourceRetention) -> AsyncReso
     AsyncResourceVm::with_options("resource", loader, retention, None)
 }
 
-/// ARES-007 — a discard reload drops the replaced ready state after the machine lock.
+/// A discard reload drops the replaced ready state after the machine lock.
 #[test]
 fn async_resource_reload_drop_may_read_the_resource() {
     let hook = Hook::default();
@@ -441,7 +441,7 @@ fn async_resource_reload_drop_may_read_the_resource() {
     assert!(hook.disarm() > 0);
 }
 
-/// ARES-006 — a retained reload drops replaced state clones after the
+/// A retained reload drops replaced state clones after the
 /// machine lock.
 #[test]
 fn async_resource_retained_reload_drop_may_read_the_resource() {
