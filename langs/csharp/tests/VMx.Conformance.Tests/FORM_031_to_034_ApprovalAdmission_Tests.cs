@@ -508,6 +508,39 @@ public sealed class FORM_031_to_034_ApprovalAdmission_Tests
         form.Snapshot.Should().Be(new Model("edited"));
     }
 
+    // #732: observers that saw the admission edge's false also see the release
+    // when a later admission observer throws and abandons the approval.
+    [Fact, Trait("Conformance", "FORM-032")]
+    public async Task FORM_032_Throwing_Admission_Observer_Releases_Earlier_Observers()
+    {
+        var boom = new InvalidOperationException("admission observer failed");
+        var persister = new GatedPersister();
+        using var form = new FormVM<Model>(new("initial"), persister.Persist);
+        var seen = new List<bool>();
+        form.ApproveCommand.CanExecuteChanged += (_, _) => seen.Add(form.ApproveCommand.CanExecute(null));
+        var failures = new Queue<Exception>([boom, new InvalidOperationException("release observer failed")]);
+        form.ApproveCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (failures.Count > 0) throw failures.Dequeue();
+        };
+
+        var approve = () => form.ApproveAsync();
+
+        (await approve.Should().ThrowAsync<InvalidOperationException>()).Which.Should().BeSameAs(
+            boom, "a failing release notification does not replace the admission failure");
+        failures.Clear();
+        persister.Calls.Should().Be(0);
+        seen.Should().HaveCountGreaterThan(1);
+        seen[0].Should().BeFalse();
+        seen[^1].Should().BeTrue("the release notification reports the form approvable again");
+
+        var approval = form.ApproveAsync();
+        await persister.Entered(0);
+        persister.Succeed(0);
+        await approval.WaitAsync(HangGuard);
+        persister.Calls.Should().Be(1);
+    }
+
     [Fact, Trait("Conformance", "FORM-033")]
     public async Task FORM_033_Awaiter_Of_A_Failed_Approval_Can_Approve_Again()
     {
