@@ -124,9 +124,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   so it stays frozen as the disposal contract states (DISP-006).
 - Fixed: the `SelectNextCommand` and `SelectPreviousCommand` doc comments now
   say that the base commands are never executable (spec/05 §5).
-- Fixed: `ObservableDictionary` captures the add index before the local
-  events, so a handler that adds another entry no longer shifts the first
-  entry's reported hub index.
+- Fixed: `ObservableDictionary` captures the add index before it updates
+  `Keys1` and `Keys2` and raises the local events, so a key-view or local
+  handler that adds another entry no longer shifts the first entry's reported
+  hub index. If such a handler removes an entry or clears the dictionary, the
+  hub message reports the key pair's current index, or -1 when the key pair is
+  gone (#733).
 - Fixed: `CompositeVM` `Remove`, `RemoveAt`, `Clear`, and the indexer setter
   raise `CollectionChanged` even when `OnCurrentChanged` throws, then rethrow.
 - Fixed: `NullDialogService.Present` and the `Present` extension return the

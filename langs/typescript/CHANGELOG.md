@@ -113,9 +113,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A disposed `FilteredCompositeVM` ignores `setPredicate`, `setCurrent`, and
   the visible navigation methods, so it stays frozen as the disposal contract
   states (DISP-006).
-- `ObservableDictionary`: the add index is captured before the local event,
-  so a subscriber that adds another entry no longer shifts the first entry's
-  reported hub index.
+- `ObservableDictionary`: the add index is captured before `keys1`/`keys2`
+  update and the local event fires, so a key-view or local subscriber that adds
+  another entry no longer shifts the first entry's reported hub index. If such
+  a subscriber deletes an entry or clears the dictionary, the hub message
+  reports the key pair's current index, or -1 when the key pair is gone (#733).
 - `CompositeVM.removeAt`, `clear`, and `setAt` emit their collection events
   even when `onCurrentChanged` throws, then rethrow. Before, the committed
   change reached no observer.
