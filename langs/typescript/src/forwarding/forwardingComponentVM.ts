@@ -107,7 +107,9 @@ export class ForwardingComponentVM<M> extends ComponentVMBase implements ICompon
 
   get wrappedBase(): ComponentVMBase {
     if (!(this._wrapped instanceof ComponentVMBase)) {
-      throw new TypeError("A forwarding container child must wrap a VMx ComponentVMBase");
+      throw new TypeError(
+        "A forwarding decorator must wrap a VMx ComponentVMBase to join a container or own resources",
+      );
     }
     return this._wrapped;
   }

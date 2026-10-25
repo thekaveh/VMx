@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 425 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 426 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -956,6 +956,20 @@ current
 **Then** `destination` is empty with no current child and `group` retains
 exactly `first`
 **And** at every step the canonical wrapped identity belongs to one container
+
+### FWD-005 — Forwarding decorators register owned resources on the wrapped component
+
+**Given** decorator `first` wraps component `inner` and decorator `second`
+wraps `first`
+**And** resource `r1` is registered through `first` and then `r2` through
+`second` with the owned-resource helper
+**When** `second` is disposed
+**Then** `inner` is disposed and `r2` then `r1` are released, each exactly once
+**When** resource `r3` is then registered through `first`
+**Then** `r3` is released immediately, exactly once
+**And** disposing `first`, `second`, or `inner` again releases nothing more
+**And** a resource registered through a decorator is also released when
+`inner` itself is disposed
 
 ______________________________________________________________________
 

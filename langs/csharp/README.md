@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.29.0** — implements `spec-v3.29.0` end-to-end. 425/425 library conformance IDs
+**v3.30.0** — implements `spec-v3.30.0` end-to-end. 426/426 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.1` and `VMx.Notifications` (opt-in
@@ -16,7 +16,7 @@ versioned per ADR-0009 / ADR-0013 and stays on its own release line
 
 ## 2. Install
 
-The source tree implements v3.29.0. The NuGet package is not published. Use a
+The source tree implements v3.30.0. The NuGet package is not published. Use a
 project reference until a `csharp-v*` release tag publishes it.
 
 ```bash
@@ -240,7 +240,7 @@ VMx does not attach that handle to the observed VM's lifetime. See
 
 ## 6. Conformance
 
-Implements all 425 library conformance IDs; THEME scenario IDs live in the
+Implements all 426 library conformance IDs; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](../../spec/12-conformance.md).
 
 Run the suite:

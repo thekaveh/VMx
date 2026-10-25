@@ -32,7 +32,8 @@ Flavor limits (spec/09 introduction and §2):
   `with_hint_override` and `with_model_hint`; `ForwardingCompositeVm` offers no
   override hooks.
 - TypeScript `ForwardingCompositeVM` and Rust `ForwardingCompositeVm` cannot be
-  container children; the type checker rejects the add.
+  container children; the type checker rejects the add. The TypeScript one
+  also has no owned-resource helper.
 - Rust `ForwardingCompositeVm` forwards only part of the `CompositeVm` surface,
   for example not the selection commands or `background_errors`. The
   [Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
@@ -46,6 +47,14 @@ the exact decorator it was given. This makes decoration transparent to
 lifecycle and selection ownership without hiding which public child a consumer
 added (`FWD-004`, ADR-0124).
 
+The same identity owns resources. A decorator's owned-resource helper (`Own`,
+`_own`, or `own`) registers the resource on the wrapped component, so the
+resource is released when that component is disposed, through any decorator
+or directly, in one LIFO order with its other resources. A registration after
+that disposal is released at once (`FWD-005`, ADR-0151). In C#, Python, and
+TypeScript, a decorator around a component that does not derive from the VMx
+base class cannot register resources; the call throws.
+
 ## 6.2.7.3. Lifecycle And Messaging
 
 Forwarding decorators do not add their own lifecycle semantics. They inherit the
@@ -54,6 +63,8 @@ inner VM's behavior unless an override changes it. In practice this means:
 - property-changed and status behavior still originate from the wrapped VM
 - iteration over forwarded composites still reflects the wrapped child list
 - the wrapper must forward `dispose()` unless it owns the wrapped lifetime
+- a wrapper that does not forward `dispose()` keeps its registered resources
+  until the wrapped VM is disposed
 
 ## 6.2.7.4. Cross-Language Surface
 
@@ -142,6 +153,8 @@ properties on `ComponentVMBase`, so the nearest overridable analog is
 - `FWD-002` — selective override without reimplementing the wrapped surface
 - `FWD-003` — forwarded composite iteration preserves wrapped order
 - `FWD-004` — bare and multiply decorated aliases retain one transferable owner
+- `FWD-005` — resources registered through a decorator belong to the wrapped
+  component
 
 ## 6.2.7.8. Related Primitives
 

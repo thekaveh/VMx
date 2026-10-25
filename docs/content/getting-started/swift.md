@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 `CompositeVM<TabVM>` with tab selection — all in a Swift Package or playground.
 
-> The Swift source line 3.30.0 covers all 425 library conformance IDs. The
+> The Swift source line 3.31.0 covers all 426 library conformance IDs. The
 > SwiftUI Notes Workspace flagship covers the 5 `THEME-00x` scenario IDs. The
 > [Swift flavor](../flavors/swift.md) page lists the documented Swift-specific
 > divergences.

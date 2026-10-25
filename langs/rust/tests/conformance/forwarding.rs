@@ -212,3 +212,50 @@ fn forwarding_composite_delegates_complete_collection_and_selection_surface() {
     assert!(composite.is_empty());
     assert_eq!(forwarding.current(), None);
 }
+
+fn record(log: &Arc<Mutex<Vec<&'static str>>>, entry: &'static str) -> impl FnOnce() + Send {
+    let log = Arc::clone(log);
+    move || log.lock().unwrap().push(entry)
+}
+
+/// FWD-005 — decorators register owned resources on the wrapped component
+#[test]
+fn forwarding_decorators_register_owned_resources_on_the_wrapped_component() {
+    let inner = child("inner");
+    let first = ForwardingComponentVm::new(inner.clone());
+    let second = ForwardingComponentVm::wrap(first.clone());
+    let released = Arc::new(Mutex::new(Vec::new()));
+    first.own(record(&released, "r1"));
+    second.own(record(&released, "r2"));
+    inner.construct().unwrap();
+
+    second.dispose().unwrap();
+
+    assert_eq!(inner.status(), ConstructionStatus::Disposed);
+    assert_eq!(*released.lock().unwrap(), vec!["r2", "r1"]);
+
+    first.own(record(&released, "r3"));
+    assert_eq!(*released.lock().unwrap(), vec!["r2", "r1", "r3"]);
+
+    first.dispose().unwrap();
+    second.dispose().unwrap();
+    inner.dispose().unwrap();
+    assert_eq!(*released.lock().unwrap(), vec!["r2", "r1", "r3"]);
+}
+
+/// FWD-005 — disposing the wrapped component releases decorator resources
+#[test]
+fn disposing_the_wrapped_component_releases_decorator_resources() {
+    let inner = child("inner");
+    let first = ForwardingComponentVm::new(inner.clone());
+    let second = ForwardingComponentVm::wrap(first.clone());
+    let released = Arc::new(Mutex::new(Vec::new()));
+    first.own(record(&released, "r1"));
+    second.own(record(&released, "r2"));
+
+    inner.dispose().unwrap();
+
+    assert_eq!(*released.lock().unwrap(), vec!["r2", "r1"]);
+    second.dispose().unwrap();
+    assert_eq!(*released.lock().unwrap(), vec!["r2", "r1"]);
+}

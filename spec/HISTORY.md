@@ -636,3 +636,16 @@ no admission, cancellation, or ownership of its own (`CMDD-014..017`). Rust's
 point. The catalog now contains 425 library IDs plus 5 scenario IDs.
 
 See ADR-0145 and chapter 04 §8.3.2.
+
+## 39. v3.29.0 → v3.30.0 changes
+
+v3.30.0 makes a forwarding decorator's owned-resource helper register on the
+wrapped component's canonical ownership identity. A resource registered through
+any decorator is released, in LIFO order, when the wrapped component is
+disposed through any decorator or directly; registration after that disposal
+releases the resource at once (`FWD-005`). TypeScript and Python forward the
+helper, and C# decorators gain protected `Own` overloads; Swift and Rust
+already forwarded. The catalog now contains 426 library IDs plus 5 scenario
+IDs.
+
+See ADR-0151 and chapter 09 §1.

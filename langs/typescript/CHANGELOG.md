@@ -118,6 +118,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   releases its subscription when that scope stops, and subscribes just before
   the first render, so a server render leaves no subscription (#651).
 
+## [3.31.0] — unreleased source version
+
+### Fixed
+
+- `own()` on a `ForwardingComponentVM` subclass registers the resource on the
+  wrapped component. The resource is released, in LIFO order with the wrapped
+  component's other resources, when that component is disposed through any
+  decorator or directly, and at once if it is already disposed. Before, the
+  decorator kept the resource and never released it, even when it was
+  registered after disposal (`FWD-005`, ADR-0151, spec 3.30.0) (#650).
+- A decorator that wraps a component not derived from `ComponentVMBase` throws
+  a `TypeError` from `own()`. The error message, which container membership
+  also uses, now names both uses.
+
 ## [3.30.0] — 2026-10-16
 
 First version published to npm. Earlier versions were source-only releases;
