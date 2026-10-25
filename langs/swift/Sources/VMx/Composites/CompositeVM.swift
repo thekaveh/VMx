@@ -70,8 +70,10 @@ open class CompositeVM<Child: ComponentVMBase>:
     private var membershipTransactionActive = false
     private var membershipTransactionToken: ContainerOwnershipTransaction?
     private var membershipTransactionDepth = 0
-    private var membershipTransactionOwner: ObjectIdentifier?
+    private var membershipTransactionOwner: UInt64?
     private var membershipTransactionCompletion: DispatchGroup?
+    /// Membership wait edges on this container; guarded by `membershipGate`.
+    private var membershipWaits = 0
     private var activeCurrentPublications = 0
     private let membershipGate = NSRecursiveLock()
 
@@ -889,17 +891,27 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     open override func dispose() {
+        let caller = ThreadWaitGraph.currentThread
         while true {
             var waitForTransaction: DispatchGroup?
             var snapshot: [Child]?
             let shouldReturn: Bool = membershipGate.withLock {
                 if disposeRequested { return true }
                 if membershipTransactionActive {
-                    if membershipTransactionOwner == ObjectIdentifier(Thread.current) {
+                    if membershipTransactionOwner == caller {
                         disposeDeferred = true
                         return true
                     }
-                    waitForTransaction = membershipTransactionCompletion
+                    if let owner = membershipTransactionOwner,
+                       let completion = membershipTransactionCompletion {
+                        // The owner already waits on this thread (#703): record
+                        // the terminal intent; `endMembershipTransaction` disposes.
+                        guard registerMembershipWaitLocked(owner: owner) else {
+                            disposeDeferred = true
+                            return true
+                        }
+                        waitForTransaction = completion
+                    }
                     return false
                 }
                 if activeCurrentPublications > 0 {
@@ -912,7 +924,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             }
             if shouldReturn { return }
             if let waitForTransaction {
-                waitForTransaction.wait()
+                awaitMembershipTransaction(waitForTransaction)
                 continue
             }
             guard let snapshot else { return }
@@ -966,7 +978,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         membershipTransactionActive = true
         membershipTransactionToken = transaction
         membershipTransactionDepth = 1
-        membershipTransactionOwner = ObjectIdentifier(Thread.current)
+        membershipTransactionOwner = ThreadWaitGraph.currentThread
         let completion = DispatchGroup()
         completion.enter()
         membershipTransactionCompletion = completion
@@ -992,40 +1004,33 @@ open class CompositeVM<Child: ComponentVMBase>:
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool
     ) throws {
-        while let blocker = try tryEnterMembershipTransaction(transaction, allowJoin: allowJoin) {
-            try waitForMembershipTransaction(blocker)
+        while let completion = try tryEnterMembershipTransaction(transaction, allowJoin: allowJoin) {
+            awaitMembershipTransaction(completion)
         }
     }
 
-    /// Opens or joins the transaction, or returns another thread's open
-    /// transaction to wait for. Throws on a same-thread conflict (ADR-0118).
+    /// Opens or joins the transaction, or records a wait for another thread's
+    /// open transaction and returns its completion. Throws on a same-thread
+    /// conflict (ADR-0118) and on a wait that would close a cycle in the
+    /// shared wait graph (#551, #703).
     private func tryEnterMembershipTransaction(
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool
-    ) throws -> MembershipTransactionBlocker? {
-        let caller = ObjectIdentifier(Thread.current)
-        return try membershipGate.withLock { () -> MembershipTransactionBlocker? in
+    ) throws -> DispatchGroup? {
+        let caller = ThreadWaitGraph.currentThread
+        return try membershipGate.withLock { () -> DispatchGroup? in
             if membershipTransactionActive,
                !(allowJoin && membershipTransactionToken === transaction),
                let owner = membershipTransactionOwner, owner != caller,
                let completion = membershipTransactionCompletion {
-                return MembershipTransactionBlocker(owner: owner, completion: completion)
+                guard registerMembershipWaitLocked(owner: owner) else {
+                    throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
+                }
+                return completion
             }
             try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
             return nil
         }
-    }
-
-    /// Waits for another thread's transaction to end, unless the wait would
-    /// close a cycle (#551).
-    private func waitForMembershipTransaction(_ blocker: MembershipTransactionBlocker) throws {
-        let caller = ObjectIdentifier(Thread.current)
-        let coordinator = MembershipTransactionWaitCoordinator.shared
-        guard coordinator.beginWait(caller: caller, owner: blocker.owner) else {
-            throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
-        }
-        blocker.completion.wait()
-        coordinator.endWait(caller: caller)
     }
 
     /// True while the calling thread itself has this composite's membership
@@ -1034,13 +1039,21 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// `_applyCurrentChange`, so a concurrent selection is not dropped.
     private var membershipTransactionHeldByCallerLocked: Bool {
         membershipTransactionActive
-            && membershipTransactionOwner == ObjectIdentifier(Thread.current)
+            && membershipTransactionOwner == ThreadWaitGraph.currentThread
     }
 
     private func requireTransactionCanContinueLocked() throws {
         guard !disposeRequested && !disposeDeferred else {
             throw ContainerOwnershipError.attachmentFailed(ContainerDisposalAdmissionError())
         }
+    }
+
+    /// Records, under `membershipGate`, a wait for another thread's open
+    /// transaction. Returns `false` when the wait would close a cycle.
+    private func registerMembershipWaitLocked(owner: UInt64) -> Bool {
+        guard beginMembershipWait(owner: owner, container: self) else { return false }
+        membershipWaits += 1
+        return true
     }
 
     private func endMembershipTransaction() {
@@ -1055,6 +1068,10 @@ open class CompositeVM<Child: ComponentVMBase>:
                 membershipTransactionOwner = nil
                 completion = membershipTransactionCompletion
                 membershipTransactionCompletion = nil
+                if membershipWaits > 0 {
+                    membershipWaits = 0
+                    releaseMembershipWaiters(of: self)
+                }
                 shouldDispose = disposeDeferred && activeCurrentPublications == 0
                 if shouldDispose { disposeDeferred = false }
             }
@@ -1135,11 +1152,10 @@ open class CompositeVM<Child: ComponentVMBase>:
                 // Wait for another thread's transaction without retaining the
                 // shared coordinator: that thread's hooks and callbacks may
                 // need it to select (spec/06 §4, COMP-026).
-                while let blocker = try tryEnterMembershipTransaction(transaction, allowJoin: false) {
+                while let completion = try tryEnterMembershipTransaction(transaction, allowJoin: false) {
                     compositeCurrentChangeCoordinator.unlock()
-                    let waited = Result { try waitForMembershipTransaction(blocker) }
+                    awaitMembershipTransaction(completion)
                     compositeCurrentChangeCoordinator.lock()
-                    try waited.get()
                 }
                 ownsTransaction = true
             } catch {
@@ -1206,12 +1222,6 @@ open class CompositeVM<Child: ComponentVMBase>:
 }
 
 private struct ContainerMembershipTransactionError: Error {}
-
-/// Another thread's open membership transaction and its completion signal.
-private struct MembershipTransactionBlocker {
-    let owner: ObjectIdentifier
-    let completion: DispatchGroup
-}
 
 /// Thrown by `CompositeVM.setCurrent(_:)` when the argument is not a member of
 /// the composite's children (spec/06 §3.1 — `Current` must be a member; cf.

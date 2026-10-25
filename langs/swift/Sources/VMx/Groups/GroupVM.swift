@@ -87,8 +87,10 @@ open class GroupVM<Child: ComponentVMBase>:
     private var membershipTransactionActive = false
     private var membershipTransactionToken: ContainerOwnershipTransaction?
     private var membershipTransactionDepth = 0
-    private var membershipTransactionOwner: ObjectIdentifier?
+    private var membershipTransactionOwner: UInt64?
     private var membershipTransactionCompletion: DispatchGroup?
+    /// Membership wait edges on this container; guarded by `membershipGate`.
+    private var membershipWaits = 0
     private let membershipGate = NSRecursiveLock()
 
     // ── Batch-update state ──────────────────────────────────────────────
@@ -744,17 +746,27 @@ open class GroupVM<Child: ComponentVMBase>:
     }
 
     open override func dispose() {
+        let caller = ThreadWaitGraph.currentThread
         while true {
             var waitForTransaction: DispatchGroup?
             var snapshot: [Child]?
             let shouldReturn: Bool = membershipGate.withLock {
                 if disposeRequested { return true }
                 if membershipTransactionActive {
-                    if membershipTransactionOwner == ObjectIdentifier(Thread.current) {
+                    if membershipTransactionOwner == caller {
                         disposeDeferred = true
                         return true
                     }
-                    waitForTransaction = membershipTransactionCompletion
+                    if let owner = membershipTransactionOwner,
+                       let completion = membershipTransactionCompletion {
+                        // The owner already waits on this thread (#703): record
+                        // the terminal intent; `endMembershipTransaction` disposes.
+                        guard registerMembershipWaitLocked(owner: owner) else {
+                            disposeDeferred = true
+                            return true
+                        }
+                        waitForTransaction = completion
+                    }
                     return false
                 }
                 disposeRequested = true
@@ -763,7 +775,7 @@ open class GroupVM<Child: ComponentVMBase>:
             }
             if shouldReturn { return }
             if let waitForTransaction {
-                waitForTransaction.wait()
+                awaitMembershipTransaction(waitForTransaction)
                 continue
             }
             guard let snapshot else { return }
@@ -809,7 +821,7 @@ open class GroupVM<Child: ComponentVMBase>:
         membershipTransactionActive = true
         membershipTransactionToken = transaction
         membershipTransactionDepth = 1
-        membershipTransactionOwner = ObjectIdentifier(Thread.current)
+        membershipTransactionOwner = ThreadWaitGraph.currentThread
         let completion = DispatchGroup()
         completion.enter()
         membershipTransactionCompletion = completion
@@ -830,31 +842,28 @@ open class GroupVM<Child: ComponentVMBase>:
     /// Opens or joins a membership transaction. While another thread's
     /// transaction is open, waits for it to end, as C# does, instead of
     /// failing. A second transaction on the same thread is still rejected
-    /// (ADR-0118), and so is a wait that would close a cycle (#551).
+    /// (ADR-0118), and so is a wait that would close a cycle (#551, #703).
     private func enterMembershipTransaction(
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool
     ) throws {
-        let caller = ObjectIdentifier(Thread.current)
+        let caller = ThreadWaitGraph.currentThread
         while true {
-            let blocker = try membershipGate.withLock { () -> (ObjectIdentifier, DispatchGroup)? in
+            let blocker = try membershipGate.withLock { () -> DispatchGroup? in
                 if membershipTransactionActive,
                    !(allowJoin && membershipTransactionToken === transaction),
                    let owner = membershipTransactionOwner, owner != caller,
                    let completion = membershipTransactionCompletion {
-                    return (owner, completion)
+                    guard registerMembershipWaitLocked(owner: owner) else {
+                        throw ContainerOwnershipError.attachmentFailed(GroupMembershipTransactionError())
+                    }
+                    return completion
                 }
                 try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
                 return nil
             }
             guard let blocker else { return }
-            let (owner, completion) = blocker
-            let coordinator = MembershipTransactionWaitCoordinator.shared
-            guard coordinator.beginWait(caller: caller, owner: owner) else {
-                throw ContainerOwnershipError.attachmentFailed(GroupMembershipTransactionError())
-            }
-            completion.wait()
-            coordinator.endWait(caller: caller)
+            awaitMembershipTransaction(blocker)
         }
     }
 
@@ -862,6 +871,14 @@ open class GroupVM<Child: ComponentVMBase>:
         guard !disposeRequested && !disposeDeferred else {
             throw ContainerOwnershipError.attachmentFailed(GroupDisposalAdmissionError())
         }
+    }
+
+    /// Records, under `membershipGate`, a wait for another thread's open
+    /// transaction. Returns `false` when the wait would close a cycle.
+    private func registerMembershipWaitLocked(owner: UInt64) -> Bool {
+        guard beginMembershipWait(owner: owner, container: self) else { return false }
+        membershipWaits += 1
+        return true
     }
 
     private func endMembershipTransaction() {
@@ -876,6 +893,10 @@ open class GroupVM<Child: ComponentVMBase>:
                 membershipTransactionOwner = nil
                 completion = membershipTransactionCompletion
                 membershipTransactionCompletion = nil
+                if membershipWaits > 0 {
+                    membershipWaits = 0
+                    releaseMembershipWaiters(of: self)
+                }
                 shouldDispose = disposeDeferred
                 disposeDeferred = false
             }

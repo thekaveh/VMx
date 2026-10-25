@@ -16,35 +16,6 @@
 import Foundation
 import Combine
 
-private final class LifecycleWaitCoordinator: @unchecked Sendable {
-    static let shared = LifecycleWaitCoordinator()
-
-    private let lock = NSLock()
-    private var waitingOn: [UInt64: UInt64] = [:]
-
-    func beginWait(caller: UInt64, owner: UInt64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        waitingOn[caller] = owner
-        var cursor = owner
-        var visited = Set<UInt64>()
-        while visited.insert(cursor).inserted, let next = waitingOn[cursor] {
-            if next == caller {
-                waitingOn.removeValue(forKey: caller)
-                return false
-            }
-            cursor = next
-        }
-        return true
-    }
-
-    func endWait(caller: UInt64) {
-        lock.lock()
-        waitingOn.removeValue(forKey: caller)
-        lock.unlock()
-    }
-}
-
 /// Minimal parent interface used by a child for selection delegation.
 /// Mirrors `IParentVM` in the other flavors.
 public protocol ParentVM: AnyObject {
@@ -217,36 +188,29 @@ func beginParentTransfer(
 
 private struct ContainerOwnershipTransactionError: Error {}
 
-/// Wait-for graph for container membership transactions (#551). A container
-/// serializes another thread's open transaction, as C# does, unless that
-/// thread already waits for this one, directly or through others: then the
-/// closing edge is refused, so opposing populations fail instead of
-/// deadlocking.
-final class MembershipTransactionWaitCoordinator: @unchecked Sendable {
-    static let shared = MembershipTransactionWaitCoordinator()
+/// Records, under `container`'s gate, that the caller waits for `owner`'s open
+/// membership transaction. A container serializes another thread's open
+/// transaction, as C# does, unless that thread already waits for this one,
+/// directly or through others, including through a hub drain (#551, #703).
+/// Returns `false`, and records nothing, in that case.
+func beginMembershipWait(owner: UInt64, container: AnyObject) -> Bool {
+    ThreadWaitGraph.shared.beginWait(
+        caller: ThreadWaitGraph.currentThread,
+        owner: owner,
+        resource: ObjectIdentifier(container)
+    )
+}
 
-    private let lock = NSLock()
-    private var waitingOn: [ObjectIdentifier: ObjectIdentifier] = [:]
+/// Waits for a transaction recorded by `beginMembershipWait` to end.
+func awaitMembershipTransaction(_ completion: DispatchGroup) {
+    completion.wait()
+    ThreadWaitGraph.shared.endWait(caller: ThreadWaitGraph.currentThread)
+}
 
-    /// Returns `false` when adding `caller -> owner` would close a cycle.
-    func beginWait(caller: ObjectIdentifier, owner: ObjectIdentifier) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        var cursor: ObjectIdentifier? = owner
-        var visited = Set<ObjectIdentifier>()
-        while let current = cursor, visited.insert(current).inserted {
-            if current == caller { return false }
-            cursor = waitingOn[current]
-        }
-        waitingOn[caller] = owner
-        return true
-    }
-
-    func endWait(caller: ObjectIdentifier) {
-        lock.lock()
-        waitingOn.removeValue(forKey: caller)
-        lock.unlock()
-    }
+/// Ends every membership wait on `container`. The transaction owner calls it
+/// under the container's gate, before it wakes the waiters.
+func releaseMembershipWaiters(of container: AnyObject) {
+    ThreadWaitGraph.shared.release(resource: ObjectIdentifier(container))
 }
 
 /// A `Subject` whose `send(_:)` snapshots subscribers under a brief lock and
@@ -647,6 +611,8 @@ open class ComponentVMBase {
         var mayBeAdopted: Bool
         let afterDelivery: () -> Void
         let ready = DispatchSemaphore(value: 0)
+        /// Set under `lifecycleLock` when a wait edge names this publication.
+        var waitRegistered = false
         var applied = false
         var succeeded = false
 
@@ -670,6 +636,8 @@ open class ComponentVMBase {
     private final class LifecycleHookLease {
         let threadID: UInt64
         let completed = DispatchSemaphore(value: 0)
+        /// Set under `lifecycleLock` when a wait edge names this lease.
+        var waitRegistered = false
 
         init(threadID: UInt64) {
             self.threadID = threadID
@@ -1419,8 +1387,7 @@ open class ComponentVMBase {
         publication: LifecyclePublication,
         shouldDrain: Bool,
         shouldAwaitTurn: Bool,
-        shouldDeliverInline: Bool,
-        awaitedOwner: UInt64
+        shouldDeliverInline: Bool
     )
 
     private func _claimHook(
@@ -1441,6 +1408,9 @@ open class ComponentVMBase {
         lifecycleLock.lock()
         if activeHookLease === lease {
             activeHookLease = nil
+        }
+        if lease.waitRegistered {
+            ThreadWaitGraph.shared.release(resource: ObjectIdentifier(lease))
         }
         let shouldFinishDisposal = disposalCleanupPendingForHook
         if shouldFinishDisposal {
@@ -1498,16 +1468,16 @@ open class ComponentVMBase {
         )
         if isDisposal && lifecycleDrainerThread == caller {
             _applyLifecyclePublicationLocked(publication)
-            return (publication, false, false, true, 0)
+            return (publication, false, false, true)
         }
         lifecyclePublications.append(publication)
         if lifecycleDrainerThread == 0 {
             lifecycleDrainerThread = caller
             _applyLifecyclePublicationLocked(publication)
-            return (publication, true, false, false, 0)
+            return (publication, true, false, false)
         }
         let shouldAwaitTurn = lifecycleDrainerThread != caller && !mayBeAdopted
-        return (publication, false, shouldAwaitTurn, false, lifecycleDrainerThread)
+        return (publication, false, shouldAwaitTurn, false)
     }
 
     private func _applyLifecyclePublicationLocked(
@@ -1534,17 +1504,25 @@ open class ComponentVMBase {
             _drainLifecyclePublications()
         } else if plan.shouldAwaitTurn {
             let caller = Self.currentThreadID
-            if !LifecycleWaitCoordinator.shared.beginWait(
-                caller: caller,
-                owner: plan.awaitedOwner
-            ) {
-                lifecycleLock.lock()
-                plan.publication.mayBeAdopted = true
-                lifecycleLock.unlock()
-                return
+            // Recorded under `lifecycleLock`, which orders it against the
+            // hand-off that releases it. A turn already handed over needs no edge.
+            lifecycleLock.lock()
+            if lifecycleDrainerThread != caller {
+                guard ThreadWaitGraph.shared.beginWait(
+                    caller: caller,
+                    owner: lifecycleDrainerThread,
+                    resource: ObjectIdentifier(plan.publication)
+                ) else {
+                    plan.publication.mayBeAdopted = true
+                    lifecycleLock.unlock()
+                    return
+                }
+                plan.publication.waitRegistered = true
             }
-            defer { LifecycleWaitCoordinator.shared.endWait(caller: caller) }
+            lifecycleLock.unlock()
             plan.publication.ready.wait()
+            // The edge ends before this thread drains or delivers.
+            ThreadWaitGraph.shared.endWait(caller: caller)
             _drainLifecyclePublications()
         }
     }
@@ -1583,6 +1561,9 @@ open class ComponentVMBase {
                 continue
             }
             lifecycleDrainerThread = next.ownerThread
+            if next.waitRegistered {
+                ThreadWaitGraph.shared.release(resource: ObjectIdentifier(next))
+            }
             next.ready.signal()
             lifecycleLock.unlock()
             return
@@ -1641,21 +1622,24 @@ open class ComponentVMBase {
                 lifecycleLock.unlock()
             } else {
                 let caller = Self.currentThreadID
-                if LifecycleWaitCoordinator.shared.beginWait(
-                    caller: caller,
-                    owner: lease.threadID
-                ) {
-                    defer { LifecycleWaitCoordinator.shared.endWait(caller: caller) }
-                    lease.completed.wait()
-                } else {
-                    lifecycleLock.lock()
-                    if activeHookLease === lease {
+                // Recorded under `lifecycleLock`, which orders it against
+                // `_finishHook` releasing it.
+                lifecycleLock.lock()
+                if activeHookLease === lease {
+                    guard ThreadWaitGraph.shared.beginWait(
+                        caller: caller,
+                        owner: lease.threadID,
+                        resource: ObjectIdentifier(lease)
+                    ) else {
                         disposalCleanupPendingForHook = true
                         lifecycleLock.unlock()
                         return
                     }
-                    lifecycleLock.unlock()
+                    lease.waitRegistered = true
                 }
+                lifecycleLock.unlock()
+                lease.completed.wait()
+                ThreadWaitGraph.shared.endWait(caller: caller)
             }
         }
         _finishDisposalNow()
@@ -1701,7 +1685,7 @@ open class ComponentVMBase {
     }
 
     private static var currentThreadID: UInt64 {
-        UInt64(pthread_mach_thread_np(pthread_self()))
+        ThreadWaitGraph.currentThread
     }
 
     // ── Transition table (fixture-driven, LIFE-011) ─────────────────────
