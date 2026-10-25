@@ -84,6 +84,39 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
         XCTAssertEqual(factoryCalls, 1, "the cached result is reused")
     }
 
+    // #737: `removeChild` reports invalid lazy factory output instead of trapping.
+    func testRemoveChildReportsInvalidFactoryOutputWithoutMutation() {
+        let hub = MessageHub()
+        var messages = 0
+        let subscription = hub.messages.sink { _ in messages += 1 }
+        defer { subscription.cancel() }
+        let duplicate = HydrationNode(
+            model: "duplicate", childrenFactory: { _ in [] }, hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE)
+        let stranger = HydrationNode(
+            model: "stranger", childrenFactory: { _ in [] }, hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE)
+        var snapshot = [duplicate, duplicate]
+        let root = HydrationNode(
+            model: "root", childrenFactory: { _ in snapshot }, hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE)
+        guard case .failure(.invalidFactoryOutput) = root.addChild(stranger) else {
+            return XCTFail("addChild must report the invalid output")
+        }
+        messages = 0
+
+        guard case .failure(.invalidFactoryOutput) = root.removeChild(stranger) else {
+            return XCTFail("removeChild must report the invalid output")
+        }
+        XCTAssertNil(duplicate.parent)
+        XCTAssertNil(stranger.parent)
+        XCTAssertEqual(messages, 0, "a rejected removal publishes nothing")
+
+        snapshot = [duplicate]
+        XCTAssertEqual(root.children.map(\.model), ["duplicate"], "a valid retry loads")
+        XCTAssertTrue(duplicate.parent === root)
+    }
+
     /// HIER-031 — self, ancestor, and already-parented results are rejected.
     func testHier031RejectsInvalidTopology() {
         let hub = MessageHub()
@@ -172,7 +205,9 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
                         if operation == "add" {
                             _ = parent.addChild(child)
                         } else if operation == "remove" {
-                            parent.removeChild(child)
+                            if case .failure(.invalidFactoryOutput) = parent.removeChild(child) {} else {
+                                XCTFail("a reentrant removeChild reports invalidFactoryOutput")
+                            }
                         } else if operation == "reparent" {
                             try? parent.reparentChild(child)
                         } else if operation == "attach" {

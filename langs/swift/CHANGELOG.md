@@ -84,8 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   lazy children-factory output as an error instead of trapping (spec/18 §6).
   `addChild` returns `.failure`, `reparentChild` throws the error, and
   `attachMany` records an `attachmentFailed` rejection and continues the batch.
-  The `children` accessor, `isLeaf`, and `removeChild` still trap on such
-  output.
+  `removeChild` also returns `.failure(.invalidFactoryOutput)` (#737). The
+  `children` accessor and `isLeaf` still trap on such output, and so do
+  `walk`, `walkExpanded` and `find`, which read `children`.
 
 - A user object whose `deinit` calls back into the VMx primitive that drops
   it no longer deadlocks or traps. `MessageHub` releases delivered and dropped
@@ -197,8 +198,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   cancellation result (spec/19 §3, DIA-012).
 - `HierarchicalVM.removeChild` on a node whose children are not loaded yet
   now runs the children factory first, as the other flavors do. Before, it
-  returned without loading the children. Invalid factory output traps, as it
-  does in the `children` accessor.
+  returned without loading the children. `removeChild` now returns a
+  `@discardableResult Result<Void, HierarchyError>`, as `addChild` does: invalid
+  factory output returns `.failure(.invalidFactoryOutput)` and changes nothing,
+  and a later valid factory call still loads the children (#737).
 
 ## [3.31.0] — unreleased source version
 
