@@ -55,8 +55,11 @@ public final class FormVM<Model> {
     // Approval publication runs outside `stateGate`, so observers on other
     // threads can read the form while it is delivered (#533). Meanwhile,
     // mutations and disposal on other threads wait, as in C# and Python.
+    // `setModel` and deny use the same scope for their notifications (#704),
+    // so another thread's update or disposal waits until they are delivered.
     private var approvalPublishing = false
     private var approvalPublisher: UInt64 = 0
+    private var publicationDepth = 0
     private var approvalGeneration = 0
     private let approvalFinished = NSCondition()
 
@@ -223,9 +226,21 @@ public final class FormVM<Model> {
         }
         activeMutations += 1
         var shouldPublish = false
+        var publishedErrors: [String: String]?
+        var publishCanExecute = false
         defer {
+            // Observers are notified after the gate is released (ADR-0143): a
+            // `canExecuteChanged` sink reads the form under the gate (#704).
+            // The publication scope keeps commit order across threads.
             stateGate.unlock()
             if shouldPublish {
+                if let publishedErrors {
+                    _errorsChanged.send(publishedErrors)
+                }
+                if publishCanExecute {
+                    _approveCanExecSubject.send(())
+                }
+                exitPublication()
                 hub.send(PropertyChangedMessage(
                     sender: self,
                     senderName: "FormVM",
@@ -258,11 +273,10 @@ public final class FormVM<Model> {
         _model = newModel
         _errors = nextErrors
         if errorsChanged {
-            _errorsChanged.send(nextErrors)
+            publishedErrors = nextErrors
         }
-        if canExecuteChanged {
-            _approveCanExecSubject.send(())
-        }
+        publishCanExecute = canExecuteChanged
+        enterPublicationLocked()
         shouldPublish = true
     }
 
@@ -371,15 +385,18 @@ public final class FormVM<Model> {
         }
         _model = nextModel
         _errors = nextErrors
+        enterPublicationLocked()
+        stateGate.unlock()
+
+        // Observers are notified after the gate is released (ADR-0143, #704).
         if errorsChanged {
             _errorsChanged.send(nextErrors)
         }
-        stateGate.unlock()
-
+        exitPublication()
         hub.send(FormRevertedMessage(senderObject: self, senderName: "FormVM"))
         hub.send(PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model"))
         if canExecuteChanged {
-            withStateGate { _approveCanExecSubject.send(()) }
+            _approveCanExecSubject.send(())
         }
     }
 
@@ -500,8 +517,7 @@ public final class FormVM<Model> {
         // Settlement clears the mark before publishing, so every observer
         // below sees an idle form and may start the next approval (§5.3).
         approvalInFlight = false
-        approvalPublishing = true
-        approvalPublisher = Self.currentThread
+        enterPublicationLocked()
         approvalPrePublishing = true
         return publication
     }
@@ -525,16 +541,34 @@ public final class FormVM<Model> {
     }
 
     private func finishApprovalPublication() {
-        withStateGate {
-            approvalPrePublishing = false
+        withStateGate { approvalPrePublishing = false }
+        exitPublication()
+        drainDeferredApprovalModels()
+    }
+
+    /// Marks this thread as the publisher. The caller holds `stateGate` after
+    /// `awaitForeignApprovalLocked`, so no other thread's scope is open; a
+    /// same-thread scope nests.
+    private func enterPublicationLocked() {
+        publicationDepth += 1
+        approvalPublishing = true
+        approvalPublisher = Self.currentThread
+    }
+
+    /// Closes one scope and admits waiting threads when the last one closes.
+    private func exitPublication() {
+        let finished = withStateGate { () -> Bool in
+            publicationDepth -= 1
+            guard publicationDepth == 0 else { return false }
             approvalPublishing = false
             approvalPublisher = 0
+            return true
         }
+        guard finished else { return }
         approvalFinished.lock()
         approvalGeneration &+= 1
         approvalFinished.broadcast()
         approvalFinished.unlock()
-        drainDeferredApprovalModels()
     }
 
     /// Waits, releasing `stateGate`, while another thread publishes an approval.
@@ -611,11 +645,16 @@ public final class FormVM<Model> {
     }
 
     private func canApprove() -> Bool {
-        withStateGate {
-            guard !_disposed, _errors.isEmpty, !approvalInFlight else { return false }
-            guard strict else { return true }
-            return !equals(_model, _snapshot)
+        // `equals` runs after the gate is released, as in `isDirty`, so a
+        // callback that updates the form cannot wait for another thread's
+        // publication scope while it holds the gate (#704).
+        let state = withStateGate { () -> (model: Model, snapshot: Model)? in
+            guard !_disposed, _errors.isEmpty, !approvalInFlight else { return nil }
+            return (_model, _snapshot)
         }
+        guard let state else { return false }
+        guard strict else { return true }
+        return !equals(state.model, state.snapshot)
     }
 
     private func endMutation() {
