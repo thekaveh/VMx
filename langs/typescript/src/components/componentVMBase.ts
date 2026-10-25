@@ -730,6 +730,15 @@ export abstract class ComponentVMBase {
    */
   #releaseInFlight(): void {
     this.#inFlight = false;
+    this.#runAfterRelease();
+  }
+
+  /**
+   * Run the queued parent continuations. `dispose()` runs them too: a VM
+   * disposed while its transition is deferred (for example mid-reconstruct)
+   * never releases its guard, and a waiting parent must still settle.
+   */
+  #runAfterRelease(): void {
     if (this.#afterRelease.length === 0) return;
     const continuations = this.#afterRelease;
     this.#afterRelease = [];
@@ -751,7 +760,7 @@ export abstract class ComponentVMBase {
   /**
    * Run `continuation` once this VM is no longer in flight: immediately when it
    * is idle or Disposed, otherwise right after its current transition releases
-   * the guard.
+   * the guard or this VM is disposed.
    */
   #runWhenReleased(continuation: () => void): void {
     if (this.#inFlight && this.#status !== ConstructionStatus.Disposed) {
@@ -850,14 +859,15 @@ export abstract class ComponentVMBase {
           // "isConstructed" is the last per-status notification _setStatus raises.
           if (name !== "isConstructed" || child.status === transient) return;
           if (!stopWaiting()) return;
-          const settled = child.status;
           // Continue only after the child finished publishing and released its
           // in-flight guard, so this VM may start the child's next transition
           // and a failure here does not escape from the child's subscriber.
           child._ownershipIdentity.#runWhenReleased(() => {
             // This VM was disposed (or abandoned the wait) in the meantime.
             if (cancelled) return;
-            if (settled !== target) {
+            // Read the status now, not at the settle: a joined reconstructing
+            // child is Constructed again by its release (spec/02 §6).
+            if (child.status !== target) {
               // The child rolled back (and surfaced its own failure) or was disposed.
               settle({
                 failed: true,
@@ -928,6 +938,8 @@ export abstract class ComponentVMBase {
       // A transition waiting on a child never settles once Disposed.
       () => this.#abandonDeferredLifecycle(),
       () => this._setStatus(ConstructionStatus.Disposed),
+      // A parent waiting for this VM's release now sees Disposed and settles.
+      () => this.#runAfterRelease(),
       () => {
         if (this.#activeLifecycleHook) {
           this.#terminalCleanupPending = true;
