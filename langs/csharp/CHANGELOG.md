@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a container's deferred child walk stops once its owner is
+  `Disposed`. A `CompositeVM` or `GroupVM` disposed while the walk waits to
+  resume on the foreground no longer runs the user `onDestruct` callback or
+  the composite `Current` selector with `Status` already `Disposed`, and an
+  aggregate or hierarchical owner drives no further children (#735,
+  LIFE-015).
 - Fixed: a cross-thread `CompositeVM` or `GroupVM` `Dispose()` no longer
   deadlocks when the transaction owner it waits for already waits for the
   disposing thread (#717, ADR-0153). The disposal registers its wait in the
