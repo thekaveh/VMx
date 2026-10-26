@@ -237,6 +237,13 @@ function equalBytes(
   return true;
 }
 
+/** Compares two boxed primitives with the primitive rules of {@link deepEquals}. */
+function boxedValuesEqual(a: { valueOf(): unknown }, b: { valueOf(): unknown }): boolean {
+  const x = a.valueOf();
+  const y = b.valueOf();
+  return x === y || (x !== x && y !== y);
+}
+
 /**
  * Structural deep-equality used by {@link FormVM.isDirty} when no custom
  * `equals` is supplied. It mirrors the depth the default `structuredClone`
@@ -302,13 +309,19 @@ export function deepEquals(
 
   // Boxed primitives keep their value through structuredClone, so compare it
   // with the same rules as primitives: NaN equals NaN, and +0 equals -0.
-  for (const Box of [Number, Boolean, String, BigInt] as const) {
-    if (a instanceof Box || b instanceof Box) {
-      if (!(a instanceof Box) || !(b instanceof Box)) return false;
-      const x: unknown = (a as { valueOf(): unknown }).valueOf();
-      const y: unknown = (b as { valueOf(): unknown }).valueOf();
-      return x === y || (x !== x && y !== y);
-    }
+  // Each constructor is checked directly: V8 does not specialize
+  // `instanceof` against a loop variable, which doubled the cost (#767).
+  if (a instanceof Number || b instanceof Number) {
+    return a instanceof Number && b instanceof Number && boxedValuesEqual(a, b);
+  }
+  if (a instanceof Boolean || b instanceof Boolean) {
+    return a instanceof Boolean && b instanceof Boolean && boxedValuesEqual(a, b);
+  }
+  if (a instanceof String || b instanceof String) {
+    return a instanceof String && b instanceof String && boxedValuesEqual(a, b);
+  }
+  if (a instanceof BigInt || b instanceof BigInt) {
+    return a instanceof BigInt && b instanceof BigInt && boxedValuesEqual(a, b);
   }
 
   if (a instanceof RegExp || b instanceof RegExp) {

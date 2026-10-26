@@ -1029,6 +1029,17 @@ describe("FormVM default equality – supported snapshot domain", () => {
     sut.dispose();
   });
 
+  it("does not equate a boxed Number with an object, an array, or a Date", () => {
+    const equalsCase = (x: unknown, y: unknown) => deepEquals({ value: x }, { value: y });
+
+    expect(equalsCase(new Number(0), {})).toBe(false);
+    expect(equalsCase({}, new Number(0))).toBe(false);
+    expect(equalsCase(new Number(0), [])).toBe(false);
+    expect(equalsCase([], new Number(0))).toBe(false);
+    expect(equalsCase(new Number(0), new Date(0))).toBe(false);
+    expect(equalsCase(new Date(0), new Number(0))).toBe(false);
+  });
+
   it("compares Error values by kind, message, and cause", () => {
     const equalsCase = (x: unknown, y: unknown) => deepEquals({ value: x }, { value: y });
 
