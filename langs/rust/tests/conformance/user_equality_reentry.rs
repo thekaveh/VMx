@@ -881,6 +881,78 @@ fn hub_self_disposing_subscriber_finishes_its_message_and_later_ones_still_run()
     assert_eq!(*log.lock().unwrap(), ["A:1", "B:1", "B:2"]);
 }
 
+/// #766 — dropping a later subscriber's `Subscription` inside an earlier
+/// handler, without calling `dispose()`, detaches it for the message being
+/// delivered and for every later one.
+#[test]
+fn hub_skips_a_subscriber_whose_subscription_an_earlier_subscriber_drops() {
+    let hub = MessageHub::new();
+    let log = Arc::new(Mutex::new(Vec::<String>::new()));
+    let target = Arc::new(Mutex::new(None::<vmx::Subscription>));
+    let _a = hub.subscribe({
+        let log = Arc::clone(&log);
+        let target = Arc::clone(&target);
+        move |message| {
+            if let Message::Custom { name, .. } = message {
+                log.lock().unwrap().push(format!("A:{name}"));
+            }
+            let taken = target.lock().unwrap().take();
+            drop(taken);
+        }
+    });
+    let b = hub.subscribe({
+        let log = Arc::clone(&log);
+        move |message| {
+            if let Message::Custom { name, .. } = message {
+                log.lock().unwrap().push(format!("B:{name}"));
+            }
+        }
+    });
+    *target.lock().unwrap() = Some(b);
+    hub.send(custom("1"));
+    hub.send(custom("2"));
+    assert_eq!(*log.lock().unwrap(), ["A:1", "A:2"]);
+    assert!(target.lock().unwrap().is_none());
+}
+
+/// #766 — a handler that detaches itself drops after its own turn, so a
+/// later subscriber whose `Subscription` it owns is skipped for that message.
+#[test]
+fn hub_drops_a_self_detached_handler_before_later_subscribers_run() {
+    let hub = MessageHub::new();
+    let log = Arc::new(Mutex::new(Vec::<String>::new()));
+    let own = Arc::new(Mutex::new(None::<vmx::Subscription>));
+    let owned_b = Arc::new(Mutex::new(None::<vmx::Subscription>));
+    let a = hub.subscribe({
+        let log = Arc::clone(&log);
+        let own = Arc::clone(&own);
+        let owned_b = Arc::clone(&owned_b);
+        move |message| {
+            if let Message::Custom { name, .. } = message {
+                log.lock().unwrap().push(format!("A:{name}"));
+            }
+            // This handler owns B's `Subscription` until the handler drops.
+            assert!(owned_b.lock().unwrap().is_some());
+            let taken = own.lock().unwrap().take();
+            drop(taken);
+        }
+    });
+    let b = hub.subscribe({
+        let log = Arc::clone(&log);
+        move |message| {
+            if let Message::Custom { name, .. } = message {
+                log.lock().unwrap().push(format!("B:{name}"));
+            }
+        }
+    });
+    *own.lock().unwrap() = Some(a);
+    *owned_b.lock().unwrap() = Some(b);
+    drop(owned_b);
+    hub.send(custom("1"));
+    hub.send(custom("2"));
+    assert_eq!(*log.lock().unwrap(), ["A:1"]);
+}
+
 /// Records the action of every collection-changed message on `hub`.
 fn record_actions(hub: &MessageHub) -> (Arc<Mutex<Vec<String>>>, vmx::Subscription) {
     let actions = Arc::new(Mutex::new(Vec::new()));
