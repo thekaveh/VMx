@@ -349,10 +349,11 @@ impl ExpansionTogglable for ExpandableState {
 
 impl<T: VmNode> Constructable for T {
     fn can_construct(&self) -> bool {
-        matches!(
-            self.status(),
-            ConstructionStatus::Destructed | ConstructionStatus::Constructed
-        )
+        !self.lifecycle_publication_pending()
+            && matches!(
+                self.status(),
+                ConstructionStatus::Destructed | ConstructionStatus::Constructed
+            )
     }
 
     fn construct(&self) {
@@ -362,10 +363,11 @@ impl<T: VmNode> Constructable for T {
 
 impl<T: VmNode> Destructable for T {
     fn can_destruct(&self) -> bool {
-        matches!(
-            self.status(),
-            ConstructionStatus::Constructed | ConstructionStatus::Destructed
-        )
+        !self.lifecycle_publication_pending()
+            && matches!(
+                self.status(),
+                ConstructionStatus::Constructed | ConstructionStatus::Destructed
+            )
     }
 
     fn destruct(&self) {
@@ -375,7 +377,7 @@ impl<T: VmNode> Destructable for T {
 
 impl<T: VmNode> Reconstructable for T {
     fn can_reconstruct(&self) -> bool {
-        self.status() == ConstructionStatus::Constructed
+        !self.lifecycle_publication_pending() && self.status() == ConstructionStatus::Constructed
     }
 
     fn reconstruct(&self) {

@@ -8,9 +8,9 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Duration;
 use vmx::{
-    ComponentVm, CompositeVm, ConstructionStatus, GroupVm, LifecycleErrorStream,
-    LifecycleSettleCallback, ManualDispatcher, Message, MessageHub, NullDispatcher, ParentHandle,
-    Subscription, VmNode, VmxResult,
+    Command, ComponentVm, CompositeVm, Constructable, ConstructionStatus, Destructable, GroupVm,
+    LifecycleErrorStream, LifecycleSettleCallback, ManualDispatcher, Message, MessageHub,
+    NullDispatcher, ParentHandle, Reconstructable, Subscription, VmNode, VmxResult,
 };
 
 /// Runs `body` on a worker and fails if it does not finish in time, so a
@@ -227,6 +227,12 @@ trait Container {
     fn background_errors(&self) -> LifecycleErrorStream;
     fn set_auto_construct_on_add(&self, enabled: bool);
     fn len(&self) -> usize;
+    /// Runs `hook` after the construct walk's last late scan and before the
+    /// commit: through the selector for a composite, which runs there, and
+    /// through a test-only probe for a group, which has no selector.
+    fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>);
+    /// Whether the container's reconstruct command can execute now.
+    fn reconstruct_can_execute(&self) -> bool;
 }
 
 impl Container for CompositeVm<Node> {
@@ -256,6 +262,15 @@ impl Container for CompositeVm<Node> {
     fn len(&self) -> usize {
         CompositeVm::len(self)
     }
+    fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        self.set_current_selector(move |_| {
+            hook();
+            None
+        });
+    }
+    fn reconstruct_can_execute(&self) -> bool {
+        Command::can_execute(&self.reconstruct_command())
+    }
 }
 
 impl Container for GroupVm<Node> {
@@ -284,6 +299,12 @@ impl Container for GroupVm<Node> {
     }
     fn len(&self) -> usize {
         GroupVm::len(self)
+    }
+    fn reconstruct_can_execute(&self) -> bool {
+        Command::can_execute(&self.reconstruct_command())
+    }
+    fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        self.set_last_scan_probe_for_testing(move || hook());
     }
 }
 
@@ -1207,4 +1228,215 @@ fn composite_walk_waits_for_late_child_its_add_is_still_attaching() {
 #[test]
 fn group_walk_waits_for_late_child_its_add_is_still_attaching() {
     walk_waits_for_late_child_its_add_is_still_attaching::<GroupVm<Node>>();
+}
+
+/// Adds a background `late` node once, after the construct walk's last late
+/// scan and before the container commits `Constructed`: from the thread that
+/// runs the walk (`cross_thread` false) or from another thread the hook joins.
+/// The container must reach `Constructed` only after `late` does
+/// (spec/02 §6, spec/06 §5.1); the hook runs once (spec/06 §3.2).
+fn add_after_last_scan<C>(cross_thread: bool)
+where
+    C: Container + Clone + Send + Sync + 'static,
+{
+    let hub = MessageHub::new();
+    let container = C::create(&hub, true);
+    let (log, _subscription) = record(&hub, container.id());
+    let late = Node::new(true);
+    let (at_constructed, _watch) = watch_constructed(&hub, container.id(), &late);
+    let hook_runs = Arc::new(AtomicUsize::new(0));
+    let added: Arc<Mutex<Option<VmxResult<()>>>> = Arc::default();
+    {
+        let target = container.clone();
+        let late = late.clone();
+        let hook_runs = Arc::clone(&hook_runs);
+        let added = Arc::clone(&added);
+        container.after_last_scan(Arc::new(move || {
+            if hook_runs.fetch_add(1, Ordering::SeqCst) > 0 {
+                return;
+            }
+            assert_eq!(target.status(), ConstructionStatus::Constructing);
+            let result = if cross_thread {
+                let (tx, rx) = mpsc::channel();
+                let target = target.clone();
+                let late = late.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(target.add(late));
+                });
+                rx.recv_timeout(Duration::from_secs(5))
+                    .expect("the cross-thread add completes")
+            } else {
+                target.add(late.clone())
+            };
+            *added.lock().unwrap() = Some(result);
+        }));
+    }
+
+    within_timeout("construct the container", {
+        let container = container.clone();
+        move || container.construct()
+    })
+    .unwrap();
+
+    assert_eq!(*added.lock().unwrap(), Some(Ok(())));
+    assert_eq!(late.constructs(), 1, "the add starts the late child once");
+    assert_eq!(
+        *late.status.lock().unwrap(),
+        ConstructionStatus::Constructing
+    );
+    assert_eq!(
+        container.status(),
+        ConstructionStatus::Constructing,
+        "the container waits for the late child its add started"
+    );
+    within_timeout("settle the late child", {
+        let late = late.clone();
+        move || late.finish(ConstructionStatus::Constructed)
+    });
+    assert_eq!(container.status(), ConstructionStatus::Constructed);
+    assert_eq!(hook_runs.load(Ordering::SeqCst), 1, "the hook runs once");
+    constructed_after_late(&log, &at_constructed);
+}
+
+#[test]
+fn composite_waits_for_child_added_after_last_scan_on_the_walk_thread() {
+    add_after_last_scan::<CompositeVm<Node>>(false);
+}
+
+#[test]
+fn composite_waits_for_child_added_after_last_scan_from_another_thread() {
+    add_after_last_scan::<CompositeVm<Node>>(true);
+}
+
+#[test]
+fn group_waits_for_child_added_after_last_scan_on_the_walk_thread() {
+    add_after_last_scan::<GroupVm<Node>>(false);
+}
+
+#[test]
+fn group_waits_for_child_added_after_last_scan_from_another_thread() {
+    add_after_last_scan::<GroupVm<Node>>(true);
+}
+
+/// While a sealed construct waits to publish Constructed, its state already
+/// reads Constructed but the transition is still in flight. The lifecycle
+/// predicates must agree with the operations then: none admits a construct,
+/// destruct or reconstruct, and a second construct is concurrent, not a
+/// silent no-op. Another component's delivery holds the hub, so the seal's
+/// publication waits; the probes run on that delivering thread, which the hub
+/// admits at once. Every wait is bounded.
+fn sealed_construct_still_publishing_admits_no_lifecycle_operation<C>()
+where
+    C: Container + VmNode + Clone + Send + Sync + 'static,
+{
+    type Probed = (bool, bool, bool, bool, VmxResult<()>, VmxResult<()>);
+    let (hub, container, anchor, log, _subscription) = constructing::<C>(true);
+    let other = ComponentVm::with_services("other", hub.clone(), NullDispatcher::new());
+    let other_id = VmNode::id(&other);
+    let (entered_tx, entered) = mpsc::channel::<()>();
+    let (probe_tx, probe) = mpsc::channel::<()>();
+    let (probed_tx, probed) = mpsc::channel::<Probed>();
+    let entered_tx = Mutex::new(entered_tx);
+    let probe = Mutex::new(probe);
+    let probed_tx = Mutex::new(probed_tx);
+    let observed = container.clone();
+    let _hold = hub.subscribe(move |message| {
+        if let Message::ConstructionStatusChanged(change) = message {
+            if change.sender_id == other_id && change.status == ConstructionStatus::Constructing {
+                let _ = entered_tx.lock().unwrap().send(());
+                if probe
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .is_ok()
+                {
+                    let _ = probed_tx.lock().unwrap().send((
+                        Constructable::can_construct(&observed),
+                        Destructable::can_destruct(&observed),
+                        Reconstructable::can_reconstruct(&observed),
+                        observed.reconstruct_can_execute(),
+                        VmNode::construct(&observed),
+                        VmNode::destruct(&observed),
+                    ));
+                }
+            }
+        }
+    });
+    let holder = std::thread::spawn(move || {
+        let _ = other.construct();
+    });
+    entered
+        .recv_timeout(Duration::from_secs(5))
+        .expect("another delivery holds the hub");
+
+    // The walk resumes on another thread, seals, and waits to publish.
+    let finisher = {
+        let anchor = anchor.clone();
+        std::thread::spawn(move || anchor.finish(ConstructionStatus::Constructed))
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while Container::status(&container) != ConstructionStatus::Constructed {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the seal flips the state to Constructed"
+        );
+        std::thread::yield_now();
+    }
+    let published_before = log.lock().unwrap().clone();
+    probe_tx.send(()).unwrap();
+    let (can_construct, can_destruct, can_reconstruct, reconstruct_can_execute, second, destruct) =
+        probed
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the delivering thread probes the container");
+    within_timeout(
+        "the held delivery and the seal's publication finish",
+        move || {
+            holder.join().unwrap();
+            finisher.join().unwrap();
+        },
+    );
+
+    assert_eq!(
+        published_before,
+        vec![ConstructionStatus::Constructing],
+        "the probes ran before Constructed was published"
+    );
+    assert!(!can_construct, "construct is not admitted while publishing");
+    assert!(!can_destruct, "destruct is not admitted while publishing");
+    assert!(
+        !can_reconstruct,
+        "reconstruct is not admitted while publishing"
+    );
+    assert!(
+        !reconstruct_can_execute,
+        "the reconstruct command is disabled"
+    );
+    assert_eq!(second, Err(vmx::VmxError::ConcurrentOperation));
+    assert_eq!(destruct, Err(vmx::VmxError::ConcurrentOperation));
+    assert_eq!(
+        Container::status(&container),
+        ConstructionStatus::Constructed
+    );
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed
+        ]
+    );
+    assert!(
+        Destructable::can_destruct(&container),
+        "published: destruct is admitted"
+    );
+    assert!(container.reconstruct_can_execute());
+}
+
+#[test]
+fn composite_sealed_construct_still_publishing_admits_no_lifecycle_operation() {
+    sealed_construct_still_publishing_admits_no_lifecycle_operation::<CompositeVm<Node>>();
+}
+
+#[test]
+fn group_sealed_construct_still_publishing_admits_no_lifecycle_operation() {
+    sealed_construct_still_publishing_admits_no_lifecycle_operation::<GroupVm<Node>>();
 }

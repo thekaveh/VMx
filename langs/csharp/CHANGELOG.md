@@ -8,6 +8,22 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: with `AutoConstructOnAdd(true)`, a `CompositeVM` or `GroupVM` no
+  longer publishes `Constructed` while a child that an add started during
+  `Constructing` still constructs (#744, spec/02 §6, spec/06 §5.1). Before, an
+  add that read `Constructing` after the construct walk's last scan started
+  its child, and nothing waited for it. The walk's start records now stay open
+  until its commit step. That step runs under the membership gate: it joins
+  any child added since the last scan, then commits the `Constructed` state in
+  the same gated section. An add therefore either reads `Constructing` and is
+  joined, or reads `Constructed` and follows the add-after-`Constructed` rule.
+  The `Current` selector still runs once. Between the commit step and the
+  published `Constructed` message, `Status` already reads `Constructed` while
+  the transition is still in flight: `CanConstruct()`, `CanDestruct()` and
+  `CanReconstruct()` return false, `Construct()` throws
+  `StatusTransitionException` as during `Constructing`, and joins and
+  `ConstructAsync()` wait until the publication starts. Components other than
+  containers are unchanged.
 - Fixed: with `AutoConstructOnAdd(true)`, a `CompositeVM` or `GroupVM`
   construct walk no longer rolls the container back when it pulls a child
   that a cross-thread add attached but has not started yet (#743, spec/06

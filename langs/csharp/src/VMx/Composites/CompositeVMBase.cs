@@ -30,36 +30,58 @@ internal static class ContainerConstructWalk
     /// added to <paramref name="joined"/>: the walk waits for the add's start
     /// attempt, then joins it, so one whose own construction failed rolls the
     /// container back. A late child without a record was not started by an
-    /// add, so the walk skips it. When the walk ends, for any reason, it ends
-    /// its own scope, never another walk's.
+    /// add, so the walk skips it. The scope stays open after the last scan:
+    /// <see cref="SealOrNextLateLocked"/> joins a child added after it, and
+    /// commits the Constructed state under the membership gate.
     /// </summary>
     internal static IEnumerable<IComponentVM> Enumerate<VM>(
         Func<VM[]> snapshot,
         bool includeLate,
         ISet<IComponentVM> joined,
+        ISet<IComponentVM> visited,
         LateChildStarts.Walk walk)
         where VM : class, IComponentVM
     {
-        try
+        var initial = snapshot();
+        visited.UnionWith(initial);
+        foreach (var child in initial) yield return child;
+        if (!includeLate) yield break;
+        while (true)
         {
-            var initial = snapshot();
-            var visited = new HashSet<IComponentVM>(initial, ComponentVMBase.ChildReferenceComparer.Instance);
-            foreach (var child in initial) yield return child;
-            if (!includeLate) yield break;
-            while (true)
-            {
-                var late = snapshot().FirstOrDefault(child => !visited.Contains(child));
-                if (late is null) yield break;
-                visited.Add(late);
-                if (!walk.Take(late)) continue;
-                joined.Add(late);
-                yield return late;
-            }
+            var late = snapshot().FirstOrDefault(child => !visited.Contains(child));
+            if (late is null) yield break;
+            visited.Add(late);
+            if (!walk.Take(late)) continue;
+            joined.Add(late);
+            yield return late;
         }
-        finally
+    }
+
+    /// <summary>
+    /// The construct walk's commit step; call it under the membership gate.
+    /// Returns the next unvisited member that an add started (it has a start
+    /// record in <paramref name="walk"/>), which the walk then joins. Without
+    /// one, it commits the Constructed state through <paramref name="commit"/>
+    /// in the same gated section and returns null, so an add reads either
+    /// Constructing (and is joined) or Constructed (spec/02 §6, spec/06 §5.1).
+    /// </summary>
+    internal static IComponentVM? SealOrNextLateLocked<VM>(
+        IEnumerable<VM> members,
+        ISet<IComponentVM> joined,
+        ISet<IComponentVM> visited,
+        LateChildStarts.Walk walk,
+        Action commit)
+        where VM : class, IComponentVM
+    {
+        foreach (var child in members)
         {
-            walk.End();
+            if (!visited.Add(child)) continue;
+            if (!walk.Take(child)) continue;
+            joined.Add(child);
+            return child;
         }
+        commit();
+        return null;
     }
 }
 
@@ -1028,11 +1050,13 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
         try { PopulateChildren(); }
         finally { _populationJoined = null; }
-        // This walk's scope of start records; begun before its snapshot.
+        // This walk's scope of start records; begun before its snapshot. It
+        // stays open until the commit step, which ends it.
         var lateWalk = _lateStarts.BeginWalk(this);
-        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+        var visited = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
+        var walk = TransitionChildrenAsync(
             ContainerConstructWalk.Enumerate(
-                () => Snapshot().ToArray(), _autoConstructOnAdd, joined, lateWalk),
+                () => Snapshot().ToArray(), _autoConstructOnAdd, joined, visited, lateWalk),
             construct: true,
             after: () =>
             {
@@ -1043,7 +1067,33 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     SetCurrent(initial, async: false);
             },
             joined: joined,
-            join: lateWalk.Join));
+            join: lateWalk.Join,
+            seal: _autoConstructOnAdd ? () => SealOrNextLate(joined, visited, lateWalk) : null);
+        // A failed or abandoned walk ends its own scope; a committed one already did.
+        _ = walk.ContinueWith(
+            _ => lateWalk.End(),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        CompleteLifecycleHookAfter(walk);
+    }
+
+    /// <summary>
+    /// The commit step of this container's construct walk (spec/06 §5.1):
+    /// joins a child an add started after the last scan, or commits Constructed
+    /// and ends the walk's scope.
+    /// </summary>
+    private IComponentVM? SealOrNextLate(
+        ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk)
+    {
+        IComponentVM? late;
+        lock (_membershipGate)
+        {
+            late = ContainerConstructWalk.SealOrNextLateLocked(
+                _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
+        }
+        if (late is null) lateWalk.End();
+        return late;
     }
 
     /// <summary>Constructs all current children sequentially.</summary>

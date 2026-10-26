@@ -50,6 +50,17 @@ public class AutoConstructDuringConstructingTests
 
         public void RunFirst() => Run(first: true);
 
+        /// <summary>
+        /// Runs the first queued item once one is queued: a child turns
+        /// <c>Constructing</c> before its background work is scheduled.
+        /// </summary>
+        public void RunFirstWhenQueued(TimeSpan bound)
+        {
+            SpinWait.SpinUntil(() => { lock (_gate) return _work.Count > 0; }, bound)
+                .Should().BeTrue("background work is queued");
+            RunFirst();
+        }
+
         public void RunLast() => Run(first: false);
 
         public void RunAll()
@@ -112,14 +123,19 @@ public class AutoConstructDuringConstructingTests
         return builder.Build();
     }
 
-    /// <summary>Drains background work until the root leaves Constructing.</summary>
+    /// <summary>
+    /// Drains background work until the root leaves Constructing and has
+    /// published its terminal status (a committed Constructed state stays in
+    /// flight until it is published).
+    /// </summary>
     private static void Settle(Setup setup)
     {
         SpinWait.SpinUntil(
             () =>
             {
                 setup.Dispatcher.RunAll();
-                return setup.Root.Status != ConstructionStatus.Constructing;
+                return setup.Root.Status != ConstructionStatus.Constructing &&
+                    !((ComponentVMBase)setup.Root).HasInFlightLifecycleForTesting;
             },
             TimeSpan.FromSeconds(5)).Should().BeTrue();
         setup.Dispatcher.RunAll();
@@ -463,7 +479,7 @@ public class AutoConstructDuringConstructingTests
             .Should().BeTrue("walk 2 starts the next snapshot child");
 
         // `second` settles: walk 2 pulls `late` and must find its record.
-        setup.Dispatcher.RunFirst();
+        setup.Dispatcher.RunFirstWhenQueued(Bound);
         adder.Join(Bound).Should().BeTrue("the paused add resumes and completes");
         Settle(setup);
 

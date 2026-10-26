@@ -629,15 +629,43 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
 
         try { PopulateChildren(); }
         finally { _populationJoined = null; }
-        // This walk's scope of start records; begun before its snapshot.
+        // This walk's scope of start records; begun before its snapshot. It
+        // stays open until the commit step, which ends it.
         var lateWalk = _lateStarts.BeginWalk(this);
-        CompleteLifecycleHookAfter(TransitionChildrenAsync(
+        var visited = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
+        var walk = TransitionChildrenAsync(
             ContainerConstructWalk.Enumerate(
-                () => Snapshot().ToArray(), _autoConstructOnAdd, joined, lateWalk),
+                () => Snapshot().ToArray(), _autoConstructOnAdd, joined, visited, lateWalk),
             construct: true,
             after: null,
             joined: joined,
-            join: lateWalk.Join));
+            join: lateWalk.Join,
+            seal: _autoConstructOnAdd ? () => SealOrNextLate(joined, visited, lateWalk) : null);
+        // A failed or abandoned walk ends its own scope; a committed one already did.
+        _ = walk.ContinueWith(
+            _ => lateWalk.End(),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        CompleteLifecycleHookAfter(walk);
+    }
+
+    /// <summary>
+    /// The commit step of this container's construct walk (spec/06 §5.1):
+    /// joins a child an add started after the last scan, or commits Constructed
+    /// and ends the walk's scope.
+    /// </summary>
+    private IComponentVM? SealOrNextLate(
+        ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk)
+    {
+        IComponentVM? late;
+        lock (_membershipGate)
+        {
+            late = ContainerConstructWalk.SealOrNextLateLocked(
+                _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
+        }
+        if (late is null) lateWalk.End();
+        return late;
     }
 
     /// <summary>

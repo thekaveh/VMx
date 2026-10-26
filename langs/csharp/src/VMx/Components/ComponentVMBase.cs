@@ -354,6 +354,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     // predicates, the idempotent lifecycle guards) never observe a stale value
     // written by a transition completing on the background scheduler.
     private volatile ConstructionStatus _status = ConstructionStatus.Destructed;
+
+    // Set only by a container's commit step: its Constructed state is
+    // committed, but the Constructed status is not yet published (spec/06
+    // §5.1). Cleared under _gate when any status publication starts.
+    private volatile bool _constructPublicationPending;
     private volatile bool _inFlight;
     private readonly List<TaskCompletionSource<bool>> _lifecycleWaiters = [];
     private Task? _deferredLifecycleTask;
@@ -445,13 +450,44 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         bool construct,
         Action? after,
         ISet<IComponentVM>? joined,
-        Func<IComponentVM, Task>? join = null)
+        Func<IComponentVM, Task>? join = null,
+        Func<IComponentVM?>? seal = null)
     {
         // Captured synchronously while the owner's lifecycle hook runs, before
         // the first await, so the walk can return to the owner's foreground.
         var scope = t_lifecycleHookScope;
-        foreach (var child in children)
+        using var walk = children.GetEnumerator();
+        var walkedAll = false;
+        while (true)
         {
+            IComponentVM child;
+            if (!walkedAll && walk.MoveNext())
+            {
+                child = walk.Current;
+            }
+            else
+            {
+                if (!walkedAll)
+                {
+                    walkedAll = true;
+                    // Inline: either still inside the hook (no child yielded) or
+                    // already on the owner's foreground. An abandoned walk, or one
+                    // whose owner was disposed while it waited to resume, never
+                    // runs its continuation: the user onDestruct or the Current
+                    // selector would run after Dispose() (#735).
+                    if (WalkStopped(scope)) return;
+                    after?.Invoke();
+                }
+                // A container's commit step (spec/06 §5.1): `seal` returns a
+                // child added after the walk's last scan, which the walk then
+                // joins, or commits the Constructed state and returns null.
+                // `after` runs once, never again.
+                if (seal is null || WalkStopped(scope)) return;
+                var late = seal();
+                if (late is null) return;
+                child = late;
+            }
+
             // An abandoned walk (its hook threw after deferring) drives no
             // further children, matching Python and TypeScript; nor does a walk
             // whose owner was disposed, as TypeScript abandons it on dispose.
@@ -485,13 +521,24 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             if (resumes && scope is not null)
                 await new ForegroundResumption(scope.Owner);
         }
+    }
 
-        // Inline: either still inside the hook (no child yielded) or already on the
-        // owner's foreground. An abandoned walk, or one whose owner was disposed
-        // while it waited to resume, never runs its continuation: the user
-        // onDestruct or the Current selector would run after Dispose() (#735).
-        if (after is null || WalkStopped(scope)) return;
-        after();
+    /// <summary>
+    /// The container commit step: flips a construct still in flight to
+    /// Constructed without publishing it. The caller holds its membership gate,
+    /// so an add reads either Constructing (before the flip, and its child is
+    /// joined) or Constructed (and follows the add-after-Constructed rule). The
+    /// base still publishes the single Constructed status when the transition
+    /// completes (spec/06 §5.1).
+    /// </summary>
+    private protected void MarkConstructedBeforePublication()
+    {
+        lock (_gate)
+        {
+            if (_status != ConstructionStatus.Constructing || !_inFlight) return;
+            _status = ConstructionStatus.Constructed;
+            _constructPublicationPending = true;
+        }
     }
 
     private static bool WalkStopped(LifecycleHookScope? scope)
@@ -734,15 +781,17 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     // ── Lifecycle: CanXxx predicates ────────────────────────────────────────
     /// <inheritdoc/>
     public bool CanConstruct() =>
-        _status == ConstructionStatus.Destructed || _status == ConstructionStatus.Constructed;
+        !_constructPublicationPending &&
+        (_status == ConstructionStatus.Destructed || _status == ConstructionStatus.Constructed);
 
     /// <inheritdoc/>
     public bool CanDestruct() =>
-        _status == ConstructionStatus.Constructed || _status == ConstructionStatus.Destructed;
+        !_constructPublicationPending &&
+        (_status == ConstructionStatus.Constructed || _status == ConstructionStatus.Destructed);
 
     /// <inheritdoc/>
     public bool CanReconstruct() =>
-        _status == ConstructionStatus.Constructed;
+        !_constructPublicationPending && _status == ConstructionStatus.Constructed;
 
     // ── Lifecycle: Construct ────────────────────────────────────────────────
     /// <inheritdoc/>
@@ -752,8 +801,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         bool shouldDrain;
         lock (_gate)
         {
-            // Idempotent: already Constructed → no-op (no message).
-            if (_status == ConstructionStatus.Constructed) return;
+            // Idempotent: already Constructed → no-op (no message). A committed
+            // Constructed whose publication is pending is still in flight.
+            if (_status == ConstructionStatus.Constructed)
+            {
+                if (_constructPublicationPending)
+                    throw new StatusTransitionException(_status, "construct");
+                return;
+            }
 
             // Validate the transition (will throw for illegal states like Disposed).
             LifecycleTransitionValidator.Require(_status, "construct");
@@ -914,7 +969,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         lock (_gate)
         {
             // Idempotent like Construct(): already Constructed emits no message.
-            if (_status == ConstructionStatus.Constructed) return Task.CompletedTask;
+            if (_status == ConstructionStatus.Constructed && !_constructPublicationPending)
+                return Task.CompletedTask;
         }
 
         var tcs = RegisterLifecycleWaiter();
@@ -937,7 +993,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     {
         lock (_gate)
         {
-            return _status == ConstructionStatus.Constructing && _inFlight
+            // A container whose Constructed state is committed but not yet
+            // published is still in flight (spec/06 §5.1).
+            return (_status == ConstructionStatus.Constructing && _inFlight) || _constructPublicationPending
                 ? RegisterLifecycleWaiter().Task
                 : Task.CompletedTask;
         }
@@ -947,8 +1005,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     {
         lock (_gate)
         {
-            if (_status == ConstructionStatus.Constructed) return Task.CompletedTask;
-            if (_status == ConstructionStatus.Constructing && _inFlight)
+            if (_status == ConstructionStatus.Constructed && !_constructPublicationPending)
+                return Task.CompletedTask;
+            if ((_status == ConstructionStatus.Constructing && _inFlight) || _constructPublicationPending)
                 return RegisterLifecycleWaiter().Task;
         }
 
@@ -1388,6 +1447,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // Terminal publication is best-effort: an observer failure must not
             // prevent the remaining channels or mandatory cleanup from running.
             _status = ConstructionStatus.Disposed;
+            _constructPublicationPending = false;
             var notifyTrigger = !_triggerDisposed;
             var statusDelivery = QueueLifecycleDeliveryLocked(() =>
             {
@@ -1793,11 +1853,20 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         lock (_gate) return _inFlight;
     }
 
+    /// <summary>
+    /// Test-only: whether a transition is still in flight, for example a
+    /// container whose Constructed state is committed but not yet published.
+    /// </summary>
+    internal bool HasInFlightLifecycleForTesting => HasInFlightLifecycle();
+
     private LifecycleDelivery QueueStatusDeliveryLocked(
         ConstructionStatus newStatus,
         out bool shouldDrain)
     {
         _status = newStatus;
+        // The publication starts: a committed Constructed is no longer pending,
+        // so subscribers observe a completed transition.
+        _constructPublicationPending = false;
         var message = ConstructionStatusChangedMessage.Create(this, Name, newStatus);
         var notifyTrigger = !_triggerDisposed;
         return QueueLifecycleDeliveryLocked(() =>

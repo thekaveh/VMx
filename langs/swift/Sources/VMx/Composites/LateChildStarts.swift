@@ -11,6 +11,12 @@ enum LateChildStage {
     case attached
     /// The walk waits for an add to finish its start attempt.
     case walkWaitingOnAdd
+    /// The walk's late pull found no further late child; its commit-time
+    /// seal comes later. The probe's child is the container.
+    case lastScanDone
+    /// The commit-time seal starts a pull, before it checks whether the walk
+    /// was cancelled. The probe's child is the container.
+    case sealing
 }
 
 /// The start records of auto-construct adds (spec/06 §5.1). An add that
