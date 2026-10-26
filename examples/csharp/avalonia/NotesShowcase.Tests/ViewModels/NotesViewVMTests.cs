@@ -1,10 +1,13 @@
 using System.Reactive.Concurrency;
+using System.Reactive.Linq;
 using Microsoft.Reactive.Testing;
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
 using VMx.Commands;
+using VMx.Components;
 using VMx.Dialogs;
 using VMx.Lifecycle;
+using VMx.Messages;
 using VMx.Services;
 using Xunit;
 
@@ -183,6 +186,31 @@ public sealed class NotesViewVMTests
         ts.AdvanceBy(TimeSpan.FromMilliseconds(150).Ticks);
         Assert.Single(vm.FilteredItems);
         Assert.Contains("Q1", vm.FilteredItems[0].Title);
+    }
+
+    [Fact]
+    public async Task SearchTerm_publishes_one_change_and_none_for_the_same_value()
+    {
+        // Parity with the Python, TypeScript, and Swift showcases (#763): a
+        // real change publishes once; a same-value write-back stays silent.
+        var (vm, _) = await BuildAndBindAsync("nb-reviews");
+        var hubChanges = new List<string>();
+        var localChanges = new List<string?>();
+        using var sub = vm.Hub.Messages
+            .OfType<PropertyChangedMessage<IComponentVM>>()
+            .Where(m => ReferenceEquals(m.Sender, vm))
+            .Subscribe(m => hubChanges.Add(m.PropertyName));
+        vm.PropertyChanged += (_, e) => localChanges.Add(e.PropertyName);
+
+        vm.SearchTerm = "Q1";
+        Assert.Single(hubChanges, nameof(NotesViewVM.SearchTerm));
+        Assert.Single(localChanges, nameof(NotesViewVM.SearchTerm));
+
+        hubChanges.Clear();
+        localChanges.Clear();
+        vm.SearchTerm = "Q1";
+        Assert.DoesNotContain(nameof(NotesViewVM.SearchTerm), hubChanges);
+        Assert.DoesNotContain(nameof(NotesViewVM.SearchTerm), localChanges);
     }
 
     [Fact]
