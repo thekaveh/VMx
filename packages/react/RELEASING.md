@@ -12,9 +12,12 @@ and documentation updates. This runbook adds only the adapter steps.
 ## 1. Environment and trusted publisher
 
 The protected `npm-react` environment is restricted to `react-v*` tags. The npm
-trusted publisher is configured; the bootstrap procedure is in git history. It
-uses the shared fields with environment `npm-react` and "Allow npm publish"
-ticked.
+trusted publisher is pending until a trusted publish succeeds. The first trusted
+publish, tag `react-v0.1.2`, failed with `E404`. That error means npm found no
+matching trusted publisher ([#653](https://github.com/thekaveh/VMx/issues/653)).
+Do not push a new release tag until #653 records a successful trusted publish.
+The publisher must use the shared fields with environment `npm-react` and
+"Allow npm publish" ticked. The bootstrap procedure is in git history.
 
 ## 2. Release procedure
 
