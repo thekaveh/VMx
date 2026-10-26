@@ -367,6 +367,12 @@ class _ComponentVMBase(ABC):
         # Set while a container disposes its children ahead of its own terminal
         # transition, so no lifecycle hook is admitted during the cascade.
         self._hook_admission_closed: bool = False
+        # Set when disposal starts, before a container disposes its children.
+        # The deferred child walk is then cancelled and publishes neither its
+        # success nor its rollback status (#755).
+        self._child_transition_abandoned: bool = False
+        # The deferred completion this VM waits for, so disposal can abandon it.
+        self._pending_deferred_future: Future[None] | None = None
 
         # Serializes every lifecycle state transition — the ``_status`` RMW, the
         # hub publish, and the status-trigger emission inside ``_set_status`` —
@@ -939,13 +945,13 @@ class _ComponentVMBase(ABC):
     def _continue_reconstruct_after_deferred_destruct(self, future: Future[None]) -> None:
         def settled(completed: Future[None]) -> None:
             def resume(_scheduler: SchedulerBase, _state: object | None) -> None:
-                if self._is_disposed():
+                if not self._take_deferred_completion(completed) or self._is_disposed():
                     self._clear_in_flight()
                     return
                 try:
                     completed.result()
                 except BaseException:
-                    self._set_status(ConstructionStatus.CONSTRUCTED)
+                    self._set_status(ConstructionStatus.CONSTRUCTED, unless_abandoned=True)
                     self._clear_in_flight()
                     return
 
@@ -957,7 +963,7 @@ class _ComponentVMBase(ABC):
 
             self._dispatcher.foreground.schedule(resume)
 
-        future.add_done_callback(settled)
+        self._await_deferred_completion(future, settled)
 
     # ── Lifecycle: dispose ───────────────────────────────────────────────────
     def dispose(self) -> None:
@@ -983,6 +989,9 @@ class _ComponentVMBase(ABC):
         self._dispose_at_hook_boundary(lambda: _dispose_children(snapshot))
 
     def _dispose_at_hook_boundary(self, cascade: Callable[[], BaseException | None] | None) -> None:
+        # A pending child walk is abandoned before any child is disposed, so a
+        # child reaching Disposed does not roll this VM back first (#755).
+        self._abandon_child_transition()
         first_error: BaseException | None = None
 
         def attempt(action: Callable[[], None]) -> None:
@@ -1528,6 +1537,43 @@ class _ComponentVMBase(ABC):
             self._deferred_lifecycle_future = None
             return future
 
+    def _abandon_child_transition(self) -> None:
+        """Stop waiting for a pending child transition without settling this VM.
+
+        Disposal calls this before it disposes any child (TypeScript's
+        ``_abandonChildTransition``). A child walk this VM created is
+        cancelled, so it drives no further child; any deferred completion
+        then publishes neither its success nor its rollback status (#755).
+        A container that disposes its children outside
+        :meth:`_dispose_with_children` calls it first.
+        """
+        with self._lifecycle_lock:
+            self._child_transition_abandoned = True
+            pending = self._pending_deferred_future
+            self._pending_deferred_future = None
+        if pending is not None and pending in _CHILD_WALK_FUTURES:
+            pending.cancel()
+
+    def _await_deferred_completion(
+        self, future: Future[None], settled: Callable[[Future[None]], None]
+    ) -> None:
+        """Run ``settled`` when ``future`` completes; disposal may cancel the walk first."""
+        with self._lifecycle_lock:
+            abandoned = self._child_transition_abandoned
+            if not abandoned:
+                self._pending_deferred_future = future
+        future.add_done_callback(settled)
+        # Disposal started while the hook ran: abandon the walk at once.
+        if abandoned and future in _CHILD_WALK_FUTURES:
+            future.cancel()
+
+    def _take_deferred_completion(self, future: Future[None]) -> bool:
+        """Release ``future``'s registration; false once disposal abandoned it."""
+        with self._lifecycle_lock:
+            if self._pending_deferred_future is future:
+                self._pending_deferred_future = None
+            return not self._child_transition_abandoned
+
     def _complete_deferred_lifecycle(
         self,
         future: Future[None],
@@ -1538,23 +1584,33 @@ class _ComponentVMBase(ABC):
         def settled(completed: Future[None]) -> None:
             def finalize(_scheduler: SchedulerBase, _state: object | None) -> None:
                 try:
+                    if not self._take_deferred_completion(completed):
+                        return
                     try:
                         completed.result()
                     except BaseException:
-                        self._set_status(rollback)
+                        self._set_status(rollback, unless_abandoned=True)
                     else:
-                        self._set_status(success)
+                        self._set_status(success, unless_abandoned=True)
                 finally:
                     self._clear_in_flight()
 
             self._dispatcher.foreground.schedule(finalize)
 
-        future.add_done_callback(settled)
+        self._await_deferred_completion(future, settled)
 
-    def _set_status(self, new_status: ConstructionStatus) -> bool:
-        """Admit a state change atomically, then publish it outside the state lock."""
+    def _set_status(
+        self, new_status: ConstructionStatus, *, unless_abandoned: bool = False
+    ) -> bool:
+        """Admit a state change atomically, then publish it outside the state lock.
+
+        With ``unless_abandoned``, a deferred completion publishes nothing once
+        disposal has started (#755).
+        """
         with self._lifecycle_lock:
             if self._status is ConstructionStatus.DISPOSED:
+                return False
+            if unless_abandoned and self._child_transition_abandoned:
                 return False
 
             self._status = new_status

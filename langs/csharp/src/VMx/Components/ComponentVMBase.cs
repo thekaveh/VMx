@@ -374,6 +374,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     // Set while a container disposes its children ahead of its own terminal
     // transition, so no lifecycle hook is admitted during the cascade.
     private bool _hookAdmissionClosed;
+    // Set under _gate when disposal starts, before a container disposes its
+    // children. A deferred child walk then drives no further child and
+    // publishes neither its success nor its rollback status (#755).
+    private bool _childTransitionAbandoned;
+    // The hook scope of the walk that the last lifecycle hook deferred to.
+    private LifecycleHookScope? _deferredWalkScope;
 
     // ── Selection state ─────────────────────────────────────────────────────
     private bool _isCurrent;
@@ -554,6 +560,31 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private static bool WalkStopped(LifecycleHookScope? scope)
         => scope is not null && (scope.Abandoned || scope.Owner.IsDisposed());
 
+    /// <summary>
+    /// Stops waiting for a pending child transition without settling this VM.
+    /// Disposal calls this before it disposes any child, so a child reaching
+    /// Disposed does not roll this VM back before its own Disposed (#755). A
+    /// container that disposes its children outside
+    /// <see cref="DisposeWithChildren"/> calls it first, while no hook of its
+    /// own can run.
+    /// </summary>
+    private protected void AbandonChildTransition()
+    {
+        lock (_gate)
+        {
+            AbandonChildTransitionLocked();
+        }
+    }
+
+    private void AbandonChildTransitionLocked()
+    {
+        _childTransitionAbandoned = true;
+        // Only a walk whose hook already returned with a deferral is stopped;
+        // a hook still running keeps its synchronous walk intact.
+        if (_deferredWalkScope is { } scope)
+            scope.Abandoned = true;
+    }
+
     /// <summary>The lifecycle hook currently running on this thread, if any.</summary>
     [ThreadStatic]
     private static LifecycleHookScope? t_lifecycleHookScope;
@@ -626,6 +657,15 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             {
                 t_lifecycleHookScope = previous;
                 FinishLifecycleHook(lease);
+            }
+
+            lock (_gate)
+            {
+                // The hook returned. A walk it deferred to stops once disposal
+                // starts, including a disposal that started while it ran.
+                _deferredWalkScope = _deferredLifecycleTask is null ? null : scope;
+                if (_deferredWalkScope is not null && _childTransitionAbandoned)
+                    scope.Abandoned = true;
             }
         }
         catch
@@ -1355,16 +1395,18 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 {
                     ScheduleForegroundLifecycle(() =>
                     {
-                        if (IsDisposed())
+                        if (IsDisposedOrAbandoned())
                         {
+                            ObserveAbandoned(completed);
                             ClearInFlight();
                             return;
                         }
 
                         if (completed.Status != TaskStatus.RanToCompletion)
                         {
-                            SetStatus(ConstructionStatus.Constructed);
-                            FinishInFlightFrom(completed);
+                            var published = true;
+                            try { published = TrySetDeferredStatus(ConstructionStatus.Constructed); }
+                            finally { FinishDeferredInFlight(completed, published); }
                             return;
                         }
 
@@ -1444,6 +1486,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             if (_status == ConstructionStatus.Disposed) return;
 
+            // A pending child walk is abandoned before any child is disposed.
+            AbandonChildTransitionLocked();
             hookLease = _activeHookLease;
             if (cascade is not null &&
                 (hookLease is null ||
@@ -1752,15 +1796,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 {
                     ScheduleForegroundLifecycle(() =>
                     {
+                        var published = true;
                         try
                         {
-                            SetStatus(completed.Status == TaskStatus.RanToCompletion
+                            published = TrySetDeferredStatus(completed.Status == TaskStatus.RanToCompletion
                                 ? successStatus
                                 : rollbackStatus);
                         }
                         finally
                         {
-                            FinishInFlightFrom(completed);
+                            FinishDeferredInFlight(completed, published);
                         }
                     }, rollbackStatus, deferredCompletion: completed);
                 }
@@ -1840,6 +1885,53 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         DrainAndThrow(delivery, shouldDrain);
     }
 
+    /// <summary>
+    /// Publishes the terminal status of a deferred child walk unless disposal
+    /// has started: an abandoned walk publishes nothing before Disposed (#755).
+    /// Returns false when the status was dropped; the decision is made under
+    /// <c>_gate</c>, together with the publication.
+    /// </summary>
+    private bool TrySetDeferredStatus(ConstructionStatus newStatus)
+    {
+        LifecycleDelivery delivery;
+        bool shouldDrain;
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Disposed || _childTransitionAbandoned) return false;
+            delivery = QueueStatusDeliveryLocked(newStatus, out shouldDrain);
+        }
+        DrainAndThrow(delivery, shouldDrain);
+        return true;
+    }
+
+    private bool IsDisposedOrAbandoned()
+    {
+        lock (_gate)
+        {
+            return _status == ConstructionStatus.Disposed || _childTransitionAbandoned;
+        }
+    }
+
+    /// <summary>
+    /// Releases the in-flight guard after a deferred walk settles. A published
+    /// status settles the waiters from the walk's outcome. A dropped status
+    /// (disposal started) only clears the guard: Dispose completes the waiters
+    /// on Disposed, so an abandoned walk's failure never reaches them (#755).
+    /// </summary>
+    private void FinishDeferredInFlight(Task completed, bool published)
+    {
+        if (published)
+        {
+            FinishInFlightFrom(completed);
+            return;
+        }
+        ObserveAbandoned(completed);
+        ClearInFlight();
+    }
+
+    /// <summary>Observes an abandoned walk's fault so it is never unobserved (ADR-0109).</summary>
+    private static void ObserveAbandoned(Task completed) => _ = completed.Exception;
+
     private void RestoreStatusAfterPublicationFailure(ConstructionStatus status)
     {
         try { SetStatus(status); }
@@ -1862,7 +1954,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
         catch (Exception schedulingFailure)
         {
-            if (HasInFlightLifecycle())
+            if (deferredCompletion is not null && IsDisposedOrAbandoned())
+            {
+                // An abandoned walk restores no status; Dispose completes the
+                // waiters on Disposed (#755).
+                ObserveAbandoned(deferredCompletion);
+                ClearInFlight();
+            }
+            else if (HasInFlightLifecycle())
             {
                 RestoreStatusAfterPublicationFailure(rollback);
                 if (deferredCompletion is not null &&

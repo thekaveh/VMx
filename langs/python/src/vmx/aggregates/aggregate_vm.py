@@ -164,6 +164,9 @@ class _AggregateVMBase(_ComponentVMBase):
 
     def _dispose_aggregate_slots(self, slot_names: tuple[str, ...]) -> None:
         with self._aggregate_lock:
+            # Abandon a pending child walk first, so a disposed slot does not
+            # roll this aggregate back before its own Disposed (#755).
+            self._abandon_child_transition()
             slots = tuple(getattr(self, name) for name in slot_names)
             _dispose_children_then_self(slots, super().dispose)
 
