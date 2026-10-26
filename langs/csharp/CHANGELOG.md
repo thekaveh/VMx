@@ -8,6 +8,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: the `PagedComposition` constructor documentation states that the
+  source must support repeated enumeration. Each read enumerates the source
+  again, so materialize a one-shot source first, for example with `ToList()`
+  (#758, ADR-0155).
 - Fixed: a `CompositeVM`, `GroupVM` or `AggregateVM1`–`AggregateVM6`
   disposed while its child walk waits for a background child no longer
   publishes a rollback status before `Disposed` (#755). Before, with an

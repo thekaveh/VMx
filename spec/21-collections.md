@@ -801,8 +801,11 @@ now out of range. The `max(0, …)` term covers the empty-source case
 A source that can be enumerated only once is the one exception to "computes a
 slice on demand". The flavors that admit such a source materialize it once at
 construction, and later reads page that snapshot: a direct iterator such as a
-generator object in TypeScript, and any `Iterator` in Python. C#, Swift, and
-Rust take a repeatable collection, so the case does not arise there. Repeatable
+generator object in TypeScript, and any `Iterator` in Python. Swift and Rust
+take a repeatable collection, so the case does not arise there. C# accepts any
+`IEnumerable<TVM>` and enumerates it again on each read. Materialize a one-shot
+C# source, such as a consuming or reader-backed iterator, first, for example
+with `ToList()`. The pager then pages that copy. Repeatable
 sources and factories stay live, because each read enumerates them again:
 
 ```ts
