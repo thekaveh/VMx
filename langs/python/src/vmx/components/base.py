@@ -1141,7 +1141,8 @@ class _ComponentVMBase(ABC):
         except BaseException:
             # A hook that raises after deferring completion abandons the
             # deferral, so the next transition starts clean. A child walk this
-            # VM created is cancelled, which stops it before ``after`` runs.
+            # VM created is cancelled: it takes no further step, but an
+            # ``after`` that has already started runs to its end (#745).
             # A future the subclass supplied is only dropped, not cancelled,
             # because its owner may still resolve it.
             abandoned = self._take_deferred_lifecycle_future()
@@ -1235,6 +1236,11 @@ class _ComponentVMBase(ABC):
 
         walked_all = False
 
+        def fail(error: BaseException) -> None:
+            # A walk cancelled meanwhile (#745) stays cancelled.
+            if not result.done():
+                result.set_exception(error)
+
         def advance() -> None:
             nonlocal walked_all
             while not result.done():
@@ -1243,20 +1249,29 @@ class _ComponentVMBase(ABC):
                         child = next(iterator)
                     except StopIteration:
                         walked_all = True
+                        # The iterator may have cancelled the walk as it
+                        # ended; a cancelled walk never starts ``after``.
+                        if result.done():
+                            return
                         try:
                             if after is not None:
                                 after()
                         except BaseException as error:
-                            result.set_exception(error)
+                            fail(error)
                             return
                 if walked_all:
+                    # ``after`` may have cancelled the walk; then it does not
+                    # commit (#745).
+                    if result.done():
+                        return
                     try:
                         late = seal() if seal is not None else None
                     except BaseException as error:
-                        result.set_exception(error)
+                        fail(error)
                         return
                     if late is None:
-                        result.set_result(None)
+                        if not result.done():
+                            result.set_result(None)
                         return
                     child = late
 
@@ -1283,7 +1298,7 @@ class _ComponentVMBase(ABC):
                             child.destruct()
                         pending.set_result(None)
                 except BaseException as error:
-                    result.set_exception(error)
+                    fail(error)
                     return
 
                 def child_reached_expected(
@@ -1297,8 +1312,7 @@ class _ComponentVMBase(ABC):
                                 f"child '{current.name}' did not reach {expected.name}"
                             )
                     except BaseException as error:
-                        if not result.done():
-                            result.set_exception(error)
+                        fail(error)
                         return False
                     return True
 
