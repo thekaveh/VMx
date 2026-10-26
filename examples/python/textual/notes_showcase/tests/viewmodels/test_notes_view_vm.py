@@ -190,6 +190,30 @@ async def test_search_uses_test_scheduler_for_deterministic_debounce() -> None:
     assert {n.model.id for n in vm.filtered_items} == {"note-02"}
 
 
+async def test_search_term_publishes_one_change_and_none_for_the_same_value() -> None:
+    # A shared workspace keeps other two-way bound pages in step only through
+    # this hub message (#763); a same-value write-back must stay silent.
+    from vmx import PropertyChangedMessage
+
+    vm = _build(debounce=0.0)
+    vm.construct()
+    await vm.bind_to_async("nb-reviews")
+    observed: list[str] = []
+
+    def _capture(m: Message) -> None:
+        if isinstance(m, PropertyChangedMessage) and m.sender is vm:
+            observed.append(m.property_name)
+
+    vm.hub.messages.subscribe(on_next=_capture)
+
+    vm.search_term = "auth"
+    assert observed.count("search_term") == 1
+
+    observed.clear()
+    vm.search_term = "auth"
+    assert "search_term" not in observed
+
+
 def test_builder_requires_name_and_repository() -> None:
     with pytest.raises(ValueError, match="name"):
         NotesViewVM.builder().build()
