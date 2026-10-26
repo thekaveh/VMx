@@ -16,6 +16,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The blanket `Reconstructable::reconstruct` now waits for a deferred
+  destruct and then constructs again, as the inherent `reconstruct` does.
+  Before, it called `construct` while the destruct was still in flight,
+  ignored the `ConcurrentOperation` error, and left a background component,
+  or a container or aggregate with a background child, `Destructed` (#748).
 - `ServicedObservableCollection::remove` and
   `KeyedServicedObservableCollection::remove` that find no match deliver a
   change their `PartialEq` made to the collection before they return. Before,

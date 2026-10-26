@@ -699,3 +699,80 @@ fn panicking_dispose_hook_on_an_awaited_child_settles_the_group() {
         assert_eq!(group.status(), ConstructionStatus::Destructed);
     }
 }
+
+/// Constructs `node`, reconstructs it through the `Reconstructable` trait
+/// and drains the dispatcher; the node must end `Constructed` (#748).
+fn reconstruct_through_the_trait<N: VmNode>(node: &N, dispatcher: &ManualDispatcher) {
+    use vmx::Reconstructable;
+    node.construct().unwrap();
+    dispatcher.drain();
+    assert_eq!(node.status(), ConstructionStatus::Constructed);
+
+    Reconstructable::reconstruct(node);
+    dispatcher.drain();
+
+    assert_eq!(node.status(), ConstructionStatus::Constructed);
+}
+
+/// #748 — the trait reconstruct of a background node waits for its deferred
+/// destruct, then constructs again.
+#[test]
+fn reconstructable_trait_rebuilds_a_background_component() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let vm = background_child(&hub, &dispatcher, "background");
+    reconstruct_through_the_trait(&vm, &dispatcher);
+}
+
+/// #748 — the same for a composite with a background child.
+#[test]
+fn reconstructable_trait_rebuilds_a_composite_with_a_background_child() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite
+        .add(background_child(&hub, &dispatcher, "c"))
+        .unwrap();
+    reconstruct_through_the_trait(&composite, &dispatcher);
+}
+
+/// #748 — the same for a group with a background child.
+#[test]
+fn reconstructable_trait_rebuilds_a_group_with_a_background_child() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let group = GroupVm::with_services("group", hub.clone(), dispatcher.clone());
+    group.add(background_child(&hub, &dispatcher, "g")).unwrap();
+    reconstruct_through_the_trait(&group, &dispatcher);
+}
+
+/// #748 — the same for an aggregate with a background component.
+#[test]
+fn reconstructable_trait_rebuilds_an_aggregate_with_a_background_component() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let aggregate = AggregateVm1::with_services(
+        "aggregate",
+        hub.clone(),
+        dispatcher.clone(),
+        background_child(&hub, &dispatcher, "a"),
+    );
+    reconstruct_through_the_trait(&aggregate, &dispatcher);
+}
+
+/// #748 — a synchronous component still reconstructs through the trait.
+#[test]
+fn reconstructable_trait_rebuilds_a_synchronous_component() {
+    use vmx::Reconstructable;
+    let child = ComponentVm::builder()
+        .name("leaf")
+        .model(1)
+        .services(MessageHub::new(), vmx::NullDispatcher::new())
+        .build()
+        .unwrap();
+    child.construct().unwrap();
+
+    Reconstructable::reconstruct(&child);
+
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+}
