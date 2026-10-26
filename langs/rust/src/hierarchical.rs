@@ -599,15 +599,18 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             .unwrap_or(false)
     }
 
-    /// Constructs this node and, when configured eager, its descendants.
+    /// Constructs this node and, when configured eager, its direct children.
+    ///
+    /// The eager option applies to this node's children only. It continues
+    /// deeper only through children that are eager themselves.
     pub fn construct(&self) -> VmxResult<()> {
         if !*lock(&self.inner.eager_children) {
             return self.inner.component.construct();
         }
         // Cascade inside this node's own Constructing phase: a rejected
         // transition (disposed or already constructed) constructs no child, and
-        // the parent reaches Constructed only after every descendant
-        // (spec/18 §3).
+        // the parent reaches Constructed only after every child that this
+        // cascade constructs (spec/18 §3).
         self.inner.component.construct_with(|| {
             for child in self.try_children()? {
                 self.inner
@@ -1055,7 +1058,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
         self
     }
 
-    /// Controls whether construction eagerly materializes descendants.
+    /// Controls whether construction eagerly materializes and constructs this
+    /// node's children.
+    ///
+    /// The option applies to this node's children only. It continues deeper
+    /// only through children that are eager themselves.
     pub fn eager_children(mut self, eager: bool) -> Self {
         self.eager_children = eager;
         self

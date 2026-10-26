@@ -141,8 +141,10 @@ public sealed class HierarchicalVMBuilder<TModel, TVM>
     public HierarchicalVMBuilder<TModel, TVM> Hint(string hint) => With(hint: hint);
 
     /// <summary>
-    /// When <see langword="true"/>, materializes the entire subtree at construct
-    /// time (depth-first). Default is <see langword="false"/> (lazy).
+    /// When <see langword="true"/>, the built node materializes and constructs
+    /// its children at construct time (depth-first). The option applies to this
+    /// node's children only. It continues deeper only through children that
+    /// are eager themselves. Default is <see langword="false"/> (lazy).
     /// </summary>
     public HierarchicalVMBuilder<TModel, TVM> EagerChildren(bool eagerChildren)
         => With(eagerChildren: eagerChildren);

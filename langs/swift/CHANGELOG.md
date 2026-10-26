@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The `eagerChildren` documentation on `HierarchicalVM` and
+  `HierarchicalVMBuilder.eagerChildren(_:)` no longer claims the child subtree.
+  The option applies to this node's children only. It continues deeper only
+  through children that are eager themselves (#759, ADR-0156).
 - `ConfirmationVM.dispose()` runs the base teardown before it disposes
   `approveCommand` and `rejectCommand`. An observer of a command's final
   `canExecuteChanged` value can no longer resolve the hub during disposal

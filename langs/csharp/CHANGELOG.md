@@ -8,6 +8,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: the `eagerChildren` documentation on the `HierarchicalVM`
+  constructor and `HierarchicalVMBuilder.EagerChildren` no longer claims the
+  entire subtree. The option applies to this node's children only. It continues
+  deeper only through children that are eager themselves (#759, ADR-0156).
 - Fixed: the `PagedComposition` constructor documentation states that the
   source must support repeated enumeration. Each read enumerates the source
   again, so materialize a one-shot source first, for example with `ToList()`
