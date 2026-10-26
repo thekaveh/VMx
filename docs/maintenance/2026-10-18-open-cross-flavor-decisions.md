@@ -146,6 +146,29 @@ composite that is publishing. It cannot run the C# and Python scenario. In every
 flavor, an add to the same composite from that subscriber's call chain is
 rejected (ADR-0118).
 
+### 2.10. Cross-thread membership admission
+
+When another thread holds a container's membership transaction, a new
+admission either waits for it to end or fails. Admission here means an add,
+insert, replace or population, and the detach from the old parent when a child
+moves. Chapter 06 defines a cross-thread wait for disposal, not for admission.
+
+| Flavor | Composite                                                                                                                                                                                | Group                                                                                                                                                         |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C#     | Fails with `InvalidOperationException` ([`CompositeVMBase.cs`](../../langs/csharp/src/VMx/Composites/CompositeVMBase.cs), `BeginMembershipTransactionLocked` and `EnsureChildAdmission`) | Waits, and refuses a wait that would close a cycle ([`GroupVMBase.cs`](../../langs/csharp/src/VMx/Groups/GroupVMBase.cs), `BeginMembershipTransactionLocked`) |
+| Python | Raises `RuntimeError` ([`composite_vm.py`](../../langs/python/src/vmx/composites/composite_vm.py), `_require_child_admission`)                                                           | Raises `RuntimeError` ([`group_vm.py`](../../langs/python/src/vmx/groups/group_vm.py), `_require_child_admission`)                                            |
+| Rust   | Returns `OwnershipTransactionInProgress` ([`runtime.rs`](../../langs/rust/src/runtime.rs), `begin_membership_transaction`)                                                               | Returns `OwnershipTransactionInProgress` (same function)                                                                                                      |
+| Swift  | Waits, and refuses a wait that would close a cycle ([`CompositeVM.swift`](../../langs/swift/Sources/VMx/Composites/CompositeVM.swift), `enterMembershipTransaction`)                     | Waits, with the same refusal ([`GroupVM.swift`](../../langs/swift/Sources/VMx/Groups/GroupVM.swift), `enterMembershipTransaction`)                            |
+
+TypeScript runs on one thread, so the case does not arise. In every flavor, a
+second transaction on the same thread is rejected (ADR-0118). A population that
+waits and succeeds in Swift or a C# group fails in a C# composite, in Python and
+in Rust.
+
+Removal differs again. Swift `remove`, `removeAt` and `clear` also wait for
+another thread's transaction. In C# composites and groups and in Python, these
+calls fail instead.
+
 ## 3. Swift signatures that cannot throw
 
 Swift `Command.execute()` cannot throw
