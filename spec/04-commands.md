@@ -241,8 +241,11 @@ The `confirm` delegate is asynchronous (`() -> Task<bool>`) while the
 synchronous `Execute` therefore realizes the confirm gate as a **fire-and-forget
 continuation**: it schedules the `confirm()` → `inner.Execute()` flow and returns
 immediately, before the gate has resolved. Each flavor also exposes an awaitable
-`ExecuteAsync()` (`execute_async` / `executeAsync`) entry-point that runs the same
-flow and can be awaited to sequence it inline.
+`ExecuteAsync()` (`execute_async` / `executeAsync`) entry point. It awaits
+`confirm()` and then invokes the inner command as §8.3.2 defines. It invokes an
+asynchronous inner through its awaitable entry point and a synchronous inner
+through `inner.Execute()`. The awaited call completes when that invocation
+completes.
 
 Because the synchronous `Execute` has already returned, a `confirm` delegate that
 rejects/raises and an `inner.Execute()` that throws have **no caller to propagate
