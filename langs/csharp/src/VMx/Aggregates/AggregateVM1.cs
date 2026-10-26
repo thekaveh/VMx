@@ -86,6 +86,9 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
     {
         lock (_aggregateParent)
         {
+            // Abandon a pending child walk first, so a disposed slot does not
+            // roll this aggregate back before its own Disposed (#755).
+            AbandonChildTransition();
             var firstError = DisposeChildren([_component1]);
             try { base.Dispose(); }
             catch (Exception error)
