@@ -55,10 +55,12 @@ public final class ConfirmationVM: NotificationVM {
         // Intentional no-op. Timeout means "user did not decide".
     }
 
-    /// Disposes the approve/reject commands, then delegates to the base.
+    /// Delegates to the base, then disposes the approve/reject commands. The
+    /// base marks the VM disposed first, so an observer that runs while a
+    /// command is disposed cannot resolve the hub (#753).
     public override func dispose() {
+        super.dispose()
         approveCommand.dispose()
         rejectCommand.dispose()
-        super.dispose()
     }
 }

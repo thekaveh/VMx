@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ConfirmationVM.dispose()` runs the base teardown before it disposes
+  `approveCommand` and `rejectCommand`. An observer of a command's final
+  `canExecuteChanged` value can no longer resolve the hub during disposal
+  (#753).
 - With `autoConstructOnAdd`, a `CompositeVM` or `GroupVM` no longer
   publishes `.constructed` while a child added during `.constructing` is
   still constructing (#744, spec/02 §6, spec/06 §5.1). Before, an add after
