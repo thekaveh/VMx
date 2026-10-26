@@ -1078,9 +1078,10 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     /// Opens or joins a membership transaction. While another thread's
-    /// transaction is open, waits for it to end, as C# does, instead of
-    /// failing. A second transaction on the same thread is still rejected
-    /// (ADR-0118), and so is a wait that would close a cycle (#551).
+    /// transaction is open, waits for it to end instead of failing. A C# group
+    /// also waits. A C# composite, Python and Rust reject the second
+    /// transaction (#756). A second transaction on the same thread is still
+    /// rejected (ADR-0118), and so is a wait that would close a cycle (#551).
     private func enterMembershipTransaction(
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool

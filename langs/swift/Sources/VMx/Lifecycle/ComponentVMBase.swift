@@ -190,9 +190,10 @@ private struct ContainerOwnershipTransactionError: Error {}
 
 /// Records, under `container`'s gate, that the caller waits for `owner`'s open
 /// membership transaction. A container serializes another thread's open
-/// transaction, as C# does, unless that thread already waits for this one,
-/// directly or through others, including through a hub drain (#551, #703).
-/// Returns `false`, and records nothing, in that case.
+/// transaction unless that thread already waits for this one, directly or
+/// through others, including through a hub drain (#551, #703). Returns
+/// `false`, and records nothing, in that case. A C# group also waits; a C#
+/// composite, Python and Rust reject the transaction instead (#756).
 func beginMembershipWait(owner: UInt64, container: AnyObject) -> Bool {
     ThreadWaitGraph.shared.beginWait(
         caller: ThreadWaitGraph.currentThread,
