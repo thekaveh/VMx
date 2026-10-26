@@ -262,7 +262,14 @@ class NotesViewVM(
 
     @search_term.setter
     def search_term(self, value: str) -> None:
+        # Publish only when SearchableState's effective term changes: a
+        # same-value write (a two-way binding echoing back) or a write after
+        # dispose leaves the term as it was and publishes nothing. Other
+        # pages bound to a shared workspace follow the term from this change.
+        previous = self._search.search_term
         self._search.search_term = value
+        if self._search.search_term != previous:
+            self._notify_property_changed("search_term")
 
     def can_search(self) -> bool:
         return self._search.can_search()

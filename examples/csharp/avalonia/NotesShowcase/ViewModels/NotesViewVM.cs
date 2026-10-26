@@ -97,7 +97,16 @@ public sealed class NotesViewVM
     public string SearchTerm
     {
         get => _search.SearchTerm;
-        set => _search.SearchTerm = value;
+        set
+        {
+            // Publish only when SearchableState's effective term changes: a
+            // same-value write (a two-way binding echoing back) or a write
+            // after dispose leaves the term as it was and publishes nothing.
+            var previous = _search.SearchTerm;
+            _search.SearchTerm = value;
+            if (string.Equals(_search.SearchTerm, previous, StringComparison.Ordinal)) return;
+            NotifyPropertyChanged(nameof(SearchTerm));
+        }
     }
 
     /// <inheritdoc/>

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from nicegui import ui
+import httpx
+from nicegui import core, ui
 from nicegui.testing import User
 
 
@@ -106,3 +107,29 @@ async def test_switching_notes_while_a_save_is_pending_still_relabels_the_row(
 
     await user.should_see("Standup, saved mid-switch", kind=ui.button)
     await user.should_see(marker="dirty", content="Saved")
+
+
+async def test_a_search_in_one_tab_shows_in_another_tab(user: User) -> None:
+    # Every tab binds to the one shared workspace (#763). A second simulated
+    # user on the same running app plays the second tab; reusing the `user`
+    # fixture's app avoids a second lifespan, which would build a second
+    # workspace.
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(core.app), base_url="http://test"
+    ) as client:
+        other = User(client)
+        await user.open("/")
+        await other.open("/")
+        await other.should_see("Roadmap snapshot")
+        (other_search,) = other.find(marker="search").elements
+
+        user.find(marker="search").type("roadmap")
+
+        for _ in range(40):
+            if other_search.value == "roadmap":
+                break
+            await asyncio.sleep(0.05)
+        assert other_search.value == "roadmap"
+        # The echo back into the typing tab leaves its text as typed.
+        (own_search,) = user.find(marker="search").elements
+        assert own_search.value == "roadmap"
