@@ -347,8 +347,11 @@ failure. This is list-local batching; it does not suppress VM container events.
 repeatable iterables, and factories are enumerated again on every read, so
 their changes stay visible. A source that can be enumerated only once is
 materialized when the pager is constructed. In TypeScript that is a direct
-iterator such as a generator object; in Python it is any `Iterator`. C#, Swift,
-and Rust take a repeatable collection, so the case does not arise there. Every
+iterator such as a generator object; in Python it is any `Iterator`. Swift and
+Rust take a repeatable collection, so the case does not arise there. C# accepts
+any `IEnumerable<TVM>` and enumerates it again on each read. Materialize a
+one-shot C# source first, for example with `ToList()`; the pager then pages
+that copy. Every
 source must be finite, because `pageCount` needs its total length.
 
 ```ts

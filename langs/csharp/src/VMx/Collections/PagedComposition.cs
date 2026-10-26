@@ -40,7 +40,12 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
     /// <paramref name="source"/> with an initial <see cref="PageSize"/> of
     /// <paramref name="pageSize"/>.
     /// </summary>
-    /// <param name="source">The source sequence to page over.</param>
+    /// <param name="source">
+    /// The source sequence to page over. It must support repeated
+    /// enumeration, because each read enumerates it again. Materialize a
+    /// one-shot source first, for example with <c>ToList()</c>; the pager then
+    /// pages that copy. Consuming and reader-backed iterators are one-shot.
+    /// </param>
     /// <param name="pageSize">
     /// Initial page size (default 0 = paging disabled).
     /// Negative values are clamped to 0.
