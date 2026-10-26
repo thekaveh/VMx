@@ -16,6 +16,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `DerivedProperty::recompute` no longer loses an update that commits while
+  its transform runs. Concurrent `recompute` calls now run one at a time, so
+  each transform receives the previous result. A source update that commits
+  during a transform wins over the transform's stale result. No lock is held
+  while subscribers run, and the last value that `value_changes` publishes is
+  the stored value. A commit no longer lands after `dispose()` returns (#751).
 - A `CompositeVm`, `GroupVm`, or fixed-slot aggregate that waits for a
   background child no longer leaks when its last handle drops without
   `dispose()` and the child never settles. Queued child steps, the settle

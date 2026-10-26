@@ -3,9 +3,47 @@
 //! Spec: `spec/15-derived-properties.md`; ADR-0035.
 
 use super::{
-    lock, Arc, AtomicUsize, Message, MessageHub, Mutex, Ordering, PropertyChangedMessage,
-    ValueStream, ValueSubscription, VmxError, VmxResult,
+    lock, wait, Arc, AtomicUsize, Condvar, Message, MessageHub, Mutex, Ordering,
+    PropertyChangedMessage, ThreadId, ValueStream, ValueSubscription, VmxError, VmxResult,
 };
+
+/// A gate that one thread holds at a time and may re-enter.
+///
+/// No lock is held while the gate is held, so the holder may run user code:
+/// reads of the value never wait for it.
+#[derive(Default)]
+struct ReentrantGate {
+    holder: Mutex<(Option<ThreadId>, usize)>,
+    released: Condvar,
+}
+
+impl ReentrantGate {
+    fn enter(&self) -> ReentrantGateGuard<'_> {
+        let current = std::thread::current().id();
+        let mut holder = lock(&self.holder);
+        while holder.0.is_some_and(|owner| owner != current) {
+            holder = wait(&self.released, holder);
+        }
+        holder.0 = Some(current);
+        holder.1 += 1;
+        ReentrantGateGuard { gate: self }
+    }
+}
+
+struct ReentrantGateGuard<'a> {
+    gate: &'a ReentrantGate,
+}
+
+impl Drop for ReentrantGateGuard<'_> {
+    fn drop(&mut self) {
+        let mut holder = lock(&self.gate.holder);
+        holder.1 -= 1;
+        if holder.1 == 0 {
+            holder.0 = None;
+            self.gate.released.notify_all();
+        }
+    }
+}
 
 #[cfg(test)]
 type RevisionedCommitHook = Arc<dyn Fn(usize) + Send + Sync>;
@@ -24,6 +62,10 @@ struct RevisionedComputation<T> {
 /// recomputations and reject write-back.
 pub struct DerivedProperty<T: Clone + PartialEq + Send + 'static> {
     value: Arc<Mutex<T>>,
+    /// Counts commits; written under the `value` lock.
+    commits: Arc<AtomicUsize>,
+    /// Serializes `recompute` calls from snapshot to commit (#751).
+    recompute_gate: Arc<ReentrantGate>,
     value_changed: MessageHub,
     value_changes: ValueStream<T>,
     validator: Arc<dyn Fn(&T) -> bool + Send + Sync>,
@@ -39,6 +81,8 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     pub fn new(value: T) -> Self {
         Self {
             value: Arc::new(Mutex::new(value.clone())),
+            commits: Arc::new(AtomicUsize::new(0)),
+            recompute_gate: Arc::default(),
             value_changed: MessageHub::new(),
             value_changes: ValueStream::hot(value),
             validator: Arc::new(|_| false),
@@ -65,6 +109,8 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     {
         Self {
             value: Arc::new(Mutex::new(value.clone())),
+            commits: Arc::new(AtomicUsize::new(0)),
+            recompute_gate: Arc::default(),
             value_changed: MessageHub::new(),
             value_changes: ValueStream::hot(value),
             validator: Arc::new(validator),
@@ -485,44 +531,89 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     ///
     /// The transform and notification are skipped after disposal. An unchanged
     /// result does not publish a property-change message.
+    ///
+    /// Concurrent `recompute` calls run one at a time, so each transform
+    /// receives the result of the previous one. A transform must therefore
+    /// not wait for a `recompute` on another thread, including through a
+    /// source `send` whose delivery on another thread recomputes this
+    /// property. A source update that
+    /// commits while a transform runs wins: the transform's result, computed
+    /// from a stale snapshot, is discarded. The same holds for a nested
+    /// `recompute` that a transform makes on its own thread. The transform may
+    /// read [`value`](Self::value), which returns the stored value, including
+    /// such an update. Subscribers of a publication made outside a transform
+    /// run with no lock held. When commits race, only the newest publishes,
+    /// so the last value that `value_changes` publishes is the stored value;
+    /// a subscriber may then see a value equal to the one it last saw.
     pub fn recompute<F>(&self, transform: F)
     where
         F: FnOnce(&T) -> T,
     {
-        if *lock(&self.disposed) {
-            return;
+        let committed = {
+            let _recompute = self.recompute_gate.enter();
+            if *lock(&self.disposed) {
+                return;
+            }
+            // Release the value lock before the user transform runs: a
+            // transform that reads `value()` would otherwise deadlock on it.
+            let (current, snapshot) = {
+                let value = lock(&self.value);
+                (value.clone(), self.commits.load(Ordering::Acquire))
+            };
+            let next = transform(&current);
+            self.store(next, Some(snapshot))
+        };
+        // Publish after the gate is released: a subscriber may recompute on
+        // another thread that this publication waits for (#751).
+        if let Some(committed) = committed {
+            self.publish(committed);
         }
-        // Release the value lock before the user transform runs: a transform
-        // that reads `value()` would otherwise deadlock on this mutex.
-        let current = lock(&self.value).clone();
-        let next = transform(&current);
-        self.set_computed(next);
     }
 
     fn set_computed(&self, next: T) {
-        if *lock(&self.disposed) {
-            return;
+        if let Some(committed) = self.store(next, None) {
+            self.publish(committed);
         }
-        let replaced = {
+    }
+
+    /// Stores `next` unless the property is disposed, the value is unchanged
+    /// or, with `snapshot`, a commit happened since that snapshot. Returns the
+    /// stored value and its commit number.
+    fn store(&self, next: T, snapshot: Option<usize>) -> Option<(T, usize)> {
+        let (replaced, committed) = {
             let mut value = lock(&self.value);
-            if *value == next {
-                None
-            } else {
-                Some(std::mem::replace(&mut *value, next.clone()))
+            let commits = self.commits.load(Ordering::Acquire);
+            if *lock(&self.disposed)
+                || snapshot.is_some_and(|snapshot| commits != snapshot)
+                || *value == next
+            {
+                return None;
             }
+            self.commits
+                .store(commits.wrapping_add(1), Ordering::Release);
+            (
+                std::mem::replace(&mut *value, next.clone()),
+                (next, commits.wrapping_add(1)),
+            )
         };
         // The replaced value is dropped after the value lock is released.
-        let changed = replaced.is_some();
         drop(replaced);
-        if changed {
-            self.value_changes.send(next);
-            self.value_changed
-                .send(Message::PropertyChanged(PropertyChangedMessage {
-                    sender_id: 0,
-                    sender_name: "DerivedProperty".to_string(),
-                    property_name: "value".to_string(),
-                }));
-        }
+        Some(committed)
+    }
+
+    /// Publishes a committed value unless a newer commit exists, which then
+    /// publishes its own value. So the last value published is the stored
+    /// value, without a lock held across subscriber delivery (#751).
+    fn publish(&self, (value, commit): (T, usize)) {
+        let commits = self.commits.clone();
+        self.value_changes
+            .send_if(value, move || commits.load(Ordering::Acquire) == commit);
+        self.value_changed
+            .send(Message::PropertyChanged(PropertyChangedMessage {
+                sender_id: 0,
+                sender_name: "DerivedProperty".to_string(),
+                property_name: "value".to_string(),
+            }));
     }
 
     fn revisioned_results(
@@ -543,37 +634,21 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     }
 
     fn commit_revisioned(&self, computed: RevisionedComputation<T>, source_revision: &AtomicUsize) {
-        if *lock(&self.disposed) {
+        // The `results` stream delivers one computation at a time, so
+        // revisioned commits are already serialized.
+        if source_revision.load(Ordering::Acquire) != computed.revision {
             return;
         }
-        let replaced = {
-            let mut value = lock(&self.value);
-            if source_revision.load(Ordering::Acquire) != computed.revision
-                || *value == computed.value
-            {
-                None
-            } else {
-                Some(std::mem::replace(&mut *value, computed.value.clone()))
-            }
+        let Some(committed) = self.store(computed.value, None) else {
+            return;
         };
-        // The replaced value is dropped after the value lock is released.
-        let changed = replaced.is_some();
-        drop(replaced);
-        if changed {
-            #[cfg(test)]
-            let commit_hook = lock(&self.revisioned_commit_hook).clone();
-            #[cfg(test)]
-            if let Some(hook) = commit_hook {
-                hook(computed.revision);
-            }
-            self.value_changes.send(computed.value);
-            self.value_changed
-                .send(Message::PropertyChanged(PropertyChangedMessage {
-                    sender_id: 0,
-                    sender_name: "DerivedProperty".to_string(),
-                    property_name: "value".to_string(),
-                }));
+        #[cfg(test)]
+        let commit_hook = lock(&self.revisioned_commit_hook).clone();
+        #[cfg(test)]
+        if let Some(hook) = commit_hook {
+            hook(computed.revision);
         }
+        self.publish(committed);
     }
 
     /// Returns the hub that publishes changes to the derived value.
@@ -588,7 +663,9 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
 
     /// Reports whether `value` is accepted for write-back in the current state.
     pub fn can_set(&self, value: &T) -> bool {
-        !*lock(&self.disposed) && (self.validator)(value)
+        // Read the flag first: the validator runs without the lock held.
+        let disposed = *lock(&self.disposed);
+        !disposed && (self.validator)(value)
     }
 
     /// Validates and writes `value` back to the source.
@@ -616,6 +693,9 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     /// write-back requests are rejected.
     pub fn dispose(&self) {
         let should_dispose = {
+            // Set under the value lock, so a commit either finishes before
+            // this returns or sees the flag (#751).
+            let _value = lock(&self.value);
             let mut disposed = lock(&self.disposed);
             if *disposed {
                 false
