@@ -89,6 +89,7 @@ internal interface IComponentVMInternals
     void PublishIsCurrent();
     Task ConstructOrJoinAsync();
     Task JoinConstructAsync();
+    Task? TryJoinDestructAsync();
 }
 
 /// <summary>
@@ -129,6 +130,13 @@ internal static class ComponentVMExtensions
             : vm.Status == ConstructionStatus.Constructing
                 ? vm.ConstructAsync()
                 : Task.CompletedTask;
+
+    // Joins a destruct already in flight (#754); otherwise destructs through
+    // the VM's own DestructAsync, so a forwarding decorator's override still
+    // runs (spec/09). A custom IComponentVM exposes no join: its DestructAsync
+    // rejects a destruct already in flight.
+    internal static Task DestructOrJoinAsync(this IComponentVM vm)
+        => (vm as IComponentVMInternals)?.TryJoinDestructAsync() ?? vm.DestructAsync();
 }
 
 /// <summary>Shared identity validation and old-parent staging for container mutations.</summary>
@@ -502,7 +510,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             }
             else
             {
-                pending = child.DestructAsync();
+                // A child already Destructing is joined, never destructed a
+                // second time (spec/02 §6, #754).
+                pending = child.DestructOrJoinAsync();
             }
             var resumes = !pending.IsCompleted;
             await pending.ConfigureAwait(false);
@@ -1192,6 +1202,25 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
         CompleteWaiterIfSettled(tcs);
         return tcs.Task;
+    }
+
+    /// <summary>
+    /// Joins a destruct already in flight without starting a second one
+    /// (#754), or returns null when none is in flight. The check and the
+    /// waiter registration are atomic under the lifecycle gate. The join
+    /// completes or faults with that destruct, as its own
+    /// <see cref="DestructAsync"/> caller observes it. A reconstruct in its
+    /// destruct phase is joined too and settles Constructed, which the
+    /// container walk reports as a child that did not reach Destructed.
+    /// </summary>
+    Task? IComponentVMInternals.TryJoinDestructAsync()
+    {
+        lock (_gate)
+        {
+            return _status == ConstructionStatus.Destructing && _inFlight
+                ? RegisterLifecycleWaiter().Task
+                : null;
+        }
     }
 
     // ── Lifecycle: Reconstruct ──────────────────────────────────────────────

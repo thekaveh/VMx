@@ -8,6 +8,19 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `Destruct()` and `DestructAsync()` on a `CompositeVM`, `GroupVM` or
+  `AggregateVM` no longer throw `StatusTransitionException` when a child is
+  already `Destructing` (#754, spec/02 §6). Before, the container rolled back
+  to `Constructed` while the child still finished `Destructed`. The child walk
+  now joins that child's in-flight destruct through its lifecycle waiter and
+  never starts a second one, so the child's `OnDestruct` runs once. The
+  container reaches `Destructed` only after the child does. A joined destruct
+  that fails rolls the container back to `Constructed` and faults its
+  `DestructAsync()` with the child's error, as a destruct that the walk starts
+  does. A child still `Constructing` is not joined; the walk rejects it as
+  before, matching Python, TypeScript and Swift. A forwarding decorator
+  joins its wrapped VM's in-flight destruct; any other destruct still goes
+  through the decorator's own `DestructAsync()`, so an override still runs.
 - Fixed: with `AutoConstructOnAdd(true)`, a `CompositeVM` or `GroupVM` no
   longer publishes `Constructed` while a child that an add started during
   `Constructing` still constructs (#744, spec/02 §6, spec/06 §5.1). Before, an
