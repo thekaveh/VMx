@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The default `FormVM` dirty comparison (`deepEquals`) checks the four boxed
+  primitive constructors directly instead of in a loop. The loop almost
+  doubled the cost of comparing most object pairs. On a 2,000-row model one
+  comparison now takes about 1.05x its cost before #636, against 1.69x (#767).
 - `ConfirmationVM.dispose()` runs the base teardown before it disposes
   `approveCommand` and `rejectCommand`. An observer of a command's final
   `canExecuteChanged` value can no longer resolve the hub during disposal
