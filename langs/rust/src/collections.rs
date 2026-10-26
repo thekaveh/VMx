@@ -8,6 +8,33 @@ use super::{
     Mutex, Ordering, PropertyChangedMessage, ThreadId, VecDeque, VmxError, VmxResult,
 };
 
+/// A copy-on-write vector shared with lock-free readers.
+///
+/// A reader clones the `Arc` under the owner's lock, releases the lock, and
+/// runs user `PartialEq` against the snapshot (#765). A writer mutates in
+/// place when no snapshot is outstanding, and otherwise copies.
+type Shared<T> = Arc<Vec<T>>;
+
+/// A displaced snapshot that a writer must drop after releasing its lock.
+type Retired<T> = Option<Shared<T>>;
+
+/// Returns `shared` for mutation, copying it first when a reader still holds
+/// a snapshot. The displaced `Arc` goes to `retired`, never dropped here: a
+/// reader may release its snapshot meanwhile, which makes the displaced
+/// `Arc` the last reference, and its items must not drop under the lock.
+fn cow_mut<'a, T: Clone>(shared: &'a mut Shared<T>, retired: &mut Retired<T>) -> &'a mut Vec<T> {
+    if Arc::get_mut(shared).is_none() {
+        let copy = Arc::new(Vec::clone(shared));
+        let displaced = std::mem::replace(shared, copy);
+        debug_assert!(retired.is_none(), "one copy per write");
+        *retired = Some(displaced);
+    }
+    // Snapshots are only taken under the owner's lock, which the caller
+    // holds, so neither the unshared original nor a fresh copy can gain a
+    // reader before this returns.
+    Arc::get_mut(shared).expect("an unshared snapshot is unique")
+}
+
 #[derive(Default)]
 struct ServicedCollectionDelivery {
     state: Mutex<ServicedCollectionDeliveryState>,
@@ -84,7 +111,7 @@ pub struct ServicedObservableCollection<T>
 where
     T: Clone + Send + 'static,
 {
-    inner: Arc<Mutex<Vec<T>>>,
+    inner: Arc<Mutex<Shared<T>>>,
     local_hub: MessageHub,
     external_hub: Option<MessageHub>,
     delivery: Arc<ServicedCollectionDelivery>,
@@ -98,7 +125,7 @@ where
     /// Creates an empty collection without an external message hub.
     pub fn new(owner_id: usize) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(Vec::new())),
+            inner: Arc::new(Mutex::new(Shared::default())),
             local_hub: MessageHub::new(),
             external_hub: None,
             delivery: Arc::new(ServicedCollectionDelivery::default()),
@@ -109,7 +136,7 @@ where
     /// Creates an empty collection that also publishes changes to `hub`.
     pub fn with_hub(owner_id: usize, hub: MessageHub) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(Vec::new())),
+            inner: Arc::new(Mutex::new(Shared::default())),
             local_hub: MessageHub::new(),
             external_hub: Some(hub),
             delivery: Arc::new(ServicedCollectionDelivery::default()),
@@ -139,18 +166,20 @@ where
 
     /// Returns an ordered snapshot of all items.
     pub fn to_vec(&self) -> Vec<T> {
-        lock(&self.inner).clone()
+        Vec::clone(&lock(&self.inner))
     }
 
     /// Appends an item and synchronously publishes an add change.
     pub fn push(&self, item: T) {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
+        let mut retired = None;
         let index = {
             let mut inner = lock(&self.inner);
-            let index = inner.len();
-            inner.push(item);
-            index
+            let items = cow_mut(&mut inner, &mut retired);
+            items.push(item);
+            items.len() - 1
         };
+        drop(retired);
         self.publish(admission, CollectionChangeAction::Add, None, Some(index));
     }
 
@@ -160,25 +189,30 @@ where
         T: PartialEq,
     {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        // `PartialEq` runs on a copy, with no lock held; the admission keeps
-        // other threads out, and the revision check catches a change that
-        // `eq` itself made, after which the search runs again.
+        // `PartialEq` runs on a shared snapshot, with no lock held; the
+        // admission keeps other threads out, and the revision check catches a
+        // change that `eq` itself made, after which the search runs again.
+        // The snapshot is released before the lock is retaken, so the write
+        // below does not copy, and a snapshot that a nested write displaced
+        // drops its items with no lock held.
         loop {
             let revision = self.delivery.revision();
-            let snapshot = lock(&self.inner).clone();
-            let Some(index) = snapshot.iter().position(|candidate| candidate == item) else {
+            let snapshot = Arc::clone(&lock(&self.inner));
+            let found = snapshot.iter().position(|candidate| candidate == item);
+            drop(snapshot);
+            let Some(index) = found else {
                 self.finish(admission);
                 return false;
             };
-            drop(snapshot);
+            let mut retired = None;
             let removed = {
                 let mut inner = lock(&self.inner);
                 if self.delivery.revision() != revision {
                     continue;
                 }
-                inner.remove(index)
+                cow_mut(&mut inner, &mut retired).remove(index)
             };
-            drop(removed);
+            drop((removed, retired));
             self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
             return true;
         }
@@ -187,13 +221,15 @@ where
     /// Removes and returns the item at `index`.
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
+        let mut retired = None;
         let removed = {
             let mut inner = lock(&self.inner);
             if index >= inner.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
-            inner.remove(index)
+            cow_mut(&mut inner, &mut retired).remove(index)
         };
+        drop(retired);
         self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
         Ok(removed)
     }
@@ -201,13 +237,15 @@ where
     /// Replaces and returns the item at `index`.
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
+        let mut retired = None;
         let old = {
             let mut inner = lock(&self.inner);
             if index >= inner.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
-            std::mem::replace(&mut inner[index], item)
+            std::mem::replace(&mut cow_mut(&mut inner, &mut retired)[index], item)
         };
+        drop(retired);
         self.publish(
             admission,
             CollectionChangeAction::Replace,
@@ -231,7 +269,7 @@ where
             if inner.is_empty() && snapshot.is_empty() {
                 return;
             }
-            std::mem::replace(&mut *inner, snapshot)
+            std::mem::replace(&mut *inner, Arc::new(snapshot))
         };
         drop(previous);
         self.publish(admission, CollectionChangeAction::Reset, None, None);
@@ -240,6 +278,7 @@ where
     /// Moves an item between valid indices and publishes one move change.
     pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
+        let mut retired = None;
         {
             let mut inner = lock(&self.inner);
             if from_index >= inner.len() || to_index >= inner.len() {
@@ -250,9 +289,11 @@ where
             if from_index == to_index {
                 return Ok(());
             }
-            let item = inner.remove(from_index);
-            inner.insert(to_index, item);
+            let items = cow_mut(&mut inner, &mut retired);
+            let item = items.remove(from_index);
+            items.insert(to_index, item);
         }
+        drop(retired);
         self.publish(
             admission,
             CollectionChangeAction::Move,
@@ -366,7 +407,7 @@ where
 }
 
 struct KeyedServicedCollectionState<K, T> {
-    items: Vec<T>,
+    items: Shared<T>,
     keys: Vec<Arc<K>>,
     index_by_key: HashMap<Arc<K>, usize>,
 }
@@ -374,7 +415,7 @@ struct KeyedServicedCollectionState<K, T> {
 impl<K, T> Default for KeyedServicedCollectionState<K, T> {
     fn default() -> Self {
         Self {
-            items: Vec::new(),
+            items: Shared::default(),
             keys: Vec::new(),
             index_by_key: HashMap::new(),
         }
@@ -490,24 +531,26 @@ where
 
     /// Returns an insertion-ordered item snapshot.
     pub fn to_vec(&self) -> Vec<T> {
-        lock(&self.inner).items.clone()
+        Vec::clone(&lock(&self.inner).items)
     }
 
     /// Projects and appends `item`, rejecting duplicate keys atomically.
     pub fn push(&self, item: T) -> VmxResult<()> {
         let key = Arc::new((self.key_of)(&item)?);
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
+        let mut retired = None;
         let position = {
             let mut inner = lock(&self.inner);
             if inner.index_by_key.contains_key(key.as_ref()) {
                 return Err(Self::duplicate_key_error());
             }
             let position = inner.items.len();
-            inner.items.push(item);
+            cow_mut(&mut inner.items, &mut retired).push(item);
             inner.keys.push(Arc::clone(&key));
             inner.index_by_key.insert(key, position);
             position
         };
+        drop(retired);
         self.publish(admission, CollectionChangeAction::Add, None, Some(position));
         Ok(())
     }
@@ -518,16 +561,17 @@ where
         T: PartialEq,
     {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        // `PartialEq` runs on a copy, with no lock held (see
+        // `PartialEq` runs on a shared snapshot, with no lock held (see
         // `ServicedObservableCollection::remove`).
         loop {
             let revision = self.delivery.revision();
-            let snapshot = lock(&self.inner).items.clone();
-            let Some(position) = snapshot.iter().position(|candidate| candidate == item) else {
+            let snapshot = Arc::clone(&lock(&self.inner).items);
+            let found = snapshot.iter().position(|candidate| candidate == item);
+            drop(snapshot);
+            let Some(position) = found else {
                 self.finish(admission);
                 return false;
             };
-            drop(snapshot);
             let removed = {
                 let mut inner = lock(&self.inner);
                 if self.delivery.revision() != revision {
@@ -556,8 +600,8 @@ where
             }
             Self::remove_membership(&mut inner, index)
         };
-        let (removed, old_key) = removed;
-        drop(old_key);
+        let (removed, old_key, retired) = removed;
+        drop((old_key, retired));
         self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
         Ok(removed)
     }
@@ -571,8 +615,8 @@ where
             let removed = Self::remove_membership(&mut inner, position);
             (position, removed)
         };
-        let (removed, old_key) = removed;
-        drop(old_key);
+        let (removed, old_key, retired) = removed;
+        drop((old_key, retired));
         self.publish(
             admission,
             CollectionChangeAction::Remove,
@@ -586,6 +630,7 @@ where
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
         let key = Arc::new((self.key_of)(&item)?);
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
+        let mut retired = None;
         let (old, old_key) = {
             let mut inner = lock(&self.inner);
             if index >= inner.items.len() {
@@ -601,10 +646,11 @@ where
             let old_key = std::mem::replace(&mut inner.keys[index], Arc::clone(&key));
             inner.index_by_key.remove(old_key.as_ref());
             inner.index_by_key.insert(key, index);
-            (std::mem::replace(&mut inner.items[index], item), old_key)
+            let items = cow_mut(&mut inner.items, &mut retired);
+            (std::mem::replace(&mut items[index], item), old_key)
         };
         // The captured key is dropped after the lock is released.
-        drop(old_key);
+        drop((old_key, retired));
         self.publish(
             admission,
             CollectionChangeAction::Replace,
@@ -637,7 +683,7 @@ where
                 return Ok(());
             }
             (
-                std::mem::replace(&mut inner.items, snapshot),
+                std::mem::replace(&mut inner.items, Arc::new(snapshot)),
                 std::mem::replace(&mut inner.keys, keys),
                 std::mem::replace(&mut inner.index_by_key, index_by_key),
             )
@@ -653,23 +699,25 @@ where
     pub fn upsert(&self, item: T) -> VmxResult<bool> {
         let key = Arc::new((self.key_of)(&item)?);
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
+        let mut retired = None;
         let (added, index, replaced) = {
             let mut inner = lock(&self.inner);
             if let Some(index) = inner.index_by_key.get(key.as_ref()).copied() {
                 let old_key = std::mem::replace(&mut inner.keys[index], Arc::clone(&key));
                 inner.index_by_key.remove(old_key.as_ref());
                 inner.index_by_key.insert(key, index);
-                let old_item = std::mem::replace(&mut inner.items[index], item);
+                let items = cow_mut(&mut inner.items, &mut retired);
+                let old_item = std::mem::replace(&mut items[index], item);
                 (false, index, Some((old_item, old_key)))
             } else {
                 let index = inner.items.len();
-                inner.items.push(item);
+                cow_mut(&mut inner.items, &mut retired).push(item);
                 inner.keys.push(Arc::clone(&key));
                 inner.index_by_key.insert(key, index);
                 (true, index, None)
             }
         };
-        drop(replaced);
+        drop((replaced, retired));
         if added {
             self.publish(admission, CollectionChangeAction::Add, None, Some(index));
             Ok(true)
@@ -687,6 +735,7 @@ where
     /// Moves a membership while preserving and reindexing captured keys.
     pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
+        let mut retired = None;
         {
             let mut inner = lock(&self.inner);
             if from_index >= inner.items.len() || to_index >= inner.items.len() {
@@ -697,12 +746,14 @@ where
             if from_index == to_index {
                 return Ok(());
             }
-            let item = inner.items.remove(from_index);
+            let items = cow_mut(&mut inner.items, &mut retired);
+            let item = items.remove(from_index);
+            items.insert(to_index, item);
             let key = inner.keys.remove(from_index);
-            inner.items.insert(to_index, item);
             inner.keys.insert(to_index, key);
             Self::repair_indices(&mut inner, from_index.min(to_index));
         }
+        drop(retired);
         self.publish(
             admission,
             CollectionChangeAction::Move,
@@ -731,17 +782,19 @@ where
         VmxError::InvalidArgument("duplicate key".to_string())
     }
 
-    /// Removes a membership, returning its item and captured key so the
-    /// caller drops both after releasing the lock.
+    /// Removes a membership, returning its item, captured key, and any
+    /// displaced item snapshot so the caller drops them after releasing the
+    /// lock.
     fn remove_membership(
         inner: &mut KeyedServicedCollectionState<K, T>,
         index: usize,
-    ) -> (T, Arc<K>) {
-        let removed = inner.items.remove(index);
+    ) -> (T, Arc<K>, Retired<T>) {
+        let mut retired = None;
+        let removed = cow_mut(&mut inner.items, &mut retired).remove(index);
         let old_key = inner.keys.remove(index);
         inner.index_by_key.remove(&old_key);
         Self::repair_indices(inner, index);
-        (removed, old_key)
+        (removed, old_key, retired)
     }
 
     fn repair_indices(inner: &mut KeyedServicedCollectionState<K, T>, start: usize) {
@@ -1143,48 +1196,84 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 }
 
-/// Insertion-ordered dictionary entries plus a write counter.
+/// Insertion-ordered dictionary keys and values plus a write counter.
 ///
 /// Key comparisons run user `PartialEq` code, so the dictionaries compare
-/// keys on copies with no lock held and commit only when `revision` still
-/// matches the copy; otherwise they search again (the `FormVm::set_model`
-/// pattern). Replaced and removed values are dropped after the lock is
-/// released.
-struct DictionaryEntries<E> {
-    entries: Vec<E>,
+/// keys against a shared snapshot of `keys` with no lock held and commit only
+/// when `revision` still matches the snapshot; otherwise they search again
+/// (the `FormVm::set_model` pattern). Taking the snapshot clones one `Arc`,
+/// not the keys (#765). Replaced and removed keys and values, and a key
+/// snapshot that a write displaced, are dropped after the lock is released.
+struct DictionaryEntries<K, V> {
+    keys: Shared<K>,
+    values: Vec<V>,
     revision: u64,
 }
 
-impl<E> Default for DictionaryEntries<E> {
+impl<K, V> Default for DictionaryEntries<K, V> {
     fn default() -> Self {
         Self {
-            entries: Vec::new(),
+            keys: Shared::default(),
+            values: Vec::new(),
             revision: 0,
         }
     }
 }
 
-/// Copies each entry's keys with the current revision.
-fn snapshot_keys<E, P>(
-    inner: &Mutex<DictionaryEntries<E>>,
-    project: impl Fn(&E) -> P,
-) -> (u64, Vec<P>) {
-    let inner = lock(inner);
-    (inner.revision, inner.entries.iter().map(project).collect())
+impl<K: Clone, V> DictionaryEntries<K, V> {
+    /// Appends an entry and returns its index.
+    fn push(&mut self, key: K, value: V, retired: &mut Retired<K>) -> usize {
+        cow_mut(&mut self.keys, retired).push(key);
+        self.values.push(value);
+        self.values.len() - 1
+    }
+
+    /// Removes and returns the entry at `index`.
+    fn remove(&mut self, index: usize, retired: &mut Retired<K>) -> (K, V) {
+        let key = cow_mut(&mut self.keys, retired).remove(index);
+        (key, self.values.remove(index))
+    }
 }
 
-/// Runs `write` when no write happened since `revision`, bumping it.
-fn commit_entries<E, R>(
-    inner: &Mutex<DictionaryEntries<E>>,
+/// Returns the shared key snapshot. The caller drops it with no lock held.
+fn key_snapshot<K, V>(inner: &Mutex<DictionaryEntries<K, V>>) -> Shared<K> {
+    Arc::clone(&lock(inner).keys)
+}
+
+/// Finds the first key that `matches`, running it with no lock held, and
+/// returns the revision that the search saw.
+fn locate_key<K, V>(
+    inner: &Mutex<DictionaryEntries<K, V>>,
+    matches: impl FnMut(&K) -> bool,
+) -> (u64, Option<usize>) {
+    let (revision, keys) = {
+        let inner = lock(inner);
+        (inner.revision, Arc::clone(&inner.keys))
+    };
+    let index = keys.iter().position(matches);
+    // Released before the caller retakes the lock, so a commit does not copy
+    // the keys, and a snapshot that a write displaced meanwhile drops its
+    // keys here, with no lock held.
+    drop(keys);
+    (revision, index)
+}
+
+/// Runs `write` when no write happened since `revision`, bumping it. A key
+/// snapshot that the write displaced is returned with the result, for the
+/// caller to drop after the lock is released.
+fn commit_entries<K, V, R>(
+    inner: &Mutex<DictionaryEntries<K, V>>,
     revision: u64,
-    write: impl FnOnce(&mut Vec<E>) -> R,
-) -> Option<R> {
+    write: impl FnOnce(&mut DictionaryEntries<K, V>, &mut Retired<K>) -> R,
+) -> Option<(R, Retired<K>)> {
     let mut inner = lock(inner);
     if inner.revision != revision {
         return None;
     }
     inner.revision = inner.revision.wrapping_add(1);
-    Some(write(&mut inner.entries))
+    let mut retired = None;
+    let result = write(&mut inner, &mut retired);
+    Some((result, retired))
 }
 
 #[derive(Clone)]
@@ -1194,7 +1283,7 @@ where
     K: Clone + Eq + Hash + Send + 'static,
     V: Clone + Send + 'static,
 {
-    inner: Arc<Mutex<DictionaryEntries<(K, V)>>>,
+    inner: Arc<Mutex<DictionaryEntries<K, V>>>,
     hub: MessageHub,
     owner_id: usize,
 }
@@ -1214,27 +1303,28 @@ where
     }
 
     fn locate(&self, key: &K) -> (u64, Option<usize>) {
-        let (revision, keys) = snapshot_keys(&self.inner, |(candidate, _)| candidate.clone());
-        (revision, keys.iter().position(|candidate| candidate == key))
+        locate_key(&self.inner, |candidate| candidate == key)
     }
 
     /// Adds `key` or replaces its existing value in place.
     pub fn insert(&self, key: K, value: V) {
         let mut entry = Some((key, value));
-        let (action, replaced, new_index) = loop {
+        let ((action, replaced, new_index), retired) = loop {
             let (revision, index) = self.locate(&entry.as_ref().expect("entry pending").0);
-            let committed = commit_entries(&self.inner, revision, |entries| {
+            let committed = commit_entries(&self.inner, revision, |entries, retired| {
                 let (key, value) = entry.take().expect("entry pending");
                 match index {
+                    // The stored key stays; the argument key is returned so
+                    // that it drops after the lock is released.
                     Some(index) => (
                         CollectionChangeAction::Replace,
-                        Some(std::mem::replace(&mut entries[index].1, value)),
+                        Some((key, std::mem::replace(&mut entries.values[index], value))),
                         None,
                     ),
                     None => {
-                        entries.push((key, value));
+                        let position = entries.push(key, value, retired);
                         // Add carries its insertion position (spec/21 §2.4).
-                        (CollectionChangeAction::Add, None, Some(entries.len() - 1))
+                        (CollectionChangeAction::Add, None, Some(position))
                     }
                 }
             });
@@ -1242,7 +1332,7 @@ where
                 break committed;
             }
         };
-        drop(replaced);
+        drop((replaced, retired));
         self.publish_at(action, new_index);
     }
 
@@ -1252,7 +1342,7 @@ where
             let (revision, index) = self.locate(key);
             let inner = lock(&self.inner);
             if inner.revision == revision {
-                return index.map(|index| inner.entries[index].1.clone());
+                return index.map(|index| inner.values[index].clone());
             }
         }
     }
@@ -1264,13 +1354,14 @@ where
             let Some(index) = index else {
                 break None;
             };
-            if let Some(removed) =
-                commit_entries(&self.inner, revision, |entries| entries.remove(index))
-            {
+            if let Some(removed) = commit_entries(&self.inner, revision, |entries, retired| {
+                entries.remove(index, retired)
+            }) {
                 break Some(removed);
             }
         };
-        let (_, value) = removed?;
+        let ((removed_key, value), retired) = removed?;
+        drop((removed_key, retired));
         self.publish(CollectionChangeAction::Remove);
         Some(value)
     }
@@ -1280,9 +1371,12 @@ where
         let removed = {
             let mut inner = lock(&self.inner);
             inner.revision = inner.revision.wrapping_add(1);
-            std::mem::take(&mut inner.entries)
+            (
+                std::mem::take(&mut inner.keys),
+                std::mem::take(&mut inner.values),
+            )
         };
-        let changed = !removed.is_empty();
+        let changed = !removed.1.is_empty();
         drop(removed);
         if changed {
             self.publish(CollectionChangeAction::Reset);
@@ -1291,7 +1385,7 @@ where
 
     /// Returns keys in insertion order.
     pub fn keys(&self) -> Vec<K> {
-        snapshot_keys(&self.inner, |(key, _)| key.clone()).1
+        Vec::clone(&key_snapshot(&self.inner))
     }
 
     fn publish(&self, action: CollectionChangeAction) {
@@ -1319,7 +1413,7 @@ where
     K2: Clone + Eq + Hash + Send + 'static,
     V: Clone + Send + 'static,
 {
-    inner: Arc<Mutex<DictionaryEntries<(K1, K2, V)>>>,
+    inner: Arc<Mutex<DictionaryEntries<(K1, K2), V>>>,
     hub: MessageHub,
     owner_id: usize,
 }
@@ -1340,31 +1434,29 @@ where
     }
 
     fn locate(&self, key1: &K1, key2: &K2) -> (u64, Option<usize>) {
-        let (revision, keys) = snapshot_keys(&self.inner, |(k1, k2, _)| (k1.clone(), k2.clone()));
-        (
-            revision,
-            keys.iter()
-                .position(|(candidate1, candidate2)| candidate1 == key1 && candidate2 == key2),
-        )
+        locate_key(&self.inner, |(candidate1, candidate2)| {
+            candidate1 == key1 && candidate2 == key2
+        })
     }
 
     /// Adds a new key pair, rejecting a pair that is already present without
     /// changing the dictionary (spec/21 §4.1 `Add`).
     pub fn add(&self, key1: K1, key2: K2, value: V) -> VmxResult<()> {
         let mut entry = Some((key1, key2, value));
-        let position = loop {
+        let (position, retired) = loop {
             let pending = entry.as_ref().expect("entry pending");
             let (revision, index) = self.locate(&pending.0, &pending.1);
             if index.is_some() {
                 return Err(VmxError::InvalidArgument("duplicate key pair".to_string()));
             }
-            if let Some(position) = commit_entries(&self.inner, revision, |entries| {
-                entries.push(entry.take().expect("entry pending"));
-                entries.len() - 1
+            if let Some(committed) = commit_entries(&self.inner, revision, |entries, retired| {
+                let (key1, key2, value) = entry.take().expect("entry pending");
+                entries.push((key1, key2), value, retired)
             }) {
-                break position;
+                break committed;
             }
         };
+        drop(retired);
         // Add carries its insertion position (spec/21 §2.4).
         self.publish_at(CollectionChangeAction::Add, Some(position));
         Ok(())
@@ -1376,7 +1468,10 @@ where
         let removed = {
             let mut inner = lock(&self.inner);
             inner.revision = inner.revision.wrapping_add(1);
-            std::mem::take(&mut inner.entries)
+            (
+                std::mem::take(&mut inner.keys),
+                std::mem::take(&mut inner.values),
+            )
         };
         drop(removed);
         self.publish(CollectionChangeAction::Reset);
@@ -1384,26 +1479,37 @@ where
 
     /// Returns a snapshot of every entry in insertion order.
     pub fn entries(&self) -> Vec<(K1, K2, V)> {
-        lock(&self.inner).entries.clone()
+        let inner = lock(&self.inner);
+        inner
+            .keys
+            .iter()
+            .zip(&inner.values)
+            .map(|((key1, key2), value)| (key1.clone(), key2.clone(), value.clone()))
+            .collect()
     }
 
     /// Adds a key pair or replaces its existing value in place.
     pub fn insert(&self, key1: K1, key2: K2, value: V) {
         let mut entry = Some((key1, key2, value));
-        let (action, replaced, new_index) = loop {
+        let ((action, replaced, new_index), retired) = loop {
             let pending = entry.as_ref().expect("entry pending");
             let (revision, index) = self.locate(&pending.0, &pending.1);
-            let committed = commit_entries(&self.inner, revision, |entries| {
-                let pending = entry.take().expect("entry pending");
+            let committed = commit_entries(&self.inner, revision, |entries, retired| {
+                let (key1, key2, value) = entry.take().expect("entry pending");
                 match index {
+                    // The stored keys stay; the argument keys are returned so
+                    // that they drop after the lock is released.
                     Some(index) => (
                         CollectionChangeAction::Replace,
-                        Some(std::mem::replace(&mut entries[index].2, pending.2)),
+                        Some((
+                            (key1, key2),
+                            std::mem::replace(&mut entries.values[index], value),
+                        )),
                         None,
                     ),
                     None => {
-                        entries.push(pending);
-                        (CollectionChangeAction::Add, None, Some(entries.len() - 1))
+                        let position = entries.push((key1, key2), value, retired);
+                        (CollectionChangeAction::Add, None, Some(position))
                     }
                 }
             });
@@ -1411,7 +1517,7 @@ where
                 break committed;
             }
         };
-        drop(replaced);
+        drop((replaced, retired));
         self.publish_at(action, new_index);
     }
 
@@ -1422,13 +1528,14 @@ where
             let Some(index) = index else {
                 break None;
             };
-            if let Some(removed) =
-                commit_entries(&self.inner, revision, |entries| entries.remove(index))
-            {
+            if let Some(removed) = commit_entries(&self.inner, revision, |entries, retired| {
+                entries.remove(index, retired)
+            }) {
                 break Some(removed);
             }
         };
-        let (_, _, value) = removed?;
+        let ((removed_keys, value), retired) = removed?;
+        drop((removed_keys, retired));
         self.publish(CollectionChangeAction::Remove);
         Some(value)
     }
@@ -1439,7 +1546,7 @@ where
             let (revision, index) = self.locate(key1, key2);
             let inner = lock(&self.inner);
             if inner.revision == revision {
-                return index.map(|index| inner.entries[index].2.clone());
+                return index.map(|index| inner.values[index].clone());
             }
         }
     }
@@ -1451,15 +1558,15 @@ where
 
     /// Returns the number of key-pair memberships.
     pub fn count(&self) -> usize {
-        lock(&self.inner).entries.len()
+        lock(&self.inner).values.len()
     }
 
     /// Returns distinct first-dimension keys in insertion order.
     pub fn keys1(&self) -> Vec<K1> {
         let mut keys = Vec::new();
-        for key in snapshot_keys(&self.inner, |(key, _, _)| key.clone()).1 {
-            if !keys.contains(&key) {
-                keys.push(key);
+        for (key, _) in key_snapshot(&self.inner).iter() {
+            if !keys.contains(key) {
+                keys.push(key.clone());
             }
         }
         keys
@@ -1468,9 +1575,9 @@ where
     /// Returns distinct second-dimension keys in insertion order.
     pub fn keys2(&self) -> Vec<K2> {
         let mut keys = Vec::new();
-        for key in snapshot_keys(&self.inner, |(_, key, _)| key.clone()).1 {
-            if !keys.contains(&key) {
-                keys.push(key);
+        for (_, key) in key_snapshot(&self.inner).iter() {
+            if !keys.contains(key) {
+                keys.push(key.clone());
             }
         }
         keys

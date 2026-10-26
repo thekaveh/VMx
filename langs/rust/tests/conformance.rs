@@ -8,6 +8,7 @@ mod conformance {
     mod background_child_settle;
     mod builders;
     mod capabilities;
+    mod collection_lookup_clones;
     mod collections;
     mod command_decorators;
     mod command_ext;
