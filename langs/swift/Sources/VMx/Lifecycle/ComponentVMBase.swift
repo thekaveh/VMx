@@ -388,8 +388,32 @@ struct LateChildSource {
     let scope: LateChildStarts.Scope
     /// The next late child and the start record of the add that starts it,
     /// or `nil` when none is left. A late child that no add starts is
-    /// skipped here, never returned.
+    /// skipped here, never returned. The walk's scope stays open.
     let next: () -> (child: ComponentVMBase, record: LateChildStarts.Record)?
+    /// The commit-time pull (spec/06 §5.1): under the container's membership
+    /// gate, the next late child with a start record, or `nil` once none is
+    /// left — then, in the same gate section, the container's state is
+    /// flipped to `.constructed` (unpublished) and the scope ends, so a later
+    /// add reads `.constructed` and follows the add-after-Constructed rule.
+    let seal: () -> (child: ComponentVMBase, record: LateChildStarts.Record)?
+    /// Test-only: runs as the commit-time seal starts each pull, before it
+    /// checks for cancellation.
+    var willSeal: (() -> Void)? = nil
+}
+
+/// The outcome of a construct walk's commit-time seal.
+enum ChildWalkSeal {
+    /// No late child is left; the container's state is flipped to `.constructed`.
+    case sealed
+    /// A late child is joined first; the walk settles `deferral` afterwards.
+    case pending(LifecycleDeferral)
+    /// A late child did not reach `.constructed`, or the walk failed.
+    case failed
+    /// An abandon or a disposal cancelled the walk. Like develop's abandon
+    /// path, the seal publishes no rollback: a walk that already finished
+    /// commits as it would have without the seal, and a cancelled join never
+    /// settles.
+    case abandoned
 }
 
 final class ChildTransitionWalker {
@@ -413,7 +437,10 @@ final class ChildTransitionWalker {
     private let lateChild: LateChildSource?
     private let target: ConstructionStatus
     private let transient: ConstructionStatus
-    let deferral = LifecycleDeferral()
+    private var currentDeferral = LifecycleDeferral()
+    /// Settled when the walk finishes; a seal that joins another late child
+    /// replaces it with a fresh one (`seal()`).
+    var deferral: LifecycleDeferral { lock.withLock { currentDeferral } }
 
     init(
         children: [ComponentVMBase],
@@ -464,6 +491,43 @@ final class ChildTransitionWalker {
     private func settle(_ succeeded: Bool) {
         if !succeeded { endLate() }
         deferral.settle(succeeded)
+    }
+
+    /// The commit-time step of a construct walk with a late source: pulls
+    /// each late child an add attached since the last pull and joins it (the
+    /// selector, `after`, never runs again), until the container seals.
+    /// Called by the owner with no lock held.
+    func seal() -> ChildWalkSeal {
+        guard let lateChild else { return .sealed }
+        while true {
+            lateChild.willSeal?()
+            lock.lock()
+            if cancelled {
+                lock.unlock()
+                return .abandoned
+            }
+            lock.unlock()
+            guard let (late, record) = lateChild.seal() else { return .sealed }
+            let fresh = LifecycleDeferral()
+            lock.lock()
+            if cancelled {
+                lock.unlock()
+                return .abandoned
+            }
+            joined.insert(ObjectIdentifier(late))
+            lateRecords[ObjectIdentifier(late)] = record
+            // The finished walk dropped its children; join this one next.
+            children = [late]
+            index = 0
+            currentDeferral = fresh
+            lock.unlock()
+            do {
+                if try advance() { return .pending(fresh) }
+            } catch {
+                endLate()
+                return .failed
+            }
+        }
     }
 
     private func advance() throws -> Bool {
@@ -534,7 +598,9 @@ final class ChildTransitionWalker {
                 && !joined.contains(ObjectIdentifier(child)) {
                 if target == .constructed { try child.construct() } else { try child.destruct() }
             }
-            if child.status == transient {
+            // A child container whose state is already flipped but whose
+            // commit is still in flight is waited for like a transient one.
+            if child._isInTransition(transient) {
                 lock.lock()
                 if cancelled {
                     lock.unlock()
@@ -736,6 +802,12 @@ open class ComponentVMBase {
     private var pendingLifecycleDeferral: LifecycleDeferral?
     /// The walker waiting on a pending child; cancelled on dispose.
     private var activeChildWalker: ChildTransitionWalker?
+    /// The construct walk whose late children are sealed at commit time
+    /// (spec/06 §5.1), and its transition generation.
+    private var sealWalker: (walker: ChildTransitionWalker, generation: UInt64)?
+    /// The state is flipped to `.constructed` by a container's seal while
+    /// the commit that publishes it is still in flight.
+    private var commitPending = false
 
     // ── Built-in commands ───────────────────────────────────────────────
 
@@ -929,21 +1001,21 @@ open class ComponentVMBase {
     public func canConstruct() -> Bool {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        return !disposalRequested &&
+        return !disposalRequested && !commitPending &&
             (_status == .destructed || _status == .constructed)
     }
 
     public func canDestruct() -> Bool {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        return !disposalRequested &&
+        return !disposalRequested && !commitPending &&
             (_status == .constructed || _status == .destructed)
     }
 
     public func canReconstruct() -> Bool {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        return !disposalRequested && _status == .constructed
+        return !disposalRequested && !commitPending && _status == .constructed
     }
 
     // ── Lifecycle operations ────────────────────────────────────────────
@@ -1206,14 +1278,44 @@ open class ComponentVMBase {
         _ status: ConstructionStatus,
         generation: UInt64
     ) {
+        if status == .constructed, let walker = _sealWalker(generation) {
+            // Commit or keep walking (spec/06 §5.1): the seal joins each late
+            // child an add attached since the walk's last pull, then flips the
+            // state under the membership gate; only then is it published.
+            switch walker.seal() {
+            case .sealed:
+                break
+            case .pending(let deferral):
+                deferral.onSettle { [weak self] succeeded in
+                    self?._completeTransition(
+                        succeeded ? .constructed : .destructed,
+                        generation: generation
+                    )
+                }
+                return
+            case .failed:
+                _clearSealWalker(walker)
+                _completeTransition(.destructed, generation: generation)
+                return
+            case .abandoned:
+                // The walk had finished; commit as develop's abandon path does.
+                // A disposal that already began makes the commit a no-op.
+                break
+            }
+            _clearSealWalker(walker)
+        }
         lifecycleLock.lock()
-        if transitionGeneration == generation { activeChildWalker = nil }
+        if transitionGeneration == generation {
+            activeChildWalker = nil
+            sealWalker = nil
+        }
         lifecycleLock.unlock()
         _ = _commitStatus(status, generation: generation)
         lifecycleLock.lock()
         var waiters: [(id: UInt64, callback: () -> Void)] = []
         if transitionGeneration == generation {
             inFlight = false
+            commitPending = false
             waiters = settleWaiters
             settleWaiters.removeAll()
         }
@@ -1232,10 +1334,55 @@ open class ComponentVMBase {
     ) -> UInt64? {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        guard inFlight, !disposalRequested, _status == transient else { return nil }
+        guard _isInTransitionLocked(transient) else { return nil }
         nextSettleWaiterID &+= 1
         settleWaiters.append((nextSettleWaiterID, callback))
         return nextSettleWaiterID
+    }
+
+    /// Whether this VM's `transient` transition is in flight: its status is
+    /// `transient`, or a container seal already flipped it to `.constructed`
+    /// while the commit is still in flight.
+    func _isInTransition(_ transient: ConstructionStatus) -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return _isInTransitionLocked(transient)
+    }
+
+    private func _isInTransitionLocked(_ transient: ConstructionStatus) -> Bool {
+        inFlight && !disposalRequested
+            && (_status == transient || (transient == .constructing && commitPending))
+    }
+
+    /// A container's seal (call under its membership gate): flips the state
+    /// of the in-flight construct to `.constructed` without publishing it.
+    /// The transition's commit publishes `.constructed` once.
+    func _flipConstructedForSeal() {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard inFlight, !disposalRequested, _status == .constructing else { return }
+        _status = .constructed
+        commitPending = true
+    }
+
+    private func _sealWalker(_ generation: UInt64) -> ChildTransitionWalker? {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard let sealWalker, sealWalker.generation == generation,
+              transitionGeneration == generation else { return nil }
+        return sealWalker.walker
+    }
+
+    private func _clearSealWalker(_ walker: ChildTransitionWalker) {
+        lifecycleLock.lock()
+        if sealWalker?.walker === walker { sealWalker = nil }
+        lifecycleLock.unlock()
+    }
+
+    private func _takeSealWalkerLocked() -> ChildTransitionWalker? {
+        let walker = sealWalker?.walker
+        sealWalker = nil
+        return walker
     }
 
     func _cancelSettleWait(_ id: UInt64) {
@@ -1271,6 +1418,14 @@ open class ComponentVMBase {
             joined: joined,
             lateChild: lateChild
         )
+        if construct, lateChild != nil {
+            // Late children are sealed at commit time (spec/06 §5.1).
+            lifecycleLock.lock()
+            let stale = _takeSealWalkerLocked()
+            sealWalker = (walker, transitionGeneration)
+            lifecycleLock.unlock()
+            stale?.cancel()
+        }
         guard try walker.start() else { return }
         lifecycleLock.lock()
         if disposalRequested || _status == .disposed {
@@ -1300,8 +1455,10 @@ open class ComponentVMBase {
         let walker = activeChildWalker
         activeChildWalker = nil
         pendingLifecycleDeferral = nil
+        let sealing = _takeSealWalkerLocked()
         lifecycleLock.unlock()
         walker?.cancel()
+        sealing?.cancel()
     }
 
     private func _takeLifecycleDeferral() -> LifecycleDeferral? {
@@ -1325,11 +1482,13 @@ open class ComponentVMBase {
         disposalRequested = true
         transitionGeneration &+= 1
         inFlight = false
+        commitPending = false
         let hookLease = activeHookLease
         // A transition waiting on a child never settles once Disposed.
         let walker = activeChildWalker
         activeChildWalker = nil
         pendingLifecycleDeferral = nil
+        let sealing = _takeSealWalkerLocked()
         let waiters = settleWaiters
         settleWaiters.removeAll()
         let publication = _enqueueStatusLocked(
@@ -1341,6 +1500,7 @@ open class ComponentVMBase {
         )
         lifecycleLock.unlock()
         walker?.cancel()
+        sealing?.cancel()
         _publishLifecycle(publication)
         // A parent waiting on this VM observes Disposed and rolls back.
         for waiter in waiters { waiter.callback() }
@@ -1513,6 +1673,9 @@ open class ComponentVMBase {
             lifecycleLock.unlock()
             return false
         }
+        // The sealed commit's publication starts: subscribers see a completed
+        // transition, as without the seal.
+        commitPending = false
         let publication = _enqueueStatusLocked(
             status,
             generation: generation

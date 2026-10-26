@@ -737,7 +737,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return
         child.construct()
 
-    def _construct_walk(self, joined: list[VM], walk: _LateWalk) -> Iterator[VM]:
+    def _construct_walk(
+        self, joined: list[VM], visited: dict[int, VM], walk: _LateWalk
+    ) -> Iterator[VM]:
         """Yield the construct walk's children, extended by late additions.
 
         The membership snapshot comes first. With auto-construct-on-add, each
@@ -746,24 +748,50 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         child after that add's start attempt, so one whose own construction
         failed rolls the container back. The walk never starts a late child;
         one without a record was not started by an add, so it is skipped. The
-        last scan ends the walk's scope; a failed walk ends it from
-        ``_on_construct`` (spec/02 §6, spec/06 §5.1).
+        scope stays open after the last scan: ``_seal_or_next_late`` joins a
+        child added after it, then commits Constructed under the membership
+        gate and ends the scope; a failed walk ends it from ``_on_construct``
+        (spec/02 §6, spec/06 §5.1).
         """
         snapshot = list(self.snapshot())
-        visited = {id(child) for child in snapshot}
+        # Keyed by id but holding each child, so a freed child's id is never
+        # reused by a new member while this walk runs.
+        visited.update((id(child), child) for child in snapshot)
         yield from snapshot
         if not self._auto_construct_on_add:
             walk.end()
             return
         while True:
-            late = next((c for c in self.snapshot() if id(c) not in visited), None)
+            late = next((c for c in self.snapshot() if visited.get(id(c)) is not c), None)
             if late is None:
-                walk.end()
                 return
-            visited.add(id(late))
+            visited[id(late)] = late
             if walk.take(late):
                 joined.append(late)
                 yield late
+
+    def _seal_or_next_late(
+        self, joined: list[VM], visited: dict[int, VM], walk: _LateWalk
+    ) -> VM | None:
+        """The construct walk's commit step (spec/02 §6, spec/06 §5.1).
+
+        Under the membership gate, return the next unvisited member that an
+        add started (it has a start record in this walk's scope), which the
+        walk then joins. Without one, commit the Constructed state in the same
+        gated section, so an add reads either Constructing (and is joined) or
+        Constructed, then end the walk's scope.
+        """
+        with self._membership_gate:
+            for child in self._children:
+                if visited.get(id(child)) is child:
+                    continue
+                visited[id(child)] = child
+                if walk.take(child):
+                    joined.append(child)
+                    return child
+            self._mark_constructed_before_publication()
+        walk.end()
+        return None
 
     def _validate_move_index(self, index: int) -> None:
         if isinstance(index, bool):
@@ -808,12 +836,18 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
         # This walk's scope of start records, begun before its snapshot.
         walk = self._late_starts.begin_walk(self)
+        visited: dict[int, VM] = {}
         walking = self._transition_children(
-            self._construct_walk(joined, walk),
+            self._construct_walk(joined, visited, walk),
             construct=True,
             after=apply_initial_current,
             joined=joined,
             join=walk.join,
+            seal=(
+                (lambda: self._seal_or_next_late(joined, visited, walk))
+                if self._auto_construct_on_add
+                else None
+            ),
         )
 
         # A failed walk ends its own scope when it fails, not at a later GC.

@@ -1508,6 +1508,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
         self.core.when_settled(callback)
     }
 
+    fn lifecycle_publication_pending(&self) -> bool {
+        self.core.publication_pending()
+    }
+
     fn is_current(&self) -> bool {
         self.core.is_selected()
     }
@@ -2150,6 +2154,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> VmN
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.inner.core.when_settled(callback)
+    }
+
+    fn lifecycle_publication_pending(&self) -> bool {
+        self.inner.core.publication_pending()
     }
 
     fn is_current(&self) -> bool {

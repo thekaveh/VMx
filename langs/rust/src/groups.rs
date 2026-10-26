@@ -758,6 +758,17 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         self.items.batch_update(action);
     }
 
+    /// Test-only seam: runs `probe` after each construct walk's last late
+    /// scan, before the group commits `Constructed`. Production code never
+    /// calls it.
+    #[doc(hidden)]
+    pub fn set_last_scan_probe_for_testing<F>(&self, probe: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.late_starts.set_last_scan_probe(Arc::new(probe));
+    }
+
     /// Constructs the group and each current child in collection order.
     pub fn construct(&self) -> VmxResult<()> {
         self.core
@@ -1035,6 +1046,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for GroupVm<T, D> {
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.core.when_settled(callback)
+    }
+
+    fn lifecycle_publication_pending(&self) -> bool {
+        self.core.publication_pending()
     }
 
     fn is_current(&self) -> bool {
