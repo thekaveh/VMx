@@ -657,3 +657,72 @@ fn subscriber_can_observe_on_chosen_dispatcher() {
     dispatcher.drain();
     assert!(*observed.lock().unwrap());
 }
+
+/// Runs `drain` on a helper thread and fails the test if it does not return.
+fn drains_within_bound(drain: impl FnOnce() + Send + 'static) {
+    let (done, finished) = mpsc::channel();
+    thread::spawn(move || {
+        drain();
+        let _ = done.send(());
+    });
+    finished
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the drain did not return; it blocked on its own queue lock");
+}
+
+/// #746 — a foreground action that dispatches to the foreground queue does
+/// not block `drain_foreground`, and both actions run in FIFO order.
+#[test]
+fn drain_foreground_runs_an_action_that_dispatches_to_the_same_queue() {
+    let dispatcher = ManualDispatcher::new();
+    let log = Arc::new(Mutex::new(Vec::new()));
+    {
+        let inner_dispatcher = dispatcher.clone();
+        let log = Arc::clone(&log);
+        dispatcher.dispatch(Box::new(move || {
+            log.lock().unwrap().push("first");
+            let log = Arc::clone(&log);
+            inner_dispatcher.dispatch(Box::new(move || log.lock().unwrap().push("second")));
+        }));
+    }
+
+    let draining = dispatcher.clone();
+    drains_within_bound(move || draining.drain_foreground());
+
+    assert_eq!(*log.lock().unwrap(), vec!["first", "second"]);
+}
+
+/// #746 — a background hook that constructs another background VM on the
+/// same `ManualDispatcher` does not block `drain_background`.
+#[test]
+fn drain_background_runs_a_hook_that_constructs_another_background_vm() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let inner = ComponentVm::builder()
+        .name("inner")
+        .model(1)
+        .background(true)
+        .services(hub.clone(), dispatcher.clone())
+        .build()
+        .unwrap();
+    let outer = {
+        let inner = inner.clone();
+        ComponentVm::builder()
+            .name("outer")
+            .model(1)
+            .background(true)
+            .on_construct(move || inner.construct())
+            .services(hub.clone(), dispatcher.clone())
+            .build()
+            .unwrap()
+    };
+
+    outer.construct().unwrap();
+    let draining = dispatcher.clone();
+    drains_within_bound(move || draining.drain_background());
+    let draining = dispatcher.clone();
+    drains_within_bound(move || draining.drain_foreground());
+
+    assert_eq!(outer.status(), ConstructionStatus::Constructed);
+    assert_eq!(inner.status(), ConstructionStatus::Constructed);
+}
