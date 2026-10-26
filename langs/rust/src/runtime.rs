@@ -2145,6 +2145,16 @@ pub type LifecycleSettleCallback = Box<dyn FnOnce() + Send + 'static>;
 
 type ChildStep = Box<dyn FnOnce() -> VmxResult<()> + Send + 'static>;
 
+/// The step a construct walk runs once every member joined (for example a
+/// composite's selector). It receives the container core, so it need not
+/// capture one: a captured core would keep a waiting container alive (#750).
+pub(crate) type WalkThen<D> = Box<dyn FnOnce(&ComponentCore<D>) -> VmxResult<()> + Send + 'static>;
+
+/// Reports whether the child a container waits on settled at the expected
+/// status. The container keeps it, so the settle callback the child holds
+/// does not hold the child itself (#750).
+type AwaitedChild = Box<dyn FnOnce() -> VmxResult<()> + Send + 'static>;
+
 struct StartRecordState {
     done: bool,
     waiter: Option<LifecycleSettleCallback>,
@@ -2431,6 +2441,8 @@ struct ChildSettle {
     /// settle path publishes the success status in the meantime.
     failed: bool,
     queue: VecDeque<ChildStep>,
+    /// The child being waited on, checked when its settle callback runs.
+    awaited: Option<AwaitedChild>,
 }
 
 impl ChildSettle {
@@ -2443,6 +2455,7 @@ impl ChildSettle {
             failure: None,
             failed: false,
             queue: VecDeque::new(),
+            awaited: None,
         }
     }
 
@@ -2472,6 +2485,35 @@ pub(crate) type ModelHint<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 pub(crate) struct ComponentCore<D: Dispatcher = NullDispatcher> {
     inner: Arc<Mutex<ComponentCoreInner<D>>>,
     hook_ready: Arc<Condvar>,
+}
+
+/// A core reference that does not keep the core alive. A container's child
+/// steps and settle callbacks hold one: the core stores the steps, and the
+/// child stores the callback, so a strong reference would keep a container
+/// waiting on a child that never settles alive after its last handle drops
+/// (#750).
+pub(crate) struct WeakComponentCore<D: Dispatcher = NullDispatcher> {
+    inner: Weak<Mutex<ComponentCoreInner<D>>>,
+    hook_ready: Arc<Condvar>,
+}
+
+impl<D: Dispatcher> Clone for WeakComponentCore<D> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Weak::clone(&self.inner),
+            hook_ready: Arc::clone(&self.hook_ready),
+        }
+    }
+}
+
+impl<D: Dispatcher> WeakComponentCore<D> {
+    /// The core, while any strong reference keeps it alive.
+    pub(crate) fn upgrade(&self) -> Option<ComponentCore<D>> {
+        Some(ComponentCore {
+            inner: self.inner.upgrade()?,
+            hook_ready: Arc::clone(&self.hook_ready),
+        })
+    }
 }
 
 struct ComponentCoreInner<D: Dispatcher> {
@@ -2566,6 +2608,24 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     pub(crate) fn id(&self) -> usize {
         lock(&self.inner).id
+    }
+
+    /// A reference to this core that does not keep it alive.
+    pub(crate) fn downgrade(&self) -> WeakComponentCore<D> {
+        WeakComponentCore {
+            inner: Arc::downgrade(&self.inner),
+            hook_ready: Arc::clone(&self.hook_ready),
+        }
+    }
+
+    /// A child step that runs `step` on this core, holding the core weakly
+    /// while queued (#750). Once the core is gone the step does nothing.
+    fn weak_step<F>(&self, step: F) -> ChildStep
+    where
+        F: FnOnce(&Self) -> VmxResult<()> + Send + 'static,
+    {
+        let core = self.downgrade();
+        Box::new(move || core.upgrade().map_or(Ok(()), |core| step(&core)))
     }
 
     pub(crate) fn name(&self) -> String {
@@ -3395,17 +3455,23 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// when the destruct settled synchronously, otherwise once the deferred
     /// destruct reaches Destructed. A deferred construct failure that does
     /// not surface through the settle path reaches `background_errors`.
+    /// `construct` receives this core and must not hold it: the deferred
+    /// continuation is stored on the core and holds it weakly, so a
+    /// container whose destruct never settles stays collectable (#750).
     pub(crate) fn construct_after_destruct<F>(&self, construct: F) -> VmxResult<()>
     where
-        F: FnOnce() -> VmxResult<()> + Send + 'static,
+        F: FnOnce(&Self) -> VmxResult<()> + Send + 'static,
     {
         if self.status() == ConstructionStatus::Destructed {
-            return construct();
+            return construct(self);
         }
-        let core = self.clone();
+        let core = self.downgrade();
         self.then_after_settle(Box::new(move || {
+            let Some(core) = core.upgrade() else {
+                return;
+            };
             if core.status() == ConstructionStatus::Destructed {
-                if let Err(error) = construct() {
+                if let Err(error) = construct(&core) {
                     let errors = core.background_errors();
                     let emission = errors.begin_emission();
                     errors.send(error);
@@ -3468,11 +3534,8 @@ impl<D: Dispatcher> ComponentCore<D> {
         child: &N,
         operation: LifecycleOperation,
     ) -> VmxResult<()> {
-        let core = self.clone();
         let child = child.clone();
-        self.child_step(Box::new(move || {
-            core.run_child_transition(&child, operation)
-        }))
+        self.child_step(self.weak_step(move |core| core.run_child_transition(&child, operation)))
     }
 
     /// Whether auto-construct-on-add constructs a child added now without a
@@ -3495,7 +3558,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         &self,
         members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
         late: LateStarts,
-        then: ChildStep,
+        then: WalkThen<D>,
     ) -> VmxResult<()> {
         // This walk's own scope: an add that registered a record before this
         // point attached a member of the snapshot below.
@@ -3507,8 +3570,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             // A member already Constructing (started by an auto-construct add
             // before this walk began) is joined, not restarted; a Constructed
             // one passes and a Destructed one is constructed (spec/02 §6).
-            let core = self.clone();
-            self.child_step(Box::new(move || {
+            self.child_step(self.weak_step(move |core| {
                 if child.status() == ConstructionStatus::Constructing {
                     core.await_child(&child, ConstructionStatus::Constructed)
                 } else {
@@ -3516,10 +3578,9 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
             }))?;
         }
-        let core = self.clone();
-        self.child_step(Box::new(move || {
-            core.join_late_children(visited, members, walk, then)
-        }))
+        self.child_step(
+            self.weak_step(move |core| core.join_late_children(visited, members, walk, then)),
+        )
     }
 
     /// Scans for the next late member under the container's membership
@@ -3531,7 +3592,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         mut visited: HashSet<usize>,
         members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
         walk: Arc<LateWalk>,
-        then: ChildStep,
+        then: WalkThen<D>,
     ) -> VmxResult<()> {
         let next = {
             let _gate = lock(&walk.starts.gate);
@@ -3539,15 +3600,13 @@ impl<D: Dispatcher> ComponentCore<D> {
         };
         let Some((child, record)) = next else {
             walk.starts.run_last_scan_probe();
-            then()?;
+            then(self)?;
             return self.seal_late_children(visited, members, walk);
         };
-        let core = self.clone();
-        self.child_step(Box::new(move || core.await_add_then_child(&record, &child)))?;
-        let core = self.clone();
-        self.child_step(Box::new(move || {
-            core.join_late_children(visited, members, walk, then)
-        }))
+        self.child_step(self.weak_step(move |core| core.await_add_then_child(&record, &child)))?;
+        self.child_step(
+            self.weak_step(move |core| core.join_late_children(visited, members, walk, then)),
+        )
     }
 
     /// Commits the walk or keeps walking (spec/02 §6, spec/06 §5.1). Under
@@ -3578,12 +3637,8 @@ impl<D: Dispatcher> ComponentCore<D> {
             drop(walk);
             return Ok(());
         };
-        let core = self.clone();
-        self.child_step(Box::new(move || core.await_add_then_child(&record, &child)))?;
-        let core = self.clone();
-        self.child_step(Box::new(move || {
-            core.seal_late_children(visited, members, walk)
-        }))
+        self.child_step(self.weak_step(move |core| core.await_add_then_child(&record, &child)))?;
+        self.child_step(self.weak_step(move |core| core.seal_late_children(visited, members, walk)))
     }
 
     /// Flips a sealed construct walk's container to Constructed without
@@ -3606,25 +3661,23 @@ impl<D: Dispatcher> ComponentCore<D> {
         record: &Arc<StartRecord>,
         child: &N,
     ) -> VmxResult<()> {
-        let generation = {
+        let (generation, stale) = {
             let mut inner = lock(&self.inner);
             let generation = inner.transition_generation;
             if !inner.transitioning || inner.status == ConstructionStatus::Disposed {
                 return Ok(());
             }
-            let settle = inner
-                .child_settle
-                .get_or_insert_with(|| ChildSettle::new(generation));
-            if settle.generation != generation {
-                *settle = ChildSettle::new(generation);
-            }
-            settle.waiting = true;
-            generation
+            (generation, Self::begin_child_wait(&mut inner, generation))
         };
-        let core = self.clone();
+        drop(stale);
+        // The record's waiter holds the core weakly: the record can outlive
+        // the container (#750).
+        let core = self.downgrade();
         let awaited = child.clone();
         if record.when_done(Box::new(move || {
-            core.join_after_add(generation, &awaited);
+            if let Some(core) = core.upgrade() {
+                core.join_after_add(generation, &awaited);
+            }
         })) {
             return Ok(());
         }
@@ -3639,6 +3692,19 @@ impl<D: Dispatcher> ComponentCore<D> {
         self.await_child(child, ConstructionStatus::Constructed)
     }
 
+    /// Marks this transition's settle as waiting on a child, replacing a
+    /// stale settle of an older transition. Returns the stale settle, so the
+    /// caller drops its queued steps after releasing the core guard.
+    fn begin_child_wait(inner: &mut ComponentCoreInner<D>, generation: u64) -> Option<ChildSettle> {
+        let settle = inner
+            .child_settle
+            .get_or_insert_with(|| ChildSettle::new(generation));
+        let stale = (settle.generation != generation)
+            .then(|| std::mem::replace(settle, ChildSettle::new(generation)));
+        settle.waiting = true;
+        stale
+    }
+
     /// Continues a walk that waited for an add: joins `child`, keeping the
     /// transition waiting until it settles.
     fn join_after_add<N: VmNode>(&self, generation: u64, child: &N) {
@@ -3648,29 +3714,28 @@ impl<D: Dispatcher> ComponentCore<D> {
                 return;
             }
         }
-        let core = self.clone();
-        let awaited = child.clone();
-        if child.when_lifecycle_settled(Box::new(move || {
-            core.child_settled(generation, &awaited, ConstructionStatus::Constructed);
-        })) {
+        if self.watch_child(generation, child, ConstructionStatus::Constructed) {
             return;
+        }
+        {
+            let mut inner = lock(&self.inner);
+            if !self.settle_is_current(&inner, generation) {
+                return;
+            }
+            if let Some(settle) = inner.child_settle.as_mut() {
+                settle.waiting = false;
+            }
         }
         if child.status() == ConstructionStatus::Constructing {
             // A node without settle notification is accepted in flight, as
             // `await_child` does.
-            {
-                let mut inner = lock(&self.inner);
-                if !self.settle_is_current(&inner, generation) {
-                    return;
-                }
-                if let Some(settle) = inner.child_settle.as_mut() {
-                    settle.waiting = false;
-                }
-            }
             self.advance_children(generation, false);
             return;
         }
-        self.child_settled(generation, child, ConstructionStatus::Constructed);
+        self.after_child_settled(
+            generation,
+            child_settled_result(child, ConstructionStatus::Constructed),
+        );
     }
 
     fn run_child_transition<N: VmNode>(
@@ -3695,26 +3760,16 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// Holds the container transition until `child`, already started, settles
     /// at `expected`; fails it when the child settled anywhere else.
     fn await_child<N: VmNode>(&self, child: &N, expected: ConstructionStatus) -> VmxResult<()> {
-        let generation = {
+        let (generation, stale) = {
             let mut inner = lock(&self.inner);
             let generation = inner.transition_generation;
             if !inner.transitioning || inner.status == ConstructionStatus::Disposed {
                 return Ok(());
             }
-            let settle = inner
-                .child_settle
-                .get_or_insert_with(|| ChildSettle::new(generation));
-            if settle.generation != generation {
-                *settle = ChildSettle::new(generation);
-            }
-            settle.waiting = true;
-            generation
+            (generation, Self::begin_child_wait(&mut inner, generation))
         };
-        let core = self.clone();
-        let awaited = child.clone();
-        if child.when_lifecycle_settled(Box::new(move || {
-            core.child_settled(generation, &awaited, expected);
-        })) {
+        drop(stale);
+        if self.watch_child(generation, child, expected) {
             return Ok(());
         }
         {
@@ -3739,17 +3794,75 @@ impl<D: Dispatcher> ComponentCore<D> {
         child_settled_result(child, expected)
     }
 
-    fn child_settled<N: VmNode>(&self, generation: u64, child: &N, expected: ConstructionStatus) {
-        {
+    /// Registers this transition's settle callback on `child`. The container
+    /// keeps the awaited child and the callback holds the core weakly, so
+    /// neither the child nor the container keeps itself alive while the
+    /// child never settles (#750). Returns `false`, keeping nothing, when
+    /// `child` has no transition in flight or no settle notification; `true`
+    /// also when this transition is no longer current, as there is nothing
+    /// left to wait for.
+    fn watch_child<N: VmNode>(
+        &self,
+        generation: u64,
+        child: &N,
+        expected: ConstructionStatus,
+    ) -> bool {
+        let awaited_child = child.clone();
+        let awaited: AwaitedChild =
+            Box::new(move || child_settled_result(&awaited_child, expected));
+        let displaced = {
+            let mut inner = lock(&self.inner);
+            if !self.settle_is_current(&inner, generation) {
+                drop(inner);
+                drop(awaited);
+                return true;
+            }
+            inner
+                .child_settle
+                .as_mut()
+                .and_then(|settle| settle.awaited.replace(awaited))
+        };
+        drop(displaced);
+        let core = self.downgrade();
+        if child.when_lifecycle_settled(Box::new(move || {
+            if let Some(core) = core.upgrade() {
+                core.child_settled(generation);
+            }
+        })) {
+            return true;
+        }
+        let unused = {
+            let mut inner = lock(&self.inner);
+            inner
+                .child_settle
+                .as_mut()
+                .filter(|settle| settle.generation == generation)
+                .and_then(|settle| settle.awaited.take())
+        };
+        drop(unused);
+        false
+    }
+
+    /// The settle callback of the child this transition waits on.
+    fn child_settled(&self, generation: u64) {
+        let awaited = {
             let mut inner = lock(&self.inner);
             if !self.settle_is_current(&inner, generation) {
                 return;
             }
-            if let Some(settle) = inner.child_settle.as_mut() {
-                settle.waiting = false;
-            }
-        }
-        match child_settled_result(child, expected) {
+            let Some(settle) = inner.child_settle.as_mut() else {
+                return;
+            };
+            settle.waiting = false;
+            settle.awaited.take()
+        };
+        // The check consumes the awaited child, outside the core guard.
+        let result = awaited.map_or(Ok(()), |awaited| awaited());
+        self.after_child_settled(generation, result);
+    }
+
+    fn after_child_settled(&self, generation: u64, result: VmxResult<()>) {
+        match result {
             Ok(()) => self.advance_children(generation, false),
             Err(error) => self.fail_children(generation, error),
         }
