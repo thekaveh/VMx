@@ -16,6 +16,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `DiscriminatorVm::active_key_changes()` ends on the active key when a
+  newer setter commits between a setter's commit and its publication: on
+  another thread, or from the replaced key's `Drop`. The older setter's key
+  is then skipped on the stream; `active_changed()` still sends one message
+  per effective change (#752).
 - `DerivedProperty::recompute` no longer loses an update that commits while
   its transform runs. Concurrent `recompute` calls now run one at a time, so
   each transform receives the previous result. A source update that commits

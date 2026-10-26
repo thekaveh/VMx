@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/22-discriminator-vm.md`; ADR-0051.
 
-use super::{lock, Arc, Message, MessageHub, Mutex, ValueStream};
+use super::{lock, Arc, AtomicU64, Message, MessageHub, Mutex, Ordering, ValueStream};
 
 /// The active key plus a counter of its replacements, so a setter that
 /// compared keys on a copy can detect an intervening change.
@@ -15,6 +15,9 @@ struct ActiveKey<K> {
 /// Keyed active-mode state with LIFO modal override restoration.
 pub struct DiscriminatorVm<K: Clone + PartialEq + Send + 'static> {
     current_key: Arc<Mutex<ActiveKey<K>>>,
+    /// The active key's generation, stored under `current_key`; read without
+    /// that lock when a publication checks that it is still current (#752).
+    published_generation: Arc<AtomicU64>,
     active_changed: MessageHub,
     active_key_changes: ValueStream<K>,
     modal_stack: Arc<Mutex<Vec<K>>>,
@@ -29,6 +32,7 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
                 key: initial.clone(),
                 generation: 0,
             })),
+            published_generation: Arc::new(AtomicU64::new(0)),
             active_changed: MessageHub::new(),
             active_key_changes: ValueStream::hot(initial),
             modal_stack: Arc::new(Mutex::new(Vec::new())),
@@ -65,13 +69,13 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         // `PartialEq` runs on a copy with no lock held, so an `eq` may read
         // this discriminator; the install re-checks the generation and
         // compares again when another setter got there first.
-        let changed = loop {
+        let installed = loop {
             let (generation, current) = {
                 let active = lock(&self.current_key);
                 (active.generation, active.key.clone())
             };
             if current == key {
-                break false;
+                break None;
             }
             drop(current);
             let replaced = {
@@ -80,15 +84,25 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
                     continue;
                 }
                 active.generation = active.generation.wrapping_add(1);
-                std::mem::replace(&mut active.key, key.clone())
+                self.published_generation
+                    .store(active.generation, Ordering::Release);
+                (
+                    std::mem::replace(&mut active.key, key.clone()),
+                    active.generation,
+                )
             };
-            drop(replaced);
-            break true;
+            drop(replaced.0);
+            break Some(replaced.1);
         };
-        if changed {
+        if let Some(generation) = installed {
             // The key stream goes first: a hub subscriber that changes the key
-            // again must not have its newer key overtaken by this one.
-            self.active_key_changes.send(key);
+            // again must not have its newer key overtaken by this one. A newer
+            // setter that committed in the gap, on another thread or from the
+            // replaced key's `Drop`, publishes its own key; this one is then
+            // skipped, so the stream ends on the active key (#752).
+            let current = Arc::clone(&self.published_generation);
+            self.active_key_changes
+                .send_if(key, move || current.load(Ordering::Acquire) == generation);
             self.active_changed.send(Message::Custom {
                 sender_id: 0,
                 sender_name: "DiscriminatorVm".to_string(),
@@ -112,7 +126,9 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
     }
 
     /// Returns a typed stream of the new active key, one value per effective
-    /// change. It does not replay the current key to a new subscriber.
+    /// change. It does not replay the current key to a new subscriber. When a
+    /// newer change commits before an older one publishes, the older key is
+    /// skipped, so the stream ends on the active key.
     pub fn active_key_changes(&self) -> ValueStream<K> {
         self.active_key_changes.clone()
     }
