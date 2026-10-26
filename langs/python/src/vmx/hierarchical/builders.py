@@ -102,7 +102,11 @@ class HierarchicalVMBuilder(Generic[TModel, TVM]):
         return dataclasses.replace(self, _hint=value)
 
     def eager_children(self, value: bool) -> HierarchicalVMBuilder[TModel, TVM]:
-        """When ``True``, materializes the entire subtree at construct() time."""
+        """When ``True``, the built node constructs its children at construct() time.
+
+        The option applies to this node's children only. It continues deeper
+        only through children that are eager themselves.
+        """
         return dataclasses.replace(self, _eager_children=value)
 
     def vm_factory(self, factory: Callable[..., TVM]) -> HierarchicalVMBuilder[TModel, TVM]:

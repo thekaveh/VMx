@@ -75,17 +75,18 @@ graph TD
 ## 3. Construction order
 
 **Depth-first.** A parent's `Status` transitions to `Constructed` only after
-every descendant has reached `Constructed`; this preserves the invariant
-"children exist before parent reports ready". This construction coordination
-does not imply ownership: disposing a hierarchical node does not dispose,
-destruct, detach, reparent, or otherwise manage its children. Destructing a
-node does not destruct its children either; only eager construction cascades.
-Consumers own child lifetimes unless they register cleanup explicitly through
-the ordinary owned-resource surface.
+every child that its construction constructs has reached `Constructed`; this
+preserves the invariant "children exist before parent reports ready". This
+construction coordination does not imply ownership: disposing a hierarchical
+node does not dispose, destruct, detach, reparent, or otherwise manage its
+children. Destructing a node does not destruct its children either; only eager
+construction cascades. Consumers own child lifetimes unless they register
+cleanup explicitly through the ordinary owned-resource surface.
 
 Lazy children do NOT participate in construction order until materialized. A node
 with un-materialized children is `Constructed` once it has called `construct()`
-itself; the children construct lazily on first access.
+itself. First access to `Children` builds the lazy children and sets their
+parents. It does not construct them.
 
 Sequence for a two-level eager tree:
 
@@ -296,8 +297,9 @@ TreeStructureChangedMessage:
   first access.
 - `HIER-008` — Eager child loading: `eagerChildren=true` (C# / TS) /
   `eager_children=True` (Python) / `eagerChildren: true` (Swift) constructor
-  option, or the Rust builder method `eager_children(true)`, materializes the
-  full tree at construct.
+  option, or the Rust builder method `eager_children(true)`, materializes and
+  constructs this node's children at construct. Construction continues deeper
+  only through children that are eager themselves.
 - `HIER-009` — Depth-first construction: a parent reports `Constructed` only
   after every (eager) descendant.
 - `HIER-010` — `PropertyChangedMessage` on `Parent` change.

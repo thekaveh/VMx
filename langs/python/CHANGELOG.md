@@ -10,6 +10,10 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- The `eager_children` documentation on `HierarchicalVM` and
+  `HierarchicalVMBuilder.eager_children()` no longer claims the entire subtree.
+  The option applies to this node's children only. It continues deeper only
+  through children that are eager themselves (#759, ADR-0156).
 - A `CompositeVM`, `GroupVM` or aggregate disposed while its child walk
   waits for a background child no longer publishes a rollback status before
   `DISPOSED`. Before, with a foreground that runs work inline, `construct()`

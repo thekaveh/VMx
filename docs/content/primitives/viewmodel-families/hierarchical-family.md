@@ -116,11 +116,12 @@ function disposeSubtree(node: DisposableTreeNode): void {
 }
 ```
 
-Reading `children` materializes a lazy level, so the recipe builds and
-constructs children that were never shown before it disposes them. It reaches
-only the current children. A node that was reparented into another tree, or
-dropped by `invalidateChildren`, is no longer in the subtree, and its new owner
-disposes it.
+Reading `children` builds a lazy level without constructing it. The recipe
+therefore builds children that were never shown, and then disposes them. It
+reaches only the current children. A node that was reparented into another tree
+is no longer in this subtree. A node that `invalidateChildren` drops stays live
+with a null parent. The caller disposes each dropped node. To keep references
+to those nodes, read `children` before you invalidate the cache.
 
 ## 6.2.6.5. Progressive Batch Hydration
 
