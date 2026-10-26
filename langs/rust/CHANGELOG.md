@@ -23,6 +23,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `MessageHub` delivery no longer locks the hub before each subscriber to
+  check that it is still attached. Each subscriber now carries an active
+  flag. Unsubscribing, dropping the `Subscription` and disposing the hub clear
+  the flag under the hub lock, and delivery reads it before each handler. A
+  subscriber detached by an earlier handler of the same message is still
+  skipped, and a handler that detaches itself still finishes its message.
+  Delivery also marks the hub as delivering once per message instead of once
+  per handler. A detached handler still drops right after its own turn,
+  outside that mark, so its `Drop` sees the same state as before. A release `send` to 100 subscribers drops from about 1,650 ns
+  to about 570 ns. Before #636 it cost about 540 ns (#766).
 - `ObservableDictionary` and `ObservableMultiDictionary` lookups, and
   `remove(&item)` on `ServicedObservableCollection` and
   `KeyedServicedObservableCollection`, no longer copy every stored key or

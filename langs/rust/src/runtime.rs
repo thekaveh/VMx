@@ -568,7 +568,58 @@ impl Message {
     }
 }
 
-type Subscriber = Arc<dyn Fn(&Message) + Send + Sync + 'static>;
+/// One hub subscriber: its handler and the flag that admits it to delivery.
+///
+/// The flag is cleared, under the hub's state lock, on every path that
+/// removes the subscriber from the hub, so a drain that copied the subscriber
+/// list skips a subscriber detached earlier in the same delivery with one
+/// atomic load instead of a lock and lookup per handler (#766).
+struct SubscriberSlot<F> {
+    active: AtomicBool,
+    handler: F,
+}
+
+trait HubSubscriber: Send + Sync {
+    /// Runs the handler unless the subscriber was removed from the hub.
+    fn deliver(&self, message: &Message);
+
+    /// Callers hold the hub's state lock.
+    fn deactivate(&self);
+
+    fn is_active(&self) -> bool;
+}
+
+impl<F> HubSubscriber for SubscriberSlot<F>
+where
+    F: Fn(&Message) + Send + Sync,
+{
+    fn deliver(&self, message: &Message) {
+        if self.active.load(Ordering::Acquire) {
+            (self.handler)(message);
+        }
+    }
+
+    fn deactivate(&self) {
+        self.active.store(false, Ordering::Release);
+    }
+
+    fn is_active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+}
+
+type Subscriber = Arc<dyn HubSubscriber + 'static>;
+
+fn subscriber<F>(handler: F) -> Subscriber
+where
+    F: Fn(&Message) + Send + Sync + 'static,
+{
+    Arc::new(SubscriberSlot {
+        active: AtomicBool::new(true),
+        handler,
+    })
+}
+
 type MessageHubCompletion = Arc<dyn Fn() + Send + Sync + 'static>;
 
 #[derive(Clone, Default)]
@@ -743,7 +794,7 @@ impl MessageHub {
         }
         inner.next_subscription_id += 1;
         let id = inner.next_subscription_id;
-        inner.subscribers.insert(id, Arc::new(handler));
+        inner.subscribers.insert(id, subscriber(handler));
         Subscription {
             id,
             hub: Arc::downgrade(&self.inner),
@@ -768,7 +819,7 @@ impl MessageHub {
         }
         inner.next_subscription_id += 1;
         let id = inner.next_subscription_id;
-        inner.subscribers.insert(id, Arc::new(handler));
+        inner.subscribers.insert(id, subscriber(handler));
         inner.completion_subscribers.insert(id, completion);
         Subscription {
             id,
@@ -999,6 +1050,9 @@ impl MessageHub {
         // on this hub, whose Drop re-enters this hub's lock: hand them to the
         // caller to drop after the lock is released.
         let subscribers = std::mem::take(&mut inner.subscribers);
+        for subscriber in subscribers.values() {
+            subscriber.deactivate();
+        }
         let pending = std::mem::take(&mut inner.pending);
         for recorder in std::mem::take(&mut inner.recorders).into_values() {
             if let Some(recorder) = recorder.upgrade() {
@@ -1055,26 +1109,33 @@ impl MessageHub {
             let message = inner.pending.pop_front().expect("queue checked non-empty");
             let subscribers = inner
                 .subscribers
-                .iter()
-                .map(|(id, subscriber)| (*id, Arc::clone(subscriber)))
+                .values()
+                .map(Arc::clone)
                 .collect::<Vec<_>>();
             drop(inner);
             Self::notify_completions(completions);
 
             #[cfg(debug_assertions)]
             message_types.insert(message.type_name());
-            for (id, subscriber) in subscribers {
-                // A subscriber detached by an earlier handler of this same
-                // message is skipped; a handler that detaches itself still
-                // finishes the message it is handling.
-                if !lock(&self.inner.state).subscribers.contains_key(&id) {
-                    continue;
+            // A subscriber detached by an earlier handler of this same message
+            // is skipped inside `deliver`; a handler that detaches itself
+            // still finishes the message it is handling. Only handlers run
+            // inside the delivery guard. The copy may hold the last reference
+            // to a detached handler, so the guard is left while that copy
+            // drops: the handler drops after its own turn, as before (#766).
+            {
+                let hub_id = Arc::as_ptr(&self.inner) as usize;
+                let sender_id = message.sender_id();
+                let mut delivery = Some(MessageHubDeliveryGuard::enter(hub_id, sender_id));
+                for subscriber in subscribers {
+                    let _ = catch_unwind(AssertUnwindSafe(|| subscriber.deliver(&message)));
+                    if !subscriber.is_active() {
+                        drop(delivery.take());
+                        drop(subscriber);
+                        delivery = Some(MessageHubDeliveryGuard::enter(hub_id, sender_id));
+                    }
                 }
-                let _delivery = MessageHubDeliveryGuard::enter(
-                    Arc::as_ptr(&self.inner) as usize,
-                    message.sender_id(),
-                );
-                let _ = catch_unwind(AssertUnwindSafe(|| subscriber(&message)));
+                drop(delivery);
             }
 
             #[cfg(debug_assertions)]
@@ -1300,10 +1361,11 @@ impl Subscription {
             // drop them only after the hub's lock is released.
             let removed = {
                 let mut state = lock(&hub.state);
-                (
-                    state.subscribers.remove(&self.id),
-                    state.completion_subscribers.remove(&self.id),
-                )
+                let subscriber = state.subscribers.remove(&self.id);
+                if let Some(subscriber) = &subscriber {
+                    subscriber.deactivate();
+                }
+                (subscriber, state.completion_subscribers.remove(&self.id))
             };
             drop(removed);
         }
@@ -4345,6 +4407,56 @@ pub(crate) mod wait_observation {
         let observed = observe(&first);
         entered(&first);
         assert!(observed.entered.try_recv().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod hub_subscriber_tests {
+    use super::{lock, Arc, Message, MessageHub, Mutex};
+
+    fn tick() -> Message {
+        Message::Custom {
+            sender_id: 1,
+            sender_name: "test".into(),
+            name: "tick".into(),
+        }
+    }
+
+    fn counting(hub: &MessageHub) -> (Arc<Mutex<usize>>, super::Subscription) {
+        let count = Arc::new(Mutex::new(0));
+        let sink = Arc::clone(&count);
+        let subscription = hub.subscribe(move |_| *lock(&sink) += 1);
+        (count, subscription)
+    }
+
+    /// #766 — every removal path clears the flag a copied subscriber list
+    /// checks, so a copy taken before the removal no longer delivers.
+    #[test]
+    fn every_removal_path_deactivates_a_copied_subscriber() {
+        let hub = MessageHub::new();
+        let (disposed_count, disposed) = counting(&hub);
+        let (dropped_count, dropped) = counting(&hub);
+        let (kept_count, _kept) = counting(&hub);
+        let copied = lock(&hub.inner.state)
+            .subscribers
+            .values()
+            .map(Arc::clone)
+            .collect::<Vec<_>>();
+
+        disposed.dispose();
+        drop(dropped);
+        for subscriber in &copied {
+            subscriber.deliver(&tick());
+        }
+        assert_eq!(*lock(&disposed_count), 0);
+        assert_eq!(*lock(&dropped_count), 0);
+        assert_eq!(*lock(&kept_count), 1);
+
+        hub.dispose();
+        for subscriber in &copied {
+            subscriber.deliver(&tick());
+        }
+        assert_eq!(*lock(&kept_count), 1);
     }
 }
 
