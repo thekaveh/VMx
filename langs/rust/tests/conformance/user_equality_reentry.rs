@@ -880,3 +880,78 @@ fn hub_self_disposing_subscriber_finishes_its_message_and_later_ones_still_run()
     hub.send(custom("2"));
     assert_eq!(*log.lock().unwrap(), ["A:1", "B:1", "B:2"]);
 }
+
+/// Records the action of every collection-changed message on `hub`.
+fn record_actions(hub: &MessageHub) -> (Arc<Mutex<Vec<String>>>, vmx::Subscription) {
+    let actions = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&actions);
+    let subscription = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            sink.lock().unwrap().push(format!("{:?}", change.action));
+        }
+    });
+    (actions, subscription)
+}
+
+/// #747 — a `remove` that finds no match still delivers the change its `eq`
+/// made before it returns.
+#[test]
+fn serviced_collection_remove_without_a_match_delivers_the_eq_change() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let collection = ServicedObservableCollection::new(1);
+    collection.push(Probing::new(1, &probe));
+    collection.push(Probing::new(2, &probe));
+    let (actions, _subscription) = record_actions(&collection.collection_changed());
+    let writer = collection.clone();
+    let once = Arc::new(Mutex::new(true));
+    *probe.lock().unwrap() = Some(Arc::new(move || {
+        if std::mem::take(&mut *once.lock().unwrap()) {
+            let _ = writer.remove_at(0);
+        }
+    }));
+
+    let removed = within_timeout("ServicedObservableCollection::remove", {
+        let collection = collection.clone();
+        let probe = Arc::clone(&probe);
+        move || collection.remove(&Probing::new(9, &probe))
+    });
+
+    assert!(!removed);
+    assert_eq!(
+        *actions.lock().unwrap(),
+        ["Remove"],
+        "the eq change is delivered"
+    );
+    *probe.lock().unwrap() = None;
+}
+
+/// #747 — the same for `KeyedServicedObservableCollection::remove`.
+#[test]
+fn keyed_serviced_collection_remove_without_a_match_delivers_the_eq_change() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let collection = KeyedServicedObservableCollection::new(1, |item: &Probing| Ok(item.id));
+    collection.push(Probing::new(1, &probe)).unwrap();
+    collection.push(Probing::new(2, &probe)).unwrap();
+    let (actions, _subscription) = record_actions(&collection.collection_changed());
+    let writer = collection.clone();
+    let once = Arc::new(Mutex::new(true));
+    *probe.lock().unwrap() = Some(Arc::new(move || {
+        if std::mem::take(&mut *once.lock().unwrap()) {
+            let _ = writer.remove_at(0);
+        }
+    }));
+
+    let removed = within_timeout("KeyedServicedObservableCollection::remove", {
+        let collection = collection.clone();
+        let probe = Arc::clone(&probe);
+        move || collection.remove(&Probing::new(9, &probe))
+    });
+
+    assert!(!removed);
+    assert_eq!(
+        *actions.lock().unwrap(),
+        ["Remove"],
+        "the eq change is delivered"
+    );
+    *probe.lock().unwrap() = None;
+}
