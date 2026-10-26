@@ -105,6 +105,119 @@ public sealed class SaveInFlightHeadlessTests
         }
     }
 
+    [Trait("Category", "Smoke")]
+    [AvaloniaFact]
+    public async Task Returning_to_a_note_mid_save_shows_the_saved_values()
+    {
+        await RunReturnMidSaveAsync(async (workspace, repo, note, titleBox, bodyBox, window) =>
+        {
+            // The clean editor shows the saved title once the save settles (#761).
+            Assert.Equal("Renamed", workspace.NoteForm.Title);
+            Assert.Equal("Renamed", titleBox.Text);
+            Assert.False(workspace.NoteForm.IsDirty);
+
+            // A later save stores the saved title, not the pre-save one.
+            bodyBox.Text = "Body after rename";
+            Pump();
+            window.KeyPressQwerty(PhysicalKey.S, RawInputModifiers.Control);
+            window.KeyReleaseQwerty(PhysicalKey.S, RawInputModifiers.Control);
+            PumpUntil(() => !workspace.NoteForm.IsDirty);
+            var persisted = await LoadAsync(repo, note.Model.Id);
+            Assert.Equal("Renamed", persisted.Title);
+            Assert.Equal("Body after rename", persisted.Body);
+        }, editAfterReturn: null);
+    }
+
+    [Trait("Category", "Smoke")]
+    [AvaloniaFact]
+    public async Task Returning_to_a_note_mid_save_and_editing_keeps_the_unsaved_edits()
+    {
+        await RunReturnMidSaveAsync((workspace, _, _, _, bodyBox, _) =>
+        {
+            // The settle does not clobber edits made after the return (#761).
+            Assert.Equal("Unsaved body", workspace.NoteForm.Body);
+            Assert.Equal("Unsaved body", bodyBox.Text);
+            Assert.True(workspace.NoteForm.IsDirty);
+            return Task.CompletedTask;
+        }, editAfterReturn: "Unsaved body");
+    }
+
+    /// <summary>
+    /// Renames "Standup notes" to "Renamed", saves, selects another note and
+    /// then the renamed note again before the 300 ms save completes, optionally
+    /// edits its body, and waits for the save to settle before
+    /// <paramref name="assertSettled"/> runs.
+    /// </summary>
+    private static async Task RunReturnMidSaveAsync(
+        Func<WorkspaceVM, InMemoryNoteRepository, NoteVM, TextBox, TextBox, Window, Task> assertSettled,
+        string? editAfterReturn)
+    {
+        var repo = new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.FromMilliseconds(300),
+            deleteNoteDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero,
+            exportDelay: TimeSpan.Zero);
+        var workspace = WorkspaceVM.Builder()
+            .Repository(repo)
+            .DialogService(NullDialogService.Instance)
+            .NotificationHub(new NotificationHub())
+            .MessageHub(new MessageHub())
+            .Dispatcher(new AvaloniaDispatcher())
+            .Build();
+        var construct = workspace.ConstructAsync();
+        var window = new MainWindow { DataContext = workspace };
+        window.Show();
+        window.UpdateLayout();
+        await construct;
+        PumpUntil(() => workspace.NotesView.VisibleItems.Count > 1);
+        window.UpdateLayout();
+        try
+        {
+            var list = (ListBox)window.FindDescendantByName("NotesList")!;
+            var titleBox = window.GetVisualDescendants().OfType<TextBox>()
+                .Single(t => AutomationProperties.GetName(t) == "Note title");
+            var bodyBox = window.GetVisualDescendants().OfType<TextBox>()
+                .Single(t => AutomationProperties.GetName(t) == "Note body");
+            var note = workspace.NotesView.VisibleItems.Single(n => n.Title == "Standup notes");
+            var other = workspace.NotesView.VisibleItems.First(n => !ReferenceEquals(n, note));
+
+            list.SelectedItem = note;
+            Pump();
+            titleBox.Text = "Renamed";
+            Pump();
+            window.KeyPressQwerty(PhysicalKey.S, RawInputModifiers.Control);
+            window.KeyReleaseQwerty(PhysicalKey.S, RawInputModifiers.Control);
+            Pump();
+
+            // Leave and return before the save completes.
+            list.SelectedItem = other;
+            Pump();
+            list.SelectedItem = note;
+            Pump();
+            Assert.Same(note, workspace.NotesView.Current);
+            if (editAfterReturn is not null)
+            {
+                bodyBox.Text = editAfterReturn;
+                Pump();
+            }
+
+            PumpUntil(() => note.Title == "Renamed"
+                && workspace.Notifications.Visible.Any(
+                    n => n.Notification.Message == "Saved “Renamed”"));
+            Pump();
+            Assert.Equal("Renamed", (await LoadAsync(repo, note.Model.Id)).Title);
+            await assertSettled(workspace, repo, note, titleBox, bodyBox, window);
+        }
+        finally
+        {
+            workspace.Dispose();
+            window.Close();
+        }
+    }
+
     private static async Task<NoteModel> LoadAsync(InMemoryNoteRepository repo, string id)
     {
         var (_, notes) = await repo.LoadAllAsync();
