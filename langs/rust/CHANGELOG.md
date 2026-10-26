@@ -16,6 +16,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `CompositeVm`, `GroupVm`, or fixed-slot aggregate that waits for a
+  background child no longer leaks when its last handle drops without
+  `dispose()` and the child never settles. Queued child steps, the settle
+  callback on the awaited child, the start-record waiter, the composite's
+  selector step, and the deferred construct of `reconstruct()` and the
+  reconstruct command now hold the container weakly. The container, not the
+  callback, keeps the awaited child. Before, these references formed cycles,
+  so the container and its children were never freed. A container that
+  nothing references any more (no handle and no command) abandons its
+  transition; the child still settles. A command handle alone still lets
+  an aggregate's deferred reconstruct complete (#750).
 - `CompositeVm::clear()` publishes the current child's `is_current` change
   after it releases the membership gate. Before, a hub or `property_changed()`
   subscriber that disposed the composite from that notification blocked on

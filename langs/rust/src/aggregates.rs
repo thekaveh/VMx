@@ -222,8 +222,10 @@ fn fixed_aggregate_parent<D: Dispatcher>(
     let registration = ParentRegistration::new(
         core.id(),
         {
-            let core = core.clone();
-            move || core.parent_handle()
+            // Weak: a deferred reconstruct holds the ownership, and a strong
+            // core here would keep the aggregate alive through it (#750).
+            let core = core.downgrade();
+            move || core.upgrade().and_then(|core| core.parent_handle())
         },
         {
             let child_ids = Arc::clone(&child_ids);
@@ -2685,8 +2687,25 @@ macro_rules! impl_fixed_aggregate_baseline {
             pub fn reconstruct(&self) -> VmxResult<()> {
                 crate::runtime::reconstruct_admission(self.status())?;
                 self.destruct()?;
-                let aggregate = self.clone();
-                self.core.construct_after_destruct(move || aggregate.construct())
+                // The deferred construct holds the core and the command
+                // table weakly, so it cannot keep the aggregate alive (#750).
+                // `construct` never reads the command table, so a table
+                // already dropped while a command handle still keeps the
+                // core alive is replaced by an empty one: the reconstruct
+                // completes as long as the core is alive.
+                let commands = Arc::downgrade(&self.commands);
+                let ownership = self.ownership.clone();
+                $(let $slot = self.$slot.clone();)+
+                self.core.construct_after_destruct(move |core| {
+                    let commands = commands.upgrade().unwrap_or_default();
+                    $name {
+                        core: core.clone(),
+                        commands,
+                        ownership,
+                        $($slot,)+
+                    }
+                    .construct()
+                })
             }
 
             /// Reports whether the aggregate is constructed.

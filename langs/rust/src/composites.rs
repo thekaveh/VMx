@@ -40,6 +40,55 @@ fn same_optional_node<T: VmNode>(left: Option<&T>, right: Option<&T>) -> bool {
     }
 }
 
+/// What a composite construct needs besides its core. None of it holds the
+/// core, so a construct deferred behind a destruct, or a selector step queued
+/// behind a background child, cannot keep the composite alive (#750).
+struct CompositeConstruct<T: VmNode> {
+    items: ObservableList<T>,
+    late: LateStarts,
+    selector: Arc<Mutex<Option<CurrentSelector<T>>>>,
+    current: Arc<Mutex<Option<T>>>,
+    on_current_changed: Arc<Mutex<Option<CurrentChangedCallback<T>>>>,
+}
+
+impl<T: VmNode> CompositeConstruct<T> {
+    /// Constructs the composite on `core`: each child, then the selector
+    /// once every child settled (spec/02 §6).
+    fn run<D: Dispatcher>(self, core: &ComponentCore<D>) -> VmxResult<()> {
+        core.transition_with(LifecycleOperation::Construct, || {
+            let members = self.items.clone();
+            let late = self.late.clone();
+            core.construct_children(
+                Arc::new(move || members.to_vec()),
+                late,
+                Box::new(move |core| {
+                    // Clone in a `let` so the guard drops before the
+                    // selector and the selection callbacks run (#716).
+                    let selector = lock(&self.selector).clone();
+                    if let Some(selector) = selector {
+                        if let Some(selected) = selector(self.items.to_vec()) {
+                            if self
+                                .items
+                                .to_vec()
+                                .iter()
+                                .any(|candidate| same_node(candidate, &selected))
+                            {
+                                assign_current_state(
+                                    core,
+                                    &self.current,
+                                    &self.on_current_changed,
+                                    Some(selected),
+                                );
+                            }
+                        }
+                    }
+                    Ok(())
+                }),
+            )
+        })
+    }
+}
+
 fn assign_current_state<T: VmNode, D: Dispatcher>(
     core: &ComponentCore<D>,
     current: &Arc<Mutex<Option<T>>>,
@@ -454,43 +503,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 })
                 .is_ok()
             {
-                let core = reconstruct_core.clone();
-                let items = reconstruct_items.clone();
-                let selector_slot = Arc::clone(&reconstruct_selector);
-                let current = Arc::clone(&reconstruct_current);
-                let callback = Arc::clone(&reconstruct_callback);
-                let late = reconstruct_late.clone();
-                let _ = reconstruct_core.construct_after_destruct(move || {
-                    core.transition_with(LifecycleOperation::Construct, || {
-                        let members = items.clone();
-                        let core = core.clone();
-                        let items = items.clone();
-                        core.clone().construct_children(
-                            Arc::new(move || members.to_vec()),
-                            late.clone(),
-                            Box::new(move || {
-                                let selector = lock(&selector_slot).clone();
-                                if let Some(selector) = selector {
-                                    if let Some(selected) = selector(items.to_vec()) {
-                                        if items
-                                            .to_vec()
-                                            .iter()
-                                            .any(|candidate| same_node(candidate, &selected))
-                                        {
-                                            assign_current_state(
-                                                &core,
-                                                &current,
-                                                &callback,
-                                                Some(selected),
-                                            );
-                                        }
-                                    }
-                                }
-                                Ok(())
-                            }),
-                        )
-                    })
-                });
+                let parts = CompositeConstruct {
+                    items: reconstruct_items.clone(),
+                    late: reconstruct_late.clone(),
+                    selector: Arc::clone(&reconstruct_selector),
+                    current: Arc::clone(&reconstruct_current),
+                    on_current_changed: Arc::clone(&reconstruct_callback),
+                };
+                let _ = reconstruct_core.construct_after_destruct(move |core| parts.run(core));
             }
         });
         Self {
@@ -1177,33 +1197,18 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Constructs children before completing the composite transition.
     pub fn construct(&self) -> VmxResult<()> {
-        self.core
-            .transition_with(LifecycleOperation::Construct, || {
-                let members = self.items.clone();
-                // The selector runs after every child settled (spec/02 §6).
-                let composite = self.clone();
-                self.core.construct_children(
-                    Arc::new(move || members.to_vec()),
-                    self.late_starts.clone(),
-                    Box::new(move || {
-                        // Clone in a `let` so the guard drops before the
-                        // selector and the selection callbacks run (#716).
-                        let selector = lock(&composite.current_selector).clone();
-                        if let Some(selector) = selector {
-                            if let Some(selected) = selector(composite.items()) {
-                                if composite
-                                    .items()
-                                    .iter()
-                                    .any(|candidate| same_node(candidate, &selected))
-                                {
-                                    composite.assign_current(selected.into());
-                                }
-                            }
-                        }
-                        Ok(())
-                    }),
-                )
-            })
+        self.construct_parts().run(&self.core)
+    }
+
+    /// The parts a construct walk needs besides the core.
+    fn construct_parts(&self) -> CompositeConstruct<T> {
+        CompositeConstruct {
+            items: self.items.clone(),
+            late: self.late_starts.clone(),
+            selector: Arc::clone(&self.current_selector),
+            current: Arc::clone(&self.current),
+            on_current_changed: Arc::clone(&self.on_current_changed),
+        }
     }
 
     /// Clears selection and destructs all children.
@@ -1295,9 +1300,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     pub fn reconstruct(&self) -> VmxResult<()> {
         crate::runtime::reconstruct_admission(self.status())?;
         self.destruct()?;
-        let composite = self.clone();
+        // The deferred construct holds only the parts it needs, never the
+        // composite's core or commands, so it cannot keep the composite
+        // alive (#750).
+        let parts = self.construct_parts();
         self.core
-            .construct_after_destruct(move || composite.construct())
+            .construct_after_destruct(move |core| parts.run(core))
     }
 
     /// Reports whether the composite is constructed.
