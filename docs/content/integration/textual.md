@@ -195,6 +195,12 @@ class InstanceGrid:
             .build()
         )
         self.page = PagedComposition(self._visible, page_size)
+        # A factory source sends no change signal, so the page index is not
+        # re-clamped when the rows shrink. Re-clamp it here. The table renders
+        # later on the App loop, so it reads the re-clamped page.
+        self._reclamp = rx.merge(
+            self.instances.on_property_changed, self.filter.property_changed
+        ).subscribe(lambda _: self._reclamp_page())
         # Everything that can change the visible rows or the selection.
         self.changes = rx.merge(
             self.instances.on_property_changed,
@@ -208,10 +214,15 @@ class InstanceGrid:
     def _visible(self) -> list[Instance]:
         return [instance for instance in self.instances if self.filter.model in instance.name]
 
+    def _reclamp_page(self) -> None:
+        # The setter clamps the index to the current page count.
+        self.page.current_page_index = self.page.current_page_index
+
     def select(self, key: str) -> None:
         self.selection.model = key
 
     def dispose(self) -> None:
+        self._reclamp.dispose()
         self.page.dispose()
         self.filter.dispose()
         self.selection.dispose()
