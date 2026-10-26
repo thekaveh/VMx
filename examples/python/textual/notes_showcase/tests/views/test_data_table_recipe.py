@@ -297,3 +297,45 @@ async def test_unmount_disposes_the_binding_and_leaves_the_grid_to_its_owner() -
 
     assert grid.selection.model == "i5"
     grid.dispose()
+
+
+async def test_a_filter_that_removes_the_current_page_shows_the_last_page() -> None:
+    grid = _grid(page_size=2)
+    table = InstanceTable(grid)
+
+    async with GridApp(table).run_test() as pilot:
+        grid.page.move_to_last_page()  # page 2 holds echo
+        await _settle(pilot)
+        assert _keys(table) == ["i4"]
+
+        grid.filter.model = "a"  # alpha, bravo, charlie, delta: two pages
+        await _settle(pilot)
+
+        assert grid.page.current_page_index == 1
+        assert _keys(table) == ["i2", "i3"]
+
+
+async def test_removing_instances_past_the_current_page_shows_the_last_page() -> None:
+    grid = _grid(page_size=2)
+    table = InstanceTable(grid)
+
+    async with GridApp(table).run_test() as pilot:
+        grid.page.move_to_last_page()
+        await _settle(pilot)
+
+        grid.instances.remove(_instance(grid, "i4"))  # page 2 no longer exists
+        await _settle(pilot)
+        assert grid.page.current_page_index == max(0, grid.page.page_count - 1) == 1
+        assert _keys(table) == ["i2", "i3"]
+
+        for key in ("i3", "i2", "i1"):
+            grid.instances.remove(_instance(grid, key))
+        await _settle(pilot)
+        assert grid.page.current_page_index == max(0, grid.page.page_count - 1) == 0
+        assert _keys(table) == ["i0"]
+
+        grid.instances.remove(_instance(grid, "i0"))  # no pages left
+        await _settle(pilot)
+        assert grid.page.page_count == 0
+        assert grid.page.current_page_index == 0
+        assert _keys(table) == []
