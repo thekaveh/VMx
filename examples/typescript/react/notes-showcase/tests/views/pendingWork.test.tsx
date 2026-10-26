@@ -82,6 +82,64 @@ describe("pending work survives the user moving on", () => {
     expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Renamed mid-save");
   });
 
+  it("returning to a note during its save shows and keeps the saved values (#761)", async () => {
+    const { repo } = await mount({ saveNoteDelayMs: 40 });
+    await screen.findByRole("listbox", { name: "Notes" });
+
+    fireEvent.click(noteRows()[0] as HTMLElement);
+    const title = (await screen.findByLabelText("Title")) as HTMLInputElement;
+    expect(title.value).toBe("Standup notes");
+    fireEvent.change(title, { target: { value: "Renamed" } });
+    fireEvent.click(within(title.closest("form") as HTMLFormElement).getByRole("button", { name: "Save" }));
+
+    // Leave and return before the repository save resolves.
+    fireEvent.click(noteRows()[1] as HTMLElement);
+    fireEvent.click(noteRows()[0] as HTMLElement);
+
+    // When the save settles, the clean editor shows the saved title.
+    await waitFor(() => {
+      expect(noteRows()[0]?.textContent).toContain("Renamed");
+    });
+    await waitFor(() => {
+      expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Renamed");
+    });
+
+    // A later save keeps the saved title instead of writing the old one back.
+    fireEvent.change(screen.getByLabelText("Body"), { target: { value: "Body after rename" } });
+    const form = screen.getByLabelText("Title").closest("form") as HTMLFormElement;
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(async () => {
+      const stored = (await repo.loadAll()).notes.find((n) => n.id === "note-08");
+      expect(stored?.body).toBe("Body after rename");
+      expect(stored?.title).toBe("Renamed");
+    });
+  });
+
+  it("a save that settles after the user returned and edited keeps the unsaved edits (#761)", async () => {
+    await mount({ saveNoteDelayMs: 40 });
+    await screen.findByRole("listbox", { name: "Notes" });
+
+    fireEvent.click(noteRows()[0] as HTMLElement);
+    const title = (await screen.findByLabelText("Title")) as HTMLInputElement;
+    fireEvent.change(title, { target: { value: "Renamed" } });
+    fireEvent.click(within(title.closest("form") as HTMLFormElement).getByRole("button", { name: "Save" }));
+
+    // Return to the note mid-save and edit it before the save settles.
+    fireEvent.click(noteRows()[1] as HTMLElement);
+    fireEvent.click(noteRows()[0] as HTMLElement);
+    fireEvent.change(screen.getByLabelText("Body"), { target: { value: "Unsaved body" } });
+
+    await waitFor(() => {
+      expect(noteRows()[0]?.textContent).toContain("Renamed");
+    });
+    await screen.findByText("Saved “Renamed”");
+
+    // The settle does not clobber the unsaved edit.
+    expect((screen.getByLabelText("Body") as HTMLTextAreaElement).value).toBe("Unsaved body");
+    const form = screen.getByLabelText("Title").closest("form") as HTMLFormElement;
+    expect((within(form).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("global search shows the latest term after typing over an in-flight search", async () => {
     const { workspace } = await mount({ loadNotesDelayMs: 30 });
     const input = screen.getByRole("searchbox", { name: "Search all notes" });
