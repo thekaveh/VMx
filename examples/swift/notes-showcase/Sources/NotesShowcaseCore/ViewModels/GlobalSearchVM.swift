@@ -39,6 +39,12 @@ public final class GlobalSearchVM: ComponentVMBase {
     private let paged: TokenPagedComposition<NoteVM, String>
     private let resultOwner: GlobalSearchResultOwner
     private var cancellables: Set<AnyCancellable> = []
+    /// Guards `searchPending` and `searchDisposed`. `searchNow()` runs on the
+    /// UI thread, and the refresh command settles on a cooperative-pool thread.
+    private let pendingSearchLock = NSLock()
+    /// A `searchNow()` request that has not started a fetch yet.
+    private var searchPending = false
+    private var searchDisposed = false
 
     private init(
         name: String,
@@ -90,6 +96,11 @@ public final class GlobalSearchVM: ComponentVMBase {
         paged.collectionChanged
             .sink { [weak self] _ in self?.notifyResults() }
             .store(in: &cancellables)
+        // Re-run a search refused during a fetch once the refresh command is
+        // idle again. The command reports that through `canExecuteChanged`.
+        paged.refreshCommand.canExecuteChanged
+            .sink { [weak self] in self?.runPendingSearch() }
+            .store(in: &cancellables)
         paged.propertyChanged
             .sink { [weak self] name in
                 if name == "hasMore" { self?.notifyHasMore() }
@@ -110,9 +121,28 @@ public final class GlobalSearchVM: ComponentVMBase {
         search.canSearch()
     }
 
+    /// Refreshes the results for the current term.
+    ///
+    /// The refresh command admits one execution at a time and refuses calls
+    /// made while a fetch runs. So the request is recorded, and a refused
+    /// request runs once the in-flight fetch settles. That fetch reads the
+    /// term when it starts, so the latest term always wins. Several calls
+    /// made during one fetch cause one more fetch.
     public func searchNow() {
         search.search()
-        refreshCommand.execute()
+        pendingSearchLock.withLock { searchPending = true }
+        runPendingSearch()
+    }
+
+    private func runPendingSearch() {
+        let shouldRun = pendingSearchLock.withLock { () -> Bool in
+            guard searchPending, !searchDisposed, !refreshCommand.isExecuting else { return false }
+            searchPending = false
+            return true
+        }
+        if shouldRun {
+            refreshCommand.execute()
+        }
     }
 
     public var results: [NoteVM] {
@@ -140,6 +170,10 @@ public final class GlobalSearchVM: ComponentVMBase {
     }
 
     public override func _onDispose() {
+        pendingSearchLock.withLock {
+            searchDisposed = true
+            searchPending = false
+        }
         cancellables.removeAll()
         resultOwner.disposeAll()
         paged.dispose()
