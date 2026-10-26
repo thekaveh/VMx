@@ -167,6 +167,7 @@ where
             let revision = self.delivery.revision();
             let snapshot = lock(&self.inner).clone();
             let Some(index) = snapshot.iter().position(|candidate| candidate == item) else {
+                self.finish(admission);
                 return false;
             };
             drop(snapshot);
@@ -302,7 +303,22 @@ where
         }
         admission.disarm();
         drop(delivery);
+        self.drain_as_owner(current);
+    }
 
+    /// Ends an admission that published nothing. When it owns the drain, a
+    /// nested mutation from user `PartialEq` may have queued messages
+    /// meanwhile; they are delivered before the drain is released (#747).
+    fn finish(&self, mut admission: ServicedCollectionAdmission) {
+        admission.disarm();
+        if admission.owns_drain {
+            self.drain_as_owner(admission.current);
+        }
+    }
+
+    /// Delivers every pending message as the drain owner, then releases the
+    /// drain. A panicking subscriber clears the queue and re-raises.
+    fn drain_as_owner(&self, current: ThreadId) {
         let result = catch_unwind(AssertUnwindSafe(|| self.drain_delivery(current)));
         if let Err(error) = result {
             let mut delivery = lock(&self.delivery.state);
@@ -508,6 +524,7 @@ where
             let revision = self.delivery.revision();
             let snapshot = lock(&self.inner).items.clone();
             let Some(position) = snapshot.iter().position(|candidate| candidate == item) else {
+                self.finish(admission);
                 return false;
             };
             drop(snapshot);
@@ -762,7 +779,22 @@ where
         }
         admission.disarm();
         drop(delivery);
+        self.drain_as_owner(current);
+    }
 
+    /// Ends an admission that published nothing. When it owns the drain, a
+    /// nested mutation from user `PartialEq` may have queued messages
+    /// meanwhile; they are delivered before the drain is released (#747).
+    fn finish(&self, mut admission: ServicedCollectionAdmission) {
+        admission.disarm();
+        if admission.owns_drain {
+            self.drain_as_owner(admission.current);
+        }
+    }
+
+    /// Delivers every pending message as the drain owner, then releases the
+    /// drain. A panicking subscriber clears the queue and re-raises.
+    fn drain_as_owner(&self, current: ThreadId) {
         let result = catch_unwind(AssertUnwindSafe(|| self.drain_delivery(current)));
         if let Err(error) = result {
             let mut delivery = lock(&self.delivery.state);

@@ -16,6 +16,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ServicedObservableCollection::remove` and
+  `KeyedServicedObservableCollection::remove` that find no match deliver a
+  change their `PartialEq` made to the collection before they return. Before,
+  that change waited in the delivery queue until a later mutation drained it,
+  or was never delivered (#747).
 - `ManualDispatcher::drain_foreground` and `drain_background` release the
   queue lock before each action runs, as `drain()` does. Before, an action
   that dispatched to the same queue, such as a background hook that
