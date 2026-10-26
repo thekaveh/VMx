@@ -1,10 +1,11 @@
 //! Containers stay transient until background children settle (spec/02 §6).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use vmx::{
-    AggregateVm1, AggregateVm3, ComponentVm, CompositeVm, ConstructionStatus, GroupVm,
-    LifecycleSettleCallback, ManualDispatcher, Message, MessageHub, ParentHandle, Subscription,
-    VmNode, VmxError, VmxResult,
+    AggregateVm1, AggregateVm2, AggregateVm3, ComponentVm, CompositeVm, ConstructionStatus,
+    GroupVm, LifecycleSettleCallback, ManualDispatcher, Message, MessageHub, ParentHandle,
+    Subscription, VmNode, VmxError, VmxResult,
 };
 
 type Child = ComponentVm<i32, ManualDispatcher>;
@@ -555,16 +556,18 @@ fn component_failing_during_aggregate_action_rolls_back_once() {
 /// stalling the suite.
 const SETTLE_BOUND: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// LIFE-014 — when a failing background child settles after the last
-/// composite handle is gone, the settle drops the queued continuation outside
-/// the hub lock, so the hub stays usable from another thread.
+/// LIFE-014 — when a failing background child's settle releases the last
+/// composite handle (a hub subscriber drops it on the composite's rollback),
+/// the settle drops the composite outside the hub lock, so the hub stays
+/// usable from another thread and the tree is freed.
 #[test]
 fn dropped_composite_settling_a_failing_child_leaves_the_hub_usable() {
     let hub = MessageHub::new();
     let dispatcher = vmx::DefaultDispatcher::new();
+    let child_dropped = Arc::new(AtomicBool::new(false));
     let child = ComponentVm::builder()
         .name("slow-failure")
-        .model(1)
+        .model(Arc::new(DropSentinel(Arc::clone(&child_dropped))))
         .background(true)
         .on_construct(|| {
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -575,14 +578,39 @@ fn dropped_composite_settling_a_failing_child_leaves_the_hub_usable() {
         .unwrap();
     let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher);
     composite.add(child).unwrap();
+    let composite_id = composite.id();
+    // The subscriber owns the last composite handle and drops it while the
+    // settle publishes the composite's rollback, so the settle path releases
+    // the composite's last reference.
+    let slot = Arc::new(Mutex::new(None));
+    let (released_send, released) = mpsc::channel();
+    let _release = {
+        let slot = Arc::clone(&slot);
+        hub.subscribe(move |message| {
+            if let Message::ConstructionStatusChanged(change) = message {
+                if change.sender_id == composite_id
+                    && change.status == ConstructionStatus::Destructed
+                {
+                    let held = slot.lock().unwrap().take();
+                    if held.is_some() {
+                        drop(held);
+                        let _ = released_send.send(());
+                    }
+                }
+            }
+        })
+    };
 
     composite.construct().unwrap();
-    drop(composite);
-    std::thread::sleep(std::time::Duration::from_millis(600));
+    *slot.lock().unwrap() = Some(composite);
+    released
+        .recv_timeout(SETTLE_BOUND)
+        .expect("the settle never published the composite's rollback");
 
     let (sent, done) = mpsc::channel();
+    let probe_hub = hub.clone();
     std::thread::spawn(move || {
-        hub.send(Message::Custom {
+        probe_hub.send(Message::Custom {
             sender_id: 0,
             sender_name: "probe".to_string(),
             name: "probe".to_string(),
@@ -591,6 +619,14 @@ fn dropped_composite_settling_a_failing_child_leaves_the_hub_usable() {
     });
     done.recv_timeout(SETTLE_BOUND)
         .expect("hub.send blocked: the settle dropped the composite under the hub lock");
+    let deadline = std::time::Instant::now() + SETTLE_BOUND;
+    while !child_dropped.load(Ordering::SeqCst) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the composite released by its settle leaked its child"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
 }
 
 /// LIFE-014 — a child removed while its construct step is queued, whose last
@@ -775,4 +811,355 @@ fn reconstructable_trait_rebuilds_a_synchronous_component() {
     Reconstructable::reconstruct(&child);
 
     assert_eq!(child.status(), ConstructionStatus::Constructed);
+}
+
+/// A dispatcher that runs each action inline until it is set to discard;
+/// then it drops every action, so a background child it serves never settles.
+#[derive(Clone)]
+struct DiscardingDispatcher {
+    discard: Arc<AtomicBool>,
+}
+
+impl DiscardingDispatcher {
+    fn discarding() -> Self {
+        Self {
+            discard: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    fn inline() -> Self {
+        Self {
+            discard: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn start_discarding(&self) {
+        self.discard.store(true, Ordering::SeqCst);
+    }
+}
+
+impl vmx::Dispatcher for DiscardingDispatcher {
+    fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
+        if !self.discard.load(Ordering::SeqCst) {
+            action();
+        }
+    }
+
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        self.dispatch(action);
+    }
+}
+
+/// Sets its flag when the last model handle drops.
+struct DropSentinel(Arc<AtomicBool>);
+
+impl Drop for DropSentinel {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl PartialEq for DropSentinel {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+type Tracked = ComponentVm<Arc<DropSentinel>, DiscardingDispatcher>;
+
+/// A component whose model sets the returned flag when it drops.
+fn tracked_child(
+    hub: &MessageHub,
+    dispatcher: &DiscardingDispatcher,
+    name: &str,
+    background: bool,
+) -> (Tracked, Arc<AtomicBool>) {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let child = ComponentVm::builder()
+        .name(name)
+        .model(Arc::new(DropSentinel(Arc::clone(&dropped))))
+        .background(background)
+        .services(hub.clone(), dispatcher.clone())
+        .build()
+        .unwrap();
+    (child, dropped)
+}
+
+/// A background child and a leaf child, each with a drop sentinel.
+struct TrackedTree {
+    background: Tracked,
+    leaf: Tracked,
+    background_dropped: Arc<AtomicBool>,
+    leaf_dropped: Arc<AtomicBool>,
+}
+
+impl TrackedTree {
+    fn new(hub: &MessageHub, dispatcher: &DiscardingDispatcher) -> Self {
+        let (background, background_dropped) = tracked_child(hub, dispatcher, "background", true);
+        let (leaf, leaf_dropped) = tracked_child(hub, dispatcher, "leaf", false);
+        Self {
+            background,
+            leaf,
+            background_dropped,
+            leaf_dropped,
+        }
+    }
+}
+
+/// Asserts that both children of a dropped container were freed.
+fn assert_tree_dropped(leaf: &AtomicBool, background: &AtomicBool) {
+    assert!(
+        leaf.load(Ordering::SeqCst),
+        "the waiting container leaked its leaf child"
+    );
+    assert!(
+        background.load(Ordering::SeqCst),
+        "the waiting container leaked its background child"
+    );
+}
+
+/// A composite over `tree` that also runs a selector after its children.
+fn tracked_composite(
+    hub: &MessageHub,
+    dispatcher: &DiscardingDispatcher,
+    tree: TrackedTree,
+) -> (
+    CompositeVm<Tracked, DiscardingDispatcher>,
+    Arc<AtomicBool>,
+    Arc<AtomicBool>,
+) {
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.set_current_selector(|items| items.into_iter().last());
+    composite.add(tree.background).unwrap();
+    composite.add(tree.leaf).unwrap();
+    (composite, tree.leaf_dropped, tree.background_dropped)
+}
+
+fn tracked_group(
+    hub: &MessageHub,
+    dispatcher: &DiscardingDispatcher,
+    tree: TrackedTree,
+) -> (
+    GroupVm<Tracked, DiscardingDispatcher>,
+    Arc<AtomicBool>,
+    Arc<AtomicBool>,
+) {
+    let group = GroupVm::with_services("group", hub.clone(), dispatcher.clone());
+    group.add(tree.background).unwrap();
+    group.add(tree.leaf).unwrap();
+    (group, tree.leaf_dropped, tree.background_dropped)
+}
+
+type TrackedAggregate = AggregateVm2<Tracked, Tracked, DiscardingDispatcher>;
+
+fn tracked_aggregate(
+    hub: &MessageHub,
+    dispatcher: &DiscardingDispatcher,
+    tree: TrackedTree,
+) -> (TrackedAggregate, Arc<AtomicBool>, Arc<AtomicBool>) {
+    let aggregate = AggregateVm2::with_services(
+        "aggregate",
+        hub.clone(),
+        dispatcher.clone(),
+        tree.background,
+        tree.leaf,
+    );
+    (aggregate, tree.leaf_dropped, tree.background_dropped)
+}
+
+/// #750 — a composite waiting for a background child that never settles
+/// frees its tree when its last handle drops without `dispose()`.
+#[test]
+fn composite_waiting_on_an_unsettled_child_frees_its_tree() {
+    let hub = MessageHub::new();
+    let dispatcher = DiscardingDispatcher::discarding();
+    let tree = TrackedTree::new(&hub, &dispatcher);
+    let (composite, leaf_dropped, background_dropped) = tracked_composite(&hub, &dispatcher, tree);
+
+    composite.construct().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+    drop(composite);
+
+    assert_tree_dropped(&leaf_dropped, &background_dropped);
+}
+
+/// #750 — a group waiting for a background child that never settles frees
+/// its tree when its last handle drops without `dispose()`.
+#[test]
+fn group_waiting_on_an_unsettled_child_frees_its_tree() {
+    let hub = MessageHub::new();
+    let dispatcher = DiscardingDispatcher::discarding();
+    let tree = TrackedTree::new(&hub, &dispatcher);
+    let (group, leaf_dropped, background_dropped) = tracked_group(&hub, &dispatcher, tree);
+
+    group.construct().unwrap();
+    assert_eq!(group.status(), ConstructionStatus::Constructing);
+    drop(group);
+
+    assert_tree_dropped(&leaf_dropped, &background_dropped);
+}
+
+/// #750 — an aggregate waiting for a background component that never
+/// settles frees its tree when its last handle drops without `dispose()`.
+#[test]
+fn aggregate_waiting_on_an_unsettled_component_frees_its_tree() {
+    let hub = MessageHub::new();
+    let dispatcher = DiscardingDispatcher::discarding();
+    let tree = TrackedTree::new(&hub, &dispatcher);
+    let (aggregate, leaf_dropped, background_dropped) = tracked_aggregate(&hub, &dispatcher, tree);
+
+    aggregate.construct().unwrap();
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructing);
+    drop(aggregate);
+
+    assert_tree_dropped(&leaf_dropped, &background_dropped);
+}
+
+/// #750 — a composite whose reconstruct waits for a background child's
+/// destruct that never settles frees its tree when its last handle drops.
+#[test]
+fn composite_reconstruct_waiting_on_an_unsettled_child_frees_its_tree() {
+    let hub = MessageHub::new();
+    let dispatcher = DiscardingDispatcher::inline();
+    let tree = TrackedTree::new(&hub, &dispatcher);
+    let (composite, leaf_dropped, background_dropped) = tracked_composite(&hub, &dispatcher, tree);
+    composite.construct().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+
+    dispatcher.start_discarding();
+    composite.reconstruct().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Destructing);
+    drop(composite);
+
+    assert_tree_dropped(&leaf_dropped, &background_dropped);
+}
+
+/// #750 — the composite's reconstruct command, waiting the same way, frees
+/// the tree when the composite's last handle drops.
+#[test]
+fn composite_reconstruct_command_waiting_on_an_unsettled_child_frees_its_tree() {
+    let hub = MessageHub::new();
+    let dispatcher = DiscardingDispatcher::inline();
+    let tree = TrackedTree::new(&hub, &dispatcher);
+    let (composite, leaf_dropped, background_dropped) = tracked_composite(&hub, &dispatcher, tree);
+    composite.construct().unwrap();
+
+    dispatcher.start_discarding();
+    vmx::Command::execute(&composite.reconstruct_command());
+    assert_eq!(composite.status(), ConstructionStatus::Destructing);
+    drop(composite);
+
+    assert_tree_dropped(&leaf_dropped, &background_dropped);
+}
+
+/// #750 — a group whose reconstruct waits for a background child's destruct
+/// that never settles frees its tree when its last handle drops.
+#[test]
+fn group_reconstruct_waiting_on_an_unsettled_child_frees_its_tree() {
+    let hub = MessageHub::new();
+    let dispatcher = DiscardingDispatcher::inline();
+    let tree = TrackedTree::new(&hub, &dispatcher);
+    let (group, leaf_dropped, background_dropped) = tracked_group(&hub, &dispatcher, tree);
+    group.construct().unwrap();
+    assert_eq!(group.status(), ConstructionStatus::Constructed);
+
+    dispatcher.start_discarding();
+    group.reconstruct().unwrap();
+    assert_eq!(group.status(), ConstructionStatus::Destructing);
+    drop(group);
+
+    assert_tree_dropped(&leaf_dropped, &background_dropped);
+}
+
+/// #750 — the group's reconstruct command, waiting the same way, frees the
+/// tree when the group's last handle drops.
+#[test]
+fn group_reconstruct_command_waiting_on_an_unsettled_child_frees_its_tree() {
+    let hub = MessageHub::new();
+    let dispatcher = DiscardingDispatcher::inline();
+    let tree = TrackedTree::new(&hub, &dispatcher);
+    let (group, leaf_dropped, background_dropped) = tracked_group(&hub, &dispatcher, tree);
+    group.construct().unwrap();
+
+    dispatcher.start_discarding();
+    vmx::Command::execute(&group.reconstruct_command());
+    assert_eq!(group.status(), ConstructionStatus::Destructing);
+    drop(group);
+
+    assert_tree_dropped(&leaf_dropped, &background_dropped);
+}
+
+/// #750 — an aggregate whose reconstruct waits for a background component's
+/// destruct that never settles frees its tree when its last handle drops.
+#[test]
+fn aggregate_reconstruct_waiting_on_an_unsettled_component_frees_its_tree() {
+    let hub = MessageHub::new();
+    let dispatcher = DiscardingDispatcher::inline();
+    let tree = TrackedTree::new(&hub, &dispatcher);
+    let (aggregate, leaf_dropped, background_dropped) = tracked_aggregate(&hub, &dispatcher, tree);
+    aggregate.construct().unwrap();
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructed);
+
+    dispatcher.start_discarding();
+    aggregate.reconstruct().unwrap();
+    assert_eq!(aggregate.status(), ConstructionStatus::Destructing);
+    drop(aggregate);
+
+    assert_tree_dropped(&leaf_dropped, &background_dropped);
+}
+
+/// #750 — a composite dropped while it waits abandons its transition: the
+/// background child still settles later, and nothing panics or blocks.
+#[test]
+fn dropped_waiting_composite_lets_its_child_settle_alone() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = background_child(&hub, &dispatcher, "child");
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+    composite.construct().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+
+    drop(composite);
+    dispatcher.drain();
+
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+}
+
+/// #750 — an aggregate whose user keeps only one of its commands across a
+/// deferred `reconstruct()` still completes the reconstruct: the command
+/// keeps the aggregate's core alive, so the transition must not be abandoned.
+#[test]
+fn aggregate_reconstruct_completes_while_only_a_command_is_held() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let aggregate = AggregateVm2::with_services(
+        "aggregate",
+        hub.clone(),
+        dispatcher.clone(),
+        background_child(&hub, &dispatcher, "background"),
+        background_child(&hub, &dispatcher, "other"),
+    );
+    aggregate.construct().unwrap();
+    dispatcher.drain();
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructed);
+    let id = aggregate.id();
+    let (log, _subscription) = record(&hub);
+
+    let command = aggregate.select_command();
+    aggregate.reconstruct().unwrap();
+    assert_eq!(aggregate.status(), ConstructionStatus::Destructing);
+    drop(aggregate);
+    dispatcher.drain();
+
+    assert_eq!(
+        container_statuses(&log, id),
+        vec![
+            ConstructionStatus::Destructing,
+            ConstructionStatus::Destructed,
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed,
+        ]
+    );
+    drop(command);
 }

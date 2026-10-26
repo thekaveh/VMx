@@ -36,6 +36,24 @@ pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     membership_transaction_control: Arc<MembershipTransactionControl>,
 }
 
+/// A group's construct: constructs the group and each member in order. It
+/// takes the core and the parts a construct walk needs, so a deferred
+/// construct need not hold the whole group (#750).
+fn construct_group<T: VmNode, D: Dispatcher>(
+    core: &ComponentCore<D>,
+    items: &ObservableList<T>,
+    late: &LateStarts,
+) -> VmxResult<()> {
+    core.transition_with(LifecycleOperation::Construct, || {
+        let members = items.clone();
+        core.construct_children(
+            Arc::new(move || members.to_vec()),
+            late.clone(),
+            Box::new(|_| Ok(())),
+        )
+    })
+}
+
 impl<T: VmNode> GroupVm<T, NullDispatcher> {
     /// Creates an empty group with null services.
     pub fn new(name: impl Into<String>) -> Self {
@@ -141,19 +159,10 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 })
                 .is_ok()
             {
-                let construct_core = reconstruct_core.clone();
-                let construct_items = reconstruct_items.clone();
+                let items = reconstruct_items.clone();
                 let late = reconstruct_late.clone();
-                let _ = reconstruct_core.construct_after_destruct(move || {
-                    construct_core.transition_with(LifecycleOperation::Construct, || {
-                        let members = construct_items.clone();
-                        construct_core.construct_children(
-                            Arc::new(move || members.to_vec()),
-                            late.clone(),
-                            Box::new(|| Ok(())),
-                        )
-                    })
-                });
+                let _ = reconstruct_core
+                    .construct_after_destruct(move |core| construct_group(core, &items, &late));
             }
         });
         Self {
@@ -771,15 +780,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Constructs the group and each current child in collection order.
     pub fn construct(&self) -> VmxResult<()> {
-        self.core
-            .transition_with(LifecycleOperation::Construct, || {
-                let members = self.items.clone();
-                self.core.construct_children(
-                    Arc::new(move || members.to_vec()),
-                    self.late_starts.clone(),
-                    Box::new(|| Ok(())),
-                )
-            })
+        construct_group(&self.core, &self.items, &self.late_starts)
     }
 
     /// Destructs the group and each current child in collection order.
@@ -870,9 +871,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     pub fn reconstruct(&self) -> VmxResult<()> {
         crate::runtime::reconstruct_admission(self.status())?;
         self.destruct()?;
-        let group = self.clone();
+        // The deferred construct holds only the parts it needs, never the
+        // group's core or commands, so it cannot keep the group alive (#750).
+        let items = self.items.clone();
+        let late = self.late_starts.clone();
         self.core
-            .construct_after_destruct(move || group.construct())
+            .construct_after_destruct(move |core| construct_group(core, &items, &late))
     }
 
     /// Reports whether the group is constructed.
