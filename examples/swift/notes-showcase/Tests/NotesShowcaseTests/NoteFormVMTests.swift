@@ -347,6 +347,68 @@ final class NoteFormVMTests: XCTestCase {
         XCTAssertEqual(notifications.messages, [savedMessage], "the save posted no toast")
     }
 
+    // MARK: - Returning to a note mid-save (#761)
+
+    /// Selects "Standup notes" in a workspace on `repo`, renames it to
+    /// "Renamed", starts its save, and selects another note and then the
+    /// renamed note again while `repo` holds the save.
+    private func renameAndReturnMidSave(
+        _ repo: PendingSaveRepository
+    ) async throws -> (WorkspaceVM, NoteVM, Task<Void, Error>) {
+        let ws = try WorkspaceVM.builder().repository(repo).build()
+        try await ws.constructAsync()
+        let note = try XCTUnwrap(ws.notesView.visibleItems.first { $0.model.title == "Standup notes" })
+        let other = try XCTUnwrap(ws.notesView.visibleItems.first { $0 !== note })
+        ws.notesView.current = note
+        XCTAssertEqual("Standup notes", ws.noteForm.title)
+        ws.noteForm.title = "Renamed"
+        let form = ws.noteForm
+        let save = Task { try await form.approveAsync() }
+        await repo.waitForPendingSave()
+        ws.notesView.current = other
+        ws.notesView.current = note
+        // Before the save settles, the reselected editor shows the pre-save title.
+        XCTAssertEqual("Standup notes", ws.noteForm.title)
+        return (ws, note, save)
+    }
+
+    func testReturningToANoteMidSave_showsTheSavedValues() async throws {
+        let repo = PendingSaveRepository()
+        let (ws, note, save) = try await renameAndReturnMidSave(repo)
+        defer { ws.dispose() }
+
+        await repo.releasePendingSave()
+        try await save.value
+        await waitUntil { note.model.title == "Renamed" }
+        XCTAssertEqual("Renamed", note.model.title, "the list row refreshed")
+        // The clean editor shows the saved title once the save settles.
+        XCTAssertEqual("Renamed", ws.noteForm.title)
+        XCTAssertFalse(ws.noteForm.isDirty)
+
+        // A later save stores the saved title, not the pre-save one.
+        ws.noteForm.body = "Body after rename"
+        try await ws.noteForm.approveAsync()
+        let stored = try await repo.loadAll().notes.first { $0.id == note.model.id }
+        XCTAssertEqual("Body after rename", stored?.body)
+        XCTAssertEqual("Renamed", stored?.title)
+    }
+
+    func testReturningToANoteMidSaveAndEditing_keepsTheUnsavedEdits() async throws {
+        let repo = PendingSaveRepository()
+        let (ws, note, save) = try await renameAndReturnMidSave(repo)
+        defer { ws.dispose() }
+        ws.noteForm.body = "Unsaved body"
+        XCTAssertTrue(ws.noteForm.isDirty)
+
+        await repo.releasePendingSave()
+        try await save.value
+        await waitUntil { note.model.title == "Renamed" }
+        XCTAssertEqual("Renamed", note.model.title, "the list row refreshed")
+        // The settle does not clobber edits made after the return.
+        XCTAssertEqual("Unsaved body", ws.noteForm.body)
+        XCTAssertTrue(ws.noteForm.isDirty)
+    }
+
     // MARK: - Deny
 
     func testDeny_revertsDraftToSnapshot() throws {

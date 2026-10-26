@@ -11,9 +11,10 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from textual.widgets import Button, Input, ListItem, Static
+from textual.widgets import Button, Input, ListItem, Static, TextArea
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
+from notes_showcase.models.note_model import NoteModel
 from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.dialog_service import NullDialogService
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
@@ -82,6 +83,100 @@ async def test_switching_notes_mid_save_still_refreshes_the_row_and_toasts() -> 
         # The newly bound note is untouched and clean.
         assert workspace.note_form.title == other.title
         assert workspace.note_form.is_dirty.value is False
+    workspace.dispose()
+
+
+class _HeldSaveRepository(InMemoryNoteRepository):
+    """Holds every ``save_note`` until ``release`` is set, so a test can act
+    while a save is in flight without racing a timer."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            build_seed(), load_all_delay=0.0, load_notes_delay=0.0, save_note_delay=0.0
+        )
+        self.release = asyncio.Event()
+
+    async def save_note(self, note: NoteModel) -> None:
+        await self.release.wait()
+        await super().save_note(note)
+
+
+async def _rename_and_return_mid_save(
+    pilot: object, app: NotesShowcaseApp, workspace: WorkspaceVM, repo: _HeldSaveRepository
+) -> str:
+    """Rename the first note to ``Renamed`` and save, then select another note
+    and the renamed note again while the save is held (#761)."""
+    await _select_row(pilot, app, 0)
+    saved_id = workspace.notes_view.current.model.id  # type: ignore[union-attr]
+    assert app.query_one("#form_title", Input).value == "Standup notes"
+    app.query_one("#form_title", Input).value = "Renamed"
+    await _settle(pilot)
+    app.query_one("#form_save", Button).press()
+    await _settle(pilot, ticks=2)
+    await _select_row(pilot, app, 1)
+    await _select_row(pilot, app, 0)
+    assert workspace.notes_view.current.model.id == saved_id  # type: ignore[union-attr]
+    assert not repo.release.is_set()
+    # Before the save settles the reselected editor shows the pre-save title.
+    assert workspace.note_form.title == "Standup notes"
+    return saved_id
+
+
+@pytest.mark.asyncio
+async def test_returning_to_a_note_mid_save_shows_the_saved_values() -> None:
+    repo = _HeldSaveRepository()
+    workspace = WorkspaceVM.builder().repository(repo).dialog_service(NullDialogService()).build()
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        saved_id = await _rename_and_return_mid_save(pilot, app, workspace, repo)
+
+        repo.release.set()
+        await pilot.pause(0.1)
+        await _settle(pilot)
+        assert any("Renamed" in label for label in _row_labels(app))
+        # The clean editor shows the saved title once the save settles.
+        assert workspace.note_form.title == "Renamed"
+        assert app.query_one("#form_title", Input).value == "Renamed"
+        assert workspace.note_form.is_dirty.value is False
+
+        # A later save stores the saved title, not the pre-save one.
+        workspace.note_form.body = "Body after rename"
+        await _settle(pilot)
+        app.query_one("#form_save", Button).press()
+        await pilot.pause(0.1)
+        await _settle(pilot)
+        _notebooks, notes = await repo.load_all()
+        stored = next(n for n in notes if n.id == saved_id)
+        assert stored.body == "Body after rename"
+        assert stored.title == "Renamed"
+    workspace.dispose()
+
+
+@pytest.mark.asyncio
+async def test_returning_to_a_note_mid_save_and_editing_keeps_the_unsaved_edits() -> None:
+    repo = _HeldSaveRepository()
+    workspace = WorkspaceVM.builder().repository(repo).dialog_service(NullDialogService()).build()
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        await _rename_and_return_mid_save(pilot, app, workspace, repo)
+        workspace.note_form.body = "Unsaved body"
+        await _settle(pilot)
+        assert workspace.note_form.is_dirty.value is True
+
+        repo.release.set()
+        await pilot.pause(0.1)
+        await _settle(pilot)
+        assert any("Renamed" in label for label in _row_labels(app))
+        toast = _rendered(app.query_one("#notifications_render", Static))
+        assert "Saved “Renamed”" in toast
+        # The settle does not clobber edits made after the return.
+        assert workspace.note_form.body == "Unsaved body"
+        assert app.query_one("#form_body", TextArea).text == "Unsaved body"
+        assert workspace.note_form.is_dirty.value is True
     workspace.dispose()
 
 

@@ -323,8 +323,25 @@ public final class NoteFormVM: ComponentVMBase {
         )
         _form = form
         _approvedCancellable = form.onApproved
-            .sink { [weak self] model in self?._onSaved.send(model) }
+            .sink { [weak self, weak form] model in
+                guard let self, let form else { return }
+                self._onSaved.send(model)
+                // `onApproved` can arrive off the UI thread; `bindTo` emits
+                // property changes, so adopt the save on the foreground.
+                self.dispatcher.scheduleForeground { [weak self] in
+                    self?.adoptSaved(from: form, model)
+                }
+            }
         emitDraftChanges()
+    }
+
+    /// A save on a retired form settled (#761). If the user returned to that
+    /// note mid-save, the bound form holds the pre-save values, so a clean
+    /// form is rebound to the saved note. A dirty form keeps its unsaved edits.
+    private func adoptSaved(from source: FormVM<NoteModel>, _ saved: NoteModel) {
+        guard let bound = _form, bound !== source else { return }
+        guard bound.snapshot.id == saved.id, !bound.isDirty else { return }
+        bindTo(saved)
     }
 
     /// Disposes the inner form and clears `tagDraft`. All derived properties

@@ -411,7 +411,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             strict=True,
             validators={"title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None},
         )
-        form.on_approved.subscribe(on_next=self._handle_approved)
+        form.on_approved.subscribe(on_next=lambda model: self._handle_approved(form, model))
         self._form = form
         # FormVM.deny_command reverts the inner model but does not know about
         # our derived properties — listen for FormRevertedMessage on the hub
@@ -526,9 +526,24 @@ class NoteFormVM(ComponentVM, IReconstructable):
         finally:
             subscription.dispose()
 
-    def _handle_approved(self, model: NoteModel) -> None:
+    def _handle_approved(self, source: FormVM[NoteModel], model: NoteModel) -> None:
         self._emit_draft_changes()
         self._on_saved.on_next(model)
+        self._adopt_saved(source, model)
+
+    def _adopt_saved(self, source: FormVM[NoteModel], saved: NoteModel) -> None:
+        """Show a save that settled on a retired form (#761).
+
+        If the user returned to that note mid-save, the bound form holds the
+        pre-save values, so a clean form is rebound to the saved note. A dirty
+        form keeps its unsaved edits.
+        """
+        bound = self._form
+        if bound is None or bound is source:
+            return
+        if bound.snapshot.id != saved.id or bound.is_dirty:
+            return
+        self.bind_to(saved)
 
     def _deny_current(self) -> None:
         form = self._form

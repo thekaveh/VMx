@@ -224,8 +224,28 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             {
                 [nameof(Title)] = note => string.IsNullOrWhiteSpace(note.Title) ? TitleRequired : null
             });
-        _approvedSub = _form.OnApproved.Subscribe(m => _onSaved.OnNext(m));
+        var form = _form;
+        _approvedSub = form.OnApproved.Subscribe(m =>
+        {
+            _onSaved.OnNext(m);
+            // OnApproved can arrive off the UI thread; BindTo raises INPC.
+            _dispatcher.Foreground.Schedule(() => AdoptSaved(form, m));
+        });
         EmitDraftChanges();
+    }
+
+    /// <summary>
+    /// A save on a retired form settled (#761). If the user returned to that
+    /// note mid-save, the bound form holds the pre-save values, so a clean
+    /// form is rebound to the saved note. A dirty form keeps its unsaved edits.
+    /// </summary>
+    private void AdoptSaved(FormVM<NoteModel> source, NoteModel saved)
+    {
+        if (_ownDisposed) return;
+        var bound = _form;
+        if (bound is null || ReferenceEquals(bound, source)) return;
+        if (!string.Equals(bound.Snapshot.Id, saved.Id, StringComparison.Ordinal) || bound.IsDirty) return;
+        BindTo(saved);
     }
 
     /// <summary>

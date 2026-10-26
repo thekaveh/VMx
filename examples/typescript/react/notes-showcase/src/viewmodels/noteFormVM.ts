@@ -284,8 +284,24 @@ export class NoteFormVM extends ComponentVMBase {
         title: (m) => m.title.trim().length === 0 ? TITLE_REQUIRED : null,
       },
     });
-    this.#form.onApproved.subscribe((m) => this.#onSaved.next(m));
+    const form = this.#form;
+    form.onApproved.subscribe((m) => {
+      this.#onSaved.next(m);
+      this.#adoptSaved(form, m);
+    });
     this.#emitDraftChanges();
+  }
+
+  /**
+   * A save on a retired form settled (#761). If the user returned to that
+   * note mid-save, the bound form holds the pre-save values, so a clean form
+   * is rebound to the saved model. A dirty form keeps its unsaved edits.
+   */
+  #adoptSaved(source: FormVM<NoteModel>, saved: NoteModel): void {
+    const bound = this.#form;
+    if (bound === null || bound === source) return;
+    if (bound.snapshot.id !== saved.id || bound.isDirty) return;
+    this.bindTo(saved);
   }
 
   /**
