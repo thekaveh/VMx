@@ -10,12 +10,27 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `ServicedObservableCollection`, `KeyedServicedObservableCollection`,
+  `ObservableDictionary` and `ObservableMultiDictionary` now share one stored
+  snapshot between concurrent readers, which run `PartialEq` on it (#765).
+  These types are therefore `Send` and `Sync` only when their item and key
+  types are `Sync` as well as `Send`. Before, `Send` items and keys were
+  enough. `VmNode` types are already `Sync`, so collections of view-models are
+  not affected.
 - Implements spec 3.30.0. Forwarding decorators already registered owned
   resources on the wrapped component; `FWD-005` now covers it, including
   nested decorators and registration after disposal (ADR-0151) (#650).
 
 ### Fixed
 
+- `ObservableDictionary` and `ObservableMultiDictionary` lookups, and
+  `remove(&item)` on `ServicedObservableCollection` and
+  `KeyedServicedObservableCollection`, no longer copy every stored key or
+  item on each call. They compare against a shared copy-on-write snapshot,
+  still with no VMx mutex held, and a write copies only while a snapshot is
+  in use. A release `get` over 5,000 `String` keys drops from about 87,000 ns
+  to about 4,700 ns, the cost before #636. Inserting a key that is already
+  present now drops the argument key after the lock is released (#765).
 - The documentation of `HierarchicalVm::construct` and
   `HierarchicalVmBuilder::eager_children` no longer claims all descendants. The
   option applies to this node's children only. It continues deeper only
