@@ -248,10 +248,17 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
 
     /// Publishes `value` to current subscribers unless the stream is disposed.
     pub fn send(&self, value: T) {
+        self.send_if(value, || true);
+    }
+
+    /// Publishes `value` like [`send`](Self::send) if `still_current` holds.
+    /// `still_current` runs under the stream lock, so publications that pass
+    /// it are delivered in the order they passed it.
+    pub(crate) fn send_if(&self, value: T, still_current: impl FnOnce() -> bool) {
         let current = thread::current().id();
         let (completion, should_drain, reentrant, replaced) = {
             let mut state = lock(&self.inner);
-            if state.disposed || state.dispose_requested {
+            if state.disposed || state.dispose_requested || !still_current() {
                 return;
             }
             let replaced = std::mem::replace(&mut state.current, value.clone());
