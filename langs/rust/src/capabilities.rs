@@ -386,8 +386,22 @@ impl<T: VmNode> Reconstructable for T {
         if !self.can_reconstruct() {
             return;
         }
-        if VmNode::destruct(self).is_ok() {
-            let _ = VmNode::construct(self);
+        if VmNode::destruct(self).is_err() {
+            return;
+        }
+        // A background destruct settles later; construct again once it
+        // reaches Destructed, as the inherent `reconstruct` does (#748).
+        let node = self.clone();
+        let construct_when_destructed = move || {
+            if node.status() == ConstructionStatus::Destructed {
+                let _ = VmNode::construct(&node);
+            }
+        };
+        let deferred = self.status() != ConstructionStatus::Destructed
+            && self.when_lifecycle_settled(Box::new(construct_when_destructed.clone()));
+        if !deferred {
+            // The destruct settled at once, or meanwhile.
+            construct_when_destructed();
         }
     }
 }
