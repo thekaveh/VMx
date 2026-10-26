@@ -10,6 +10,12 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- A container child walk cancelled after its loop check no longer takes a
+  further step. Cancelled by the children iterator as it ends, it skips
+  `after`; cancelled from inside `after`, it skips the commit step. Before,
+  it completed the cancelled walk, which raised and logged
+  `InvalidStateError`. Every completion in the walk now checks that the walk
+  is not already done (#745).
 - With `auto_construct_on_add=True`, a `CompositeVM` or `GroupVM` no longer
   publishes `CONSTRUCTED` while a child that an add started during
   `CONSTRUCTING` still constructs (spec/02 §6, spec/06 §5.1). Before, an add
