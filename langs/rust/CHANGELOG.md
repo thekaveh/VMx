@@ -16,6 +16,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The documentation of `HierarchicalVm::construct` and
+  `HierarchicalVmBuilder::eager_children` no longer claims all descendants. The
+  option applies to this node's children only. It continues deeper only
+  through children that are eager themselves (#759, ADR-0156).
 - `DiscriminatorVm::active_key_changes()` ends on the active key when a
   newer setter commits between a setter's commit and its publication: on
   another thread, or from the replaced key's `Drop`. The older setter's key

@@ -170,7 +170,10 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     ///     `super.init`; under the canonical `final class` CRTP shape the two
     ///     resolve to the same name.
     ///   - hint: optional hint string.
-    ///   - eagerChildren: opt-in eager subtree materialization.
+    ///   - eagerChildren: when `true`, this node materializes and constructs its
+    ///     children at `construct()` time. The option applies to this node's
+    ///     children only. It continues deeper only through children that are
+    ///     eager themselves.
     public init(
         model: TModel,
         childrenFactory: @escaping (TVM) -> [TVM],
@@ -295,12 +298,13 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     // ── Lifecycle override — eager construction ──────────────────────────
 
     /// When `eagerChildren` is set, override `_onConstruct()` to materialize
-    /// the child list and recursively construct each child *before* this
-    /// node's own `_onConstruct()` returns. Because `ComponentVMBase.construct()`
-    /// sets status to `.constructed` only after `_onConstruct()` completes, the
-    /// children (and their descendants) all reach `.constructed` before the parent
-    /// does — producing depth-first order (HIER-008, HIER-009). The cascade is
-    /// synchronous and throwing (ADR-0053): if any child's `construct()` throws,
+    /// the child list and construct each direct child *before* this node's own
+    /// `_onConstruct()` returns. Because `ComponentVMBase.construct()` sets
+    /// status to `.constructed` only after `_onConstruct()` completes, the
+    /// children reach `.constructed` before the parent does. The construction
+    /// continues to a deeper level only through children that are eager
+    /// themselves. This produces depth-first order (HIER-008, HIER-009). The
+    /// cascade is synchronous and throwing (ADR-0053): if any child's `construct()` throws,
     /// the error propagates up and the caller's `construct()` rolls the parent
     /// back to its prior status (LIFE-014).
     open override func _onConstruct() throws {

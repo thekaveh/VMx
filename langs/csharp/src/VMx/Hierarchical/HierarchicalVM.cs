@@ -72,8 +72,10 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// <param name="name">Optional VM name (defaults to type name).</param>
     /// <param name="hint">Optional display hint string.</param>
     /// <param name="eagerChildren">
-    /// When <see langword="true"/>, materializes the entire subtree at construct
-    /// time (depth-first). Default is <see langword="false"/> (lazy).
+    /// When <see langword="true"/>, this node materializes and constructs its
+    /// children at construct time (depth-first). The option applies to this
+    /// node's children only. It continues deeper only through children that
+    /// are eager themselves. Default is <see langword="false"/> (lazy).
     /// </param>
     protected HierarchicalVM(
         TModel model,

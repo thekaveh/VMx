@@ -84,8 +84,10 @@ public struct HierarchicalVMBuilder<TModel, TVM: AnyObject> {
         var c = self; c._hint = value; return c
     }
 
-    /// Set whether to eagerly materialize the child subtree at construct()
-    /// time (default: `false`).
+    /// Set whether the built node materializes and constructs its children at
+    /// construct() time (default: `false`). The option applies to this node's
+    /// children only. It continues deeper only through children that are
+    /// eager themselves.
     public func eagerChildren(_ value: Bool) -> HierarchicalVMBuilder<TModel, TVM> {
         var c = self; c._eagerChildren = value; return c
     }
