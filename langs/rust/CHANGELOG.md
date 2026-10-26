@@ -16,6 +16,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ManualDispatcher::drain_foreground` and `drain_background` release the
+  queue lock before each action runs, as `drain()` does. Before, an action
+  that dispatched to the same queue, such as a background hook that
+  constructs another background VM, blocked on that lock and the drain never
+  returned (#746).
 - `CompositeVm` and `GroupVm` with `auto_construct_on_add` no longer
   publish `Constructed` while a child added after the construct walk's last
   late scan is still `Constructing` (#744, spec/02 §6, spec/06 §5.1). Before,

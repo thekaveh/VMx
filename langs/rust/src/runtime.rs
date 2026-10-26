@@ -1725,16 +1725,24 @@ impl ManualDispatcher {
         }
     }
 
-    /// Runs queued foreground actions in FIFO order.
+    /// Runs queued foreground actions in FIFO order. The queue lock is
+    /// released before each action runs, so an action may dispatch to the
+    /// same queue (#746).
     pub fn drain_foreground(&self) {
-        while let Some(action) = lock(&self.foreground).pop_front() {
+        loop {
+            let next = lock(&self.foreground).pop_front();
+            let Some(action) = next else { break };
             action();
         }
     }
 
-    /// Runs queued background actions in FIFO order.
+    /// Runs queued background actions in FIFO order. The queue lock is
+    /// released before each action runs, as in
+    /// [`drain_foreground`](Self::drain_foreground).
     pub fn drain_background(&self) {
-        while let Some(action) = lock(&self.background).pop_front() {
+        loop {
+            let next = lock(&self.background).pop_front();
+            let Some(action) = next else { break };
             action();
         }
     }
