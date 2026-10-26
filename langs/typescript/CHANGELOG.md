@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ConfirmationVM.dispose()` runs the base teardown before it disposes
+  `approveCommand` and `rejectCommand`. An observer of a command's final
+  `canExecuteChanged` value can no longer resolve the hub during disposal
+  (#753).
 - The default `FormVM` equality compares a `DOMException` by its `name` and
   `message`, which its clone keeps on Node 22 and later (ADR-0152). Before, any two `DOMException`
   values compared equal, so `setModel` dropped an edit that replaced one with

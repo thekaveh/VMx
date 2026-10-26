@@ -193,3 +193,47 @@ describe("ConfirmationVM idempotency", () => {
     vm.dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Dispose order (#753)
+// ---------------------------------------------------------------------------
+
+describe("ConfirmationVM dispose", () => {
+  it("a command observer cannot resolve the hub during dispose", async () => {
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Confirmation, "confirm?");
+    const task = hub.post(notification);
+    const vm = new ConfirmationVM(notification, hub, scheduler);
+    let approveChanges = 0;
+    let approveCompletions = 0;
+    let rejectCompletions = 0;
+    vm.approveCommand.canExecuteChanged.subscribe({
+      next: () => {
+        approveChanges += 1;
+        vm.rejectCommand.execute();
+      },
+      complete: () => {
+        approveCompletions += 1;
+      },
+    });
+    vm.rejectCommand.canExecuteChanged.subscribe({
+      complete: () => {
+        rejectCompletions += 1;
+      },
+    });
+
+    vm.dispose();
+    vm.dispose();
+
+    expect(vm.isResolved).toBe(false);
+    const outcome = await Promise.race([
+      task.then(() => "resolved"),
+      new Promise((resolve) => setTimeout(() => resolve("pending"), 20)),
+    ]);
+    expect(outcome).toBe("pending");
+    expect(approveChanges).toBe(1);
+    expect(approveCompletions).toBe(1);
+    expect(rejectCompletions).toBe(1);
+  });
+});

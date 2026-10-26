@@ -281,4 +281,42 @@ final class NotificationVMTests: XCTestCase {
         cancellables.removeAll()
         sut.dispose()
     }
+
+    // MARK: Dispose order (#753)
+
+    /// A command observer that runs while `dispose()` disposes the commands
+    /// cannot resolve the hub: the VM is marked disposed first.
+    func testConfirmationCommandObserverCannotResolveDuringDispose() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .confirmation, message: "confirm?")
+        let poster = await post(hub, n)
+        let sut = ConfirmationVM(notification: n, hub: hub, scheduler: scheduler)
+        var approveChanges = 0
+        var approveCompletions = 0
+        var rejectCompletions = 0
+        var cancellables = Set<AnyCancellable>()
+        sut.approveCommand.canExecuteChanged
+            .sink(receiveCompletion: { _ in approveCompletions += 1 },
+                  receiveValue: {
+                      approveChanges += 1
+                      sut.rejectCommand.execute()
+                  })
+            .store(in: &cancellables)
+        sut.rejectCommand.canExecuteChanged
+            .sink(receiveCompletion: { _ in rejectCompletions += 1 }, receiveValue: {})
+            .store(in: &cancellables)
+
+        poster.resolved.isInverted = true
+        sut.dispose()
+        sut.dispose()
+
+        XCTAssertFalse(sut.isResolved, "a disposed ConfirmationVM must not resolve")
+        await fulfillment(of: [poster.resolved], timeout: 0.3)
+        XCTAssertNil(poster.reaction)
+        XCTAssertEqual(approveChanges, 1)
+        XCTAssertEqual(approveCompletions, 1)
+        XCTAssertEqual(rejectCompletions, 1)
+        hub.dispose()
+    }
 }

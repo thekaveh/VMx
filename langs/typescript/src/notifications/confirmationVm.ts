@@ -69,10 +69,14 @@ export class ConfirmationVM extends NotificationVM {
     // Intentional no-op. ConfirmationVM requires an explicit user action.
   }
 
-  /** Disposes commands and delegates to base dispose. */
+  /**
+   * Delegates to base dispose, then disposes the commands. The base marks the
+   * VM disposed first, so an observer that runs while a command is disposed
+   * cannot resolve the hub (#753).
+   */
   override dispose(): void {
+    super.dispose();
     this.approveCommand.dispose();
     this.rejectCommand.dispose();
-    super.dispose();
   }
 }
