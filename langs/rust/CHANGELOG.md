@@ -16,6 +16,20 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm` and `GroupVm` with `auto_construct_on_add` no longer
+  publish `Constructed` while a child added after the construct walk's last
+  late scan is still `Constructing` (#744, spec/02 §6, spec/06 §5.1). Before,
+  an add that read `Constructing` after that scan started its child with no
+  record the walk would wait on. The walk's record scope now stays open
+  until it seals: after the selector runs (once), the walk scans again under
+  the membership gate and joins any child an add started meanwhile. With none
+  left, it flips the container to `Constructed` in that same gated section,
+  so a later add follows the add-after-`Constructed` rule, and the container
+  publishes `Constructed` once, as before. Until that publication starts,
+  `status()` reads `Constructed` but the transition is still in flight:
+  `can_construct()`, `can_destruct()`, `can_reconstruct()` and the
+  reconstruct command report `false`, and `construct()` and `destruct()`
+  return `ConcurrentOperation`, as during `Constructing`.
 - The construct walk of `CompositeVm` and `GroupVm` no longer rolls the
   container back when it reaches a child that a cross-thread add attached
   during `Constructing` but has not started yet (#743, spec/06 §5.1). Before,

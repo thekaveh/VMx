@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- With `autoConstructOnAdd`, a `CompositeVM` or `GroupVM` no longer
+  publishes `.constructed` while a child added during `.constructing` is
+  still constructing (#744, spec/02 §6, spec/06 §5.1). Before, an add after
+  the construct walk's last late pull started its child and nothing waited
+  for it. The walk's start-record scope now stays open until the commit,
+  which commits or keeps walking: under the membership gate it joins each
+  late child an add registered since the last pull (the current selector
+  does not run again), and once none is left it flips the container's state
+  to `.constructed` in that same gate section, ends the scope, and only then
+  publishes. A later add reads `.constructed` and follows the
+  add-after-Constructed rule. A parent walk treats a child container whose
+  state is flipped but whose commit is still in flight as still
+  constructing. Until that publication starts, `canConstruct()`,
+  `canDestruct()` and `canReconstruct()` return `false` and `construct()`
+  throws, as during `.constructing`; subscribers of `.constructed` see the
+  commit completed. A disposal that cancels the walk during the seal
+  publishes no `.destructed` rollback: the finished walk commits
+  `.constructed`, then the disposal publishes `.disposed`.
 - With `autoConstructOnAdd`, the construct walk of a `CompositeVM` or
   `GroupVM` no longer rolls the container back when it pulls a child that a
   cross-thread add attached but has not started yet (#743, spec/06 §5.1).

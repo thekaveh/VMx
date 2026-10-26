@@ -10,6 +10,22 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- With `auto_construct_on_add=True`, a `CompositeVM` or `GroupVM` no longer
+  publishes `CONSTRUCTED` while a child that an add started during
+  `CONSTRUCTING` still constructs (spec/02 §6, spec/06 §5.1). Before, an add
+  that read `CONSTRUCTING` after the construct walk's last scan started its
+  child, and nothing waited for it. The walk's start records now stay open
+  until its commit step. That step runs under the membership gate: it joins
+  any child added since the last scan, then commits the `CONSTRUCTED` state in
+  the same gated section. An add therefore either reads `CONSTRUCTING` and is
+  joined, or reads `CONSTRUCTED` and follows the add-after-Constructed rule.
+  The current selector still runs once. Between the commit step and the
+  published `CONSTRUCTED` message, `status` already reads `CONSTRUCTED` while
+  the transition is still in flight: `can_construct()`, `can_destruct()` and
+  `can_reconstruct()` return `False`, `construct()` raises
+  `StatusTransitionError` as during `CONSTRUCTING`, and joins wait until the
+  publication starts. The walk tracks visited children by reference, so a
+  freed child's id is never mistaken for a new member's (#744).
 - With `auto_construct_on_add=True`, a `CompositeVM` or `GroupVM` construct
   walk no longer rolls the container back when it pulls a child that a
   cross-thread add attached but has not started yet (spec/06 §5.1). An add

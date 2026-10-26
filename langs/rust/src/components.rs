@@ -53,9 +53,8 @@ impl ComponentCommands {
         };
         let reconstruct = {
             let predicate_core = core.clone();
-            RelayCommand::new_shared(reconstruct_action).with_can_execute(move || {
-                predicate_core.status() == ConstructionStatus::Constructed
-            })
+            RelayCommand::new_shared(reconstruct_action)
+                .with_can_execute(move || predicate_core.can_reconstruct())
         };
         let select_next = RelayCommand::noop().with_can_execute(|| false);
         let select_previous = RelayCommand::noop().with_can_execute(|| false);

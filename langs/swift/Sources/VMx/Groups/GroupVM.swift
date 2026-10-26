@@ -602,23 +602,47 @@ open class GroupVM<Child: ComponentVMBase>:
         scope: LateChildStarts.Scope?
     ) -> LateChildSource? {
         guard _autoConstructOnAdd, let scope else { return nil }
+        // Shared by the late pull and the commit-time seal.
         var visited = Set(snapshot.map(ObjectIdentifier.init))
         let starts = lateStarts
-        return LateChildSource(starts: starts, scope: scope) { [weak self] in
-            guard let self else { return nil }
-            return self.membershipGate.withLock {
-                while true {
-                    guard let late = self.children.first(where: {
-                        !visited.contains(ObjectIdentifier($0))
-                    }) else {
-                        starts.endWalk(scope)
-                        return nil
-                    }
-                    visited.insert(ObjectIdentifier(late))
-                    if let record = starts.take(late, from: scope) { return (late, record) }
-                }
+        // Under `membershipGate`: the next unvisited child with a start
+        // record in this walk's scope; a child without one is skipped.
+        let pullLocked: () -> (child: ComponentVMBase, record: LateChildStarts.Record)? = {
+            [unowned self] in
+            while true {
+                guard let late = self.children.first(where: {
+                    !visited.contains(ObjectIdentifier($0))
+                }) else { return nil }
+                visited.insert(ObjectIdentifier(late))
+                if let record = starts.take(late, from: scope) { return (late, record) }
             }
         }
+        return LateChildSource(
+            starts: starts,
+            scope: scope,
+            next: { [weak self] in
+                guard let self else { return nil }
+                let late = self.membershipGate.withLock { pullLocked() }
+                if late == nil { starts.probe(self, .lastScanDone) }
+                return late
+            },
+            seal: { [weak self] in
+                guard let self else { return nil }
+                // Commit or keep walking (spec/06 §5.1): with no late child
+                // left, flip the state in this same gate section, so a later
+                // add reads `.constructed`, and end the walk's scope.
+                return self.membershipGate.withLock {
+                    if let late = pullLocked() { return late }
+                    self._flipConstructedForSeal()
+                    starts.endWalk(scope)
+                    return nil
+                }
+            },
+            willSeal: { [weak self] in
+                guard let self else { return }
+                starts.probe(self, .sealing)
+            }
+        )
     }
 
     /// Call under `membershipGate`, in the section that attaches `child`.

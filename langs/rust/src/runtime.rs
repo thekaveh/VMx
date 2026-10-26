@@ -2121,6 +2121,15 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     fn when_lifecycle_settled(&self, _callback: LifecycleSettleCallback) -> bool {
         false
     }
+    /// Reports whether the node's Constructed state is committed but its
+    /// publication has not started yet (a container's sealed construct walk,
+    /// spec/06 §5.1). The lifecycle predicates are false meanwhile, so they
+    /// agree with the operations, which still see a transition in flight.
+    /// Wrapper nodes should forward it. The default returns `false`.
+    #[doc(hidden)]
+    fn lifecycle_publication_pending(&self) -> bool {
+        false
+    }
 }
 
 /// Continuation run after a node's in-flight lifecycle transition settles.
@@ -2209,7 +2218,12 @@ pub(crate) struct LateStarts {
     gate: Arc<Mutex<()>>,
     /// The scope of the walk that still scans for late members, if any.
     current: Arc<Mutex<Option<Arc<WalkScope>>>>,
+    /// Test-only seam: runs after a walk's last late scan, outside the gate.
+    last_scan_probe: Arc<Mutex<Option<LastScanProbe>>>,
 }
+
+/// A test-only callback a construct walk runs after its last late scan.
+type LastScanProbe = Arc<dyn Fn() + Send + Sync>;
 
 impl LateStarts {
     /// Start records guarded by the container's membership `gate`.
@@ -2217,6 +2231,20 @@ impl LateStarts {
         Self {
             gate,
             current: Arc::default(),
+            last_scan_probe: Arc::default(),
+        }
+    }
+
+    /// Test-only seam: sets the callback a construct walk runs after its last
+    /// late scan, outside the membership gate. Production code never sets it.
+    pub(crate) fn set_last_scan_probe(&self, probe: LastScanProbe) {
+        *lock(&self.last_scan_probe) = Some(probe);
+    }
+
+    fn run_last_scan_probe(&self) {
+        let probe = lock(&self.last_scan_probe).clone();
+        if let Some(probe) = probe {
+            probe();
         }
     }
 
@@ -2245,7 +2273,7 @@ impl LateStarts {
     }
 
     /// Opens the scope of a new walk; an older walk's scope is orphaned.
-    fn begin_walk(&self) -> LateWalk {
+    fn begin_walk(&self, generation: u64) -> LateWalk {
         let scope = Arc::new(WalkScope {
             records: Mutex::default(),
         });
@@ -2253,6 +2281,27 @@ impl LateStarts {
         LateWalk {
             starts: self.clone(),
             scope,
+            generation,
+        }
+    }
+}
+
+/// The next unvisited member with a start record in `walk`'s scope, taking
+/// that record; a member without one was not started by an add (for example,
+/// auto-construct-on-add was off), so it is skipped. Call it under the
+/// container's membership gate.
+fn next_late_member<N: VmNode>(
+    visited: &mut HashSet<usize>,
+    members: &Arc<dyn Fn() -> Vec<N> + Send + Sync>,
+    walk: &LateWalk,
+) -> Option<(N, Arc<StartRecord>)> {
+    loop {
+        let child = members()
+            .into_iter()
+            .find(|child| !visited.contains(&child.id()))?;
+        visited.insert(child.id());
+        if let Some(record) = walk.scope.take(child.id()) {
+            return Some((child, record));
         }
     }
 }
@@ -2263,6 +2312,8 @@ impl LateStarts {
 struct LateWalk {
     starts: LateStarts,
     scope: Arc<WalkScope>,
+    /// The container transition this walk belongs to.
+    generation: u64,
 }
 
 impl LateWalk {
@@ -2527,6 +2578,22 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     pub(crate) fn status(&self) -> ConstructionStatus {
         lock(&self.inner).status
+    }
+
+    /// Whether a sealed construct walk already flipped the state to
+    /// Constructed and its publication has not started yet (spec/06 §5.1).
+    /// Only a container's seal produces this state; the publication clears it
+    /// as it starts, before any subscriber sees Constructed.
+    pub(crate) fn publication_pending(&self) -> bool {
+        let inner = lock(&self.inner);
+        inner.status == ConstructionStatus::Constructed && inner.transitioning
+    }
+
+    /// Whether `reconstruct` is admitted now: Constructed, and not a sealed
+    /// construct still publishing.
+    pub(crate) fn can_reconstruct(&self) -> bool {
+        let inner = lock(&self.inner);
+        inner.status == ConstructionStatus::Constructed && !inner.transitioning
     }
 
     pub(crate) fn background_errors(&self) -> LifecycleErrorStream {
@@ -3043,6 +3110,13 @@ impl<D: Dispatcher> ComponentCore<D> {
                     | (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
                         return (Err(VmxError::Disposed), None)
                     }
+                    // A sealed construct still publishing Constructed is in
+                    // flight: a second construct is concurrent, not idempotent.
+                    (ConstructionStatus::Constructed, LifecycleOperation::Construct)
+                        if inner.transitioning =>
+                    {
+                        return (Err(VmxError::ConcurrentOperation), None)
+                    }
                     (ConstructionStatus::Constructed, LifecycleOperation::Construct)
                     | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
                         return (Ok(None), None)
@@ -3417,7 +3491,8 @@ impl<D: Dispatcher> ComponentCore<D> {
     ) -> VmxResult<()> {
         // This walk's own scope: an add that registered a record before this
         // point attached a member of the snapshot below.
-        let walk = Arc::new(late.begin_walk());
+        let generation = lock(&self.inner).transition_generation;
+        let walk = Arc::new(late.begin_walk(generation));
         let snapshot = members();
         let visited: HashSet<usize> = snapshot.iter().map(VmNode::id).collect();
         for child in snapshot {
@@ -3441,7 +3516,8 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     /// Scans for the next late member under the container's membership
     /// gate, so it never sees a member whose add has not yet registered its
-    /// start record. `then` and every child step run outside the gate.
+    /// start record. `then` and every child step run outside the gate. When
+    /// no late member remains, the walk runs `then` once, then seals.
     fn join_late_children<N: VmNode>(
         &self,
         mut visited: HashSet<usize>,
@@ -3451,26 +3527,12 @@ impl<D: Dispatcher> ComponentCore<D> {
     ) -> VmxResult<()> {
         let next = {
             let _gate = lock(&walk.starts.gate);
-            loop {
-                let Some(child) = members()
-                    .into_iter()
-                    .find(|child| !visited.contains(&child.id()))
-                else {
-                    // The walk ends: later adds register no record for it.
-                    walk.end();
-                    break None;
-                };
-                visited.insert(child.id());
-                // A member without a record was not started by an add (for
-                // example, auto-construct-on-add was off): skip it.
-                if let Some(record) = walk.scope.take(child.id()) {
-                    break Some((child, record));
-                }
-            }
+            next_late_member(&mut visited, &members, &walk)
         };
         let Some((child, record)) = next else {
-            drop(walk);
-            return then();
+            walk.starts.run_last_scan_probe();
+            then()?;
+            return self.seal_late_children(visited, members, walk);
         };
         let core = self.clone();
         self.child_step(Box::new(move || core.await_add_then_child(&record, &child)))?;
@@ -3478,6 +3540,55 @@ impl<D: Dispatcher> ComponentCore<D> {
         self.child_step(Box::new(move || {
             core.join_late_children(visited, members, walk, then)
         }))
+    }
+
+    /// Commits the walk or keeps walking (spec/02 §6, spec/06 §5.1). Under
+    /// the membership gate, an add either registers its record in this
+    /// walk's open scope or reads the container's status. So this step scans
+    /// once more: a member an add started meanwhile is joined like a late
+    /// member, then the walk seals again. With none left, it flips the core
+    /// state to Constructed in the same gated section, so a later add follows
+    /// the add-after-Constructed rule, and ends the walk's scope. The
+    /// transition then publishes Constructed once, as before. `then` (the
+    /// selector) is not run again.
+    fn seal_late_children<N: VmNode>(
+        &self,
+        mut visited: HashSet<usize>,
+        members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
+        walk: Arc<LateWalk>,
+    ) -> VmxResult<()> {
+        let next = {
+            let _gate = lock(&walk.starts.gate);
+            let next = next_late_member(&mut visited, &members, &walk);
+            if next.is_none() {
+                self.flip_constructed(walk.generation);
+                walk.end();
+            }
+            next
+        };
+        let Some((child, record)) = next else {
+            drop(walk);
+            return Ok(());
+        };
+        let core = self.clone();
+        self.child_step(Box::new(move || core.await_add_then_child(&record, &child)))?;
+        let core = self.clone();
+        self.child_step(Box::new(move || {
+            core.seal_late_children(visited, members, walk)
+        }))
+    }
+
+    /// Flips a sealed construct walk's container to Constructed without
+    /// publishing; the transition publishes it when it completes. Called
+    /// under the container's membership gate.
+    fn flip_constructed(&self, generation: u64) {
+        let mut inner = lock(&self.inner);
+        if inner.transition_generation == generation
+            && inner.transitioning
+            && inner.status == ConstructionStatus::Constructing
+        {
+            inner.status = ConstructionStatus::Constructed;
+        }
     }
 
     /// Holds the container transition until the add attempt behind `record`
@@ -3770,8 +3881,11 @@ impl<D: Dispatcher> ComponentCore<D> {
             if !self.settle_is_current(&inner, generation) {
                 return (false, None);
             }
+            // A sealed construct walk already flipped the state to
+            // Constructed (see `seal_late_children`).
             let settled = match (inner.status, error.is_some()) {
                 (ConstructionStatus::Constructing, false)
+                | (ConstructionStatus::Constructed, false)
                 | (ConstructionStatus::Destructing, true) => ConstructionStatus::Constructed,
                 _ => ConstructionStatus::Destructed,
             };

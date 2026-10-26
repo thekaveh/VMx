@@ -359,6 +359,10 @@ class _ComponentVMBase(ABC):
         self._in_flight: bool = False
         self._lifecycle_waiters: list[Future[None]] = []
         self._deferred_lifecycle_future: Future[None] | None = None
+        # Set only by a container's commit step: its Constructed state is
+        # committed, but the Constructed status is not yet published (spec/06
+        # §5.1). Cleared under the lifecycle lock when any publication starts.
+        self._construct_publication_pending = False
         self._active_hook_lease: _LifecycleHookLease | None = None
         # Set while a container disposes its children ahead of its own terminal
         # transition, so no lifecycle hook is admitted during the cascade.
@@ -594,22 +598,25 @@ class _ComponentVMBase(ABC):
 
     # ── Lifecycle: can_* predicates ──────────────────────────────────────────
     def can_construct(self) -> bool:
-        """True iff Status ∈ {Destructed, Constructed}."""
-        return self._status in (
+        """True iff Status ∈ {Destructed, Constructed} and no publication is pending."""
+        return not self._construct_publication_pending and self._status in (
             ConstructionStatus.DESTRUCTED,
             ConstructionStatus.CONSTRUCTED,
         )
 
     def can_destruct(self) -> bool:
-        """True iff Status ∈ {Constructed, Destructed}."""
-        return self._status in (
+        """True iff Status ∈ {Constructed, Destructed} and no publication is pending."""
+        return not self._construct_publication_pending and self._status in (
             ConstructionStatus.CONSTRUCTED,
             ConstructionStatus.DESTRUCTED,
         )
 
     def can_reconstruct(self) -> bool:
-        """True iff Status == Constructed."""
-        return self._status == ConstructionStatus.CONSTRUCTED
+        """True iff Status == Constructed and no publication is pending."""
+        return (
+            not self._construct_publication_pending
+            and self._status == ConstructionStatus.CONSTRUCTED
+        )
 
     # ── Lifecycle: construct ─────────────────────────────────────────────────
     def construct(self) -> None:
@@ -618,8 +625,11 @@ class _ComponentVMBase(ABC):
         Idempotent from Constructed (no-op, no message emitted).
         """
         with self._lifecycle_lock:
-            # Idempotent: already Constructed → no-op (no message).
+            # Idempotent: already Constructed → no-op (no message). A committed
+            # Constructed whose publication is pending is still in flight.
             if self._status == ConstructionStatus.CONSTRUCTED:
+                if self._construct_publication_pending:
+                    raise StatusTransitionError(self._status, "construct")
                 return
 
             # Validate transition (raises StatusTransitionError for illegal states).
@@ -1001,6 +1011,7 @@ class _ComponentVMBase(ABC):
                 # not prevent the remaining channels or mandatory cleanup from
                 # running.
                 self._status = ConstructionStatus.DISPOSED
+                self._construct_publication_pending = False
                 publication, should_drain = self._enqueue_lifecycle_publication_locked(
                     ConstructionStatus.DISPOSED
                 )
@@ -1189,6 +1200,7 @@ class _ComponentVMBase(ABC):
         after: Callable[[], None] | None = None,
         joined: Iterable[object] = (),
         join: Callable[[object], Future[None] | None] | None = None,
+        seal: Callable[[], ComponentVMProto | None] | None = None,
     ) -> Future[None]:
         """Transition children sequentially and validate each settled state.
 
@@ -1198,6 +1210,11 @@ class _ComponentVMBase(ABC):
         settled status is final, so it is never restarted once started.
         ``children`` is pulled lazily, one child at a time, and a ``joined``
         list is read live, so a container can extend its walk while it runs.
+
+        After the children and ``after`` (which runs once), a container's
+        commit step ``seal`` returns a child added after the walk's last scan,
+        which the walk then joins, or commits the Constructed state and returns
+        ``None`` (spec/06 §5.1).
         """
         result: Future[None] = Future()
         _CHILD_WALK_FUTURES.add(result)
@@ -1216,19 +1233,32 @@ class _ComponentVMBase(ABC):
         expected = ConstructionStatus.CONSTRUCTED if construct else ConstructionStatus.DESTRUCTED
         transient = ConstructionStatus.CONSTRUCTING if construct else ConstructionStatus.DESTRUCTING
 
+        walked_all = False
+
         def advance() -> None:
+            nonlocal walked_all
             while not result.done():
-                try:
-                    child = next(iterator)
-                except StopIteration:
+                if not walked_all:
                     try:
-                        if after is not None:
-                            after()
+                        child = next(iterator)
+                    except StopIteration:
+                        walked_all = True
+                        try:
+                            if after is not None:
+                                after()
+                        except BaseException as error:
+                            result.set_exception(error)
+                            return
+                if walked_all:
+                    try:
+                        late = seal() if seal is not None else None
                     except BaseException as error:
                         result.set_exception(error)
-                    else:
+                        return
+                    if late is None:
                         result.set_result(None)
-                    return
+                        return
+                    child = late
 
                 try:
                     child_joined = is_joined(child)
@@ -1378,15 +1408,31 @@ class _ComponentVMBase(ABC):
 
     def _construct_future(self) -> Future[None]:
         with self._lifecycle_lock:
-            if self._status is ConstructionStatus.CONSTRUCTED:
+            # A container whose Constructed state is committed but not yet
+            # published is still in flight (spec/06 §5.1).
+            committing = self._construct_publication_pending
+            if self._status is ConstructionStatus.CONSTRUCTED and not committing:
                 completed: Future[None] = Future()
                 completed.set_result(None)
                 return completed
-            if self._status is ConstructionStatus.CONSTRUCTING:
+            if self._status is ConstructionStatus.CONSTRUCTING or committing:
                 waiter: Future[None] = Future()
                 self._lifecycle_waiters.append(waiter)
                 return waiter
         return self._start_lifecycle_future(self.construct)
+
+    def _mark_constructed_before_publication(self) -> None:
+        """The container commit step: flip an in-flight construct to Constructed.
+
+        The caller holds its membership gate, so an add reads either
+        Constructing (before the flip, and its child is joined) or Constructed
+        (and follows the add-after-Constructed rule). The single Constructed
+        status is still published when the transition completes (spec/06 §5.1).
+        """
+        with self._lifecycle_lock:
+            if self._status is ConstructionStatus.CONSTRUCTING and self._in_flight:
+                self._status = ConstructionStatus.CONSTRUCTED
+                self._construct_publication_pending = True
 
     def _join_transition_future(self, *, construct: bool) -> Future[None]:
         """Join an already-started transition without ever starting a new one.
@@ -1400,7 +1446,10 @@ class _ComponentVMBase(ABC):
         joined: Future[None] = Future()
         with self._lifecycle_lock:
             status = self._status
-            if status is transient:
+            # A container whose Constructed state is committed but not yet
+            # published is still in flight (spec/06 §5.1).
+            committing = construct and self._construct_publication_pending
+            if status is transient or committing:
                 self._lifecycle_waiters.append(joined)
                 return joined
         if status is expected:
@@ -1495,6 +1544,9 @@ class _ComponentVMBase(ABC):
                 return False
 
             self._status = new_status
+            # The publication starts: a committed Constructed is no longer
+            # pending, so subscribers observe a completed transition.
+            self._construct_publication_pending = False
             publication, should_drain = self._enqueue_lifecycle_publication_locked(new_status)
 
         self._await_lifecycle_publication(publication, should_drain)
