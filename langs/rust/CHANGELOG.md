@@ -16,6 +16,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm::clear()` publishes the current child's `is_current` change
+  after it releases the membership gate. Before, a hub or `property_changed()`
+  subscriber that disposed the composite from that notification blocked on
+  the gate its own thread held, and `clear()` never returned (#749).
 - The blanket `Reconstructable::reconstruct` now waits for a deferred
   destruct and then constructs again, as the inherent `reconstruct` does.
   Before, it called `construct` while the destruct was still in flight,

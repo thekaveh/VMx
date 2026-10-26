@@ -688,3 +688,75 @@ fn aggregate_dispose_while_waiting_drops_a_released_child_after_the_core_lock() 
     assert!(hook.disarm() > 0);
     assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
 }
+
+/// A constructed composite whose only child is current.
+fn composite_with_current_child(
+    hub: &MessageHub,
+) -> (CompositeVm<ComponentVm<u32>>, ComponentVm<u32>) {
+    let composite = CompositeVm::with_services("composite", hub.clone(), NullDispatcher::new());
+    let child = ComponentVm::with_model("child", 1u32, hub.clone(), NullDispatcher::new());
+    composite.add(child.clone()).unwrap();
+    composite.construct().unwrap();
+    composite.select_component(&child).unwrap();
+    assert!(child.is_current());
+    (composite, child)
+}
+
+/// #749 — `clear()` publishes the current child's `is_current` change after
+/// it releases the membership gate, so a hub subscriber that disposes the
+/// composite does not deadlock it.
+#[test]
+fn composite_clear_survives_an_is_current_hub_subscriber_that_disposes_it() {
+    let hub = MessageHub::new();
+    let (composite, child) = composite_with_current_child(&hub);
+    let is_current_messages = Arc::new(AtomicUsize::new(0));
+    let _subscription = hub.subscribe({
+        let composite = composite.clone();
+        let child_id = child.id();
+        let is_current_messages = Arc::clone(&is_current_messages);
+        move |message| {
+            if let vmx::Message::PropertyChanged(change) = message {
+                if change.sender_id == child_id && change.property_name == "is_current" {
+                    is_current_messages.fetch_add(1, Ordering::SeqCst);
+                    let _ = composite.dispose();
+                }
+            }
+        }
+    });
+
+    within_timeout("CompositeVm::clear", {
+        let composite = composite.clone();
+        move || composite.clear()
+    });
+
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+    assert!(!child.is_current());
+    assert_eq!(is_current_messages.load(Ordering::SeqCst), 1);
+}
+
+/// #749 — the same from a `property_changed()` subscriber on the child.
+#[test]
+fn composite_clear_survives_an_is_current_child_subscriber_that_disposes_it() {
+    let hub = MessageHub::new();
+    let (composite, child) = composite_with_current_child(&hub);
+    let is_current_messages = Arc::new(AtomicUsize::new(0));
+    let _subscription = child.property_changed().subscribe({
+        let composite = composite.clone();
+        let is_current_messages = Arc::clone(&is_current_messages);
+        move |name| {
+            if name == "is_current" {
+                is_current_messages.fetch_add(1, Ordering::SeqCst);
+                let _ = composite.dispose();
+            }
+        }
+    });
+
+    within_timeout("CompositeVm::clear", {
+        let composite = composite.clone();
+        move || composite.clear()
+    });
+
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+    assert!(!child.is_current());
+    assert_eq!(is_current_messages.load(Ordering::SeqCst), 1);
+}
