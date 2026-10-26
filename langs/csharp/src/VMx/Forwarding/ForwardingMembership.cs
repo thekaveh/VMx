@@ -119,4 +119,9 @@ internal sealed class ForwardingMembership(IComponentVM wrapper, IComponentVM wr
     internal Task ConstructOrJoinAsync() => _wrapped.ConstructOrJoinAsync();
 
     internal Task JoinConstructAsync() => _wrapped.JoinConstructAsync();
+
+    // Joins only the wrapped VM's in-flight destruct. Starting one goes
+    // through the decorator's own (virtual) DestructAsync (spec/09).
+    internal Task? TryJoinDestructAsync()
+        => (_wrapped as IComponentVMInternals)?.TryJoinDestructAsync();
 }
