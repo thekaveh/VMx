@@ -8,6 +8,19 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a `CompositeVM`, `GroupVM` or `AggregateVM1`–`AggregateVM6`
+  disposed while its child walk waits for a background child no longer
+  publishes a rollback status before `Disposed` (#755). Before, with an
+  immediate foreground, the failed walk could publish `Destructed` (or
+  `Constructed` on the destruct path) from a pool thread before the
+  container's own `Disposed`; a 3,000-run construct-then-dispose stress saw
+  it 1 to 5 times per container kind. Disposal now abandons the pending walk
+  under the lifecycle gate before it disposes any child, as TypeScript does:
+  the walk drives no further child, and its deferred completion publishes no
+  status once disposal has started. The abandoned walk also no longer faults
+  the awaited `ConstructAsync()`, `DestructAsync()` or `ReconstructAsync()`
+  task with "Child did not reach Constructed"; Dispose completes it on
+  `Disposed`, as Python does.
 - Fixed: `Destruct()` and `DestructAsync()` on a `CompositeVM`, `GroupVM` or
   `AggregateVM` no longer throw `StatusTransitionException` when a child is
   already `Destructing` (#754, spec/02 §6). Before, the container rolled back

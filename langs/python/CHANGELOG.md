@@ -10,6 +10,14 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- A `CompositeVM`, `GroupVM` or aggregate disposed while its child walk
+  waits for a background child no longer publishes a rollback status before
+  `DISPOSED`. Before, with a foreground that runs work inline, `construct()`
+  then `dispose()` published `CONSTRUCTING`, `DESTRUCTED`, `DISPOSED`, and
+  `destruct()` or `reconstruct()` then `dispose()` published `DESTRUCTING`,
+  `CONSTRUCTED`, `DISPOSED`. Disposal now abandons the pending walk before it
+  disposes any child, as TypeScript does: the walk is cancelled, and a
+  deferred completion publishes no status once disposal has started (#755).
 - A container child walk cancelled after its loop check no longer takes a
   further step. Cancelled by the children iterator as it ends, it skips
   `after`; cancelled from inside `after`, it skips the commit step. Before,
