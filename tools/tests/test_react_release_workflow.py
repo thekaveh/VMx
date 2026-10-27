@@ -22,9 +22,9 @@ def _run_notes(tmp_path: Path, changelog: str, version: str = "0.2.0"):
     source = tmp_path / "packages/react/CHANGELOG.md"
     source.parent.mkdir(parents=True)
     source.write_text(changelog)
-    extractor = ROOT / "tools/extract-react-release-notes.awk"
+    extractor = ROOT / "tools/extract-release-notes.awk"
     if extractor.exists():
-        destination = tmp_path / "tools/extract-react-release-notes.awk"
+        destination = tmp_path / "tools/extract-release-notes.awk"
         destination.parent.mkdir()
         destination.write_bytes(extractor.read_bytes())
     executable = tmp_path / "bin/gh"
@@ -68,9 +68,9 @@ def _run_documented_notes_guard(tmp_path: Path, changelog: str):
     source = tmp_path / "packages/react/CHANGELOG.md"
     source.parent.mkdir(parents=True)
     source.write_text(changelog)
-    extractor = tmp_path / "tools/extract-react-release-notes.awk"
+    extractor = tmp_path / "tools/extract-release-notes.awk"
     extractor.parent.mkdir()
-    extractor.write_bytes((ROOT / "tools/extract-react-release-notes.awk").read_bytes())
+    extractor.write_bytes((ROOT / "tools/extract-release-notes.awk").read_bytes())
     contributor = (ROOT / "docs/content/contributing-releases.md").read_text()
     section = contributor.split("### 11.5.3. Recover React Release Metadata", 1)[1]
     script = re.findall(r"```bash\n(.*?)\n```", section, flags=re.DOTALL)[0]

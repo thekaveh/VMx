@@ -38,7 +38,7 @@ the tag/version.
 
 The release notes are the changelog body between the exact `## [X.Y.Z]`
 heading and the next level-two heading. The helper
-`tools/extract-react-release-notes.awk` compares the version literally.
+`tools/extract-release-notes.awk` compares the version literally.
 Level-three headings stay in the body. The workflow fails on empty notes and
 prints the extracted notes for review.
 

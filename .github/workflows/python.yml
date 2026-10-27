@@ -82,16 +82,16 @@ jobs:
           uvx --from pip-audit==2.10.1 python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --tool-context -- -m pip_audit --requirement /tmp/vmx-runtime.txt
 
       - name: Ruff lint
-        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check src tests
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m ruff check src tests
 
       - name: Ruff format check
-        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check src tests
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m ruff format --check src tests
 
       - name: Mypy
-        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict src/vmx
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m mypy --strict src/vmx
 
       - name: Pytest
-        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest --cov=vmx --cov-report=xml -v --junitxml=conformance-results.xml -o junit_family=xunit1
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m pytest --cov=vmx --cov-report=xml -v --junitxml=conformance-results.xml -o junit_family=xunit1
 
       - name: Check executed conformance evidence
         # Every library ID needs a passing executed case in pytest's own report,
@@ -99,8 +99,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -c 'import platform; print(platform.python_implementation(), platform.python_version())')"
-          uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- ../../tools/check-conformance-execution.py --flavor python --report conformance-results.xml --evidence conformance-evidence.json --commit "${{ github.sha }}" --toolchain "$version" --configuration "${{ matrix.os }} py${{ matrix.python-version }}"
+          version="$(uv run python ../../tools/check-python-interpreter.py --venv .venv -- -c 'import platform; print(platform.python_implementation(), platform.python_version())')"
+          uv run python ../../tools/check-python-interpreter.py --venv .venv -- ../../tools/check-conformance-execution.py --flavor python --report conformance-results.xml --evidence conformance-evidence.json --commit "${{ github.sha }}" --toolchain "$version" --configuration "${{ matrix.os }} py${{ matrix.python-version }}"
 
       - name: Publish conformance evidence
         if: ${{ !cancelled() }}
@@ -125,7 +125,7 @@ jobs:
             fi
             for vmx_run in 1 2 3; do
               echo "VMx controlled interleaving: mode=$vmx_mode run=$vmx_run cpu=$vmx_cpu"
-              timeout --kill-after=5s 120s "${vmx_prefix[@]}" uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest tests/unit/components/test_lifecycle_race.py -k foreign_dispose_waits
+              timeout --kill-after=5s 120s "${vmx_prefix[@]}" uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m pytest tests/unit/components/test_lifecycle_race.py -k foreign_dispose_waits
             done
           done
 
@@ -180,16 +180,16 @@ jobs:
         run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --capture-output
 
       - name: notes-showcase ruff lint
-        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check
+        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m ruff check
 
       - name: notes-showcase ruff format check
-        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check
+        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m ruff format --check
 
       - name: notes-showcase mypy strict
-        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict src
+        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m mypy --strict src
 
       - name: notes-showcase tests
-        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest
+        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m pytest
 
   small-examples:
     timeout-minutes: 20
@@ -222,19 +222,19 @@ jobs:
         run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --capture-output
 
       - name: Ruff lint
-        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check console tk
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m ruff check console tk
 
       - name: Ruff format check
-        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check console tk
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m ruff format --check console tk
 
       - name: Mypy strict
-        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict console tk
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m mypy --strict console tk
 
       - name: Run console example
-        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m hello_vmx
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m hello_vmx
 
       - name: Compile Tk example
-        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m compileall tk/todo_app
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m compileall tk/todo_app
 
       - name: Install Xvfb for the Tkinter recipe
         run: |
@@ -244,10 +244,10 @@ jobs:
           fi
 
       - name: "Integration recipe: Tkinter binding executed on a real Tk root (Xvfb)"
-        run: xvfb-run --auto-servernum uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m note_recipe
+        run: xvfb-run --auto-servernum uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m note_recipe
 
       - name: "Host check: Tk todo app lifecycle on a real Tk root (Xvfb)"
-        run: xvfb-run --auto-servernum uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m todo_app.host_check
+        run: xvfb-run --auto-servernum uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m todo_app.host_check
 
   inspector:
     timeout-minutes: 30
@@ -285,16 +285,16 @@ jobs:
         run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --capture-output
 
       - name: inspector ruff lint
-        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check
+        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m ruff check
 
       - name: inspector ruff format check
-        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check
+        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m ruff format --check
 
       - name: inspector mypy strict
-        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict src
+        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m mypy --strict src
 
       - name: inspector tests
-        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest
+        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m pytest
 
   nicegui:
     timeout-minutes: 30
@@ -329,16 +329,16 @@ jobs:
         run: uv run --directory examples/python/nicegui/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --capture-output
 
       - name: nicegui ruff lint
-        run: uv run --directory examples/python/nicegui/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check
+        run: uv run --directory examples/python/nicegui/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m ruff check
 
       - name: nicegui ruff format check
-        run: uv run --directory examples/python/nicegui/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check
+        run: uv run --directory examples/python/nicegui/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m ruff format --check
 
       - name: nicegui mypy strict
-        run: uv run --directory examples/python/nicegui/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict src
+        run: uv run --directory examples/python/nicegui/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m mypy --strict src
 
       - name: nicegui tests (user simulation)
-        run: uv run --directory examples/python/nicegui/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest
+        run: uv run --directory examples/python/nicegui/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv -- -m pytest
 
   package:
     timeout-minutes: 15
@@ -363,11 +363,11 @@ jobs:
       - name: Build wheel and sdist
         run: uv build --project langs/python --out-dir dist
       - name: Verify exact wheel and sdist contents
-        run: uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-python-package.py --dist dist
+        run: uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-python-package.py --dist dist
       - name: Verify exact local wheel in a fresh environment
         run: |
           set -euo pipefail
-          version=$(uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -c \
+          version=$(uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv -- -c \
             "from vmx.__about__ import __version__; print(__version__)")
           uv venv --python 3.12 .package-venv
           uv pip install --python .package-venv/bin/python dist/*.whl

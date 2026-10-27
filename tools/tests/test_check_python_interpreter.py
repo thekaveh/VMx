@@ -13,6 +13,14 @@ HELPER = Path(__file__).resolve().parents[1] / "check-python-interpreter.py"
 VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
+@pytest.fixture(autouse=True)
+def isolated_capture_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A capture appends to GITHUB_ENV. In CI that is the runner's real file, and
+    # a test capture there would replace the job's captured venv (#783).
+    for name in ("GITHUB_ENV", "VMX_PYTHON_VENV", "VMX_PYTHON_EXECUTABLE"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(scope="module")
 def interpreter(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
     root = tmp_path_factory.mktemp("identity") / "venv"
@@ -105,6 +113,102 @@ def test_captures_initial_executable_for_later_steps(
     result = run_helper(interpreter, "--capture-output")
     assert result.returncode == 0, result.stderr
     assert output.read_text() == f"executable={interpreter[1]}\n"
+
+
+def captured_environment(interpreter: tuple[Path, Path], tmp_path: Path) -> dict[str, str]:
+    """Run the identity step with GITHUB_ENV and return the variables it recorded."""
+    env_file = tmp_path / "env"
+    environment = {
+        **os.environ,
+        "GITHUB_OUTPUT": str(tmp_path / "output"),
+        "GITHUB_ENV": str(env_file),
+    }
+    root, python = interpreter
+    capture = subprocess.run(
+        [
+            str(python),
+            str(HELPER),
+            "--expected-version",
+            VERSION,
+            "--venv",
+            str(root),
+            "--capture-output",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        env=environment,
+    )
+    assert capture.returncode == 0, capture.stderr
+    recorded = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
+    assert recorded == {
+        "VMX_PYTHON_VENV": os.path.normcase(os.path.realpath(root)),
+        "VMX_PYTHON_EXECUTABLE": str(python),
+    }
+    return {**environment, **recorded}
+
+
+def run_guard(
+    python: Path, root: Path, environment: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            str(python),
+            str(HELPER),
+            "--expected-version",
+            VERSION,
+            "--venv",
+            str(root),
+            "--",
+            "-c",
+            "print('CHILD RAN')",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        env=environment,
+    )
+
+
+def test_venv_guard_checks_the_captured_executable_without_the_flag(
+    interpreter: tuple[Path, Path], tmp_path: Path
+) -> None:
+    # #783: later guards no longer repeat --expected-executable.
+    root, python = interpreter
+    environment = captured_environment(interpreter, tmp_path)
+    assert run_guard(python, root, environment).stdout == "CHILD RAN\n"
+
+    different = run_guard(
+        python, root, {**environment, "VMX_PYTHON_EXECUTABLE": "different-python"}
+    )
+    assert different.returncode != 0
+    assert "executable mismatch against initial assertion" in different.stderr
+    assert "CHILD RAN" not in different.stdout
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX Python launcher aliases")
+def test_venv_guard_rejects_another_launcher_than_the_captured_one(
+    interpreter: tuple[Path, Path], tmp_path: Path
+) -> None:
+    root, python = interpreter
+    environment = captured_environment(interpreter, tmp_path)
+    result = run_guard(python.with_name("python3"), root, environment)
+    assert result.returncode != 0
+    assert "executable mismatch against initial assertion" in result.stderr
+
+
+def test_captured_executable_applies_only_to_its_own_venv(
+    interpreter: tuple[Path, Path], tmp_path: Path
+) -> None:
+    root, python = interpreter
+    environment = {
+        **captured_environment(interpreter, tmp_path),
+        "VMX_PYTHON_VENV": str(tmp_path / "another-venv"),
+        "VMX_PYTHON_EXECUTABLE": "different-python",
+    }
+    assert run_guard(python, root, environment).returncode == 0
 
 
 def test_tool_context_requires_explicit_opt_in() -> None:
