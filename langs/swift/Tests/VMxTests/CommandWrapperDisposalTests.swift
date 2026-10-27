@@ -135,9 +135,52 @@ final class CommandWrapperDisposalTests: XCTestCase {
 
         XCTAssertFalse(command.canExecute())
         try await command.executeAsync()
+        let settled = expectation(description: "fire-and-forget flow settled")
+        command.onExecuteSettledForTesting = { settled.fulfill() }
+        command.execute()
+        await fulfillment(of: [settled], timeout: signalTimeout)
 
         XCTAssertEqual(confirms.entries, [])
         XCTAssertEqual(recorder.entries, [])
+    }
+
+    /// CMDD-012 — a fire-and-forget confirmation that resolves true or faults after disposal runs nothing and emits nothing on `errors`.
+    func testCmdd012FireAndForgetConfirmationResolvingAfterDisposalRunsNothing() async throws {
+        let outcomes: [(String, Result<Bool, Error>)] = [
+            ("true", .success(true)),
+            ("faulted", .failure(TestError.confirm)),
+        ]
+        for (label, outcome) in outcomes {
+            let recorder = Recorder()
+            let pending = PendingConfirmation(expectation(description: "confirm parked (\(label))"))
+            let command = ConfirmationDecoratorCommand(makeCommand(label: "inner", into: recorder)) {
+                try await pending.wait()
+            }
+            let errors = Recorder()
+            let completions = Recorder()
+            let completed = expectation(description: "errors completed (\(label))")
+            let subscription = command.errors.sink(
+                receiveCompletion: { _ in
+                    completions.entries.append("completed")
+                    completed.fulfill()
+                },
+                receiveValue: { errors.entries.append(String(describing: $0)) }
+            )
+            let settled = expectation(description: "fire-and-forget flow settled (\(label))")
+            command.onExecuteSettledForTesting = { settled.fulfill() }
+
+            command.execute()
+            await fulfillment(of: [pending.parked], timeout: signalTimeout)
+            command.dispose()
+            await fulfillment(of: [completed], timeout: signalTimeout)
+            pending.resolve(outcome)
+            await fulfillment(of: [settled], timeout: signalTimeout)
+
+            XCTAssertEqual(recorder.entries, [], label)
+            XCTAssertEqual(errors.entries, [], label)
+            XCTAssertEqual(completions.entries, ["completed"], label)
+            subscription.cancel()
+        }
     }
 
     /// CMDD-012 — a confirmation resolving true, false, or faulted after disposal runs nothing and emits nothing.
