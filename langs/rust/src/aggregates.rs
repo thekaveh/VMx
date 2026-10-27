@@ -2667,8 +2667,13 @@ macro_rules! impl_fixed_aggregate_baseline {
                 self.core.name()
             }
 
-            /// Returns the hot error stream for child lifecycle failures that settle
-            /// after `construct`/`destruct` returned (background children).
+            /// Returns the hot error stream for this container's deferred lifecycle
+            /// failures. It carries every child failure that rolls the container back
+            /// once its walk waits on a child still in flight (a background child, or
+            /// one another thread is transitioning), whether the failure settles
+            /// before or after `construct`/`destruct` returns. It also carries the
+            /// container's own construct failure in a deferred reconstruct. A walk
+            /// that never waits returns its failure to the caller as an `Err`.
             pub fn background_errors(&self) -> crate::LifecycleErrorStream {
                 self.core.background_errors()
             }

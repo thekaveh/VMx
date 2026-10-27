@@ -281,6 +281,13 @@ impl ErrorState {
 
 #[derive(Clone)]
 /// Editable model state with validation, persistence, approval, and revert commands.
+///
+/// A validator registration made after [`dispose`](Self::dispose)
+/// ([`with_validator`](Self::with_validator),
+/// [`with_field_validator`](Self::with_field_validator),
+/// [`with_model_validator`](Self::with_model_validator),
+/// [`with_clearing_model_validator`](Self::with_clearing_model_validator))
+/// has no effect.
 pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     pub(crate) component: ComponentVm<M>,
     snapshot: Arc<Mutex<M>>,

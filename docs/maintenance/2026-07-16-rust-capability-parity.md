@@ -312,10 +312,12 @@ Rust-specific items remain open:
   container back is reported on the container's `background_errors()` stream.
   This is a Rust-only container surface; the other flavors route the same
   failure through their background-hook error path.
-- **No join of an in-flight child.** When a container constructs a child that
-  is already Constructing in the background, Rust returns
-  `ConcurrentOperation`. C# (`ConstructOrJoinAsync`), Python, TypeScript, and
-  Swift join the in-flight transition instead.
+- **No join of an in-flight child in aggregates.** When `AggregateVm1`–
+  `AggregateVm6` construct a slot child that is already Constructing in the
+  background, Rust returns `ConcurrentOperation`. C# (`ConstructOrJoinAsync`),
+  Python, TypeScript, and Swift join the in-flight transition instead. The
+  `CompositeVm`, `ModeledCompositeVm`, and `GroupVm` construct walks join such a
+  child (#636).
 - **Nodes that do not forward the settle hook.** See the next paragraph.
 
 Settle notification uses the documented `VmNode::when_lifecycle_settled` hook,
