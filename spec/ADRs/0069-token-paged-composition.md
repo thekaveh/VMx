@@ -1,6 +1,6 @@
 # ADR 0069 — Add token-paged composition
 
-**Status:** Accepted (2026-07-01)
+**Status:** Accepted (2026-07-01; the refresh rule is amended by ADR-0136)
 **Spec version:** introduced in 3.1.0
 
 ## 1. Context
@@ -49,3 +49,11 @@ append-only forward pagination over an unknown total.
 Adding only an adapter from `CompositeVM` to `ObservableList` was rejected as too
 narrow; direct observation of composite change streams is simpler and avoids a
 new adapter surface.
+
+## 5. Amendments
+
+- **ADR-0136** (2026-10-04, spec v3.25.0) amends the refresh rule. `Items` and
+  `CurrentToken` always describe one contiguous prefix loaded from the initial
+  token. A refreshed first page that matches the accumulator keeps it, and
+  adopts or keeps the token as ADR-0136 §2 states. Any other refresh replaces
+  the accumulator and emits one `Reset`.
