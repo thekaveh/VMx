@@ -15,8 +15,6 @@ spec/12-conformance.md.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from concurrent.futures import Future
-from threading import RLock
 from typing import Any, Generic, TypeVar, cast
 
 import reactivex as rx
@@ -24,11 +22,11 @@ from reactivex.abc import DisposableBase
 
 from vmx.collections import BatchUpdateHandle
 from vmx.commands.relay_command import RelayCommand
-from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
+from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
 from vmx.composites.composite_vm import _CompositeVMBase
 from vmx.composites.protocols import CompositeVMProto
-from vmx.forwarding.component import ForwardingComponentVM, _ForwardingParent, _WrappedParent
+from vmx.forwarding._membership import _ForwardingMembership
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.message_hub import MessageHubProto
@@ -36,7 +34,7 @@ from vmx.services.message_hub import MessageHubProto
 VM = TypeVar("VM")
 
 
-class ForwardingCompositeVM(_ComponentVMBase, Generic[VM]):
+class ForwardingCompositeVM(_ForwardingMembership, Generic[VM]):
     """Forwarding decorator for :class:`~vmx.composites.protocols.CompositeVMProto`.
 
     Every member delegates to the wrapped composite by default. Subclasses
@@ -59,9 +57,7 @@ class ForwardingCompositeVM(_ComponentVMBase, Generic[VM]):
         # Membership state shared with ForwardingComponentVM (spec/09 §1-2,
         # FWD-002/FWD-004): the decorator and the wrapped composite are one
         # ownership identity, so a parent holding either one owns both.
-        self._parent: _ParentCompositeVM | None = None
-        self._ownership_lock = RLock()
-        self._ownership_in_progress = False
+        self._init_membership()
 
     # ── Identity ─────────────────────────────────────────────────────────────
 
@@ -160,49 +156,11 @@ class ForwardingCompositeVM(_ComponentVMBase, Generic[VM]):
     def deselect(self) -> None:
         self._wrapped.deselect()
 
-    # ── Container membership (mirrors ForwardingComponentVM) ────────────────
-
-    def _as_forwarder(self) -> ForwardingComponentVM[object]:
-        # The parent adapters only touch ``_wrapped`` / ``_parent``, which this
-        # decorator shares with ForwardingComponentVM.
-        return cast("ForwardingComponentVM[object]", self)
-
-    def _set_parent(self, parent: _ParentCompositeVM | None) -> None:
-        self._parent = parent
-        self._wrapped._set_parent(
-            None if parent is None else _ForwardingParent(parent, self._as_forwarder())
-        )
+    # ── Container membership (shared with ForwardingComponentVM) ──────────────
 
     @property
-    def _ownership_identity(self) -> _ComponentVMBase:
-        return self._wrapped._ownership_identity
-
-    @property
-    def _ownership_parent(self) -> _ParentCompositeVM | None:
-        if self._parent is not None:
-            return self._parent
-        wrapped_parent = self._wrapped._ownership_parent
-        if wrapped_parent is None:
-            return None
-        return _WrappedParent(wrapped_parent, self._as_forwarder(), self._wrapped)
-
-    def _set_is_current(self, value: bool) -> None:
-        self._wrapped._set_is_current(value)
-
-    def _commit_is_current(self, value: bool) -> bool:
-        return self._wrapped._commit_is_current(value)
-
-    def _publish_is_current(self) -> None:
-        self._wrapped._publish_is_current()
-
-    def _construct_future(self) -> Future[None]:
-        return self._wrapped._construct_future()
-
-    def _destruct_future(self) -> Future[None]:
-        return self._wrapped._destruct_future()
-
-    def _join_transition_future(self, *, construct: bool) -> Future[None]:
-        return self._wrapped._join_transition_future(construct=construct)
+    def _wrapped_component(self) -> _ComponentVMBase:
+        return self._wrapped
 
     # ── Parent-composite surface (child selection on the wrapped composite) ──
 

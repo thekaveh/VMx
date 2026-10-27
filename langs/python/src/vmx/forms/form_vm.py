@@ -89,7 +89,6 @@ class FormVM(Generic[TM]):
         # Single-flight approval admission (spec/20 §5.3, ADR-0143): set when an
         # approve call is admitted, cleared first thing at settlement.
         self._approval_in_flight = False
-        self._approval_publishing = False
         self._approval_pre_publishing = False
         self._approval_publisher_thread: int | None = None
         self._deferred_approval_models: list[TM] = []
@@ -231,18 +230,13 @@ class FormVM(Generic[TM]):
         in_flight: BaseException | None = None
         try:
             with self._state_changed:
-                while (
-                    self._approval_publishing
-                    and self._approval_publisher_thread != caller
-                    and not self._disposed
-                ):
-                    self._state_changed.wait()
+                self._wait_for_other_publication(caller)
                 if self._disposed:
                     return
                 if model is None:
                     # Reject before any deferral, so the caller sees the error.
                     raise ValueError("model must not be None")
-                if self._approval_publishing and self._approval_pre_publishing:
+                if self._approval_publisher_thread is not None and self._approval_pre_publishing:
                     self._deferred_approval_models.append(model)
                     return
                 self._active_mutations += 1
@@ -316,12 +310,7 @@ class FormVM(Generic[TM]):
         """
         caller = get_ident()
         with self._state_changed:
-            while (
-                self._approval_publishing
-                and self._approval_publisher_thread != caller
-                and not self._disposed
-            ):
-                self._state_changed.wait()
+            self._wait_for_other_publication(caller)
             if self._disposed or self._errors or self._approval_in_flight:
                 return None
             self._approval_in_flight = True
@@ -404,8 +393,8 @@ class FormVM(Generic[TM]):
         """
         caller = get_ident()
         with self._state_changed:
-            while self._approval_publishing and self._approval_publisher_thread != caller:
-                self._state_changed.wait()
+            # Unlike the other waits, disposal does not end this one.
+            self._wait_for_other_publication(caller, stop_on_disposal=False)
             self._approval_in_flight = False
             if self._disposed:
                 return
@@ -453,12 +442,7 @@ class FormVM(Generic[TM]):
         """
         caller = get_ident()
         with self._state_changed:
-            while (
-                self._approval_publishing
-                and self._approval_publisher_thread != caller
-                and not self._disposed
-            ):
-                self._state_changed.wait()
+            self._wait_for_other_publication(caller)
             self._approval_in_flight = False
             if self._disposed:
                 return
@@ -469,9 +453,20 @@ class FormVM(Generic[TM]):
         finally:
             self._exit_publication(outer)
 
-    def _enter_publication(
-        self, caller: int, *, pre_publishing: bool
-    ) -> tuple[bool, bool, int | None]:
+    def _wait_for_other_publication(self, caller: int, *, stop_on_disposal: bool = True) -> None:
+        """Wait until no thread other than *caller* is publishing an approval.
+
+        Must be called holding the state lock. When *stop_on_disposal* is set,
+        disposal also ends the wait.
+        """
+        while (
+            self._approval_publisher_thread is not None
+            and self._approval_publisher_thread != caller
+            and not (stop_on_disposal and self._disposed)
+        ):
+            self._state_changed.wait()
+
+    def _enter_publication(self, caller: int, *, pre_publishing: bool) -> tuple[bool, int | None]:
         """Mark *caller* as the approval publisher; return the state to restore.
 
         Must be called holding the state lock, after waiting out any other
@@ -479,30 +474,20 @@ class FormVM(Generic[TM]):
         :meth:`_exit_publication`; same-thread edits made while
         ``pre_publishing`` is set are deferred until it ends.
         """
-        outer = (
-            self._approval_publishing,
-            self._approval_pre_publishing,
-            self._approval_publisher_thread,
-        )
-        self._approval_publishing = True
+        outer = (self._approval_pre_publishing, self._approval_publisher_thread)
         self._approval_pre_publishing = pre_publishing
         self._approval_publisher_thread = caller
         return outer
 
-    def _exit_publication(self, outer: tuple[bool, bool, int | None]) -> None:
+    def _exit_publication(self, outer: tuple[bool, int | None]) -> None:
         """End a publication; replay deferred edits once the outermost one ends."""
         with self._state_changed:
-            if outer[0]:
+            if outer[1] is not None:
                 # Nested inside this thread's own publication: restore it and
                 # leave the deferred edits to the outer publication.
-                (
-                    self._approval_publishing,
-                    self._approval_pre_publishing,
-                    self._approval_publisher_thread,
-                ) = outer
+                self._approval_pre_publishing, self._approval_publisher_thread = outer
                 return
             self._approval_pre_publishing = False
-            self._approval_publishing = False
             self._approval_publisher_thread = None
             deferred_models = self._deferred_approval_models
             self._deferred_approval_models = []
@@ -519,12 +504,7 @@ class FormVM(Generic[TM]):
         caller = get_ident()
         tear_down = False
         with self._state_changed:
-            while (
-                self._approval_publishing
-                and self._approval_publisher_thread != caller
-                and not self._disposed
-            ):
-                self._state_changed.wait()
+            self._wait_for_other_publication(caller)
             if self._disposed:
                 return
             self._disposed = True
@@ -587,12 +567,7 @@ class FormVM(Generic[TM]):
         in_flight: BaseException | None = None
         try:
             with self._state_changed:
-                while (
-                    self._approval_publishing
-                    and self._approval_publisher_thread != caller
-                    and not self._disposed
-                ):
-                    self._state_changed.wait()
+                self._wait_for_other_publication(caller)
                 if self._disposed:
                     return
                 self._active_mutations += 1
@@ -710,12 +685,7 @@ class FormVM(Generic[TM]):
         # concurrent dispose still waits for delivery but observers run unlocked.
         caller = get_ident()
         with self._state_changed:
-            while (
-                self._approval_publishing
-                and self._approval_publisher_thread != caller
-                and not self._disposed
-            ):
-                self._state_changed.wait()
+            self._wait_for_other_publication(caller)
             if self._disposed:
                 return
             outer = self._enter_publication(caller, pre_publishing=False)

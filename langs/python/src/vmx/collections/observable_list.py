@@ -14,6 +14,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps
+from vmx._indexes import _reject_bool_index
 
 T = TypeVar("T")
 
@@ -124,8 +125,7 @@ class ObservableList(Generic[T]):
         """Insert *item* at *index* (stdlib semantics: negative indexes count
         from the end; out-of-range indexes clamp like :meth:`list.insert`).
         """
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         # Normalize before emitting: spec/21 §3.2 mandates the payload carry
         # the actual insertion index — a raw -1 (or an out-of-range 99 that
         # stdlib silently clamps to len) violates the contract.
@@ -148,8 +148,7 @@ class ObservableList(Generic[T]):
 
     def remove_at(self, index: int) -> None:
         """Remove the item at *index* (negative indexes count from the end)."""
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         # Normalize before emitting: spec/21 §3.2 mandates the payload carry
         # the index *before removal* — a raw -1 violates the contract even
         # though negative indexing itself is Python-idiomatic (ADR-0006).
@@ -163,8 +162,7 @@ class ObservableList(Generic[T]):
 
     def replace(self, index: int, new_item: T) -> None:
         """Replace the item at *index* (negative indexes count from the end)."""
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         if index < 0:
             index += len(self._items)
             if index < 0:

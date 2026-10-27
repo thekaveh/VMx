@@ -23,6 +23,7 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
+from vmx._indexes import _reject_bool_index
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
     construct_walk,
@@ -176,8 +177,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             return self._children[index]
 
     def __setitem__(self, index: int, value: VM) -> None:
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert/remove_at and ObservableList).
         parent = self._as_parent()
@@ -264,8 +264,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         The emitted ``new_index`` is the actual insertion position (stdlib
         semantics: negatives count from the end, out-of-range clamps).
         """
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         parent = self._as_parent()
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
@@ -390,8 +389,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         index counts from the end (mirrors :meth:`insert` and
         ``ObservableList.remove_at``).
         """
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         with self._membership_gate:
             resolved_index = index + len(self._children) if index < 0 else index
             self._require_child_admission()
@@ -526,8 +524,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         return None
 
     def _validate_move_index(self, index: int) -> None:
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         if index < 0 or index >= len(self._children):
             raise IndexError(f"move index {index} out of range for {len(self._children)} children")
 
