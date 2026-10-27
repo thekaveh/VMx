@@ -941,7 +941,8 @@ impl AsyncRelayCommand {
             && self.execution_epoch.load(Ordering::SeqCst) == epoch
     }
 
-    /// Starts fire-and-forget execution and routes failures to the error hub.
+    /// Starts fire-and-forget execution and routes failures to
+    /// [`error_stream`](Self::error_stream).
     ///
     /// An admitted execution runs its task on one worker thread. A rejected
     /// call (no action, an execution already running, a false predicate, or
@@ -1333,8 +1334,8 @@ impl Command for AsyncRelayCommand {
     }
 
     /// Starts fire-and-forget execution and returns without waiting for the
-    /// async body; failures are routed to [`AsyncRelayCommand::errors`], as
-    /// with the inherent [`AsyncRelayCommand::execute`].
+    /// async body; failures are routed to [`AsyncRelayCommand::error_stream`],
+    /// as with the inherent [`AsyncRelayCommand::execute`].
     fn execute(&self) {
         AsyncRelayCommand::execute(self);
     }
