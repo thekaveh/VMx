@@ -172,8 +172,14 @@ class MetricVM extends ComponentVMBase {
 A leaf that constructs child view-models in its own construct hook does not get
 container semantics. The hook does not wait for a background child (spec 02
 §6). If a synchronous child fails, the parent rolls back but earlier children
-stay constructed; if a background child fails, the parent stays `Constructed`.
-Use a container instead:
+stay constructed. If a background child fails on an asynchronous background
+scheduler, the parent stays `Constructed`. In C#, Python and TypeScript, an
+inline dispatcher (`RxDispatcher.Immediate()` / `immediate()` or
+`NullDispatcher`) runs the background work inside the parent's hook, so the
+child failure reaches that hook and the parent rolls back. In Swift and Rust
+the parent stays `Constructed` on every dispatcher: Swift rolls back only the
+child, and Rust reports the failure on `background_errors()`. Use a container
+instead:
 
 - `GroupVM` or `CompositeVM` for children of one type.
 - `AggregateVM1` to `AggregateVM6` for up to six typed children. Built with
