@@ -94,21 +94,23 @@ resolves it exactly once.
 
 `Dismiss` is idempotent: the first result wins. `Dispose` is also idempotent and
 completes the modal with `cancellationResult`, so awaiters never hang. The null
-dialog implementation uses the same rule: presenting a modal through the null
-service immediately resolves with `cancellationResult`.
+dialog implementation uses the same rule: presenting an undismissed modal
+through the null service dismisses it at once and resolves with
+`cancellationResult`. A modal that is already dismissed keeps its result, and
+the null service returns that result.
 
 ## 4. `NullDialogService`
 
 `NullDialogService` is the null-object implementation per ADR-0017. It is the default
 for tests and headless environments:
 
-| Method           | Return value | Rationale                                          |
-| ---------------- | ------------ | -------------------------------------------------- |
-| `PickFileToOpen` | `null`       | No host available; treat as user cancel            |
-| `PickFileToSave` | `null`       | No host available; treat as user cancel            |
-| `Confirm`        | `false`      | Safest default — avoids triggering destructive ops |
-| `Notify`         | _(no-op)_    | Notifications have no side-effects in null impl    |
-| `Present`        | cancellation | Safest declared result for this modal              |
+| Method           | Return value | Rationale                                                  |
+| ---------------- | ------------ | ---------------------------------------------------------- |
+| `PickFileToOpen` | `null`       | No host available; treat as user cancel                    |
+| `PickFileToSave` | `null`       | No host available; treat as user cancel                    |
+| `Confirm`        | `false`      | Safest default — avoids triggering destructive ops         |
+| `Notify`         | _(no-op)_    | Notifications have no side-effects in null impl            |
+| `Present`        | cancellation | Safest declared result; a dismissed modal keeps its result |
 
 ## 5. `IDialogService` vs `INotificationHub`
 
@@ -211,7 +213,8 @@ interaction owner at most once and never replaces the first modal result.
 - `DIA-008` — `ConfirmationDecoratorCommand` with `() => dialogService.Confirm(prompt)`
   constructs a valid command graph that behaves per ADR-0012.
 - `DIA-009` — VM-backed `Present` returns the modal result chosen by the host.
-- `DIA-010` — Null modal presentation resolves with the modal cancellation result.
+- `DIA-010` — Null modal presentation resolves with the modal cancellation result;
+  an already-dismissed modal keeps its earlier result.
 - `DIA-011` — Disposing a modal completes its awaitable with the cancellation result.
 - `DIA-012` — Modal dismissal is idempotent: the first result wins.
 - `DIA-013` — Adding modal presentation does not remove or rename the existing

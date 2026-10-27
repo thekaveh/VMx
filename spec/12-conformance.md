@@ -1419,7 +1419,8 @@ ______________________________________________________________________
 
 Each CMDD-NNN test verifies behaviour of the three decorators added in
 spec/04-commands.md §Decorators (CMDD-010 added in spec v3, ADR-0049;
-CMDD-011..CMDD-013 added in spec v3.24, ADR-0134).
+CMDD-011..CMDD-013 added in spec v3.24, ADR-0134; CMDD-014..CMDD-017 added in
+spec v3.29, ADR-0145).
 
 ### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
 
@@ -1768,7 +1769,7 @@ virtual time 0
 
 ______________________________________________________________________
 
-## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..037`)
+## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..045`)
 
 Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
 see ADR-0016), and builder hooks (COMP-025..026, see ADR-0042) additions to
@@ -2151,7 +2152,7 @@ is produced where the flavor exposes a pushed filtered output
 
 ______________________________________________________________________
 
-## 21. GroupVM v2.0 additions (`GRP-007..011`)
+## 21. GroupVM v2.0 additions (`GRP-007..013`)
 
 Search/filter additions to chapter 07. The helper is the same
 `SearchableState<TItem>` documented for composites (see ADR-0014); group-context
@@ -3397,10 +3398,12 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 ### DIA-010 — Null modal presentation resolves with cancellation result
 
 **Given** a `NullDialogService`
-**And** a modal VM with cancellation result `c`
+**And** an undismissed modal VM with cancellation result `c`
 **When** `Present(modal)` is awaited
 **Then** the awaitable resolves to `c`
 **And** the modal is dismissed with result `c`
+**And** when the modal was already dismissed with result `r`, the awaitable
+resolves to `r` and the modal keeps `r` (first result wins, DIA-012)
 
 ### DIA-011 — Modal disposal completes with cancellation result
 
@@ -3573,9 +3576,9 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 **Given** a `FormVMBuilder<TM>` configured with only `Initial(m0)` + `Persister(p)`
 **When** `.Build()` is called
 **Then** the form uses the flavor's null message hub. A flavor that exposes the
-form's hub (Python, Rust) checks it against the null hub; a flavor that keeps it
-private (C#, TypeScript, Swift) cannot observe the default and checks only that
-the form builds and runs without a supplied hub
+form's hub (Rust) checks it against the null hub; a flavor that keeps it private
+(C#, Python, TypeScript, Swift) cannot observe the default through its public
+surface and checks that the form builds and runs without a supplied hub
 **And** `form.Snapshot == m0` (the flavor default snapshotter is applied — chapter 20 §3)
 **And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
 (strict defaults to `false`)
