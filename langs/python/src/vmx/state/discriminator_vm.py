@@ -8,6 +8,8 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps
+
 TKey = TypeVar("TKey")
 
 
@@ -78,5 +80,5 @@ class DiscriminatorVM(Generic[TKey]):
             return
         self._disposed = True
         self._modal_stack.clear()
-        self._active_changed.on_completed()
-        self._active_changed.dispose()
+        # A raising completion observer must not skip the subject dispose (#768).
+        _run_disposal_steps(self._active_changed.on_completed, self._active_changed.dispose)
