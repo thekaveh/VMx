@@ -1,8 +1,9 @@
 """Executes the Textual integration recipe on a running Textual App.
 
 ``textual_recipe.py`` is the exact code shown in
-docs/content/integration/textual.md; tools/tests/test_host_recipe_sync.py keeps
-the two identical. No conformance-ID markers (integration recipe).
+docs/content/integration/textual.md; ``make docs-check`` keeps the two identical,
+and tools/tests/test_host_recipe_sync.py keeps the checked-snippet marker in
+place. No conformance-ID markers (integration recipe).
 """
 
 from __future__ import annotations
