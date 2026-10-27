@@ -77,6 +77,7 @@ describe("DerivedProperty internal state seam", () => {
     source.next(2);
     expect(signals).toBe(0);
     expect(Object.getOwnPropertySymbols(property)).toEqual([]);
-    expect(Object.keys(Object.getPrototypeOf(property) as object)).not.toContain(String(OBSERVE_STATE));
+    // Object.keys never lists a symbol key, so read the descriptor itself (#781).
+    expect(Object.getOwnPropertyDescriptor(DerivedProperty.prototype, OBSERVE_STATE)?.enumerable).toBe(false);
   });
 });

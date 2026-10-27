@@ -176,3 +176,41 @@ describe("NotificationVM with NullNotificationHub", () => {
     vm.dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Disposal (#781)
+// ---------------------------------------------------------------------------
+
+/** Exposes the protected resolution paths that a subclass can call. */
+class ResolvingNotificationVM extends NotificationVM {
+  callDismiss(): void {
+    this.dismiss();
+  }
+
+  callResolveWith(reaction: NotificationReaction): void {
+    this.resolveWith(reaction);
+  }
+}
+
+describe("NotificationVM after dispose", () => {
+  it.each([
+    ["dismiss()", (vm: ResolvingNotificationVM) => vm.callDismiss()],
+    ["resolveWith()", (vm: ResolvingNotificationVM) => vm.callResolveWith(NotificationReaction.Reject)],
+  ])("a subclass call to %s resolves nothing", (_name, resolve) => {
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "test");
+    hub.post(notification);
+    const vm = new ResolvingNotificationVM(notification, hub, scheduler, 60_000);
+    vm.dispose();
+
+    resolve(vm);
+
+    let pending: readonly Notification[] = [];
+    hub.pending.subscribe((snapshot) => {
+      pending = snapshot;
+    }).unsubscribe();
+    expect(vm.isResolved).toBe(false);
+    expect(pending).toContain(notification);
+  });
+});
