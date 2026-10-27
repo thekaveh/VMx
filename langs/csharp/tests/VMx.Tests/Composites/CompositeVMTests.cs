@@ -710,7 +710,7 @@ public class CompositeVMTests
         await Task.WhenAll(dispatcher.PendingWork);
         SpinWait.SpinUntil(
             () => composite.Status == ConstructionStatus.Constructed,
-            TimeSpan.FromSeconds(5)).Should().BeTrue();
+            HangGuard).Should().BeTrue();
 
         parentStatusWhileChildRuns.Should().Be(ConstructionStatus.Constructing,
             "a container cannot settle before its background child");
@@ -782,7 +782,7 @@ public class CompositeVMTests
         await Task.WhenAll(dispatcher.PendingWork);
         SpinWait.SpinUntil(
             () => composite.Status == ConstructionStatus.Destructed,
-            TimeSpan.FromSeconds(5)).Should().BeTrue();
+            HangGuard).Should().BeTrue();
 
         parentStatusWhileChildRuns.Should().Be(ConstructionStatus.Destructing,
             "a container cannot settle before its background child");

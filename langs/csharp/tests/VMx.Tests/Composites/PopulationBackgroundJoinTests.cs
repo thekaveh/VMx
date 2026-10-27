@@ -96,7 +96,7 @@ public class PopulationBackgroundJoinTests
                 dispatcher.RunAll();
                 return dispatcher.IsIdle && container.Status != ConstructionStatus.Constructing;
             },
-            TimeSpan.FromSeconds(5)).Should().BeTrue();
+            Liveness.HangGuard).Should().BeTrue();
         dispatcher.RunAll();
 
         Volatile.Read(ref badHookRuns).Should().Be(1, "a joined child is never restarted");

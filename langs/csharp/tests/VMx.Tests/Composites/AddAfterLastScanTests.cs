@@ -22,8 +22,6 @@ namespace VMx.Tests.Composites;
 /// </summary>
 public class AddAfterLastScanTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(5);
-
     /// <summary>A scheduler that queues work until the test runs it.</summary>
     private sealed class WorkQueue : IScheduler
     {
@@ -166,7 +164,7 @@ public class AddAfterLastScanTests
         {
             var adder = new Thread(Add) { IsBackground = true };
             adder.Start();
-            adder.Join(Bound).Should().BeTrue("the add completes");
+            adder.Join(Liveness.HangGuard).Should().BeTrue("the add completes");
         }
         else
         {
@@ -200,7 +198,7 @@ public class AddAfterLastScanTests
                 h.Dispatcher.Fg.RunOne();
                 return Volatile.Read(ref walkEnded) == 1 || h.SelectorRuns > 0;
             },
-            Bound).Should().BeTrue("the construct walk reaches its tail");
+            Liveness.HangGuard).Should().BeTrue("the construct walk reaches its tail");
         h.LateStarts.ProbeForTesting = previous;
     }
 
@@ -216,7 +214,7 @@ public class AddAfterLastScanTests
                     !((ComponentVMBase)h.Root).HasInFlightLifecycleForTesting &&
                     h.Late?.Status != ConstructionStatus.Constructing;
             },
-            Bound).Should().BeTrue("the root and the late child settle");
+            Liveness.HangGuard).Should().BeTrue("the root and the late child settle");
     }
 
     [Theory]
@@ -313,7 +311,7 @@ public class AddAfterLastScanTests
                 h.Dispatcher.Fg.RunOne();
                 return Volatile.Read(ref ran) == 1;
             },
-            Bound).Should().BeTrue("the walk reaches its commit step");
+            Liveness.HangGuard).Should().BeTrue("the walk reaches its commit step");
         Settle(h);
     }
 
@@ -386,7 +384,7 @@ public class AddAfterLastScanTests
             if (!ReferenceEquals(message.Sender, vm) || message.Status != ConstructionStatus.Constructed ||
                 completedAtOnce is not null) return;
             var task = vm.ConstructAsync();
-            completedAtOnce = task.IsCompleted && task.Wait(Bound);
+            completedAtOnce = task.IsCompleted && task.Wait(Liveness.HangGuard);
         });
 
         vm.Construct();

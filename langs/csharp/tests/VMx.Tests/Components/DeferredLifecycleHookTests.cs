@@ -80,7 +80,7 @@ public class DeferredLifecycleHookTests
         vm.Status.Should().Be(ConstructionStatus.Constructing);
 
         next.SetResult(true);
-        await construct.WaitAsync(TimeSpan.FromSeconds(5));
+        await construct.WaitAsync(Liveness.HangGuard);
         vm.Status.Should().Be(ConstructionStatus.Constructed);
     }
 
@@ -100,7 +100,7 @@ public class DeferredLifecycleHookTests
 
         childDispatcher.BackgroundScheduler.AdvanceBy(1);
         childDispatcher.ForegroundScheduler.AdvanceBy(1);
-        await abandoned.WaitAsync(TimeSpan.FromSeconds(5));
+        await abandoned.WaitAsync(Liveness.HangGuard);
 
         child.Status.Should().Be(ConstructionStatus.Constructed);
         Volatile.Read(ref afterRan).Should().Be(0);
@@ -126,7 +126,7 @@ public class DeferredLifecycleHookTests
 
         childDispatcher.BackgroundScheduler.AdvanceBy(1);
         childDispatcher.ForegroundScheduler.AdvanceBy(1);
-        await abandoned.WaitAsync(TimeSpan.FromSeconds(5));
+        await abandoned.WaitAsync(Liveness.HangGuard);
 
         first.Status.Should().Be(ConstructionStatus.Constructed);
         second.Status.Should().Be(ConstructionStatus.Destructed);
@@ -176,9 +176,9 @@ public class DeferredLifecycleHookTests
         };
 
         foreground.Schedule(() => composite.Construct());
-        constructed.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        constructed.Wait(Liveness.HangGuard).Should().BeTrue();
         foreground.Schedule(() => composite.Destruct());
-        destructed.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        destructed.Wait(Liveness.HangGuard).Should().BeTrue();
 
         observed.Select(entry => entry.What).Should().Contain(
             ["child IsCurrent", "composite Current", "OnCurrentChanged", "onDestruct"]);
@@ -223,7 +223,7 @@ public class DeferredLifecycleHookTests
                 catch (Exception error) { failure = error; }
                 finally { done.Set(); }
             });
-            done.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            done.Wait(Liveness.HangGuard).Should().BeTrue();
             if (failure is not null) throw new InvalidOperationException("loop action failed", failure);
         }
 
@@ -232,7 +232,7 @@ public class DeferredLifecycleHookTests
         {
             Phase = phase;
             Run(() => start(root));
-            SpinWait.SpinUntil(() => root.Status == settled, TimeSpan.FromSeconds(5)).Should().BeTrue();
+            SpinWait.SpinUntil(() => root.Status == settled, Liveness.HangGuard).Should().BeTrue();
             Run(() => { }); // flush anything the terminal emission queued behind it
         }
 
@@ -419,7 +419,7 @@ public class DeferredLifecycleHookTests
         parent.Add(BackgroundChild(loop));
         parent.Add(sibling);
 
-        var construct = () => parent.ConstructAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        var construct = () => parent.ConstructAsync().WaitAsync(Liveness.HangGuard);
 
         await construct.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("foreground rejected work");
