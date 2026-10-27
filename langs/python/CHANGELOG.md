@@ -10,6 +10,10 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- The `AsyncRelayCommand.execute` docstring now says that `execute()` admits
+  the run before it returns and schedules it on the running event loop, or on
+  the VMx background loop when none runs, without calling `execute_async`.
+  Before, it said that `execute()` schedules `execute_async` (#792).
 - `ObservableDictionary`: an entry added from a `keys1` subscriber no longer
   puts `keys2` out of first-appearance order. `keys2` now updates first, so a
   `keys1` subscriber already sees the new key2. When a `keys2` subscriber
