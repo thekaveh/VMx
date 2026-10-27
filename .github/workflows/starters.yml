@@ -1,0 +1,60 @@
+name: starters
+
+# Clean-room starter verification (#410). It generates each starter outside the
+# checkout, installs the exact public package from the registry and runs the
+# starter's smoke test. It never runs on pull requests, so it gates no PR; a
+# failure means a public release or a toolchain update broke a starter.
+# Decision record: docs/maintenance/2026-10-27-application-starters.md.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: "37 5 * * 2"
+  workflow_dispatch:
+    inputs:
+      vmx-version:
+        description: "Exact @thekaveh/vmx version to verify (empty: the npm latest tag)"
+        required: false
+        default: ""
+
+concurrency:
+  group: starters-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  typescript-node:
+    timeout-minutes: 20
+    name: typescript-node starter (node${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No npm cache: the clean room resolves every package from the registry.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          package-manager-cache: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Generate and verify the starter in mktemp -d
+        env:
+          VMX_VERSION: ${{ inputs.vmx-version }}
+        run: |
+          target="$(mktemp -d)"
+          args=(--channel typescript-node --target "$target" --timeout 900)
+          if [ -n "$VMX_VERSION" ]; then
+            args+=(--version "$VMX_VERSION")
+          fi
+          python3 tools/create-starter.py "${args[@]}"
