@@ -375,9 +375,6 @@ struct ChildTransitionError: Error, CustomStringConvertible {
     var description: String { "Child '\(childName)' \(reason)" }
 }
 
-/// Walks a parent's children through one transition, waiting on each child
-/// left in its transient status (spec/02 §6). Cancellation never settles the
-/// deferral, so a disposed parent publishes nothing further.
 /// Supplies a child walk with children added while it runs (see
 /// `_transitionChildren`). A struct, not a bare closure, so trailing-closure
 /// matching of `after` stays unambiguous.
@@ -417,6 +414,9 @@ enum ChildWalkSeal {
     case abandoned
 }
 
+/// Walks a parent's children through one transition, waiting on each child
+/// left in its transient status (spec/02 §6). Cancellation never settles the
+/// deferral, so a disposed parent publishes nothing further.
 final class ChildTransitionWalker {
     private let lock = NSLock()
     private var children: [ComponentVMBase]
