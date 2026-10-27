@@ -253,3 +253,21 @@ teardown regression in the host.
 The Tk, WPF, and macOS host checks wait on the host's own idle, dispatcher, or
 run-loop signals with a bounded timeout, never on a fixed sleep. The Tk and WPF
 checks print every step they checked; the macOS test reports through XCTest.
+
+## 9.1.10. Application Starters
+
+A starter is a small application that runs on a published VMx package. The
+generator `tools/create-starter.py` writes it to a new directory outside the
+checkout. It installs the exact public version, checks the lockfile and runs
+the starter's smoke test. Each starter below passed against its public
+registry.
+
+| Starter         | Template                                                          | Verified package                                       | Host                    |
+| --------------- | ----------------------------------------------------------------- | ------------------------------------------------------ | ----------------------- |
+| TypeScript Node | [`starters/typescript-node/`](../../../starters/typescript-node/) | `@thekaveh/vmx` 3.30.0 from npm                        | Node 22 or later, no UI |
+| React and Vite  | [`starters/react-vite/`](../../../starters/react-vite/)           | `@thekaveh/vmx-react` 0.1.1 and `@thekaveh/vmx` 3.30.0 | Headless Chromium       |
+| Python console  | [`starters/python-console/`](../../../starters/python-console/)   | `vmx` 3.23.0 from PyPI                                 | CPython 3.10 or later   |
+| Swift package   | [`starters/swift-package/`](../../../starters/swift-package/)     | VMx 3.24.0 from the `v3.24.0` tag                      | macOS 13 or later       |
+
+Run `python3 tools/create-starter.py --channel <name>` with the name of the
+template directory. C# and Rust get starters after their packages publish.
