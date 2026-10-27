@@ -5,6 +5,8 @@ Conformance-level tests live in tests/conformance/.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 from vmx.collections import ObservableDictionary
@@ -505,6 +507,91 @@ def test_hub_add_index_follows_a_key_view_reentrant_remove_or_clear(
     d.add("a", "a", 0)
 
     assert indices == {("a", "a", 0): expected}
+
+
+@pytest.mark.parametrize("view", ["keys1", "keys2"])
+def test_key_views_keep_first_appearance_order_after_a_key_view_reentrant_add(
+    view: str,
+) -> None:
+    # #772: an entry added from a key-view subscriber keeps both views in
+    # first-appearance order.
+    d: ObservableDictionary[str, int, str] = ObservableDictionary()
+    nested: list[bool] = []
+
+    def add_nested(_: object) -> None:
+        if not nested:
+            nested.append(True)
+            d.add("b", 2, "nested")
+
+    getattr(d, view).on_item_added.subscribe(add_nested)
+    d.add("a", 1, "outer")
+
+    assert list(d.keys1) == ["a", "b"]
+    assert list(d.keys2) == [1, 2]
+
+
+def test_keys2_contains_the_new_key2_when_keys1_notifies() -> None:
+    d: ObservableDictionary[str, int, str] = ObservableDictionary()
+    seen: list[list[int]] = []
+    d.keys1.on_item_added.subscribe(lambda _: seen.append(list(d.keys2)))
+
+    d.add("a", 1, "outer")
+
+    assert seen == [[1]]
+
+
+def _add_from_a_keys2_handler(
+    d: ObservableDictionary[str, int, str], nested: Callable[[], object]
+) -> None:
+    """Run *nested* once, from the keys2 handler for key2 1, then add (a, 1)."""
+    done: list[bool] = []
+
+    def on_key2(event: tuple[int, int]) -> None:
+        if not done and event[0] == 1:
+            done.append(True)
+            nested()
+
+    d.keys2.on_item_added.subscribe(on_key2)
+    d.add("a", 1, "outer")
+
+
+def test_key_views_stay_empty_when_a_keys2_handler_removes_the_new_entry() -> None:
+    d: ObservableDictionary[str, int, str] = ObservableDictionary()
+
+    _add_from_a_keys2_handler(d, lambda: d.remove("a", 1))
+
+    assert len(d) == 0
+    assert list(d.keys1) == []
+    assert list(d.keys2) == []
+
+
+def test_keys1_lists_a_pending_key1_before_a_key_that_a_keys2_handler_adds() -> None:
+    d: ObservableDictionary[str, int, str] = ObservableDictionary()
+    d.add("x", 0, "first")
+
+    def nested() -> None:
+        d.add("c", 5, "nested")
+        d.add("a", 3, "nested")
+
+    _add_from_a_keys2_handler(d, nested)
+
+    assert list(d.keys1) == ["x", "a", "c"]
+    assert list(d.keys2) == [0, 1, 5, 3]
+
+
+def test_keys1_keeps_its_order_when_a_keys2_handler_moves_a_key1_later() -> None:
+    d: ObservableDictionary[str, int, str] = ObservableDictionary()
+    d.add("x", 0, "first")
+    d.add("y", 2, "second")
+
+    def nested() -> None:
+        d.add("x", 4, "nested")
+        d.remove("x", 0)
+
+    _add_from_a_keys2_handler(d, nested)
+
+    assert list(d.keys1) == ["x", "y", "a"]
+    assert list(d.keys2) == [2, 1, 4]
 
 
 def test_nan_key_is_one_axis_key_like_a_dict_key() -> None:

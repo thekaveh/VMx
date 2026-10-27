@@ -65,6 +65,9 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         # Insertion-ordered backing: list for order, dict for O(1) lookup.
         self._key_order: list[tuple[TKey1, TKey2]] = []
         self._data: dict[tuple[TKey1, TKey2], TValue] = {}
+        # Changes on every add, remove, and clear, so an add can tell whether a
+        # key-view subscriber changed the entries during its notification.
+        self._version = 0
 
         # Distinct-key observable views (mutated internally to stay in lockstep
         # with the entries). The public ``keys1``/``keys2`` hand out read-only
@@ -235,6 +238,7 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
 
         value = self._data.pop((key1, key2))
         self._key_order.remove((key1, key2))
+        self._version += 1
 
         # Update key-axis views: drop only when no other entry uses this key.
         if not any(_same_key(k[0], key1) for k in self._data):
@@ -254,6 +258,7 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         """Remove all entries and emit on_reset. Does NOT fire per-entry events."""
         self._data.clear()
         self._key_order.clear()
+        self._version += 1
         self._keys1.clear()
         self._keys2.clear()
         self._on_reset()
@@ -303,14 +308,40 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         # Capture the position now: a key-view or local subscriber may add another entry.
         index = len(self._key_order) - 1
         self._data[(key1, key2)] = value
+        self._version += 1
+        version = self._version
 
-        # Update key-axis views on first appearance only.
-        if not self._keys1_contains(key1):
-            self._keys1.add(key1)
+        # Update key-axis views on first appearance only. Keys2 first, so a
+        # Keys1 subscriber sees the new key2 and cannot put keys2 out of
+        # first-appearance order (#772).
+        # Decide by the entries, not by keys1: a pending key1 is not listed yet.
+        new_key1 = not any(_same_key(k1, key1) for k1, _ in self._key_order[:-1])
         if not self._keys2_contains(key2):
             self._keys2.add(key2)
+        if new_key1:
+            self._add_key1(key1, version)
 
         self._on_added(key1, key2, value, index)
+
+    def _add_key1(self, key1: TKey1, version: int) -> None:
+        # Append key1 unless a keys2 subscriber changed the entries. Then list
+        # key1 only while an entry still uses it, after every listed key that
+        # has an entry before key1's first entry.
+        if version == self._version:
+            self._keys1.add(key1)
+            return
+        if self._keys1_contains(key1) or not any(_same_key(k1, key1) for k1, _ in self._key_order):
+            return
+        earlier: set[TKey1] = set()
+        for k1, _ in self._key_order:
+            if _same_key(k1, key1):
+                break
+            earlier.add(k1)
+        position = 0
+        for index, listed in enumerate(self._keys1):
+            if listed in earlier:
+                position = index + 1
+        self._keys1.insert(position, key1)
 
     def _keys1_contains(self, key1: TKey1) -> bool:
         # ObservableList does not expose __contains__; iterate to check.

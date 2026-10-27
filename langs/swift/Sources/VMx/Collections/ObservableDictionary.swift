@@ -128,6 +128,9 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
     /// Live distinct-key views.
     private let keys1View = ObservableList<TKey1>()
     private let keys2View = ObservableList<TKey2>()
+    /// Changes on every add, remove, and clear, so an add can tell whether a
+    /// key-view subscriber changed the entries during its notification.
+    private var version = 0
 
     // MARK: - Private subjects
 
@@ -254,6 +257,7 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
         if let idx = keyOrder.firstIndex(of: key) {
             keyOrder.remove(at: idx)
         }
+        version &+= 1
 
         // Update key-axis views: decrement refcount; drop from the live view
         // when the count reaches zero (last entry for that distinct key).
@@ -292,6 +296,7 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
     public func clear() {
         keyOrder.removeAll()
         data.removeAll()
+        version &+= 1
         key1Counts.removeAll()
         key2Counts.removeAll()
         keys1View.clear()
@@ -325,16 +330,19 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
         // Capture the position now: a key-view or local subscriber may add another entry.
         let index = keyOrder.count - 1
         data[key] = value
+        version &+= 1
+        let addVersion = version
 
-        // Update key-axis views and refcounts: append to the live view only on
-        // first appearance of a distinct key.
+        // Count both axes before either live view notifies.
         let key1Count = key1Counts[key1] ?? 0
         key1Counts[key1] = key1Count + 1
-        if key1Count == 0 { keys1View.append(key1) }
-
         let key2Count = key2Counts[key2] ?? 0
         key2Counts[key2] = key2Count + 1
+
+        // Keys2 first, so a keys1 subscriber sees the new key2 and cannot put
+        // keys2 out of first-appearance order (#772).
         if key2Count == 0 { keys2View.append(key2) }
+        if key1Count == 0 { addKey1(key1, addVersion: addVersion) }
 
         // 1. Local granular event first (COL-022 ordering).
         itemAddedSubject.send(
@@ -353,6 +361,26 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
     private func currentIndex(of key: CompositeKey, capturedAt index: Int) -> Int {
         if index < keyOrder.count && keyOrder[index] == key { return index }
         return keyOrder.firstIndex(of: key) ?? -1
+    }
+
+    /// Appends `key1` unless a keys2 subscriber changed the entries. Then
+    /// `key1` is listed only while an entry still uses it, after every listed
+    /// key that has an entry before `key1`'s first entry.
+    private func addKey1(_ key1: TKey1, addVersion: Int) {
+        if addVersion == version {
+            keys1View.append(key1)
+            return
+        }
+        let listed = keys1View.toArray()
+        guard key1Counts[key1] != nil, !listed.contains(key1) else { return }
+
+        var earlier = Set<TKey1>()
+        for key in keyOrder {
+            if key.k1 == key1 { break }
+            earlier.insert(key.k1)
+        }
+        let position = (listed.lastIndex { earlier.contains($0) }).map { $0 + 1 } ?? 0
+        keys1View.insert(key1, at: position)
     }
 
     /// Remove the first occurrence of `key` from a live key view (by value).

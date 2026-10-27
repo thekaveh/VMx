@@ -10,6 +10,11 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `ObservableDictionary`: an entry added from a `keys1` subscriber no longer
+  puts `keys2` out of first-appearance order. `keys2` now updates first, so a
+  `keys1` subscriber already sees the new key2. When a `keys2` subscriber
+  changes the entries, the new key1 goes to its first-appearance position in
+  `keys1` (#772).
 - `ExpandableState.dispose()`, `DiscriminatorVM.dispose()` and
   `PagedComposition.dispose()` now dispose their subject when a completion
   observer raises, then re-raise that error. Before, a later subscriber

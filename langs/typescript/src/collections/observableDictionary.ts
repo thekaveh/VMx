@@ -94,6 +94,11 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   /** Distinct-key observable views. */
   readonly #keys1 = new ObservableList<TKey1>();
   readonly #keys2 = new ObservableList<TKey2>();
+  /**
+   * Changes on every add, remove, and clear, so an add can tell whether a
+   * key-view subscriber changed the entries during its notification.
+   */
+  #version = 0;
 
   readonly #itemAdded =
     new Subject<DictionaryItemAddedEvent<TKey1, TKey2, TValue>>();
@@ -228,6 +233,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
       );
     }
     this.#keyOrder.splice(orderIndex, 1);
+    this.#version += 1;
 
     // Update key-axis views: decrement refcount; drop from list when count reaches 0.
     const newKey1Count = (this.#key1Counts.get(key1) ?? 1) - 1;
@@ -295,6 +301,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   clear(): void {
     this.#data.clear();
     this.#keyOrder.length = 0;
+    this.#version += 1;
     this.#key1Counts.clear();
     this.#key2Counts.clear();
     this.#keys1.clear();
@@ -343,6 +350,33 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     return this.#data.get(key1)?.get(key2);
   }
 
+  /**
+   * Appends `key1` unless a keys2 subscriber changed the entries. Then `key1`
+   * is listed only while an entry still uses it, after every listed key that
+   * has an entry before `key1`'s first entry.
+   */
+  #addKey1(key1: TKey1, version: number): void {
+    if (version === this.#version) {
+      this.#keys1.push(key1);
+      return;
+    }
+    if (!this.#key1Counts.has(key1)) return;
+    for (const listed of this.#keys1) if (sameValueZero(listed, key1)) return;
+
+    const earlier = new Set<TKey1>();
+    for (const entry of this.#keyOrder) {
+      if (sameValueZero(entry.key1, key1)) break;
+      earlier.add(entry.key1);
+    }
+    let position = 0;
+    let index = 0;
+    for (const listed of this.#keys1) {
+      index += 1;
+      if (earlier.has(listed)) position = index;
+    }
+    this.#keys1.insert(position, key1);
+  }
+
   #removeAxisKey<Key>(keys: ObservableList<Key>, key: Key): void {
     let index = 0;
     for (const candidate of keys) {
@@ -352,9 +386,8 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
       }
       index += 1;
     }
-    throw new Error(
-      "ObservableDictionary invariant violated: counted key missing from axis view",
-    );
+    // A key counted by an add whose keys2 subscriber removes the entry is not
+    // listed yet (#772).
   }
 
   #internalAdd(
@@ -376,15 +409,18 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
       this.#data.set(key1, bucket);
     }
     bucket.set(key2, entry);
+    const version = ++this.#version;
 
-    // Update key-axis views and refcounts: push to list only on first appearance.
+    // Count both axes before either key view notifies.
     const key1Count = this.#key1Counts.get(key1) ?? 0;
     this.#key1Counts.set(key1, key1Count + 1);
-    if (key1Count === 0) this.#keys1.push(key1);
-
     const key2Count = this.#key2Counts.get(key2) ?? 0;
     this.#key2Counts.set(key2, key2Count + 1);
+
+    // Keys2 first, so a keys1 subscriber sees the new key2 and cannot put
+    // keys2 out of first-appearance order (#772).
     if (key2Count === 0) this.#keys2.push(key2);
+    if (key1Count === 0) this.#addKey1(key1, version);
 
     // 1. Local granular event first.
     this.#itemAdded.next({ key1, key2, value });

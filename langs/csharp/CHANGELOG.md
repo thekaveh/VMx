@@ -8,6 +8,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `ObservableDictionary`: an entry added from a `Keys1` subscriber no
+  longer puts `Keys2` out of first-appearance order. `Keys2` now updates
+  first, so a `Keys1` subscriber already sees the new Key2. When a `Keys2`
+  subscriber changes the entries, the new Key1 goes to its first-appearance
+  position in `Keys1` (#772).
 - Fixed: `ExpandableState.Dispose()` and `DiscriminatorVM<TKey>.Dispose()` now
   dispose their subject when a completion observer throws, then rethrow that
   exception. Before, a later subscriber received completion instead of
