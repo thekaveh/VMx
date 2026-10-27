@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.31.0 source** — implements `spec-v3.30.0` end-to-end. 429/429 library
+**v3.31.0 source** — implements `spec-v3.30.0` end-to-end. 431/431 library
 conformance IDs pass. Published runtime requires Node ≥ 20.5.0 and rxjs ≥ 7.8;
 repository tests require Node 20.19+, 22.13+, or 24+ for jsdom 29. Dual ESM + CJS
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
@@ -262,7 +262,7 @@ The opt-in `@thekaveh/vmx/notifications` sub-path export adds:
 
 ## 6. Conformance
 
-Implements all 429 library conformance IDs; THEME scenario IDs live in the
+Implements all 431 library conformance IDs; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blob/main/spec/12-conformance.md).
 
 Run the suite:

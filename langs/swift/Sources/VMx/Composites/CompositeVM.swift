@@ -24,6 +24,9 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
     public var onDestruct: (() -> Void)?
     public var autoConstructOnAdd: Bool
     public var asyncSelection: Bool
+    /// The order in which the composite destructs and disposes its children
+    /// (default `.insertion`, ADR-0161).
+    public var destructOrder: ChildOrder
 
     public init(
         name: String? = nil,
@@ -36,7 +39,8 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
         onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         autoConstructOnAdd: Bool = false,
-        asyncSelection: Bool = false
+        asyncSelection: Bool = false,
+        destructOrder: ChildOrder = .insertion
     ) {
         self.name = name
         self.hint = hint
@@ -49,6 +53,7 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
         self.onDestruct = onDestruct
         self.autoConstructOnAdd = autoConstructOnAdd
         self.asyncSelection = asyncSelection
+        self.destructOrder = destructOrder
     }
 }
 
@@ -65,6 +70,8 @@ open class CompositeVM<Child: ComponentVMBase>:
     private var populationJoined: [ComponentVMBase]?
     private let _autoConstructOnAdd: Bool
     private let _asyncSelection: Bool
+    /// The order of the destruct walk and the dispose cascade (ADR-0161).
+    let destructOrder: ChildOrder
     private var disposeRequested = false
     private var disposeDeferred = false
     private var membershipTransactionActive = false
@@ -130,13 +137,15 @@ open class CompositeVM<Child: ComponentVMBase>:
         currentSelector: (([Child]) -> Child?)? = nil,
         onCurrentChanged: ((Child?) -> Void)? = nil,
         autoConstructOnAdd: Bool = false,
-        asyncSelection: Bool = false
+        asyncSelection: Bool = false,
+        destructOrder: ChildOrder = .insertion
     ) {
         self.childrenFactory = childrenFactory
         self.currentSelector = currentSelector
         self.onCurrentChanged = onCurrentChanged
         self._autoConstructOnAdd = autoConstructOnAdd
         self._asyncSelection = asyncSelection
+        self.destructOrder = destructOrder
         super.init(
             name: name, hint: hint,
             hub: hub, dispatcher: dispatcher,
@@ -913,7 +922,8 @@ open class CompositeVM<Child: ComponentVMBase>:
         // Bypass asyncSelection for teardown: destruct is synchronous and must
         // clear the current slot before children are destructed.
         if membershipGate.withLock({ _current != nil }) { _applyCurrentChange(nil) }
-        let snapshot = snapshot()
+        // `destructOrder` orders the walk and its waits (ADR-0161).
+        let snapshot = destructOrder.arrange(snapshot())
         try _transitionChildren(snapshot, construct: false) {
             try super._onDestruct()
         }
@@ -966,8 +976,8 @@ open class CompositeVM<Child: ComponentVMBase>:
             guard let snapshot else { return }
             // A disposed child must not roll back a pending transition.
             _abandonChildTransition()
-            // LIFE-013: depth-first dispose children, then self.
-            for child in snapshot { child.dispose() }
+            // LIFE-013: depth-first dispose children in `destructOrder`, then self.
+            for child in destructOrder.arrange(snapshot) { child.dispose() }
             super.dispose()
             return
         }
@@ -984,6 +994,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             .hint(options.hint)
             .autoConstructOnAdd(options.autoConstructOnAdd)
             .asyncSelection(options.asyncSelection)
+            .destructOrder(options.destructOrder)
         if let name = options.name { b = b.name(name) }
         if let hub = options.hub { b = b._optionHub(hub) }
         if let dispatcher = options.dispatcher { b = b._optionDispatcher(dispatcher) }

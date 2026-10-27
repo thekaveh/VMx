@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use vmx::{
-    Command, ComponentVm, ComponentVmOptions, CompositeVm, CompositeVmOptions, GroupVm,
+    ChildOrder, Command, ComponentVm, ComponentVmOptions, CompositeVm, CompositeVmOptions, GroupVm,
     GroupVmOptions, Message, MessageHub, NullDispatcher, RelayCommand, ViewModelType,
 };
 
@@ -166,6 +166,7 @@ fn common_options_factories_match_builder_shape() {
         dispatcher: NullDispatcher::new(),
         children: Some(vec![composite_child]),
         auto_construct_on_add: false,
+        destruct_order: ChildOrder::Insertion,
     })
     .unwrap();
     let group = GroupVm::create(GroupVmOptions {
@@ -175,6 +176,7 @@ fn common_options_factories_match_builder_shape() {
         dispatcher: NullDispatcher::new(),
         children: Some(vec![child("b")]),
         auto_construct_on_add: false,
+        destruct_order: ChildOrder::Insertion,
     })
     .unwrap();
 
@@ -238,6 +240,7 @@ fn common_options_factories_match_builder_shape() {
         dispatcher: NullDispatcher::new(),
         children: Some(Vec::new()),
         auto_construct_on_add: false,
+        destruct_order: ChildOrder::Insertion,
     });
     assert!(matches!(
         &composite_missing_name,
@@ -250,9 +253,131 @@ fn common_options_factories_match_builder_shape() {
         dispatcher: NullDispatcher::new(),
         children: None,
         auto_construct_on_add: false,
+        destruct_order: ChildOrder::Insertion,
     });
     assert!(matches!(
         &group_missing_children,
         Err(vmx::VmxError::BuilderValidation(message)) if message.contains("children")
     ));
+}
+
+/// The senders of the Destructed messages that `destruct` publishes on `hub`,
+/// in publication order (ADR-0161).
+fn destruct_walk(hub: &MessageHub, destruct: impl FnOnce()) -> Vec<String> {
+    let recorder = hub.record(64);
+    destruct();
+    recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConstructionStatusChanged(change)
+                if change.status == vmx::ConstructionStatus::Destructed =>
+            {
+                Some(change.sender_name)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn shared_children(hub: &MessageHub) -> Vec<Child> {
+    ["a", "b", "c"]
+        .into_iter()
+        .map(|name| Child::with_model(name, name, hub.clone(), NullDispatcher::new()))
+        .collect()
+}
+
+/// BLD-004 — `destruct_order` defaults to `ChildOrder::Insertion`, and the
+/// setter returns a builder whose original keeps the default
+#[test]
+fn destruct_order_defaults_to_insertion_and_setter_is_immutable() {
+    assert_eq!(ChildOrder::default(), ChildOrder::Insertion);
+
+    let hub = MessageHub::new();
+    let child_hub = hub.clone();
+    let base = GroupVm::builder()
+        .name("group")
+        .services(hub.clone(), NullDispatcher::new())
+        .children(move || shared_children(&child_hub));
+    let reverse = base
+        .clone()
+        .destruct_order(ChildOrder::Reverse)
+        .build()
+        .unwrap();
+    reverse.construct().unwrap();
+    assert_eq!(
+        destruct_walk(&hub, || reverse.destruct().unwrap()),
+        ["c", "b", "a", "group"]
+    );
+    reverse.dispose().unwrap();
+
+    let default_group = base.build().unwrap();
+    default_group.construct().unwrap();
+    assert_eq!(
+        destruct_walk(&hub, || default_group.destruct().unwrap()),
+        ["a", "b", "c", "group"]
+    );
+
+    let hub = MessageHub::new();
+    let child_hub = hub.clone();
+    let base = CompositeVm::builder()
+        .name("composite")
+        .services(hub.clone(), NullDispatcher::new())
+        .children(move || shared_children(&child_hub));
+    let reverse = base
+        .clone()
+        .destruct_order(ChildOrder::Reverse)
+        .build()
+        .unwrap();
+    reverse.construct().unwrap();
+    assert_eq!(
+        destruct_walk(&hub, || reverse.destruct().unwrap()),
+        ["c", "b", "a", "composite"]
+    );
+    reverse.dispose().unwrap();
+
+    let default_composite = base.build().unwrap();
+    default_composite.construct().unwrap();
+    assert_eq!(
+        destruct_walk(&hub, || default_composite.destruct().unwrap()),
+        ["a", "b", "c", "composite"]
+    );
+}
+
+/// BLD-006 — the `destruct_order` options field matches the builder setter
+#[test]
+fn destruct_order_options_field_matches_builder() {
+    let hub = MessageHub::new();
+    let group = GroupVm::create(GroupVmOptions {
+        name: Some("group".to_string()),
+        hint: None,
+        hub: hub.clone(),
+        dispatcher: NullDispatcher::new(),
+        children: Some(shared_children(&hub)),
+        auto_construct_on_add: false,
+        destruct_order: ChildOrder::Reverse,
+    })
+    .unwrap();
+    group.construct().unwrap();
+    assert_eq!(
+        destruct_walk(&hub, || group.destruct().unwrap()),
+        ["c", "b", "a", "group"]
+    );
+
+    let hub = MessageHub::new();
+    let composite = CompositeVm::create(CompositeVmOptions {
+        name: Some("composite".to_string()),
+        hint: None,
+        hub: hub.clone(),
+        dispatcher: NullDispatcher::new(),
+        children: Some(shared_children(&hub)),
+        auto_construct_on_add: false,
+        destruct_order: ChildOrder::Insertion,
+    })
+    .unwrap();
+    composite.construct().unwrap();
+    assert_eq!(
+        destruct_walk(&hub, || composite.destruct().unwrap()),
+        ["a", "b", "c", "composite"]
+    );
 }

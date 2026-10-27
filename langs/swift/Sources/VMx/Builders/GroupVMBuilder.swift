@@ -14,6 +14,7 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
     private var _onConstruct: (() throws -> Void)?
     private var _onDestruct: (() -> Void)?
     private var _autoConstructOnAdd: Bool = false
+    private var _destructOrder: ChildOrder = .insertion
 
     public init() {}
 
@@ -55,6 +56,12 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
     public func autoConstructOnAdd(_ enabled: Bool = true) -> GroupVMBuilder<Child> {
         var c = self; c._autoConstructOnAdd = enabled; return c
     }
+    /// Sets the order in which the group destructs and disposes its
+    /// children (default `.insertion`). `.reverse` walks the last child
+    /// first; construct order does not change (ADR-0161).
+    public func destructOrder(_ order: ChildOrder) -> GroupVMBuilder<Child> {
+        var c = self; c._destructOrder = order; return c
+    }
     public func withNullServices() -> GroupVMBuilder<Child> {
         services(hub: NullMessageHub.INSTANCE, dispatcher: NullDispatcher.INSTANCE)
     }
@@ -74,7 +81,8 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
             hub: hub, dispatcher: dispatcher,
             childrenFactory: factory,
             onConstruct: _onConstruct, onDestruct: _onDestruct,
-            autoConstructOnAdd: _autoConstructOnAdd
+            autoConstructOnAdd: _autoConstructOnAdd,
+            destructOrder: _destructOrder
         )
     }
 }

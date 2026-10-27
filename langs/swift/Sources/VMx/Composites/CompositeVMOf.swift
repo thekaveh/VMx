@@ -20,7 +20,8 @@ public final class CompositeVMOf<Model, VM: ComponentVMBase>: CompositeVM<VM> {
         currentSelector: (([VM]) -> VM?)? = nil,
         onCurrentChanged: ((VM?) -> Void)? = nil,
         autoConstructOnAdd: Bool = false,
-        asyncSelection: Bool = false
+        asyncSelection: Bool = false,
+        destructOrder: ChildOrder = .insertion
     ) {
         super.init(
             name: name, hint: hint,
@@ -30,7 +31,8 @@ public final class CompositeVMOf<Model, VM: ComponentVMBase>: CompositeVM<VM> {
             currentSelector: currentSelector,
             onCurrentChanged: onCurrentChanged,
             autoConstructOnAdd: autoConstructOnAdd,
-            asyncSelection: asyncSelection
+            asyncSelection: asyncSelection,
+            destructOrder: destructOrder
         )
     }
 

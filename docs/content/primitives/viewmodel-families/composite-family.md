@@ -65,6 +65,11 @@ The composite owns both child lifecycle and selection messaging:
 
 - `construct()` waits for every child before the composite reports constructed
 - `destruct()` clears `Current` before destructing children
+- by default, destruct and dispose walk the children first child first;
+  `DestructOrder(ChildOrder.Reverse)` walks them last child first, so a child
+  that depends on an earlier sibling is torn down before it (ADR-0161).
+  Construct order does not change, and every child is still disposed before
+  the composite
 - `Current` changes publish the parent `Current` property and the affected
   children's `IsCurrent`
 - disposal requested by a current-changed callback is deferred until the
@@ -119,12 +124,13 @@ const tabs = CompositeVM.builder<ComponentVM>()
 
 ## 6.2.5.4. Cross-Language Surface
 
-| Concept               | C#                      | Python                 | TypeScript             | Swift                  | Rust                        |
-| --------------------- | ----------------------- | ---------------------- | ---------------------- | ---------------------- | --------------------------- |
-| Type                  | `CompositeVM<VM>`       | `CompositeVM[VM]`      | `CompositeVM<VM>`      | `CompositeVM<VM>`      | `CompositeVm<VM>`           |
-| Modeled type          | `CompositeVMOfM<M, VM>` | `CompositeVMOf[M, VM]` | `CompositeVMOf<M, VM>` | `CompositeVMOf<M, VM>` | `ModeledCompositeVm<M, VM>` |
-| Selection slot        | `Current`               | `current`              | `current`              | `current`              | `current()`                 |
-| Initial selector hook | `Current(selector)`     | `current(selector)`    | `current(selector)`    | `current(selector)`    | `current(selector)`         |
+| Concept               | C#                                  | Python                               | TypeScript                 | Swift                     | Rust                                  |
+| --------------------- | ----------------------------------- | ------------------------------------ | -------------------------- | ------------------------- | ------------------------------------- |
+| Type                  | `CompositeVM<VM>`                   | `CompositeVM[VM]`                    | `CompositeVM<VM>`          | `CompositeVM<VM>`         | `CompositeVm<VM>`                     |
+| Modeled type          | `CompositeVMOfM<M, VM>`             | `CompositeVMOf[M, VM]`               | `CompositeVMOf<M, VM>`     | `CompositeVMOf<M, VM>`    | `ModeledCompositeVm<M, VM>`           |
+| Selection slot        | `Current`                           | `current`                            | `current`                  | `current`                 | `current()`                           |
+| Initial selector hook | `Current(selector)`                 | `current(selector)`                  | `current(selector)`        | `current(selector)`       | `current(selector)`                   |
+| Reverse teardown      | `DestructOrder(ChildOrder.Reverse)` | `destruct_order(ChildOrder.REVERSE)` | `destructOrder("reverse")` | `destructOrder(.reverse)` | `destruct_order(ChildOrder::Reverse)` |
 
 ## 6.2.5.5. Example
 

@@ -5,8 +5,8 @@
 use super::{
     begin_membership_transaction, begin_parent_transfer, finish_with_first_error,
     finish_with_first_failure, lock, resume_unwind, retain_first_error, retain_first_failure,
-    retain_parent_transfer_commit, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher,
-    HashSet, LateStarts, LifecycleOperation, MembershipDisposeDisposition,
+    retain_parent_transfer_commit, Arc, AtomicBool, ChildOrder, ComponentCore, ConstructionStatus,
+    Dispatcher, HashSet, LateStarts, LifecycleOperation, MembershipDisposeDisposition,
     MembershipTransactionControl, MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher,
     ObservableList, Ordering, ParentHandle, ParentRegistration, ParentTransfer,
     PropertyChangedStream, RelayCommand, StartAttempt, ViewModelType, VmCollection, VmNode,
@@ -28,6 +28,8 @@ pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     items: ObservableList<T>,
     ownership: ParentRegistration,
     auto_construct_on_add: Arc<Mutex<bool>>,
+    /// The fixed order of the destruct and dispose walks (ADR-0161).
+    destruct_order: ChildOrder,
     /// Decides who starts a child an auto-construct add attaches.
     late_starts: LateStarts,
     dispose_requested: Arc<AtomicBool>,
@@ -64,6 +66,17 @@ impl<T: VmNode> GroupVm<T, NullDispatcher> {
 impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// Creates an empty group with explicit message and dispatch services.
     pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
+        Self::with_destruct_order(name, hub, dispatcher, ChildOrder::Insertion)
+    }
+
+    /// Creates an empty group whose destruct and dispose walks use
+    /// `destruct_order`. The order is fixed for the group's lifetime.
+    fn with_destruct_order(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        destruct_order: ChildOrder,
+    ) -> Self {
         let core = ComponentCore::new(name, hub.clone(), dispatcher);
         let items: ObservableList<T> = ObservableList::with_owner_name(core.id(), core.name(), hub);
         let dispose_requested = Arc::new(AtomicBool::new(false));
@@ -171,6 +184,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                     items: items.clone(),
                     ownership,
                     auto_construct_on_add: Arc::clone(&auto_construct_on_add),
+                    destruct_order,
                     late_starts: late_starts.clone(),
                     dispose_requested: Arc::clone(&dispose_requested),
                     membership_gate: Arc::clone(&membership_gate),
@@ -186,6 +200,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             items,
             ownership,
             auto_construct_on_add,
+            destruct_order,
             late_starts,
             dispose_requested,
             membership_gate,
@@ -803,10 +818,11 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         construct_group(&self.core, &self.items, &self.late_starts)
     }
 
-    /// Destructs the group and each current child in collection order.
+    /// Destructs the group and each current child, in collection order or,
+    /// with [`ChildOrder::Reverse`], from the last child to the first.
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
-            for item in self.items() {
+            for item in self.destruct_order.arrange(self.items()) {
                 self.core
                     .transition_child(&item, LifecycleOperation::Destruct)?;
             }
@@ -815,6 +831,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     }
 
     /// Disposes all children and the group, returning the first encountered error.
+    ///
+    /// Children are disposed in the group's [`ChildOrder`], each before the
+    /// group publishes `Disposed`.
     pub fn dispose(&self) -> VmxResult<()> {
         self.core.abandon_child_settle();
         let snapshot = loop {
@@ -851,7 +870,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             return finish_with_first_failure(first_failure);
         };
         let mut first_failure = None;
-        for item in snapshot {
+        for item in self.destruct_order.arrange(snapshot) {
             retain_first_failure(&mut first_failure, || item.dispose());
         }
         retain_first_failure(&mut first_failure, || {
@@ -1098,6 +1117,7 @@ pub struct GroupVmBuilder<T: VmNode, D: Dispatcher = NullDispatcher> {
     dispatcher: Option<D>,
     children: Option<ChildrenFactory<T>>,
     auto_construct_on_add: bool,
+    destruct_order: ChildOrder,
 }
 
 impl<T: VmNode> Default for GroupVmBuilder<T, NullDispatcher> {
@@ -1109,6 +1129,7 @@ impl<T: VmNode> Default for GroupVmBuilder<T, NullDispatcher> {
             dispatcher: None,
             children: None,
             auto_construct_on_add: false,
+            destruct_order: ChildOrder::Insertion,
         }
     }
 }
@@ -1148,6 +1169,13 @@ impl<T: VmNode, D: Dispatcher> GroupVmBuilder<T, D> {
         self
     }
 
+    /// Sets the order of the destruct and dispose walks (ADR-0161). The
+    /// default is [`ChildOrder::Insertion`]; construct order is unchanged.
+    pub fn destruct_order(mut self, order: ChildOrder) -> Self {
+        self.destruct_order = order;
+        self
+    }
+
     /// Validates the configuration and creates the populated group.
     ///
     /// The initial population is attached atomically without being constructed.
@@ -1164,7 +1192,7 @@ impl<T: VmNode, D: Dispatcher> GroupVmBuilder<T, D> {
         let dispatcher = self
             .dispatcher
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
-        let vm = GroupVm::with_services(name, hub, dispatcher);
+        let vm = GroupVm::with_destruct_order(name, hub, dispatcher, self.destruct_order);
         if let Some(hint) = self.hint {
             vm.core.set_hint(Some(hint));
         }
@@ -1195,6 +1223,7 @@ impl<T: VmNode> GroupVm<T, NullDispatcher> {
         builder
             .services(options.hub, options.dispatcher)
             .auto_construct_on_add(options.auto_construct_on_add)
+            .destruct_order(options.destruct_order)
             .build()
     }
 }
@@ -1213,6 +1242,9 @@ pub struct GroupVmOptions<T: VmNode> {
     pub children: Option<Vec<T>>,
     /// Whether later additions auto-construct in a constructed group.
     pub auto_construct_on_add: bool,
+    /// The order of the destruct and dispose walks; use
+    /// [`ChildOrder::Insertion`] for the default.
+    pub destruct_order: ChildOrder,
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 # ADR 0047 — v3 lifecycle/threading semantics: atomic transitions, foreground-marshalling, and transactional hook-failure rollback
 
-**Status:** Accepted (2026-06-28)
+**Status:** Accepted (2026-06-28; §2.5 child order amended by ADR-0161)
 **Spec version:** 3.0.0
 
 ## 1. Context
@@ -140,3 +140,12 @@ still leave the VM un-`construct()`-able without a recovery operation.
 - **Hold the per-VM lock across the user hook** — rejected: the hook is
   user-supplied and may run arbitrarily long or re-enter the VM; only the
   `Status` RMW + publish + trigger emission are serialized, not the hook body.
+
+## 5. Amendments
+
+- **ADR-0161** (2026-10-27, spec v3.30.0) amends §2.5. `GroupVM` and
+  `CompositeVM` accept an opt-in `Reverse` child order. With it, destruct and
+  dispose walk the children in reverse child order, and construct keeps child
+  order. The default order stays unspecified, and every flavor walks the
+  children first child first. Disposal stays depth-first (`LIFE-013`).
+  `GRP-014` and `COMP-046` constrain the order.

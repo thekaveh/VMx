@@ -18,9 +18,11 @@ import { emittedIndex } from "../collections/emittedIndex.js";
 import {
   constructWalk,
   deliverCollectionChanged,
+  destructWalk,
   maybeAutoConstruct,
 } from "../components/vmContainer.js";
 import { ViewModelType } from "../components/types.js";
+import type { ChildOrder } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
@@ -62,6 +64,7 @@ export class GroupVM<VM extends ComponentVMBase>
   implements IBatchable, IVmCollection<VM>, ObservableMembershipSource<VM>
 {
   readonly #autoConstructOnAdd: boolean;
+  readonly #destructOrder: ChildOrder;
   readonly #childrenFactory: (() => Iterable<VM>) | null;
   protected _children: VM[] = [];
   #populated = false;
@@ -82,6 +85,8 @@ export class GroupVM<VM extends ComponentVMBase>
     hub: IMessageHub;
     dispatcher: IDispatcher;
     autoConstructOnAdd?: boolean;
+    /** Defaults to `"insertion"` (spec/07 §2, ADR-0161). */
+    destructOrder?: ChildOrder;
     childrenFactory?: (() => Iterable<VM>) | null;
     onConstruct?: (() => void) | null;
     onDestruct?: (() => void) | null;
@@ -89,6 +94,7 @@ export class GroupVM<VM extends ComponentVMBase>
     super(opts);
     this.#groupParent = new GroupParent(this);
     this.#autoConstructOnAdd = opts.autoConstructOnAdd ?? false;
+    this.#destructOrder = opts.destructOrder ?? "insertion";
     this.#childrenFactory = opts.childrenFactory ?? null;
   }
 
@@ -441,7 +447,8 @@ export class GroupVM<VM extends ComponentVMBase>
   }
 
   protected override _onDestruct(): void {
-    this._transitionChildren([...this._children], false, () => {
+    // spec/07 §2: children are destructed in the configured order (ADR-0161).
+    this._transitionChildren(destructWalk(this._children, this.#destructOrder), false, () => {
       super._onDestruct();
     });
   }
@@ -453,10 +460,11 @@ export class GroupVM<VM extends ComponentVMBase>
       return;
     }
     this.#disposeRequested = true;
-    // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
+    // Dispose cascade (LIFE-013): depth-first dispose each child, in the
+    // configured destruct order (ADR-0161), then self.
     disposeBestEffort([
       () => this._abandonChildTransition(),
-      ...[...this._children].map((child) => () => child.dispose()),
+      ...destructWalk(this._children, this.#destructOrder).map((child) => () => child.dispose()),
       () => super.dispose(),
     ]);
   }
@@ -612,6 +620,7 @@ export class GroupVM<VM extends ComponentVMBase>
     if (o.hub !== undefined) b = b[optionHub](o.hub);
     if (o.dispatcher !== undefined) b = b[optionDispatcher](o.dispatcher);
     if (o.autoConstructOnAdd !== undefined) b = b.autoConstructOnAdd(o.autoConstructOnAdd);
+    if (o.destructOrder !== undefined) b = b.destructOrder(o.destructOrder);
     if (o.onConstruct !== undefined) b = b.onConstruct(o.onConstruct);
     if (o.onDestruct !== undefined) b = b.onDestruct(o.onDestruct);
     return b.build();
@@ -636,6 +645,8 @@ export interface GroupVMOptions<VM extends ComponentVMBase> {
   hint?: string;
   /** Optional auto-construct-on-add flag (default: false). */
   autoConstructOnAdd?: boolean;
+  /** Optional child destruct and dispose order (default: `"insertion"`; ADR-0161). */
+  destructOrder?: ChildOrder;
   /** Optional OnConstruct lifecycle callback. */
   onConstruct?: () => void;
   /** Optional OnDestruct lifecycle callback. */
@@ -652,6 +663,7 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
   #hub: IMessageHub | null = null;
   #dispatcher: IDispatcher | null = null;
   #autoConstructOnAdd = false;
+  #destructOrder: ChildOrder = "insertion";
   #childrenFactory: (() => Iterable<VM>) | null = null;
   #onConstruct: (() => void) | null = null;
   #onDestruct: (() => void) | null = null;
@@ -663,6 +675,7 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
       this.#hub = from.#hub;
       this.#dispatcher = from.#dispatcher;
       this.#autoConstructOnAdd = from.#autoConstructOnAdd;
+      this.#destructOrder = from.#destructOrder;
       this.#childrenFactory = from.#childrenFactory;
       this.#onConstruct = from.#onConstruct;
       this.#onDestruct = from.#onDestruct;
@@ -706,6 +719,18 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
     return b;
   }
 
+  /**
+   * Sets the order in which the group destructs and disposes its children
+   * (spec/07 §2, ADR-0161). `"insertion"` (the default) walks them first child
+   * first; `"reverse"` walks them last child first. Construct order is
+   * unchanged, and every child is still disposed before the group (LIFE-013).
+   */
+  destructOrder(order: ChildOrder): GroupVMBuilder<VM> {
+    const b = new GroupVMBuilder<VM>(this);
+    b.#destructOrder = order;
+    return b;
+  }
+
   children(factory: () => Iterable<VM>): GroupVMBuilder<VM> {
     const b = new GroupVMBuilder<VM>(this);
     b.#childrenFactory = factory;
@@ -736,6 +761,7 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
       hub: this.#hub,
       dispatcher: this.#dispatcher,
       autoConstructOnAdd: this.#autoConstructOnAdd,
+      destructOrder: this.#destructOrder,
       childrenFactory: this.#childrenFactory,
       onConstruct: this.#onConstruct,
       onDestruct: this.#onDestruct,

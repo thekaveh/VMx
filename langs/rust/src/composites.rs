@@ -6,11 +6,11 @@ use super::{
     begin_membership_transaction, begin_parent_transfer, catch_unwind, finish_with_first_error,
     finish_with_first_failure, lock, replace_locked, resume_unwind, retain_first_error,
     retain_first_failure, retain_parent_transfer_commit, Arc, AssertUnwindSafe, AtomicBool,
-    ComponentCore, ConstructionStatus, Dispatcher, HashSet, LateStarts, LifecycleOperation,
-    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
-    MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
-    ParentTransfer, PropertyChangedStream, RelayCommand, StartAttempt, TreeNode, ViewModelType,
-    VmNode, VmxError, VmxResult,
+    ChildOrder, ComponentCore, ConstructionStatus, Dispatcher, HashSet, LateStarts,
+    LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl,
+    MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher, ObservableList, Ordering,
+    ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream, RelayCommand,
+    StartAttempt, TreeNode, ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -280,6 +280,8 @@ pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     ownership: ParentRegistration,
     current: Arc<Mutex<Option<T>>>,
     auto_construct_on_add: Arc<Mutex<bool>>,
+    /// The fixed order of the destruct and dispose walks (ADR-0161).
+    destruct_order: ChildOrder,
     /// Decides who starts a child an auto-construct add attaches.
     late_starts: LateStarts,
     async_selection: Arc<Mutex<bool>>,
@@ -301,6 +303,17 @@ impl<T: VmNode> CompositeVm<T, NullDispatcher> {
 impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Creates an empty composite with explicit services.
     pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
+        Self::with_destruct_order(name, hub, dispatcher, ChildOrder::Insertion)
+    }
+
+    /// Creates an empty composite whose destruct and dispose walks use
+    /// `destruct_order`. The order is fixed for the composite's lifetime.
+    fn with_destruct_order(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        destruct_order: ChildOrder,
+    ) -> Self {
         let core = ComponentCore::new(name, hub.clone(), dispatcher);
         let items: ObservableList<T> = ObservableList::with_owner_name(core.id(), core.name(), hub);
         let current = Arc::new(Mutex::new(None));
@@ -511,6 +524,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     ownership,
                     current: Arc::clone(&current),
                     auto_construct_on_add: Arc::clone(&auto_construct_on_add),
+                    destruct_order,
                     late_starts: late_starts.clone(),
                     async_selection: Arc::clone(&async_selection),
                     current_selector: Arc::clone(&current_selector),
@@ -530,6 +544,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             ownership,
             current,
             auto_construct_on_add,
+            destruct_order,
             late_starts,
             async_selection,
             current_selector,
@@ -1226,11 +1241,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         }
     }
 
-    /// Clears selection and destructs all children.
+    /// Clears selection and destructs all children, in collection order or,
+    /// with [`ChildOrder::Reverse`], from the last child to the first.
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             self.assign_current(None);
-            for item in self.items() {
+            for item in self.destruct_order.arrange(self.items()) {
                 self.core
                     .transition_child(&item, LifecycleOperation::Destruct)?;
             }
@@ -1239,6 +1255,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     /// Disposes all children and returns the first encountered error.
+    ///
+    /// Children are disposed in the composite's [`ChildOrder`], each before
+    /// the composite publishes `Disposed`.
     pub fn dispose(&self) -> VmxResult<()> {
         self.core.abandon_child_settle();
         let snapshot = loop {
@@ -1275,7 +1294,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             return finish_with_first_failure(first_failure);
         };
         let mut first_failure = None;
-        for item in snapshot {
+        for item in self.destruct_order.arrange(snapshot) {
             retain_first_failure(&mut first_failure, || item.dispose());
         }
         retain_first_failure(&mut first_failure, || {
@@ -1853,6 +1872,7 @@ pub struct CompositeVmBuilder<T: VmNode, D: Dispatcher = NullDispatcher> {
     auto_construct_on_add: bool,
     async_selection: bool,
     current_selector: Option<CurrentSelector<T>>,
+    destruct_order: ChildOrder,
 }
 
 impl<T: VmNode> Default for CompositeVmBuilder<T, NullDispatcher> {
@@ -1866,6 +1886,7 @@ impl<T: VmNode> Default for CompositeVmBuilder<T, NullDispatcher> {
             auto_construct_on_add: false,
             async_selection: false,
             current_selector: None,
+            destruct_order: ChildOrder::Insertion,
         }
     }
 }
@@ -1911,6 +1932,13 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
         self
     }
 
+    /// Sets the order of the destruct and dispose walks (ADR-0161). The
+    /// default is [`ChildOrder::Insertion`]; construct order is unchanged.
+    pub fn destruct_order(mut self, order: ChildOrder) -> Self {
+        self.destruct_order = order;
+        self
+    }
+
     /// Supplies the selector applied after construction.
     pub fn current<F>(mut self, selector: F) -> Self
     where
@@ -1934,7 +1962,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
         let dispatcher = self
             .dispatcher
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
-        let vm = CompositeVm::with_services(name, hub, dispatcher);
+        let vm = CompositeVm::with_destruct_order(name, hub, dispatcher, self.destruct_order);
         if let Some(hint) = self.hint {
             vm.core.set_hint(Some(hint));
         }
@@ -1969,6 +1997,7 @@ impl<T: VmNode> CompositeVm<T, NullDispatcher> {
         builder
             .services(options.hub, options.dispatcher)
             .auto_construct_on_add(options.auto_construct_on_add)
+            .destruct_order(options.destruct_order)
             .build()
     }
 }
@@ -1987,6 +2016,9 @@ pub struct CompositeVmOptions<T: VmNode> {
     pub children: Option<Vec<T>>,
     /// Whether later additions auto-construct.
     pub auto_construct_on_add: bool,
+    /// The order of the destruct and dispose walks; use
+    /// [`ChildOrder::Insertion`] for the default.
+    pub destruct_order: ChildOrder,
 }
 
 type ModelFactory<M> = Arc<dyn Fn() -> Vec<M> + Send + Sync>;
@@ -2226,6 +2258,7 @@ pub struct ModeledCompositeVmBuilder<
     child_model_to_child_view_model: Option<ChildModelMapper<M, T>>,
     async_selection: bool,
     current_selector: Option<CurrentSelector<T>>,
+    destruct_order: ChildOrder,
 }
 
 impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> Default
@@ -2240,6 +2273,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> Def
             child_model_to_child_view_model: None,
             async_selection: false,
             current_selector: None,
+            destruct_order: ChildOrder::Insertion,
         }
     }
 }
@@ -2284,6 +2318,13 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         self
     }
 
+    /// Sets the order of the destruct and dispose walks (ADR-0161). The
+    /// default is [`ChildOrder::Insertion`]; construct order is unchanged.
+    pub fn destruct_order(mut self, order: ChildOrder) -> Self {
+        self.destruct_order = order;
+        self
+    }
+
     /// Supplies the selector applied after child construction.
     pub fn current<F>(mut self, selector: F) -> Self
     where
@@ -2314,7 +2355,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
                 )
             })?;
         let vm = ModeledCompositeVm {
-            inner: CompositeVm::with_services(name, hub, dispatcher),
+            inner: CompositeVm::with_destruct_order(name, hub, dispatcher, self.destruct_order),
             children_models,
             child_model_to_child_view_model,
             loaded: Arc::new(Mutex::new(false)),

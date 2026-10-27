@@ -8,6 +8,7 @@ import { ComponentVMBase } from "../components/componentVMBase.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import type { ChildOrder } from "../components/types.js";
 
 const optionHub = Symbol("optionHub");
 const optionDispatcher = Symbol("optionDispatcher");
@@ -23,6 +24,7 @@ export class CompositeVM<VM extends ComponentVMBase> extends CompositeVMBase<VM>
     dispatcher: IDispatcher;
     asyncSelection?: boolean;
     autoConstructOnAdd?: boolean;
+    destructOrder?: ChildOrder;
     childrenFactory?: (() => Iterable<VM>) | null;
     onConstruct?: (() => void) | null;
     onDestruct?: (() => void) | null;
@@ -63,6 +65,7 @@ export class CompositeVM<VM extends ComponentVMBase> extends CompositeVMBase<VM>
     if (o.dispatcher !== undefined) b = b[optionDispatcher](o.dispatcher);
     if (o.asyncSelection !== undefined) b = b.asyncSelection(o.asyncSelection);
     if (o.autoConstructOnAdd !== undefined) b = b.autoConstructOnAdd(o.autoConstructOnAdd);
+    if (o.destructOrder !== undefined) b = b.destructOrder(o.destructOrder);
     if (o.current !== undefined) b = b.current(o.current);
     if (o.onCurrentChanged !== undefined) b = b.onCurrentChanged(o.onCurrentChanged);
     if (o.onConstruct !== undefined) b = b.onConstruct(o.onConstruct);
@@ -91,6 +94,8 @@ export interface CompositeVMOptions<VM extends ComponentVMBase> {
   asyncSelection?: boolean;
   /** Optional auto-construct-on-add flag (default: false). */
   autoConstructOnAdd?: boolean;
+  /** Optional child destruct and dispose order (default: `"insertion"`; ADR-0161). */
+  destructOrder?: ChildOrder;
   /** Optional initial-current selector (see ADR-0042). */
   current?: (xs: Iterable<VM>) => VM | null;
   /** Optional current-changed callback (see ADR-0042). */
@@ -112,6 +117,7 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
   #dispatcher: IDispatcher | null = null;
   #asyncSelection = false;
   #autoConstructOnAdd = false;
+  #destructOrder: ChildOrder = "insertion";
   #childrenFactory: (() => Iterable<VM>) | null = null;
   #onConstruct: (() => void) | null = null;
   #onDestruct: (() => void) | null = null;
@@ -126,6 +132,7 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
       this.#dispatcher = from.#dispatcher;
       this.#asyncSelection = from.#asyncSelection;
       this.#autoConstructOnAdd = from.#autoConstructOnAdd;
+      this.#destructOrder = from.#destructOrder;
       this.#childrenFactory = from.#childrenFactory;
       this.#onConstruct = from.#onConstruct;
       this.#onDestruct = from.#onDestruct;
@@ -174,6 +181,19 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
   autoConstructOnAdd(value: boolean): CompositeVMBuilder<VM> {
     const b = new CompositeVMBuilder<VM>(this);
     b.#autoConstructOnAdd = value;
+    return b;
+  }
+
+  /**
+   * Sets the order in which the composite destructs and disposes its children
+   * (spec/06 §5, ADR-0161). `"insertion"` (the default) walks them first child
+   * first; `"reverse"` walks them last child first. Construct order is
+   * unchanged, and every child is still disposed before the composite
+   * (LIFE-013).
+   */
+  destructOrder(order: ChildOrder): CompositeVMBuilder<VM> {
+    const b = new CompositeVMBuilder<VM>(this);
+    b.#destructOrder = order;
     return b;
   }
 
@@ -237,6 +257,7 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
       dispatcher: this.#dispatcher,
       asyncSelection: this.#asyncSelection,
       autoConstructOnAdd: this.#autoConstructOnAdd,
+      destructOrder: this.#destructOrder,
       childrenFactory: this.#childrenFactory,
       onConstruct: this.#onConstruct,
       onDestruct: this.#onDestruct,

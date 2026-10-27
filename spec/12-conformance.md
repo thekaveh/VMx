@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 429 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 431 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -1769,11 +1769,11 @@ virtual time 0
 
 ______________________________________________________________________
 
-## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..045`)
+## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..046`)
 
 Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
-see ADR-0016), and builder hooks (COMP-025..026, see ADR-0042) additions to
-chapter 06.
+see ADR-0016), builder hooks (COMP-025..026, see ADR-0042), and the destruct
+order option (COMP-046, see ADR-0161) additions to chapter 06.
 
 ### COMP-014 — SearchableState defaults to empty search term
 
@@ -2087,6 +2087,20 @@ reaches the hub
 **And** mutating through a forwarding composite wrapper publishes each change
 once, sent by the wrapped composite
 
+### COMP-046 — Reverse destruct order tears down children last first
+
+**Given** a `CompositeVM<VM>` `p` built with `DestructOrder(ChildOrder.Reverse)`
+and children `a`, `b`, `c` in that order
+**When** `p` is constructed, destructed, constructed again, reconstructed and
+disposed
+**Then** destruct, including the destruct phase of `reconstruct()`, settles
+`c`, `b`, `a` in that order
+**And** dispose disposes `c`, `b`, `a` in that order, before `p` publishes
+`Disposed`
+**And** construct, including the construct phase of `reconstruct()`, settles
+the children in the same order as a composite built without the option
+**And** the modeled composite builder and the options form give the same order
+
 ### SRCH-001 — source signal refreshes an unchanged search term
 
 **Given** a `SearchableState` over `["one"]` with an optional source-change
@@ -2156,7 +2170,7 @@ is produced where the flavor exposes a pushed filtered output
 
 ______________________________________________________________________
 
-## 21. GroupVM v2.0 additions (`GRP-007..013`)
+## 21. GroupVM v2.0 additions (`GRP-007..014`)
 
 Search/filter additions to chapter 07. The helper is the same
 `SearchableState<TItem>` documented for composites (see ADR-0014); group-context
@@ -2216,6 +2230,20 @@ disposed, publishes nothing
 **Then** nothing from `g` reaches `H` inside the batch and exactly one `Reset`
 message follows the local `Reset` on outermost completion
 **And** an empty batch publishes nothing
+
+### GRP-014 — Reverse destruct order tears down children last first
+
+**Given** a `GroupVM<VM>` `g` built with `DestructOrder(ChildOrder.Reverse)`
+and children `a`, `b`, `c` in that order
+**When** `g` is constructed, destructed, constructed again, reconstructed and
+disposed
+**Then** destruct, including the destruct phase of `reconstruct()`, settles
+`c`, `b`, `a` in that order
+**And** dispose disposes `c`, `b`, `a` in that order, before `g` publishes
+`Disposed`
+**And** construct, including the construct phase of `reconstruct()`, settles
+the children in the same order as a group built without the option
+**And** the options form gives the same order
 
 ______________________________________________________________________
 

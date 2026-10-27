@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.30.0 source** — implements `spec-v3.30.0` end-to-end. 429/429 library conformance IDs
+**v3.30.0 source** — implements `spec-v3.30.0` end-to-end. 431/431 library conformance IDs
 pass. Supports Python 3.10–3.14.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations.
@@ -132,6 +132,7 @@ from vmx import ComponentVM, ConstructionStatus, MessageHub, RelayCommand, RxDis
 | `ReadonlyComponentVMOf[M]`                        | Leaf VM with read-only model                                                        |
 | `CompositeVM[VM]` / `CompositeVMOf[M,VM]`         | Ordered collection + current slot                                                   |
 | `GroupVM[VM]`                                     | Collection without current selection                                                |
+| `ChildOrder`                                      | Group/composite `destruct_order(...)` option: `INSERTION` (default) or `REVERSE`    |
 | `VmCollectionProto[VM]`                           | Shared group/composite collection + atomic move                                     |
 | `SelectableVmCollectionProto[VM]`                 | Composite-only current-selection extension                                          |
 | `AggregateVM1..6[…]`                              | Fixed-arity named component slots (ADR-0034)     |
@@ -216,7 +217,7 @@ The opt-in `vmx.notifications` subpackage adds:
 
 ## 6. Conformance
 
-Implements all 429 library conformance IDs; THEME scenario IDs live in the
+Implements all 431 library conformance IDs; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blob/main/spec/12-conformance.md).
 [`tests/conformance/README.md`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/conformance/README.md)
 documents the test-layout conventions.

@@ -21,6 +21,7 @@ public sealed class GroupVMBuilder<VM>
     // ── Optional ──────────────────────────────────────────────────────────────
     private readonly string _hint;
     private readonly bool _autoConstructOnAdd;
+    private readonly ChildOrder _destructOrder;
     private readonly Func<IEnumerable<VM>>? _childrenFactory;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
@@ -38,7 +39,8 @@ public sealed class GroupVMBuilder<VM>
         bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
-        Action? onDestruct)
+        Action? onDestruct,
+        ChildOrder destructOrder)
     {
         _name = name;
         _hub = hub;
@@ -48,6 +50,7 @@ public sealed class GroupVMBuilder<VM>
         _childrenFactory = childrenFactory;
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
+        _destructOrder = destructOrder;
     }
 
     /// <summary>Sets the required Name.</summary>
@@ -92,6 +95,13 @@ public sealed class GroupVMBuilder<VM>
     public GroupVMBuilder<VM> AutoConstructOnAdd(bool autoConstructOnAdd)
         => With(autoConstructOnAdd: autoConstructOnAdd);
 
+    /// <summary>
+    /// Sets the order in which destruct and dispose walk the children
+    /// (default: <see cref="ChildOrder.Insertion"/>). <see cref="ChildOrder.Reverse"/>
+    /// tears down the last child first; construct order is unchanged (ADR-0161).
+    /// </summary>
+    public GroupVMBuilder<VM> DestructOrder(ChildOrder order) => With(destructOrder: order);
+
     /// <summary>Sets the optional OnConstruct lifecycle callback.</summary>
     public GroupVMBuilder<VM> OnConstruct(Action callback) => With(onConstruct: callback);
 
@@ -111,7 +121,7 @@ public sealed class GroupVMBuilder<VM>
         return GroupVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,
             _autoConstructOnAdd, _childrenFactory,
-            _onConstruct, _onDestruct);
+            _onConstruct, _onDestruct, _destructOrder);
     }
 
     private GroupVMBuilder<VM> With(
@@ -122,7 +132,8 @@ public sealed class GroupVMBuilder<VM>
         bool? autoConstructOnAdd = null,
         Func<IEnumerable<VM>>? childrenFactory = null,
         Action? onConstruct = null,
-        Action? onDestruct = null)
+        Action? onDestruct = null,
+        ChildOrder? destructOrder = null)
         => new(
             name ?? _name,
             hub ?? _hub,
@@ -131,5 +142,6 @@ public sealed class GroupVMBuilder<VM>
             autoConstructOnAdd ?? _autoConstructOnAdd,
             childrenFactory ?? _childrenFactory,
             onConstruct ?? _onConstruct,
-            onDestruct ?? _onDestruct);
+            onDestruct ?? _onDestruct,
+            destructOrder ?? _destructOrder);
 }

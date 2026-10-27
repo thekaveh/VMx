@@ -417,6 +417,33 @@ pub enum LifecycleOperation {
     Dispose,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+/// The order in which a [`crate::GroupVm`] or [`crate::CompositeVm`] destructs
+/// and disposes its children (ADR-0161).
+///
+/// Construct order is never affected: construction always walks the children
+/// from the first index to the last. Disposal stays depth-first in both orders:
+/// every child is disposed before the container publishes `Disposed`.
+pub enum ChildOrder {
+    #[default]
+    /// Destruct and dispose children from the first index to the last, as
+    /// construct does. This is the default.
+    Insertion,
+    /// Destruct and dispose children from the last index to the first, so a
+    /// later child is torn down before the earlier children it depends on.
+    Reverse,
+}
+
+impl ChildOrder {
+    /// Returns `children` in this destruct and dispose order.
+    pub(crate) fn arrange<T>(self, mut children: Vec<T>) -> Vec<T> {
+        if self == ChildOrder::Reverse {
+            children.reverse();
+        }
+        children
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Mutation kinds carried by collection-change messages.
 pub enum CollectionChangeAction {

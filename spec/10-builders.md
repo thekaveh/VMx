@@ -65,6 +65,9 @@ Optional fields have these defaults if not set:
 - `Hint` → empty string
 - `Type` → derived from the VM class (e.g., `Composite` for `CompositeVM.Builder()`)
 - `AsyncSelection` → false (composites only)
+- `DestructOrder` → `Insertion` (`GroupVM` and both `CompositeVM` builders;
+  `Reverse` makes destruct and dispose walk the children last child first,
+  ADR-0161)
 - `Background` → `false` (component VM builders, including modeled/read-only
   variants; enables async `construct()`/`destruct()` on
   `IDispatcher.Background`)
@@ -126,6 +129,11 @@ Each flavor exposes the form idiomatically:
   each taking an options struct (`ComponentVmOptions`, `CompositeVmOptions`,
   `GroupVmOptions`) and returning `VmxResult<Self>`. These factories exist only
   for the null-dispatcher form (`NullDispatcher`).
+
+The optional fields include the `GroupVM<VM>` and `CompositeVM<VM>`
+destruct-order field (`DestructOrder` in C#, `destruct_order` in Python and
+Rust, `destructOrder` in TypeScript and Swift; ADR-0161). It defaults to
+`Insertion`, like the builder setter.
 
 The form is **semantically identical** to the builder: implementations MUST route
 it through the same builder (or shared validation) so that

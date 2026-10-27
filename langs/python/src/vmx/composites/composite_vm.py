@@ -39,6 +39,7 @@ from vmx.components.base import (
     _ParentCompositeVM,
     _ParentTransfer,
 )
+from vmx.components.child_order import ChildOrder, _in_destruct_order
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -79,6 +80,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         on_destruct: Callable[[], None] | None = None,
         current_selector: Callable[[Iterable[VM]], VM | None] | None = None,
         on_current_changed: Callable[[VM | None], None] | None = None,
+        destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> None:
         super().__init__(
             name=name,
@@ -90,6 +92,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         )
         self._async_selection: bool = async_selection
         self._auto_construct_on_add: bool = auto_construct_on_add
+        # Fixed at build time: the destruct walk and dispose cascade order (ADR-0161).
+        self._destruct_order: ChildOrder = destruct_order
         self._children: list[VM] = []
         self._current: VM | None = None
         self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
@@ -791,12 +795,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._complete_lifecycle_hook_after(walking)
 
     def _on_destruct(self) -> None:
-        """Set current=None then destruct all children."""
+        """Set current=None then destruct all children in the destruct order."""
         if self.current is not None:
             self._set_current(None, async_sel=False)
         self._complete_lifecycle_hook_after(
             self._transition_children(
-                list(self.snapshot()),
+                _in_destruct_order(self.snapshot(), self._destruct_order),
                 construct=False,
                 after=super()._on_destruct,
             )
@@ -818,7 +822,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._dispose_deferred = True
                 return
             self._dispose_requested = True
-            snapshot = list(self._children)
+            snapshot = _in_destruct_order(self._children, self._destruct_order)
         # The cascade runs at the base's admitted-hook boundary (LIFE-015): a
         # foreign dispose cleans no child while this container's hook runs. No
         # lock is held here, so the hook can finish while this call waits.
@@ -1144,6 +1148,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         on_destruct: Callable[[], None] | None = None,
         current_selector: Callable[[Iterable[VM]], VM | None] | None = None,
         on_current_changed: Callable[[VM | None], None] | None = None,
+        destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> None:
         super().__init__(
             name=name,
@@ -1156,6 +1161,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
             on_destruct=on_destruct,
             current_selector=current_selector,
             on_current_changed=on_current_changed,
+            destruct_order=destruct_order,
         )
         self._children_factory: Callable[[], Iterable[VM]] | None = children_factory
 
@@ -1179,6 +1185,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         on_current_changed: Callable[[VM | None], None] | None = None,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
+        destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> CompositeVM[VM]:
         """Construct a :class:`CompositeVM` from keyword options in one call.
 
@@ -1194,6 +1201,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
             builder.hint(hint)
             .async_selection(async_selection)
             .auto_construct_on_add(auto_construct_on_add)
+            .destruct_order(destruct_order)
         )
         if children is not None:
             builder = builder.children(children)
@@ -1249,6 +1257,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
         on_destruct: Callable[[], None] | None = None,
         current_selector: Callable[[Iterable[VM]], VM | None] | None = None,
         on_current_changed: Callable[[VM | None], None] | None = None,
+        destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> None:
         super().__init__(
             name=name,
@@ -1261,6 +1270,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
             on_destruct=on_destruct,
             current_selector=current_selector,
             on_current_changed=on_current_changed,
+            destruct_order=destruct_order,
         )
         self._children_models: Callable[[], Iterable[M]] = children_models
         self._child_model_to_child_vm: Callable[[M], VM] = child_model_to_child_vm
