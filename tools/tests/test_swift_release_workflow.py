@@ -100,12 +100,14 @@ def test_swift_release_uses_changelog_notes_after_verification() -> None:
     assert "--notes-file /tmp/swift-release-notes.md" in workflow
 
 
-def test_swift_release_uses_portable_awk_next_heading_pattern() -> None:
+def test_swift_release_uses_the_shared_release_notes_extractor() -> None:
     workflow = _workflow("release.yml")
     swift_job = workflow.split("\n  swift-release:\n", maxsplit=1)[1]
 
-    assert r"capture && /^## \[/ { exit }" in swift_job
-    assert r"capture && /^## \\[/ { exit }" not in swift_job
+    assert (
+        'awk -v v="$tag_version" -f tools/extract-release-notes.awk langs/swift/CHANGELOG.md'
+        in swift_job
+    )
 
 
 def test_release_contract_suite_triggers_on_swift_workflow_changes() -> None:

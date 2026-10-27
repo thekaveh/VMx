@@ -14,6 +14,22 @@ def normalized(path: str) -> str:
     return os.path.normcase(os.path.join(os.path.realpath(directory), filename))
 
 
+# The identity step records its virtualenv and executable here (in GITHUB_ENV), so
+# a later --venv guard in the same job checks the executable without repeating it.
+CAPTURED_VENV = "VMX_PYTHON_VENV"
+CAPTURED_EXECUTABLE = "VMX_PYTHON_EXECUTABLE"
+
+
+def captured_executable(venv: str | None) -> str | None:
+    """Return the executable captured for this virtualenv, if a capture recorded one."""
+    captured_venv = os.environ.get(CAPTURED_VENV)
+    if venv is None or not captured_venv:
+        return None
+    if os.path.normcase(os.path.realpath(venv)) != os.path.normcase(captured_venv):
+        return None
+    return os.environ.get(CAPTURED_EXECUTABLE)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--expected-version", default=os.environ.get("UV_PYTHON"))
@@ -24,6 +40,8 @@ def main() -> int:
     parser.add_argument("--capture-output", action="store_true")
     parser.add_argument("python_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.expected_executable is None:
+        args.expected_executable = captured_executable(args.venv)
     actual = f"{sys.version_info.major}.{sys.version_info.minor}"
     print(
         f"Python identity: requested={args.expected_version} actual={actual} "
@@ -56,6 +74,13 @@ def main() -> int:
             parser.exit(1, "Python executable cannot contain newlines in a step output\n")
         with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
             output.write(f"executable={sys.executable}\n")
+        environment = os.environ.get("GITHUB_ENV")
+        if args.venv and environment:
+            venv = os.path.normcase(os.path.realpath(args.venv))
+            if "\n" in venv or "\r" in venv:
+                parser.exit(1, "Python virtualenv path cannot contain newlines in GITHUB_ENV\n")
+            with Path(environment).open("a", encoding="utf-8") as env:
+                env.write(f"{CAPTURED_VENV}={venv}\n{CAPTURED_EXECUTABLE}={sys.executable}\n")
     child_args = args.python_args
     if child_args and child_args[0] == "--":
         child_args = child_args[1:]

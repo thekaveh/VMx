@@ -159,10 +159,7 @@ def test_both_matrices_capture_identity_and_exercise_mismatch_with_cache_evidenc
             "mypy --strict src/vmx",
             "pytest",
         ):
-            assert (
-                '--expected-executable "${{ steps.interpreter.outputs.executable }}" '
-                f"-- -m {module}" in job
-            )
+            assert f"--venv .venv -- -m {module}" in job
     assert '"tools/check-python-interpreter.py"' in _workflow("python.yml")
 
 
@@ -240,6 +237,13 @@ def test_matrix_shapes_and_quality_gates_remain_intact() -> None:
         assert "continue-on-error" not in job
     assert "-m pytest --cov=vmx --cov-report=xml -v" in ci
     assert "files: langs/python/coverage.xml" in ci
+
+
+def test_guards_rely_on_the_captured_executable_instead_of_repeating_it() -> None:
+    # #783: the identity step records the executable in GITHUB_ENV, and later
+    # --venv guards read it, so no guard repeats --expected-executable.
+    for name in ("python.yml", "release.yml", "conformance.yml"):
+        assert "--expected-executable" not in _workflow(name), name
 
 
 def test_python_run_commands_assert_one_explicit_environment_context() -> None:
