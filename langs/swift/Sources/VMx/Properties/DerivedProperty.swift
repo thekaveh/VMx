@@ -18,7 +18,8 @@
 //     (DPROP-007/008).
 //   - `dispose()` cancels all source subscriptions, completes `valueChanged`,
 //     and halts further recomputes; `value` retains its last reading
-//     (DPROP-011). Idempotent.
+//     (DPROP-011). A disposed property rejects writes: `canSet` is false and
+//     `setValue` throws `.cannotSet`. Idempotent.
 //
 // Divergence: Combine offers `CombineLatest`/`CombineLatest3`/`CombineLatest4`
 // but no native 5-ary operator. The typed five-source `from` overload nests a
@@ -33,8 +34,8 @@ import Combine
 public enum DerivedPropertyError: Error {
     /// `value` was read before any source emitted.
     case noValueYet
-    /// `setValue` was called but the validator rejected the value (or the
-    /// property is read-only / default-built).
+    /// `setValue` was called but the validator rejected the value, the
+    /// property is read-only / default-built, or the property is disposed.
     case cannotSet
 }
 
@@ -125,7 +126,8 @@ public final class DerivedProperty<TValue> {
     }
 
     /// Cancel all source subscriptions, complete `valueChanged`, and halt
-    /// further recomputes. `value` retains its last reading. Idempotent.
+    /// further recomputes. `value` retains its last reading. A disposed
+    /// property rejects writes (`setValue` throws `.cannotSet`). Idempotent.
     public func dispose() {
         guard !disposed else { return }
         disposed = true

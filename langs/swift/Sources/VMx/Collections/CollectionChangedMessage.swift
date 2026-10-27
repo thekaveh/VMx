@@ -20,9 +20,11 @@ import Foundation
 /// Subscribers may downcast `any Message` to `CollectionChangedMessage<T>` or
 /// filter by identity (`sender === collection`).
 public struct CollectionChangedMessage<T>: Message {
-    /// The collection that emitted this message.
+    /// The collection, dictionary or container that sent this message.
     public let senderObject: AnyObject
-    /// Type name of the sender (e.g. `"ServicedObservableCollection"`).
+    /// The sender's name. A collection or dictionary message carries its type
+    /// name (e.g. `"ServicedObservableCollection"`). A `CompositeVM` or
+    /// `GroupVM` message carries the container's `name`.
     public let senderName: String
     /// The kind of mutation.
     public let action: CollectionChangedAction
