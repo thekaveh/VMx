@@ -140,7 +140,16 @@ This layout is easier to maintain than inline strings:
 
 ## 1.11. Pilot evidence
 
-All runs used the public registries on 2026-10-27 on macOS arm64 (Darwin 27.0). The workflow has not run on GitHub yet.
+All runs used the public registries on 2026-10-27 on macOS arm64 (Darwin 27.0).
+
+The first GitHub run of the workflow was a manual dispatch on `develop` at `b984a518`, on 2026-10-27 ([run 40597946759](https://github.com/thekaveh/VMx/actions/runs/40597946759)). Every job passed:
+
+| Job                                           | Result  |
+| --------------------------------------------- | ------- |
+| `typescript-node` (Node 22, Node 24)          | success |
+| `python-console` (CPython 3.10, CPython 3.14) | success |
+| `swift-package` (macOS)                       | success |
+| `react-vite` (Node 22, Node 24, Chromium)     | success |
 
 ### 1.11.1. TypeScript Node
 
@@ -234,4 +243,3 @@ To retire a starter, remove its job, its template directory and its docs link in
 
 1. C#: after #56, add a console template and check `dotnet list package` for symbol and framework choice.
 1. Rust: after #67, add a binary template and check `cargo tree` for crate and import naming.
-1. The weekly workflow has not run on GitHub yet. Record its first result for each job here.
