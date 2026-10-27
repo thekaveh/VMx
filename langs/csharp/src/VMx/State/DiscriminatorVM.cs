@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 
 namespace VMx.State;
 
@@ -72,15 +73,9 @@ public sealed class DiscriminatorVM<TKey> : IDisposable
         // A throwing completion observer must not skip disposing the subject.
         // Run every step, then rethrow the first failure (#768).
         ExceptionDispatchInfo? firstError = null;
-        CaptureDisposalFailure(ref firstError, _activeChanged.OnCompleted);
-        CaptureDisposalFailure(ref firstError, _activeChanged.Dispose);
+        FirstFailure.Capture(ref firstError, _activeChanged.OnCompleted);
+        FirstFailure.Capture(ref firstError, _activeChanged.Dispose);
         firstError?.Throw();
-    }
-
-    private static void CaptureDisposalFailure(ref ExceptionDispatchInfo? firstError, Action action)
-    {
-        try { action(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     private void SetActiveKeyPreservingModals(TKey key)

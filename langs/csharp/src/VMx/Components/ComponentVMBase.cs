@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 using VMx.Commands;
+using VMx.Internal;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
@@ -645,31 +646,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         t_lifecycleHookScope = scope;
         try
         {
-            try { hook(); }
-            catch
-            {
-                // Mark the walk abandoned before the hook's lease is released,
-                // so a child settling on another thread drives no further child.
-                scope.Abandoned = true;
-                throw;
-            }
-            finally
-            {
-                t_lifecycleHookScope = previous;
-                FinishLifecycleHook(lease);
-            }
-
-            lock (_gate)
-            {
-                // The hook returned. A walk it deferred to stops once disposal
-                // starts, including a disposal that started while it ran.
-                _deferredWalkScope = _deferredLifecycleTask is null ? null : scope;
-                if (_deferredWalkScope is not null && _childTransitionAbandoned)
-                    scope.Abandoned = true;
-            }
+            hook();
         }
         catch
         {
+            // Mark the walk abandoned before the hook's lease is released, so a
+            // child settling on another thread drives no further child. Observe
+            // the abandoned deferral's eventual fault.
             scope.Abandoned = true;
             var abandoned = TakeDeferredLifecycleTask();
             _ = abandoned?.ContinueWith(
@@ -678,6 +661,20 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default);
             throw;
+        }
+        finally
+        {
+            t_lifecycleHookScope = previous;
+            FinishLifecycleHook(lease);
+        }
+
+        lock (_gate)
+        {
+            // The hook returned. A walk it deferred to stops once disposal
+            // starts, including a disposal that started while it ran.
+            _deferredWalkScope = _deferredLifecycleTask is null ? null : scope;
+            if (_deferredWalkScope is not null && _childTransitionAbandoned)
+                scope.Abandoned = true;
         }
     }
 
@@ -1524,15 +1521,15 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             var notifyTrigger = !_triggerDisposed;
             var statusDelivery = QueueLifecycleDeliveryLocked(() =>
             {
-                CaptureDisposalFailure(ref firstError, () =>
+                FirstFailure.Capture(ref firstError, () =>
                     _hub.Send(ConstructionStatusChangedMessage.Create(
                         this, Name, ConstructionStatus.Disposed)));
-                CaptureDisposalFailure(ref firstError, () =>
+                FirstFailure.Capture(ref firstError, () =>
                     RaisePropertyChanged(nameof(Status)));
-                CaptureDisposalFailure(ref firstError, () =>
+                FirstFailure.Capture(ref firstError, () =>
                     RaisePropertyChanged(nameof(IsConstructed)));
                 if (notifyTrigger)
-                    CaptureDisposalFailure(ref firstError, () =>
+                    FirstFailure.Capture(ref firstError, () =>
                         _statusTrigger.OnNext(Unit.Default));
             }, out drain);
 
@@ -1554,8 +1551,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // status reaches Disposed and *before* the status trigger is
             // completed, so a subclass override can still publish a final
             // status value or touch hub-published subjects during cleanup.
-            CaptureDisposalFailure(ref firstError, OnDispose);
-            CaptureDisposalFailure(ref firstError, DisposeOwnedResources);
+            FirstFailure.Capture(ref firstError, OnDispose);
+            FirstFailure.Capture(ref firstError, DisposeOwnedResources);
 
             // Admit trigger teardown under _gate, then invoke Subject observers in
             // lifecycle-delivery order outside it. The terminal OnNext admitted
@@ -1568,8 +1565,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     _triggerDisposed = true;
                     delivery = QueueLifecycleDeliveryLocked(() =>
                     {
-                        CaptureDisposalFailure(ref firstError, _statusTrigger.OnCompleted);
-                        CaptureDisposalFailure(ref firstError, _statusTrigger.Dispose);
+                        FirstFailure.Capture(ref firstError, _statusTrigger.OnCompleted);
+                        FirstFailure.Capture(ref firstError, _statusTrigger.Dispose);
                     }, out shouldDrain);
                 }
                 else
@@ -1591,7 +1588,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                      })
             {
                 if (command is not null)
-                    CaptureDisposalFailure(ref firstError, command.Dispose);
+                    FirstFailure.Capture(ref firstError, command.Dispose);
             }
 
             firstError?.Throw();
@@ -1623,14 +1620,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             }
         }
         FinishDisposal();
-    }
-
-    private static void CaptureDisposalFailure(
-        ref ExceptionDispatchInfo? firstError,
-        Action action)
-    {
-        try { action(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     // ── Selection predicates ────────────────────────────────────────────────
@@ -2121,11 +2110,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // the terminal-state check, both channels complete even when a hub
         // observer disposes this VM re-entrantly.
         ExceptionDispatchInfo? firstError = null;
-        CaptureDisposalFailure(
+        FirstFailure.Capture(
             ref firstError,
             () => _hub.Send(
                 PropertyChangedMessage<IComponentVM>.Create(this, Name, propertyName)));
-        CaptureDisposalFailure(ref firstError, () => RaisePropertyChanged(propertyName));
+        FirstFailure.Capture(ref firstError, () => RaisePropertyChanged(propertyName));
         firstError?.Throw();
     }
 

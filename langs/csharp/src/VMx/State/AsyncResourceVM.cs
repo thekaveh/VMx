@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using VMx.Commands;
 using VMx.Components;
+using VMx.Internal;
 using VMx.Lifecycle;
 using VMx.Services;
 
@@ -180,14 +181,14 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
 
         ExceptionDispatchInfo? firstError = null;
         if (operation is not null)
-            CaptureFailure(ref firstError, operation.Cancel);
-        CaptureFailure(ref firstError, LoadCommand.Cancel);
-        CaptureFailure(ref firstError, ReloadCommand.Cancel);
-        CaptureFailure(ref firstError, LoadCommand.Dispose);
-        CaptureFailure(ref firstError, ReloadCommand.Dispose);
-        CaptureFailure(ref firstError, CancelCommand.Dispose);
+            FirstFailure.Capture(ref firstError, operation.Cancel);
+        FirstFailure.Capture(ref firstError, LoadCommand.Cancel);
+        FirstFailure.Capture(ref firstError, ReloadCommand.Cancel);
+        FirstFailure.Capture(ref firstError, LoadCommand.Dispose);
+        FirstFailure.Capture(ref firstError, ReloadCommand.Dispose);
+        FirstFailure.Capture(ref firstError, CancelCommand.Dispose);
         if (hasAccepted)
-            CaptureFailure(ref firstError, () => Cleanup(accepted!));
+            FirstFailure.Capture(ref firstError, () => Cleanup(accepted!));
         firstError?.Throw();
     }
 
@@ -455,10 +456,10 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
     private void NotifyStateChanged()
     {
         ExceptionDispatchInfo? firstError = null;
-        CaptureFailure(ref firstError, () => NotifyPropertyChanged(nameof(State)));
-        CaptureFailure(ref firstError, LoadCommand.RaiseCanExecuteChanged);
-        CaptureFailure(ref firstError, ReloadCommand.RaiseCanExecuteChanged);
-        CaptureFailure(ref firstError, CancelCommand.RaiseCanExecuteChanged);
+        FirstFailure.Capture(ref firstError, () => NotifyPropertyChanged(nameof(State)));
+        FirstFailure.Capture(ref firstError, LoadCommand.RaiseCanExecuteChanged);
+        FirstFailure.Capture(ref firstError, ReloadCommand.RaiseCanExecuteChanged);
+        FirstFailure.Capture(ref firstError, CancelCommand.RaiseCanExecuteChanged);
         firstError?.Throw();
     }
 
@@ -476,10 +477,10 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
                 _state = operation.Baseline;
             }
         }
-        CaptureFailure(ref firstError, operation.Cancel);
-        CaptureFailure(ref firstError, operation.Dispose);
+        FirstFailure.Capture(ref firstError, operation.Cancel);
+        FirstFailure.Capture(ref firstError, operation.Dispose);
         if (rollback)
-            CaptureFailure(ref firstError, NotifyStateChanged);
+            FirstFailure.Capture(ref firstError, NotifyStateChanged);
         return firstError!;
     }
 
@@ -487,14 +488,6 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
     {
         try { _cleanupValue?.Invoke(value); }
         catch { /* best-effort ownership cleanup, matching ComponentVMBase.Own */ }
-    }
-
-    private static void CaptureFailure(
-        ref ExceptionDispatchInfo? firstError,
-        Action action)
-    {
-        try { action(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     private static bool TryGetValue(AsyncResourceState<T> state, out T? value)
