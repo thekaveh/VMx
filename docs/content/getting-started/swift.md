@@ -23,6 +23,13 @@ Add VMx as described in [Installation](../installation.md). The SwiftPM tag
 source checkout, added as a path dependency. The package uses Combine and
 Dispatch and has no third-party dependencies.
 
+> To start a new command-line package on macOS, use the Swift package starter
+> template in [`starters/swift-package/`](../../../starters/swift-package/). It
+> was verified against VMx 3.24.0 from the `v3.24.0` tag. From a VMx checkout,
+> run `python3 tools/create-starter.py --channel swift-package`. The command
+> writes the package to a new directory outside the checkout, resolves the
+> exact tag and runs the starter's smoke test.
+
 ______________________________________________________________________
 
 ## 3.5.2. Wire up `MessageHub` and a `Dispatcher`

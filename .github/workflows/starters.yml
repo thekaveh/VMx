@@ -1,8 +1,8 @@
 name: starters
 
 # Clean-room starter verification (#410). It generates each starter outside the
-# checkout, installs the exact public package from the registry and runs the
-# starter's smoke test. It never runs on pull requests, so it gates no PR; a
+# checkout, installs the exact public package from its public registry and runs
+# the starter's smoke test. It never runs on pull requests, so it gates no PR; a
 # failure means a public release or a toolchain update broke a starter.
 # Decision record: docs/maintenance/2026-10-27-application-starters.md.
 
@@ -15,7 +15,19 @@ on:
   workflow_dispatch:
     inputs:
       vmx-version:
-        description: "Exact @thekaveh/vmx version to verify (empty: the npm latest tag)"
+        description: "Exact @thekaveh/vmx version for typescript-node and react-vite (empty: the npm latest tag)"
+        required: false
+        default: ""
+      vmx-react-version:
+        description: "Exact @thekaveh/vmx-react version for react-vite (empty: the npm latest tag)"
+        required: false
+        default: ""
+      vmx-python-version:
+        description: "Exact PyPI vmx version for python-console (empty: the latest PyPI release)"
+        required: false
+        default: ""
+      vmx-swift-version:
+        description: "Exact VMx SwiftPM release for swift-package (empty: the newest swift-v tag)"
         required: false
         default: ""
 
@@ -56,5 +68,101 @@ jobs:
           args=(--channel typescript-node --target "$target" --timeout 900)
           if [ -n "$VMX_VERSION" ]; then
             args+=(--version "$VMX_VERSION")
+          fi
+          python3 tools/create-starter.py "${args[@]}"
+
+  python-console:
+    timeout-minutes: 15
+    name: python-console starter (python${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No pip cache: the generator installs from PyPI with --no-cache-dir.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Generate and verify the starter in mktemp -d
+        env:
+          VMX_PYTHON_VERSION: ${{ inputs.vmx-python-version }}
+        run: |
+          target="$(mktemp -d)"
+          args=(--channel python-console --target "$target" --timeout 600)
+          if [ -n "$VMX_PYTHON_VERSION" ]; then
+            args+=(--version "$VMX_PYTHON_VERSION")
+          fi
+          python3 tools/create-starter.py "${args[@]}"
+
+  swift-package:
+    timeout-minutes: 30
+    name: swift-package starter (macOS)
+    # VMx for Swift uses Combine, so the starter builds only on macOS.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Generate and verify the starter in mktemp -d
+        env:
+          VMX_SWIFT_VERSION: ${{ inputs.vmx-swift-version }}
+        run: |
+          swift --version
+          target="$(mktemp -d)"
+          args=(--channel swift-package --target "$target" --timeout 1500)
+          if [ -n "$VMX_SWIFT_VERSION" ]; then
+            args+=(--version "$VMX_SWIFT_VERSION")
+          fi
+          python3 tools/create-starter.py "${args[@]}"
+
+  react-vite:
+    timeout-minutes: 30
+    name: react-vite starter (node${{ matrix.node-version }}, Chromium)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No npm cache: the clean room resolves every package from the registry.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          package-manager-cache: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # --browser-deps lets Playwright install Chromium's system packages with
+      # sudo. The starter's own playwright devDependency installs the browser.
+      - name: Generate, build and drive the starter in headless Chromium
+        env:
+          VMX_VERSION: ${{ inputs.vmx-version }}
+          VMX_REACT_VERSION: ${{ inputs.vmx-react-version }}
+        run: |
+          target="$(mktemp -d)"
+          args=(--channel react-vite --target "$target" --timeout 1500 --browser-deps)
+          if [ -n "$VMX_REACT_VERSION" ]; then
+            args+=(--version "$VMX_REACT_VERSION")
+          fi
+          if [ -n "$VMX_VERSION" ]; then
+            args+=(--core-version "$VMX_VERSION")
           fi
           python3 tools/create-starter.py "${args[@]}"

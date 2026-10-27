@@ -31,6 +31,14 @@ default or an explicit equality function such as `shallowEqual`.
 npm install @thekaveh/vmx @thekaveh/vmx-react react rxjs use-sync-external-store
 ```
 
+To start a new Vite app, use the React starter template in
+[`starters/react-vite/`](../../../starters/react-vite/). It was verified against
+`@thekaveh/vmx-react` 0.1.1 and `@thekaveh/vmx` 3.30.0 from npm, with React 19.
+From a VMx checkout, run
+`python3 tools/create-starter.py --channel react-vite`. The command installs
+the exact versions and checks for one React copy. It then builds the app and
+drives it in headless Chromium.
+
 To use an unreleased source line, follow the
 [pack-then-install source procedure](../installation.md);
 do not link a live adapter checkout into a React 18 application. Apps moving
