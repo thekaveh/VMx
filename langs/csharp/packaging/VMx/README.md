@@ -32,14 +32,14 @@ var note = ComponentVM<string>.Builder()
 note.Construct();
 ```
 
-## Companion packages
+## 1. Companion packages
 
 - [VMx.Notifications](https://www.nuget.org/packages/VMx.Notifications) — a
   notification and confirmation hub.
 - [VMx.Extensions.DependencyInjection](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection)
   — `IServiceCollection.AddVMx()` registration.
 
-## Documentation
+## 2. Documentation
 
 - [Getting started with C#](https://github.com/thekaveh/VMx/blob/main/docs/content/getting-started/csharp.md)
 - [Installation](https://github.com/thekaveh/VMx/blob/main/docs/content/installation.md)

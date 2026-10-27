@@ -1,6 +1,10 @@
-"""CollectionChangedMessage — emitted when a ServicedObservableCollection mutates.
+"""CollectionChangedMessage — sent to the hub when a collection mutates.
 
-See spec/21-collections.md §2 and ADR-0024.
+Published by ServicedObservableCollection, KeyedServicedObservableCollection,
+ObservableDictionary and, with the container as sender, by CompositeVM and
+GroupVM after each local collection change.
+
+See spec/21-collections.md §2, spec/01-concepts.md §1.4, ADR-0024 and ADR-0142.
 """
 
 from __future__ import annotations

@@ -66,7 +66,20 @@ This distinction matters in UI hosts. A reorder keeps component keys, local UI
 state, focus, and subscriptions attached to the same VM. Rebuilding a list does
 not offer that guarantee.
 
-## 6.9.5. TypeScript React Adapter
+## 6.9.5. Hub Publication
+
+Both containers also publish their collection changes on their own message hub
+(ADR-0142). Each local collection-change event is followed by one
+`CollectionChangedMessage` with the same action and positions. In C#, Python,
+TypeScript and Swift it also carries the same items; Rust also sends
+`PropertyChanged("Count")`. A batch sends nothing inside its scope. When the
+outermost batch closes after at least one effective change, it sends one
+`Reset`. An ownership
+transfer sends the old container's `Remove` before the new container's `Add`. A
+disposed container and a forwarding wrapper send nothing of their own. A
+renderer that only reads the hub can therefore follow both families.
+
+## 6.9.6. TypeScript React Adapter
 
 The `useVmCollection` hook in `@thekaveh/vmx-react` accepts `IVmCollection<VM>`
 and can therefore render either family without casts:
@@ -81,7 +94,7 @@ The hook subscribes to `collectionChanged` and returns a cached snapshot that
 changes identity only after a collection change. A `Move` notification causes
 one render with the final order.
 
-## 6.9.6. Common Pitfalls
+## 6.9.7. Common Pitfalls
 
 - Adding `Current` to a generic collection adapter. That needlessly excludes
   groups and reintroduces the cast this capability removes.
@@ -91,13 +104,13 @@ one render with the final order.
   positions, so both indices are strictly less than `Count`.
 - Treating a same-index move as a batch mutation. It is a true no-op.
 
-## 6.9.7. Conformance And Decisions
+## 6.9.8. Conformance And Decisions
 
 ADR-0085 records the design. `COL-032..039` prove the capability split, both
 directions, no-op and invalid bounds, invariant preservation, batch behavior,
 and auto-construction interaction in all five flavors.
 
-## 6.9.8. Related Primitives
+## 6.9.9. Related Primitives
 
 - [Composite Family](viewmodel-families/composite-family.md)
 - [Group Family](viewmodel-families/group-family.md)

@@ -46,6 +46,9 @@ Lifecycle orchestration matches `CompositeVM`:
 - `AutoConstructOnAdd(true)` constructs a child added after construct starts;
   construct then also waits for that child
 - `BatchUpdate()` suppresses per-mutation collection events and emits one reset
+- each local collection change is followed by one `CollectionChangedMessage` on
+  the group's hub, and a batch that changes the collection sends one `Reset`
+  (ADR-0142)
 
 Rust background-child settling follows the shared container rule in
 [ViewModel Families](index.md#6213-lifecycle-and-messaging).

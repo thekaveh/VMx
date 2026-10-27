@@ -1,13 +1,16 @@
 //
 // CollectionChangedMessage — hub envelope emitted by ServicedObservableCollection,
-// CompositeVM, and GroupVM.
+// KeyedServicedObservableCollection, ObservableDictionary, CompositeVM, and
+// GroupVM.
 //
 // See spec/21-collections.md §2, spec/01-concepts.md §1.4, ADR-0024, and
 // ADR-0142.
 //
 import Foundation
 
-/// Hub message published by `ServicedObservableCollection<T>` on each mutation.
+/// Hub message published by `ServicedObservableCollection<T>`,
+/// `KeyedServicedObservableCollection<Key, T>`, and `ObservableDictionary`
+/// on each mutation.
 ///
 /// `CompositeVM` and `GroupVM` publish `CollectionChangedMessage<ComponentVMBase>`
 /// after each local `collectionChanged` event, with the container as sender

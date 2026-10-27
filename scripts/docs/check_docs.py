@@ -51,6 +51,10 @@ OPENER_END = "<!-- vmx-opener:end -->"
 STANDALONE_NUMBERED_DOCS = (
     Path("langs/rust/README.md"),
     Path("examples/DIAGRAMS.md"),
+    Path("langs/csharp/packaging/VMx/README.md"),
+    Path("langs/csharp/packaging/VMx.Notifications/README.md"),
+    Path("langs/csharp/packaging/VMx.Extensions.DependencyInjection/README.md"),
+    Path("examples/python/nicegui/notes_showcase/README.md"),
 )
 
 

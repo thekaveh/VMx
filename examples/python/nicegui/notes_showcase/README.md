@@ -5,7 +5,7 @@ A NiceGUI web page over the same workspace view-models as the
 project's models and view-models and duplicates none of them; only the host,
 the page, and a small adapter live here.
 
-## Run
+## 1. Run
 
 ```bash
 cd examples/python/nicegui/notes_showcase
@@ -16,7 +16,7 @@ uv run python -m nicegui_notes
 Then open <http://localhost:8080>. Every browser tab binds to the same
 workspace, like a desktop app opened twice.
 
-## Layout
+## 2. Layout
 
 | Path                         | What it holds                                                                 |
 | ---------------------------- | ----------------------------------------------------------------------------- |
@@ -25,7 +25,7 @@ workspace, like a desktop app opened twice.
 | `src/nicegui_notes/page.py`  | The page: notebooks, the note list, and the editor                              |
 | `tests/`                     | Bridge, lifetime, and smoke tests in NiceGUI's user simulation                  |
 
-## Check
+## 3. Check
 
 Run from `examples/python/nicegui/notes_showcase`:
 
