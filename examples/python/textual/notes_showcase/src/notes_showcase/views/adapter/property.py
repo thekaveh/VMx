@@ -193,8 +193,10 @@ def bind_derived_property(
     try:
         _assign(widget, attr, derived.value)
     except RuntimeError:
-        # Derived has not received a first emission yet — that's fine; the
-        # subscription below will seed on the next tick.
+        # Derived has no first value yet. Its first value arrives without a
+        # value_changed emission, so a first value emitted after binding is not
+        # shown; the widget shows the next change after it
+        # (https://github.com/thekaveh/VMx/issues/364).
         pass
 
     def _on_next(value: object) -> None:
@@ -220,6 +222,8 @@ def on_derived_change(
     try:
         callback(derived.value)
     except RuntimeError:
+        # No first value yet; a first value emitted after binding is not
+        # delivered (https://github.com/thekaveh/VMx/issues/364).
         pass
 
     return derived.value_changed.subscribe(on_next=callback)

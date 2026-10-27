@@ -89,8 +89,10 @@ def bind_theme(app: App[object], theme_vm: ThemeVM) -> DisposableBase:
         app.theme = _THEME_NAME
 
     # Seed from the VM's current value. If the DerivedProperty has no value
-    # yet (no source emission), skip the seed — the subscription below will
-    # cover the next tick.
+    # yet (no source emission), skip the seed. Its first value arrives without
+    # a value_changed emission, so a first value emitted after binding is not
+    # applied; the next change after it is applied
+    # (https://github.com/thekaveh/VMx/issues/364).
     try:
         _apply(theme_vm.current_theme.value)
     except RuntimeError:

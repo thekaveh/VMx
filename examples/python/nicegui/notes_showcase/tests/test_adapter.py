@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 
+import pytest
 from nicegui import ui
+from nicegui.testing.user_notify import UserNotify
 from nicegui.testing.user_simulation import user_simulation
+from reactivex.abc import DisposableBase
 from reactivex.subject import BehaviorSubject, Subject
 from vmx import (
+    AsyncRelayCommand,
     ComponentVMOf,
     Message,
     MessageHub,
@@ -143,6 +150,100 @@ async def test_bind_command_runs_it_and_follows_can_execute() -> None:
         button.click()
 
     assert state["runs"] == 1
+
+
+def _record_notifications(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, object]]:
+    """The user simulation's ``ui.notify`` drops its keyword arguments; keep the type."""
+    notifications: list[tuple[str, object]] = []
+    original = UserNotify.__call__
+
+    def record(self: UserNotify, message: str, **kwargs: object) -> None:
+        notifications.append((message, kwargs.get("type")))
+        original(self, message, **kwargs)
+
+    monkeypatch.setattr(UserNotify, "__call__", record)
+    return notifications
+
+
+def _failing_command() -> AsyncRelayCommand:
+    async def fail() -> None:
+        raise OSError("disk full")
+
+    return AsyncRelayCommand.builder().task(fail).build()
+
+
+async def _settle(done: Callable[[], object]) -> None:
+    for _ in range(100):
+        if done():
+            return
+        await asyncio.sleep(0.01)
+
+
+async def test_bind_command_shows_a_failure_in_a_negative_notification(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # #794: an AsyncRelayCommand reports a fire-and-forget failure on errors.
+    notifications = _record_notifications(monkeypatch)
+    command = _failing_command()
+
+    def page() -> None:
+        button = ui.button("Save").mark("save")
+        release_on_delete(bind_command(button, command))
+
+    with caplog.at_level(logging.ERROR, logger="nicegui_notes.adapter.binding"):
+        async with user_simulation(page) as user:
+            await user.open("/")
+            user.find(marker="save").click()
+            await _settle(lambda: notifications)
+
+    assert notifications == [("Command failed: disk full", "negative")]
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "nicegui_notes.adapter.binding" and record.exc_info
+    ]
+    assert len(records) == 1
+    assert records[0].levelno == logging.ERROR
+    assert isinstance(records[0].exc_info[1] if records[0].exc_info else None, OSError)
+
+
+async def test_a_released_command_binding_shows_no_later_failure(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    notifications = _record_notifications(monkeypatch)
+    command = _failing_command()
+    bindings: list[DisposableBase] = []
+
+    def page() -> None:
+        button = ui.button("Save").mark("save")
+        bindings.append(bind_command(button, command))
+
+    with caplog.at_level(logging.ERROR, logger="nicegui_notes.adapter.binding"):
+        async with user_simulation(page) as user:
+            await user.open("/")
+            bindings[0].dispose()
+            command.execute()
+            await _settle(lambda: not command.is_executing)
+            await asyncio.sleep(0.05)
+
+    assert notifications == []
+    assert [record for record in caplog.records if record.exc_info] == []
+
+
+async def test_bind_derived_property_accepts_a_property_without_a_first_value() -> None:
+    # #794: the first value arrives without a value_changed emission.
+    source: Subject[str] = Subject()
+    derived = from_one(source, transform=str.upper)
+
+    def page() -> None:
+        label = ui.label().mark("derived")
+        release_on_delete(bind_derived_property(label, "text", derived))
+
+    async with user_simulation(page) as user:
+        await user.open("/")
+        source.on_next("first")
+        source.on_next("second")
+        await user.should_see("SECOND")
 
 
 async def test_bind_refreshable_rebuilds_the_collection() -> None:
