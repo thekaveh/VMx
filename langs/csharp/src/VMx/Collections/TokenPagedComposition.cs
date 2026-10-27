@@ -5,6 +5,7 @@ using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
 using VMx.Commands;
 using VMx.Components;
+using VMx.Internal;
 
 namespace VMx.Collections;
 
@@ -271,15 +272,9 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         // second command's trigger subscriptions and the subject. Capture the
         // first failure, run every step, then rethrow (mirrors FormVM.TearDown).
         ExceptionDispatchInfo? firstError = null;
-        CaptureDisposalFailure(ref firstError, LoadMoreCommand.Dispose);
-        CaptureDisposalFailure(ref firstError, RefreshCommand.Dispose);
-        CaptureDisposalFailure(ref firstError, _commandChanged.OnCompleted);
+        FirstFailure.Capture(ref firstError, LoadMoreCommand.Dispose);
+        FirstFailure.Capture(ref firstError, RefreshCommand.Dispose);
+        FirstFailure.Capture(ref firstError, _commandChanged.OnCompleted);
         firstError?.Throw();
-    }
-
-    private static void CaptureDisposalFailure(ref ExceptionDispatchInfo? firstError, Action action)
-    {
-        try { action(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 }

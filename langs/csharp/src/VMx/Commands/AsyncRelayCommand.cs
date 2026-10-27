@@ -3,6 +3,7 @@ using System.Reactive;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -168,8 +169,8 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
             firstError = ExceptionDispatchInfo.Capture(error);
         }
 
-        CaptureFailure(ref firstError, externalRegistration.Dispose);
-        CaptureFailure(ref firstError, cts.Dispose);
+        FirstFailure.Capture(ref firstError, externalRegistration.Dispose);
+        FirstFailure.Capture(ref firstError, cts.Dispose);
         lock (_gate)
         {
             if (ReferenceEquals(_cts, cts))
@@ -177,7 +178,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
             _isExecuting = false;
             _cancellationOrigin = NoCancellation;
         }
-        CaptureFailure(ref firstError, RaiseCanExecuteChanged);
+        FirstFailure.Capture(ref firstError, RaiseCanExecuteChanged);
         firstError?.Throw();
     }
 
@@ -232,18 +233,12 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         }
         ExceptionDispatchInfo? firstError = null;
         if (cts is not null)
-            CaptureFailure(ref firstError, () => CancelIgnoringDisposed(cts));
+            FirstFailure.Capture(ref firstError, () => CancelIgnoringDisposed(cts));
         foreach (var subscription in _triggerSubscriptions)
-            CaptureFailure(ref firstError, subscription.Dispose);
-        CaptureFailure(ref firstError, _errors.OnCompleted);
-        CaptureFailure(ref firstError, _errors.Dispose);
+            FirstFailure.Capture(ref firstError, subscription.Dispose);
+        FirstFailure.Capture(ref firstError, _errors.OnCompleted);
+        FirstFailure.Capture(ref firstError, _errors.Dispose);
         firstError?.Throw();
-    }
-
-    private static void CaptureFailure(ref ExceptionDispatchInfo? firstError, Action action)
-    {
-        try { action(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     private CancellationTokenSource? TryBeginExecution(

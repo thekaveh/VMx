@@ -5,6 +5,7 @@ using System.Runtime.ExceptionServices;
 using VMx.Collections;
 using VMx.Components;
 using VMx.Groups;
+using VMx.Internal;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
@@ -860,15 +861,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     private static void PublishEvery(params Action[] steps)
     {
-        System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
+        ExceptionDispatchInfo? firstError = null;
         foreach (var step in steps)
-        {
-            try { step(); }
-            catch (Exception error)
-            {
-                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-            }
-        }
+            FirstFailure.Capture(ref firstError, step);
         firstError?.Throw();
     }
 
