@@ -21,6 +21,15 @@ from vmx._asyncio_runner import _BACKGROUND_EVENT_LOOP
 TIMEOUT = 3
 
 
+@pytest.fixture(autouse=True)
+def _background_loop_debug_is_restored():
+    # The background loop is shared by the whole process (#777).
+    loop = _BACKGROUND_EVENT_LOOP._ensure_started()
+    before = loop.get_debug()
+    yield
+    assert loop.get_debug() == before, "a test left the background loop in another debug mode"
+
+
 def resource(loader, cleanup=None, retention=AsyncResourceRetention.DISCARD_PREVIOUS):
     return AsyncResourceVM(
         name="threading",
@@ -52,6 +61,7 @@ class NativeCalls:
         self.calls = []
         self.factory = loop.get_task_factory()
         self.create_future = loop.create_future
+        self.debug = loop.get_debug()
         recorder = self
 
         class Task(asyncio.Task):
@@ -81,6 +91,7 @@ class NativeCalls:
     def restore(self):
         self.loop.set_task_factory(self.factory)
         self.loop.create_future = self.create_future
+        self.loop.set_debug(self.debug)
 
     def assert_owned(self, *targets):
         calls = [call for call in self.calls if any(call[0] is target for target in targets)]
@@ -104,8 +115,9 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
     monkeypatch.setattr(commands, "submit_background", submit)
 
     async def install():
+        calls = NativeCalls(loop)
         loop.set_debug(True)
-        return NativeCalls(loop)
+        return calls
 
     recorder = on_loop(loop, install())
 
@@ -118,12 +130,13 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
             raise
 
     vm = resource(loader)
-    vm.load_command.execute()
-    assert started.wait(TIMEOUT)
-    operation = vm._operation
-    inner = vm.load_command._current_task
-    assert operation is not None
+    operation = None
     try:
+        vm.load_command.execute()
+        assert started.wait(TIMEOUT)
+        operation = vm._operation
+        inner = vm.load_command._current_task
+        assert operation is not None
         getattr(vm, action)()
         submitted[0].result(TIMEOUT)
         assert observed.wait(TIMEOUT)
@@ -136,18 +149,23 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
 
         async def recover():
             # Recovery after a failing assertion is teardown, never acceptance evidence.
-            operation.task.cancel()
-            vm.load_command.cancel()
             try:
-                await asyncio.wait_for(operation.task, TIMEOUT)
-            except asyncio.CancelledError:
-                pass
-            await turns()
-            vm.dispose()
-            recorder.restore()
+                if operation is not None:
+                    operation.task.cancel()
+                vm.load_command.cancel()
+                if operation is not None:
+                    try:
+                        await asyncio.wait_for(operation.task, TIMEOUT)
+                    except asyncio.CancelledError:
+                        pass
+                await turns()
+                vm.dispose()
+            finally:
+                recorder.restore()
 
         on_loop(loop, recover())
-        submitted[0].result(TIMEOUT)
+        if submitted:
+            submitted[0].result(TIMEOUT)
 
 
 @pytest.mark.asyncio
