@@ -19,6 +19,8 @@
 
 import { Observable, Subject } from "rxjs";
 
+import { emittedIndex } from "./emittedIndex.js";
+
 // ── Payload shapes ────────────────────────────────────────────────────────────
 
 export interface ItemAddedEvent<T> {
@@ -116,7 +118,7 @@ export class ObservableList<T> {
    * silently normalize/clamp while the emitted payload carried the raw index.
    */
   insert(index: number, item: T): void {
-    this.#assertIntegralIndex(index);
+    index = this.#integralIndex(index);
     if (index < 0 || index > this.#items.length) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
@@ -139,7 +141,7 @@ export class ObservableList<T> {
    * Throws RangeError if index is out of bounds.
    */
   removeAt(index: number): void {
-    this.#assertIntegralIndex(index);
+    index = this.#integralIndex(index);
     if (index < 0 || index >= this.#items.length) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
@@ -165,7 +167,7 @@ export class ObservableList<T> {
    * Throws RangeError if index is out of bounds.
    */
   replace(index: number, newItem: T): void {
-    this.#assertIntegralIndex(index);
+    index = this.#integralIndex(index);
     if (index < 0 || index >= this.#items.length) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
@@ -236,10 +238,12 @@ export class ObservableList<T> {
 
   // ── Internal ─────────────────────────────────────────────────────────────────
 
-  #assertIntegralIndex(index: number): void {
+  /** Rejects a non-integer index; returns it with -0 replaced by +0 (#769). */
+  #integralIndex(index: number): number {
     if (!Number.isInteger(index)) {
       throw new RangeError(`Index must be an integer, got ${String(index)}`);
     }
+    return emittedIndex(index);
   }
 
   /**

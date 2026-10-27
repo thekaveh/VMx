@@ -11,6 +11,7 @@ import type { Subscription } from "rxjs";
 import type { IMessageHub } from "../services/messageHub.js";
 import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 import type { ObservableMembershipSource } from "./observableMembership.js";
+import { emittedIndex } from "./emittedIndex.js";
 import { resolveSpliceStart } from "./spliceStart.js";
 
 export interface KeyedServicedObservableCollectionOptions<TKey, TItem> {
@@ -100,7 +101,7 @@ export class KeyedServicedObservableCollection<TKey, TItem>
   }
 
   removeAt(index: number): void {
-    this.#validateIndex(index);
+    index = this.#validateIndex(index);
     this.#removeAt(index);
   }
 
@@ -154,7 +155,7 @@ export class KeyedServicedObservableCollection<TKey, TItem>
   }
 
   replace(index: number, newItem: TItem): void {
-    this.#validateIndex(index);
+    index = this.#validateIndex(index);
     const newKey = this.#keyOf(newItem);
     const owner = this.#indexByKey.get(newKey);
     if (owner !== undefined && owner !== index) this.#throwDuplicate();
@@ -178,8 +179,8 @@ export class KeyedServicedObservableCollection<TKey, TItem>
   }
 
   move(fromIndex: number, toIndex: number): void {
-    this.#validateIndex(fromIndex);
-    this.#validateIndex(toIndex);
+    fromIndex = this.#validateIndex(fromIndex);
+    toIndex = this.#validateIndex(toIndex);
     if (fromIndex === toIndex) return;
 
     const item = this.#items[fromIndex] as TItem;
@@ -260,7 +261,8 @@ export class KeyedServicedObservableCollection<TKey, TItem>
     this.#hub?.send(message);
   }
 
-  #validateIndex(index: number): void {
+  /** Rejects an index outside the items; returns it with -0 as +0 (#769). */
+  #validateIndex(index: number): number {
     if (
       !Number.isInteger(index) ||
       index < 0 ||
@@ -268,5 +270,6 @@ export class KeyedServicedObservableCollection<TKey, TItem>
     ) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
+    return emittedIndex(index);
   }
 }
