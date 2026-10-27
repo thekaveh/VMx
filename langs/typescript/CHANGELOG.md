@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `DecoratorCommand`, `CompositeCommand` and `ConfirmationDecoratorCommand`
+  now notify their own `canExecuteChanged` subscribers once on `dispose()`. A
+  binding then re-reads `canExecute` and shows the disposed wrapper as
+  disabled. Before, the wrapper passed the inner stream through and sent
+  nothing, so a button bound to it stayed enabled. The wrapper still passes
+  on every inner notification and completion. Subscribers of the inner command
+  get no notification (#771).
+
 - An index of `-0` no longer reaches a collection event or hub message as
   `-0`. `Number.isInteger(-0)` is true and `-0 < 0` is false, so every index
   guard admitted it. `ObservableList` (`insert`, `removeAt`, `replace`),

@@ -5,6 +5,13 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A `useCommand` binding to a disposed `DecoratorCommand`, `CompositeCommand`
+  or `ConfirmationDecoratorCommand` now renders as disabled. The adapter code
+  is unchanged; this needs the next `@thekaveh/vmx` release, where those
+  wrappers notify on `dispose()` (#771).
+
 ## [0.1.2] - 2026-10-21
 
 ### Fixed
