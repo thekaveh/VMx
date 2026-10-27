@@ -16,6 +16,7 @@ from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
+from vmx._indexes import _reject_bool_index
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
     construct_walk,
@@ -295,8 +296,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return self._children[index]
 
     def __setitem__(self, index: int, value: VM) -> None:
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert and ObservableList).
         self._begin_membership_transaction()
@@ -390,8 +390,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         whose ``new_index`` is the actual insertion position (stdlib
         semantics: negatives count from the end, out-of-range clamps).
         """
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
@@ -601,8 +600,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             target[array_index + i] = child
 
     def _remove_at(self, index: int) -> None:
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         self._begin_membership_transaction()
         try:
             with _current_change_coordinator:
@@ -733,8 +731,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         return None
 
     def _validate_move_index(self, index: int) -> None:
-        if isinstance(index, bool):
-            raise TypeError("index must be an int, not bool")
+        _reject_bool_index(index)
         if index < 0 or index >= len(self._children):
             raise IndexError(f"move index {index} out of range for {len(self._children)} children")
 

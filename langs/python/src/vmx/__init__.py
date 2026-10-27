@@ -340,4 +340,4 @@ for _lifecycle_vm in (_ComponentVMBase, ForwardingCompositeVM):
     IConstructable.register(_lifecycle_vm)
     IDestructable.register(_lifecycle_vm)
     IReconstructable.register(_lifecycle_vm)
-del _lifecycle_vm
+del _lifecycle_vm, _ComponentVMBase
