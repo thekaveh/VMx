@@ -85,6 +85,63 @@ internal static class ContainerConstructWalk
     }
 }
 
+/// <summary>
+/// The collection-change delivery and auto-construct-on-add steps shared by
+/// composites and groups (spec/01 §1.4, spec/06 §5.1). Each container member
+/// only forwards here with its own event, flags, and disposal check.
+/// </summary>
+internal static class ContainerMembership
+{
+    /// <summary>
+    /// Raises the local event through <paramref name="handler"/>, then
+    /// publishes one equivalent <see cref="CollectionChangedMessage{T}"/> sent
+    /// by <paramref name="container"/> through the hub's ordinary <c>Send</c>
+    /// (spec/01 §1.4, ADR-0142). <paramref name="canPublish"/> runs after the
+    /// local handlers, so a container they dispose publishes nothing.
+    /// </summary>
+    internal static void DeliverCollectionChanged<TContainer, VM>(
+        TContainer container,
+        NotifyCollectionChangedEventHandler? handler,
+        NotifyCollectionChangedEventArgs args,
+        Func<TContainer, bool> canPublish)
+        where TContainer : ComponentVMBase
+        where VM : class, IComponentVM
+    {
+        // A throwing local handler must not suppress the hub message for the
+        // committed change (spec/01 §1.4, #723): send it, then rethrow.
+        // The first failure wins, as in NotifyPropertyChanged and Python.
+        ExceptionDispatchInfo? firstFailure = null;
+        try { handler?.Invoke(container, args); }
+        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
+        if (canPublish(container))
+        {
+            try { container.Hub.Send(CollectionChangedMessage<VM>.From(container, args)); }
+            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+        }
+        firstFailure?.Throw();
+    }
+
+    /// <summary>
+    /// Constructs <paramref name="item"/> on add when
+    /// <paramref name="autoConstructOnAdd"/> is set, the
+    /// <paramref name="container"/> is Constructed, and the item is not.
+    /// </summary>
+    internal static void MaybeAutoConstruct<VM>(
+        ComponentVMBase container,
+        bool autoConstructOnAdd,
+        VM item)
+        where VM : class, IComponentVM
+    {
+        if (!autoConstructOnAdd) return;
+        // While Constructing, only an add with a start record starts its
+        // child; any other child is in the construct walk's snapshot.
+        var status = container.Status;
+        if (status != ConstructionStatus.Constructed) return;
+        if (item.Status == ConstructionStatus.Constructed) return;
+        item.Construct();
+    }
+}
+
 /// <summary>Test-only probe points of <see cref="LateChildStarts"/>.</summary>
 internal enum LateChildStage
 {
@@ -928,20 +985,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// hold neither. A disposed composite publishes nothing.
     /// </summary>
     private void DeliverCollectionChanged(NotifyCollectionChangedEventArgs args)
-    {
-        // A throwing local handler must not suppress the hub message for the
-        // committed change (spec/01 §1.4, #723): send it, then rethrow.
-        // The first failure wins, as in NotifyPropertyChanged and Python.
-        ExceptionDispatchInfo? firstFailure = null;
-        try { CollectionChanged?.Invoke(this, args); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
-        if (Volatile.Read(ref _disposeRequested) == 0 && !IsDisposed())
-        {
-            try { Hub.Send(CollectionChangedMessage<VM>.From(this, args)); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
-        }
-        firstFailure?.Throw();
-    }
+        => ContainerMembership.DeliverCollectionChanged<CompositeVMBase<VM>, VM>(
+            this, CollectionChanged, args,
+            static composite => Volatile.Read(ref composite._disposeRequested) == 0
+                && !composite.IsDisposed());
 
     /// <summary>
     /// Called under the gate as an add attaches <paramref name="item"/>: an
@@ -976,15 +1023,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     }
 
     private void MaybeAutoConstruct(VM item)
-    {
-        if (!_autoConstructOnAdd) return;
-        // While Constructing, only an add with a start record starts its
-        // child; any other child is in the construct walk's snapshot.
-        var status = Status;
-        if (status != ConstructionStatus.Constructed) return;
-        if (item.Status == ConstructionStatus.Constructed) return;
-        item.Construct();
-    }
+        => ContainerMembership.MaybeAutoConstruct(this, _autoConstructOnAdd, item);
 
     private void ValidateMoveIndex(int index, string parameterName)
     {

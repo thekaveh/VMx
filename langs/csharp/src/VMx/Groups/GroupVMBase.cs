@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Specialized;
 using System.Reactive.Disposables;
-using System.Runtime.ExceptionServices;
 using VMx.Collections;
 using VMx.Components;
 using VMx.Composites;
@@ -503,20 +502,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// publishes nothing.
     /// </summary>
     private void DeliverCollectionChanged(NotifyCollectionChangedEventArgs args)
-    {
-        // A throwing local handler must not suppress the hub message for the
-        // committed change (spec/01 §1.4, #723): send it, then rethrow.
-        // The first failure wins, as in NotifyPropertyChanged and Python.
-        ExceptionDispatchInfo? firstFailure = null;
-        try { CollectionChanged?.Invoke(this, args); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
-        if (Volatile.Read(ref _disposeRequested) == 0 && !IsDisposed())
-        {
-            try { Hub.Send(CollectionChangedMessage<VM>.From(this, args)); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
-        }
-        firstFailure?.Throw();
-    }
+        => ContainerMembership.DeliverCollectionChanged<GroupVMBase<VM>, VM>(
+            this, CollectionChanged, args,
+            static group => Volatile.Read(ref group._disposeRequested) == 0
+                && !group.IsDisposed());
 
     /// <summary>
     /// Called under the gate as an add attaches <paramref name="item"/>: an
@@ -551,15 +540,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     }
 
     private void MaybeAutoConstruct(VM item)
-    {
-        if (!_autoConstructOnAdd) return;
-        // While Constructing, only an add with a start record starts its
-        // child; any other child is in the construct walk's snapshot.
-        var status = Status;
-        if (status != ConstructionStatus.Constructed) return;
-        if (item.Status == ConstructionStatus.Constructed) return;
-        item.Construct();
-    }
+        => ContainerMembership.MaybeAutoConstruct(this, _autoConstructOnAdd, item);
 
     private void ValidateMoveIndex(int index, string parameterName)
     {
