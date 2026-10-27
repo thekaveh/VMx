@@ -232,7 +232,8 @@ needs a scheduler that supports a delay:
 
 - C#: `Observable.Timer(TimeSpan.Zero, period, dispatcher.Foreground)` with a
   real UI scheduler. `NullDispatcher` and `RxDispatcher.Immediate()` use
-  `ImmediateScheduler`, which blocks the calling thread for the delay.
+  `ImmediateScheduler`, on which a periodic `Observable.Timer` does not return
+  from `Subscribe`, so the construct hook hangs.
 - Python: `RxDispatcher.asyncio(loop).foreground`, or an asyncio task on the
   loop that runs the resource's operations (see
   [Async Resource Operation Loops](services-messages-dispatching.md#6691-async-resource-operation-loops)).

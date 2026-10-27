@@ -8,8 +8,9 @@ import { combineLatest, map, Observable, Subject, Subscription } from "rxjs";
 /**
  * Registry key of the internal state seam that VMx's own adapters (for
  * example `@thekaveh/vmx-react`) use to observe the silent first value. It is
- * not part of the specified DerivedProperty surface and may change in any
- * release.
+ * not part of the specified DerivedProperty surface, but published
+ * `@thekaveh/vmx-react` versions read this key for every core in `^3.24.1`,
+ * so a 3.x core must keep it, or installed adapters break.
  */
 const OBSERVE_STATE: symbol = Symbol.for("@thekaveh/vmx:DerivedProperty.observeState");
 
