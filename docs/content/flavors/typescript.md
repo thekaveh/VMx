@@ -165,6 +165,37 @@ changes.dispose();
 services.dispose();
 ```
 
+The `sender` filter is optional. Without it, one recorder keeps the property
+messages of every sender on a shared hub, in delivery order:
+
+<!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#record-every-sender -->
+
+```typescript
+const services = createTestServices();
+const first = new ComponentVMOf({
+  name: "first",
+  initialModel: 1,
+  hub: services.hub,
+  dispatcher: services.dispatcher,
+});
+const second = new ComponentVMOf({
+  name: "second",
+  initialModel: 1,
+  hub: services.hub,
+  dispatcher: services.dispatcher,
+});
+// No sender filter: the recorder keeps every sender on the hub.
+const changes = recordPropertyChanges(services.hub);
+
+first.model = 2;
+second.model = 2;
+
+expect(changes.records.map((record) => record.sender)).toEqual([first, second]);
+expect(changes.propertyNames).toEqual(["model", "model"]);
+changes.dispose();
+services.dispose();
+```
+
 ## 7.4.8. DevTools Observability
 
 The `@thekaveh/vmx/devtools` subpath keeps optional observability out of the
