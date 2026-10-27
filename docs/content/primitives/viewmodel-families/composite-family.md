@@ -86,6 +86,37 @@ changes, and `current`, and while it runs the current-changed callback. A
 selection started from one of these observers, or concurrently, returns
 `OwnershipTransactionInProgress` (spec/06 §3.2).
 
+### 6.2.5.3.1. Restoring The Current Child
+
+The `Current(selector)` hook runs during every construct phase, including the
+construct phase of `reconstruct()` (spec/06 §3.2, ADR-0158). Destruct first sets `Current` to
+`null` and reports `null` to `OnCurrentChanged`. To restore the last
+selection, record only the non-null values and return the last one from the
+selector:
+
+<!-- checked-snippet: langs/typescript/tests/unit/compositeRestoreRecipe.test.ts#restore-current -->
+
+```typescript
+let lastCurrent: ComponentVM | null = null;
+const tabs = CompositeVM.builder<ComponentVM>()
+  .name("tabs")
+  .services(hub, dispatcher)
+  .children(() => [home, settings])
+  // Destruct reports null. Record only a real selection.
+  .onCurrentChanged((tab) => {
+    if (tab !== null) lastCurrent = tab;
+  })
+  // Runs on every construct, including reconstruct().
+  .current(() => lastCurrent)
+  .build();
+```
+
+- **Record only a real selection.** If the callback also records the `null`
+  from destruct, the selector returns `null`, and no child is restored.
+- **A removed child is not restored.** If the composite no longer contains the
+  recorded child, the selector's result is a silent no-op, and `Current` stays
+  `null`.
+
 ## 6.2.5.4. Cross-Language Surface
 
 | Concept               | C#                      | Python                 | TypeScript             | Swift                  | Rust                        |
