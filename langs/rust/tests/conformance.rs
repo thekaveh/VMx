@@ -45,6 +45,7 @@ mod conformance {
     mod owned_resources;
     mod post_dispose_modeled_assignment;
     mod property_change;
+    mod reconstruct_command_parity;
     mod search_filter;
     mod subscribe_value;
     mod threading;

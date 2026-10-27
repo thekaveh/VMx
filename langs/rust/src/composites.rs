@@ -275,7 +275,7 @@ pub trait SelectableVmCollection<T: VmNode>: VmCollection<T> {
 /// children, and lifecycle transitions propagate through the child snapshot.
 pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
-    commands: ComponentCommands,
+    commands: Arc<ComponentCommands>,
     items: ObservableList<T>,
     ownership: ParentRegistration,
     current: Arc<Mutex<Option<T>>>,
@@ -481,37 +481,47 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         );
         let auto_construct_on_add = Arc::new(Mutex::new(false));
         let late_starts = LateStarts::new(Arc::clone(&membership_gate));
-        let reconstruct_late = late_starts.clone();
-        let reconstruct_core = core.clone();
-        let reconstruct_items = items.clone();
-        let reconstruct_current = Arc::clone(&current);
-        let reconstruct_selector = Arc::clone(&current_selector);
-        let reconstruct_callback = Arc::clone(&on_current_changed);
-        let commands = ComponentCommands::new(&core, move || {
-            if reconstruct_core
-                .transition_with(LifecycleOperation::Destruct, || {
-                    assign_current_state(
-                        &reconstruct_core,
-                        &reconstruct_current,
-                        &reconstruct_callback,
-                        None,
-                    );
-                    for item in reconstruct_items.to_vec() {
-                        reconstruct_core.transition_child(&item, LifecycleOperation::Destruct)?;
-                    }
-                    Ok(())
-                })
-                .is_ok()
-            {
-                let parts = CompositeConstruct {
-                    items: reconstruct_items.clone(),
-                    late: reconstruct_late.clone(),
-                    selector: Arc::clone(&reconstruct_selector),
-                    current: Arc::clone(&reconstruct_current),
-                    on_current_changed: Arc::clone(&reconstruct_callback),
+        // The command runs the full `reconstruct()` (spec/05 §5), so a fix to
+        // the walk lands in one place. The command table is held weakly so
+        // the stored command cannot keep its own table alive.
+        let commands = Arc::new_cyclic(|table| {
+            let table = table.clone();
+            let command_core = core.clone();
+            let items = items.clone();
+            let ownership = ownership.handle();
+            let current = Arc::clone(&current);
+            let auto_construct_on_add = Arc::clone(&auto_construct_on_add);
+            let late_starts = late_starts.clone();
+            let async_selection = Arc::clone(&async_selection);
+            let current_selector = Arc::clone(&current_selector);
+            let on_current_changed = Arc::clone(&on_current_changed);
+            let dispose_requested = Arc::clone(&dispose_requested);
+            let membership_gate = Arc::clone(&membership_gate);
+            let membership_transaction_active = Arc::clone(&membership_transaction_active);
+            let membership_transaction_control = Arc::clone(&membership_transaction_control);
+            ComponentCommands::new(&core, move || {
+                let (Some(commands), Some(ownership)) = (table.upgrade(), ownership.registration())
+                else {
+                    return;
                 };
-                let _ = reconstruct_core.construct_after_destruct(move |core| parts.run(core));
-            }
+                let composite = Self {
+                    core: command_core.clone(),
+                    commands,
+                    items: items.clone(),
+                    ownership,
+                    current: Arc::clone(&current),
+                    auto_construct_on_add: Arc::clone(&auto_construct_on_add),
+                    late_starts: late_starts.clone(),
+                    async_selection: Arc::clone(&async_selection),
+                    current_selector: Arc::clone(&current_selector),
+                    on_current_changed: Arc::clone(&on_current_changed),
+                    dispose_requested: Arc::clone(&dispose_requested),
+                    membership_gate: Arc::clone(&membership_gate),
+                    membership_transaction_active: Arc::clone(&membership_transaction_active),
+                    membership_transaction_control: Arc::clone(&membership_transaction_control),
+                };
+                let _ = composite.reconstruct();
+            })
         });
         Self {
             core,

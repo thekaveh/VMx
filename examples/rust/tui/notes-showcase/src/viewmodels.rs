@@ -546,14 +546,12 @@ fn build_form(
 #[derive(Clone)]
 pub struct GlobalSearchVm {
     core: ComponentVm<()>,
-    query: Arc<Mutex<String>>,
     state: SearchableState<NoteModel>,
     pages: TokenPagedComposition<NoteModel, usize>,
 }
 
 impl GlobalSearchVm {
     fn new(repository: InMemoryNoteRepository, hub: MessageHub) -> Self {
-        let query = Arc::new(Mutex::new(String::new()));
         // The searchable state owns the term and the matching rule; the token
         // pager pages over its filtered projection.
         let state = SearchableState::from_items(
@@ -580,19 +578,17 @@ impl GlobalSearchVm {
         );
         Self {
             core: ComponentVm::with_model("global-search", (), hub, NullDispatcher::new()),
-            query,
             state,
             pages,
         }
     }
 
     pub fn set_query(&self, query: &str) {
-        *lock(&self.query) = query.to_string();
         self.state.set_search_term(query);
     }
 
     pub fn query(&self) -> String {
-        lock(&self.query).clone()
+        self.state.search_term()
     }
 
     pub fn refresh(&self) {
