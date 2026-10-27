@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+from scripts.docs.snippets import checked_snippet_pages, checked_snippets
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "docs.yml"
 _WIKI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "wiki.yml"
@@ -43,18 +45,10 @@ def test_docs_workflow_watches_every_checked_snippet_source() -> None:
     workflow = _WORKFLOW.read_text(encoding="utf-8")
     push = workflow.split("  pull_request:\n", maxsplit=1)[0]
     patterns = re.findall(r'^      - "([^"]+)"$', push, re.M)
-    markdown = [
-        *(_REPO_ROOT / "docs" / "content").rglob("*.md"),
-        *(_REPO_ROOT / "packages").glob("*/README.md"),
-    ]
     sources = {
-        source
-        for page in markdown
-        for source in re.findall(
-            r"^<!-- checked-snippet: ([^#\s]+)(?:#[\w-]+)? -->$",
-            page.read_text(encoding="utf-8"),
-            re.M,
-        )
+        snippet.path
+        for page in checked_snippet_pages(_REPO_ROOT)
+        for snippet in checked_snippets(page.read_text(encoding="utf-8"))
     }
     assert sources, "no checked-snippet markers found"
     unwatched = sorted(

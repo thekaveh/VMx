@@ -369,6 +369,71 @@ def test_validate_readme_rejects_unresolvable_content(readme: str, error: str) -
     assert error in checker.validate_readme(readme, "VMx")
 
 
+@pytest.mark.parametrize(
+    ("body", "error"),
+    [
+        (
+            "[![ci](https://img.shields.io/x.svg)](https://example.com)",
+            "README image host is not allowed: https://img.shields.io/x.svg",
+        ),
+        (
+            "[![ci](https://raw.githubusercontent.com/a/b.png)](docs/index.md)",
+            "README link must be an absolute https URL: docs/index.md",
+        ),
+        (
+            "![p][r]\n\n[r]: https://example.com/poster.png",
+            "README image host is not allowed: https://example.com/poster.png",
+        ),
+        (
+            "![p][r]\n\n[r]: https://raw.githubusercontent.com/a/p.svg",
+            "README image must be PNG, JPEG, or GIF: https://raw.githubusercontent.com/a/p.svg",
+        ),
+        (
+            "[docs](docs/index.md 'Docs')",
+            "README link must be an absolute https URL: docs/index.md",
+        ),
+        (
+            "![p](assets/p.png (P))",
+            "README image must be an absolute https URL: assets/p.png",
+        ),
+    ],
+    ids=[
+        "linked-image-off-host",
+        "linked-image-relative-target",
+        "reference-image-off-host",
+        "reference-image-svg",
+        "single-quoted-title",
+        "parenthesized-title",
+    ],
+)
+def test_validate_readme_reads_every_commonmark_target_form(body: str, error: str) -> None:
+    # #785: each form gave no error before.
+    assert checker.validate_readme(f"# VMx\n\n{body}\n", "VMx") == [error]
+
+
+@pytest.mark.parametrize(
+    ("body", "error"),
+    [
+        (
+            "Indices in [0, count) are valid.\n\nSee [guide](docs/guide.md).",
+            "README link must be an absolute https URL: docs/guide.md",
+        ),
+        (
+            "See [x][r].\n\n[r]:\n  docs/a.md",
+            "README link must be an absolute https URL: docs/a.md",
+        ),
+        (
+            "![p](assets/a_((b)).png)",
+            "README image must be an absolute https URL: assets/a_((b)).png",
+        ),
+    ],
+    ids=["after-unmatched-bracket", "definition-on-next-line", "nested-parentheses"],
+)
+def test_validate_readme_keeps_reading_past_unusual_markdown(body: str, error: str) -> None:
+    # #785 review: the old regex caught each of these.
+    assert checker.validate_readme(f"# VMx\n\n{body}\n", "VMx") == [error]
+
+
 def test_validate_readme_ignores_code_and_accepts_absolute_targets() -> None:
     readme = (
         "# VMx\n\n"

@@ -167,3 +167,65 @@ def test_a_drifted_package_readme_copy_is_reported(repo: Path) -> None:
 
 def test_the_repository_snippets_match_their_sources() -> None:
     assert check_checked_snippets(ROOT) == []
+
+
+# #785: CommonMark fences, indented or inside a list item, and published READMEs.
+@pytest.mark.parametrize(
+    "page",
+    [
+        "<!-- checked-snippet: src/recipe.py#demo -->\n"
+        " ```python\n value = helper()\n print(value)\n ```\n",
+        "1. Run it:\n\n   <!-- checked-snippet: src/recipe.py#demo -->\n\n"
+        "   ```python\n   value = helper()\n   print(value)\n   ```\n",
+        "<!-- checked-snippet: src/recipe.py#demo -->\n"
+        "```python\nvalue = helper()\nprint(value)\n`````\n",
+    ],
+    ids=["indented-fence", "list-item-fence", "longer-closer"],
+)
+def test_a_commonmark_fence_equal_to_its_source_passes(repo: Path, page: str) -> None:
+    _page(repo, page)
+
+    assert check_checked_snippets(repo) == []
+
+
+def test_a_drifted_list_item_fence_is_reported(repo: Path) -> None:
+    _page(
+        repo,
+        "1. Run it:\n\n   <!-- checked-snippet: src/recipe.py#demo -->\n\n"
+        "   ```python\n   value = helpr()\n   print(value)\n   ```\n",
+    )
+
+    findings = check_checked_snippets(repo)
+
+    assert [finding.message for finding in findings] == [
+        f"{repo / 'docs/content/guide.md'}:3: fence differs from checked source src/recipe.py#demo"
+    ]
+
+
+@pytest.mark.parametrize(
+    "readme", ["langs/typescript/README.md", "langs/csharp/packaging/VMx/README.md"]
+)
+def test_a_drifted_flavor_or_packaging_readme_is_reported(repo: Path, readme: str) -> None:
+    _page(
+        repo,
+        "<!-- checked-snippet: src/recipe.py#demo -->\n```python\nvalue = helpr()\n```\n",
+        readme,
+    )
+
+    findings = check_checked_snippets(repo)
+
+    assert len(findings) == 1
+    assert "fence differs from checked source src/recipe.py#demo" in findings[0].message
+
+
+def test_a_drifted_indented_fence_is_reported(repo: Path) -> None:
+    _page(
+        repo,
+        "<!-- checked-snippet: src/recipe.py#demo -->\n"
+        " ```python\n value = helpr()\n print(value)\n ```\n",
+    )
+
+    findings = check_checked_snippets(repo)
+
+    assert len(findings) == 1
+    assert "fence differs from checked source src/recipe.py#demo" in findings[0].message

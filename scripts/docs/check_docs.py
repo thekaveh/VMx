@@ -23,6 +23,7 @@ from scripts.docs.links import (
 )
 from scripts.docs.manifest import load_manifest
 from scripts.docs.opener import load_opener
+from scripts.docs.snippets import checked_snippet_pages, checked_snippets
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
 # CommonMark backslash-escapes any ASCII punctuation; mdformat forces `C#` at the
@@ -705,12 +706,6 @@ def check_placeholders(repo_root: Path) -> list[Finding]:
     return findings
 
 
-CHECKED_SNIPPET_RE = re.compile(
-    r"^<!-- checked-snippet: (?P<path>[^#\s]+)(?:#(?P<region>[\w-]+))? -->$"
-)
-FENCE_OPEN_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})")
-
-
 def _snippet_source(repo_root: Path, rel: str, region: str | None) -> tuple[str | None, str]:
     """Return (text, problem) for a checked-snippet source or one named region of it.
 
@@ -747,55 +742,18 @@ def _snippet_source(repo_root: Path, rel: str, region: str | None) -> tuple[str 
     return textwrap.dedent("\n".join(parts)).rstrip("\n") + "\n", ""
 
 
-def _checked_fences(markdown: str) -> list[tuple[int, str, str | None, str | None]]:
-    """(line, path, region, fence body or None when no fence follows the marker)."""
-    lines = markdown.splitlines()
-    found = []
-    for index, line in enumerate(lines):
-        marker = CHECKED_SNIPPET_RE.match(line.strip())
-        if marker is None:
-            continue
-        body = None
-        opener = index + 1
-        while opener < len(lines) and not lines[opener].strip():
-            opener += 1
-        fence = FENCE_OPEN_RE.match(lines[opener]) if opener < len(lines) else None
-        if fence is not None:
-            closing = next(
-                (
-                    end
-                    for end in range(opener + 1, len(lines))
-                    if lines[end].strip() == fence.group("fence")
-                ),
-                None,
-            )
-            if closing is not None:
-                body = "\n".join(lines[opener + 1 : closing]) + "\n"
-        found.append((index + 1, marker.group("path"), marker.group("region"), body))
-    return found
-
-
 def check_checked_snippets(repo_root: Path) -> list[Finding]:
     """Every `<!-- checked-snippet: path[#region] -->` fence equals its checked source.
 
     The source is a file that a test suite or build compiles and runs, so the page
     cannot show a stale copy. Generated site and wiki pages carry the same fence and
-    are checked the same way, as are the package READMEs the registries publish.
+    are checked the same way, as are the READMEs the registries publish
+    (`checked_snippet_pages`). A fence may be indented as CommonMark allows, also
+    inside a list item; its indentation is removed before the comparison.
     """
     findings: list[Finding] = []
-    pages = [
-        page
-        for root in (
-            repo_root / "docs/content",
-            repo_root / "generated/site",
-            repo_root / "generated/wiki",
-        )
-        for page in _scan_markdown(root)
-    ]
-    # Package READMEs are published to the registries and copy the same recipes.
-    pages.extend(sorted(repo_root.glob("packages/*/README.md")))
-    for page in pages:
-        for line, rel, region, body in _checked_fences(page.read_text(encoding="utf-8")):
+    for page in checked_snippet_pages(repo_root):
+        for line, rel, region, _, body in checked_snippets(page.read_text(encoding="utf-8")):
             where = f"{page}:{line}"
             if body is None:
                 findings.append(Finding("error", f"{where}: checked snippet has no fence"))
