@@ -1,0 +1,39 @@
+name: typescript-windows-watch
+
+# Manual Windows check for the Vitest watch rerun (#781). On a watch rerun, the
+# global setup rebuilds dist and invalidates the built files with Vite ids. The
+# check changes the source and confirms that the rerun loads the rebuilt
+# dist/index.js. It runs only on manual dispatch, so it gates no PR.
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: typescript-windows-watch-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  watch-rerun:
+    timeout-minutes: 30
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: langs/typescript
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check that a watch rerun loads the rebuilt dist
+        run: node scripts/check-watch-rerun.mjs
