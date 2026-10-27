@@ -216,7 +216,8 @@ def read_trx(path: Path) -> list[Case]:
         method = unit_test.find("t:TestMethod", _TRX_NS)
         if method is None:
             raise ReportError(f"{path}: UnitTest {unit_test.get('id')} has no TestMethod")
-        class_name = (method.get("className") or "").split(",")[0].split(".")[-1]
+        # Keep the namespace: only the conformance suite's classes may credit an ID.
+        class_name = (method.get("className") or "").split(",")[0]
         methods[unit_test.get("id", "")] = (class_name, method.get("name", ""))
 
     results = root.findall("t:Results/t:UnitTestResult", _TRX_NS)
@@ -305,6 +306,7 @@ _CS_METHOD = re.compile(
 # xUnit test classes are public; private helper types nested in a test class
 # must not capture its markers.
 _CS_TEST_TYPE = re.compile(r"\bpublic\s+(?:(?:sealed|static|partial|abstract)\s+)*class\s+(\w+)")
+_CS_NAMESPACE = re.compile(r"^\s*namespace\s+([\w.]+)", re.M)
 _SWIFT_FUNC = re.compile(
     r"^\s*(?:@\w+\s+)*(?:(?:public|internal|private|override|final)\s+)*func\s+(test\w*)"
 )
@@ -319,6 +321,8 @@ def map_csharp(directory: Path) -> dict[tuple[str, str], set[str]]:
     mapping: dict[tuple[str, str], set[str]] = {}
     for path in sorted(directory.rglob("*.cs")):
         cleaned = ccc._BLOCK_COMMENT_RE.sub("", path.read_text(encoding="utf-8"))
+        namespace = _CS_NAMESPACE.search(cleaned)
+        prefix = f"{namespace.group(1)}." if namespace else ""
         for match in ccc._CS_TRAIT_PATTERN.finditer(cleaned):
             line_start = cleaned.rfind("\n", 0, match.start()) + 1
             if "//" in cleaned[line_start : match.start()]:
@@ -327,7 +331,7 @@ def map_csharp(directory: Path) -> dict[tuple[str, str], set[str]]:
             types = list(_CS_TEST_TYPE.finditer(cleaned, 0, match.start()))
             if method is None or not types:
                 raise ReportError(f"{path}: marker {match.group(1)} attaches to no test method")
-            key = (types[-1].group(1), method.group(1))
+            key = (prefix + types[-1].group(1), method.group(1))
             mapping.setdefault(key, set()).add(match.group(1))
     return mapping
 
@@ -388,10 +392,20 @@ def _source_ids(case: Case, mapping: dict[tuple[str, str], set[str]], flavor: st
     missing ID, which fails loudly.
     """
     if flavor == "rust":
-        # libtest paths are crate::file_module[::nested]::function.
-        return set().union(
-            *(mapping.get((segment, case.name), set()) for segment in case.container.split("::"))
-        )
+        # Conformance paths are conformance::file_module[::nested]::function, from
+        # the `mod conformance { ... }` wrapper in langs/rust/tests/conformance.rs.
+        # A src unit test has another root, even when its module shares the stem.
+        segments = case.container.split("::")
+        if len(segments) < 2 or segments[0] != "conformance":
+            return set()
+        return mapping.get((segments[1], case.name), set())
+    if flavor == "csharp":
+        # TRX names a nested test class Namespace.Outer+Inner; markers record
+        # the namespace and the innermost public class.
+        namespace, _, type_name = case.container.rpartition(".")
+        type_name = type_name.split("+")[-1]
+        qualified = f"{namespace}.{type_name}" if namespace else type_name
+        return mapping.get((qualified, case.name), set())
     container = case.container.split(".")[-1].split("+")[-1]
     return mapping.get((container, case.name), set())
 

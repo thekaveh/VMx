@@ -17,8 +17,9 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   test directory for matching tests. The exact directories are registered in the
   `_SCRAPERS` dictionary at the top of `tools/check-conformance-coverage.py`; running
   the tool prints the discovered paths per language. Reports gaps to stdout and exits
-  non-zero if any language passed via `--require` has gaps. Used by the `conformance`
-  CI workflow.
+  1 if any language passed via `--require` has gaps. A missing catalog or an ID
+  declared under more than one heading exits 2, with or without `--require`. Used by
+  the `conformance` CI workflow.
 
   ```bash
   # report-only
