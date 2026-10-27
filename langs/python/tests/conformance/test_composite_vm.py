@@ -933,6 +933,9 @@ def test_COMP_026_opposing_current_callbacks_do_not_deadlock() -> None:
     """Current callbacks on two composites cannot retain opposing membership gates."""
     dispatcher = _dispatcher()
     barrier = Barrier(2)
+    # A wait that is expected to succeed; the bound only stops a hang.
+    hang_guard = 30.0
+    broken: list[BrokenBarrierError] = []
     refs: dict[str, CompositeVM[ComponentVM]] = {}
     first = {"a": True, "b": True}
 
@@ -945,10 +948,12 @@ def test_COMP_026_opposing_current_callbacks_do_not_deadlock() -> None:
             if not first[key]:
                 return
             first[key] = False
+            # Each callback waits for the other, so the cross-selections overlap.
             try:
-                barrier.wait(0.1)
-            except BrokenBarrierError:
-                pass
+                barrier.wait(hang_guard)
+            except BrokenBarrierError as error:
+                broken.append(error)
+                return
             target_vm = refs[target]
             if target_vm.current is not child:
                 target_vm.select_component(child)
@@ -979,11 +984,12 @@ def test_COMP_026_opposing_current_callbacks_do_not_deadlock() -> None:
     thread_b = Thread(target=lambda: composite_b.select_component(child_b), daemon=True)
     thread_a.start()
     thread_b.start()
-    thread_a.join(2.0)
-    thread_b.join(2.0)
+    thread_a.join(hang_guard)
+    thread_b.join(hang_guard)
 
     assert not thread_a.is_alive()
     assert not thread_b.is_alive()
+    assert broken == []
     assert composite_a.current is child_a
     assert composite_b.current is child_b
 

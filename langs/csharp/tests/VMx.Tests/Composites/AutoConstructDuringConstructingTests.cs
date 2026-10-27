@@ -137,7 +137,7 @@ public class AutoConstructDuringConstructingTests
                 return setup.Root.Status != ConstructionStatus.Constructing &&
                     !((ComponentVMBase)setup.Root).HasInFlightLifecycleForTesting;
             },
-            TimeSpan.FromSeconds(5)).Should().BeTrue();
+            Liveness.HangGuard).Should().BeTrue();
         setup.Dispatcher.RunAll();
     }
 
@@ -171,7 +171,7 @@ public class AutoConstructDuringConstructingTests
         late.Status.Should().Be(ConstructionStatus.Constructing);
 
         setup.Dispatcher.RunFirst(); // only the original child settles
-        SpinWait.SpinUntil(() => setup.First.Status == ConstructionStatus.Constructed, TimeSpan.FromSeconds(5));
+        SpinWait.SpinUntil(() => setup.First.Status == ConstructionStatus.Constructed, Liveness.HangGuard);
         Thread.Sleep(50); // give an (incorrect) early completion time to land
         late.Status.Should().Be(ConstructionStatus.Constructing);
         setup.Root.Status.Should().Be(ConstructionStatus.Constructing);
@@ -218,8 +218,6 @@ public class AutoConstructDuringConstructingTests
         late.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
-    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(5);
-
     /// <summary>Records each status a component publishes, in order.</summary>
     private static List<string> RecordStatuses(Setup setup)
     {
@@ -248,9 +246,9 @@ public class AutoConstructDuringConstructingTests
         })
         { IsBackground = true };
         adder.Start();
-        paused.Wait(Bound).Should().BeTrue("the add pauses before the late child settles");
+        paused.Wait(Liveness.HangGuard).Should().BeTrue("the add pauses before the late child settles");
         setup.Dispatcher.RunFirst(); // the original child settles; the walk pulls `late`
-        adder.Join(Bound).Should().BeTrue("the paused add resumes and completes");
+        adder.Join(Liveness.HangGuard).Should().BeTrue("the paused add resumes and completes");
         Settle(setup);
         return addError;
     }
@@ -273,7 +271,7 @@ public class AutoConstructDuringConstructingTests
             late.Status.Should().Be(ConstructionStatus.Destructed);
             paused.Set();
             SpinWait.SpinUntil(
-                () => walkWaiting() || setup.Root.Status != ConstructionStatus.Constructing, Bound);
+                () => walkWaiting() || setup.Root.Status != ConstructionStatus.Constructing, Liveness.HangGuard);
         };
         return paused;
     }
@@ -343,7 +341,7 @@ public class AutoConstructDuringConstructingTests
             // The add started the child; hold its construct until the walk
             // waits for the add (or a bounded time on a walk that joins it).
             SpinWait.SpinUntil(
-                () => walkWaiting() || setup.Root.Status != ConstructionStatus.Constructing, Bound);
+                () => walkWaiting() || setup.Root.Status != ConstructionStatus.Constructing, Liveness.HangGuard);
         });
         walkWaiting = RecordWalkWaiting(setup, late);
 
@@ -468,19 +466,19 @@ public class AutoConstructDuringConstructingTests
         })
         { IsBackground = true };
         adder.Start();
-        paused.Wait(Bound).Should().BeTrue("the add pauses after it registered its record");
+        paused.Wait(Liveness.HangGuard).Should().BeTrue("the add pauses after it registered its record");
 
         // `first` settles and both walks resume: the abandoned walk 1 ends
         // (its stale path runs), and walk 2 starts `second`.
         setup.Dispatcher.RunFirst();
-        SpinWait.SpinUntil(() => Volatile.Read(ref walksEnded) >= 1, Bound)
+        SpinWait.SpinUntil(() => Volatile.Read(ref walksEnded) >= 1, Liveness.HangGuard)
             .Should().BeTrue("the abandoned walk ends");
-        SpinWait.SpinUntil(() => second.Status == ConstructionStatus.Constructing, Bound)
+        SpinWait.SpinUntil(() => second.Status == ConstructionStatus.Constructing, Liveness.HangGuard)
             .Should().BeTrue("walk 2 starts the next snapshot child");
 
         // `second` settles: walk 2 pulls `late` and must find its record.
-        setup.Dispatcher.RunFirstWhenQueued(Bound);
-        adder.Join(Bound).Should().BeTrue("the paused add resumes and completes");
+        setup.Dispatcher.RunFirstWhenQueued(Liveness.HangGuard);
+        adder.Join(Liveness.HangGuard).Should().BeTrue("the paused add resumes and completes");
         Settle(setup);
 
         addError.Should().BeNull();
