@@ -31,6 +31,21 @@ All notable changes to the Python flavor are documented here. The format is base
   still disposed before the container (LIFE-013). The default,
   `ChildOrder.INSERTION`, keeps the current order (#662, ADR-0161, GRP-014,
   COMP-046).
+- The child-transition helper is supported API for subclasses of the
+  component base. A construct or destruct hook passes the future of
+  `_transition_children(children, construct=..., after=...)` to
+  `_complete_lifecycle_hook_after`. The walk goes in list order, joins a child
+  already in transit, waits for a background child, runs `after` once and
+  rolls the parent back when a child fails. Called outside a construct or
+  destruct hook, either method raises `RuntimeError` and starts no child. The
+  container-only parameters moved to an internal method (#661, ADR-0162,
+  LIFE-016, LIFE-017, LIFE-019, LIFE-020).
+- `_own_member(member)` registers a member VM and returns it. `dispose()`
+  disposes the members in registration order before the parent publishes
+  `Disposed`, after a container's own children. Every member is attempted
+  and the first failure is raised after the teardown. A member registered
+  after `Disposed` is disposed at once. Registering the VM itself raises
+  `RuntimeError` (#661, ADR-0162, LIFE-018).
 
 ### Fixed
 

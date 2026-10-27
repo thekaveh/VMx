@@ -110,6 +110,16 @@ option. The option governs the component's two standalone operations only. This
 does not turn parent orchestration into a synchronous wait for background-enabled
 descendants; containers retain their existing child-cascade and failure routes.
 
+The child-transition helper of chapter 02 §6.1 runs inside the parent's hook,
+so a background-enabled parent runs it on `IDispatcher.Background` in C#,
+Python, TypeScript and Swift. Rust's walk methods run the component's
+transition on the calling thread, so `construct_with_children` and
+`destruct_with_children` reject a component built with `background(true)` and
+return `VmxError::InvalidArgument` before any transition starts.
+`reconstruct_with_children` follows the direct-reconstruct rule above and runs
+synchronously for every component. Background children of the walk still run
+their own hooks on the background dispatcher, and the walk waits for them.
+
 The background form proceeds in three steps:
 
 1. The **intermediate** transition (`Constructing` / `Destructing`) is emitted

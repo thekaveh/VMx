@@ -161,7 +161,8 @@ class MetricVM extends ComponentVMBase {
 - **Owned child view-models are disposed parent-first.** The parent publishes
   `Disposed`, runs its disposal hook, and then disposes its owned resources in
   reverse registration order. Containers do the opposite: they dispose their
-  children before themselves (`LIFE-013`).
+  children before themselves (`LIFE-013`). To dispose a member view-model
+  before the parent, register it as a member instead (§6.2.2.7).
 - **Per-construct resources** start in `OnConstruct` and end in `OnDestruct`
   (or their flavor equivalents; ADR-0041 §2, §4). A resource registered with `own`
   survives reconstruct. The helper deliberately does not expose two mutable
@@ -169,17 +170,78 @@ class MetricVM extends ComponentVMBase {
 
 ## 6.2.2.7. Children Of A Leaf View-Model
 
-A leaf that constructs child view-models in its own construct hook does not get
-container semantics. The hook does not wait for a background child (spec 02
-§6). If a synchronous child fails, the parent rolls back but earlier children
-stay constructed. If a background child fails on an asynchronous background
-scheduler, the parent stays `Constructed`. In C#, Python and TypeScript, an
-inline dispatcher (`RxDispatcher.Immediate()` / `immediate()` or
-`NullDispatcher`) runs the background work inside the parent's hook, so the
-child failure reaches that hook and the parent rolls back. In Swift and Rust
-the parent stays `Constructed` on every dispatcher: Swift rolls back only the
-child, and Rust reports the failure on `background_errors()`. Use a container
-instead:
+A leaf that keeps member view-models in fields drives them with the
+child-transition helper from its own construct and destruct hooks (spec 02
+§6.1, ADR-0162). Do not write the loops by hand. A hand-written loop does not
+wait for a background member and does not roll the parent back when a member
+fails on a background scheduler. The helper:
+
+- walks the members in the order you pass, one at a time;
+- joins a member that is already constructing or destructing;
+- waits for a background member before it starts the next one;
+- rolls the parent back when a member fails, but does not undo members that
+  already constructed;
+- runs `after` once, after the members settle and before the parent publishes
+  its status.
+
+Only the construct and destruct hooks may call it. A call from anywhere else
+raises the usage error. To destruct in reverse, pass the reversed list.
+
+Register each member with the member-disposal helper. `dispose()` then
+disposes the members in registration order before the parent publishes
+`Disposed`, so the cascade stays depth-first (spec 02 §7.1). One failing member
+does not stop the others, and the first failure is reported after the parent's
+teardown. Swift `dispose()` does not throw, so in Swift every member is still
+attempted but a failing member is not reported.
+
+<!-- checked-snippet: langs/typescript/tests/unit/leafMemberChildrenRecipe.test.ts#leaf-member-children -->
+
+```typescript
+class PanelVM extends ComponentVMBase {
+  // Members: disposed with the panel, before the panel publishes Disposed.
+  readonly chart = this.ownMember(this.#member("chart"));
+  readonly table = this.ownMember(this.#member("table"));
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  get #members(): ComponentVMBase[] {
+    return [this.chart, this.table];
+  }
+
+  protected override _onConstruct(): void {
+    super._onConstruct();
+    // The panel publishes Constructed after both members constructed.
+    this._transitionChildren(this.#members, true);
+  }
+
+  protected override _onDestruct(): void {
+    // Reverse order; the panel's own destruct hook runs last.
+    this._transitionChildren([...this.#members].reverse(), false, () => super._onDestruct());
+  }
+
+  #member(name: string): ComponentVM {
+    return ComponentVM.builder().name(name).services(this.hub, this._dispatcher).build();
+  }
+}
+```
+
+| Flavor     | Transition helper                                                                      | Member registration        |
+| ---------- | -------------------------------------------------------------------------------------- | -------------------------- |
+| C#         | `CompleteLifecycleHookAfter(TransitionChildrenAsync(members, construct, after))`       | `OwnMember(member)`        |
+| Python     | `self._complete_lifecycle_hook_after(self._transition_children(members, construct=…))` | `self._own_member(member)` |
+| TypeScript | `this._transitionChildren(members, construct, after)`                                  | `this.ownMember(member)`   |
+| Swift      | `try _transitionChildren(members, construct: …, after: …)`                             | `ownMember(member)`        |
+| Rust       | `vm.construct_with_children(\|walk\| walk.transition(&member))`                        | `vm.own_member(&member)`   |
+
+Rust has no subclassing. A Rust view-model type wraps a `ComponentVm` and calls
+`construct_with_children`, `destruct_with_children` and
+`reconstruct_with_children`. The closure receives a `ChildTransitions` handle:
+`transition(&member)` adds the next member and `then(after)` adds the `after`
+step.
+
+Use a container instead when the children are a collection:
 
 - `GroupVM` or `CompositeVM` for children of one type.
 - `AggregateVM1` to `AggregateVM6` for up to six typed children. Built with
@@ -187,7 +249,8 @@ instead:
   replaces the slots (spec 08 §2, §4).
 
 The order in which a container constructs or destructs its children is
-unspecified (spec 02 §6, ADR-0047 §2.5).
+unspecified unless it is built with the `Reverse` destruct order (spec 02 §6,
+ADR-0161).
 
 ## 6.2.2.8. Callbacks And Construction Order
 

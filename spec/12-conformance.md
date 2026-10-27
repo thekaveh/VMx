@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 431 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 436 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -206,6 +206,82 @@ reaches `Constructed`
 **And** cleanup completes exactly once after the hook releases its lease
 **And** terminal supersession prevents any post-hook container lifecycle work
 **And** opposing foreign hook waits cannot deadlock
+
+### LIFE-016 — The child-transition helper waits for a background child
+
+**Given** a leaf VM whose construct hook passes children `a` and `b` to the
+child-transition helper with an `after` callback (in Rust, a type that drives a
+`ComponentVm` through `construct_with_children` and `then`)
+**And** `a` runs its lifecycle on a background scheduler that has not run yet
+**When** `parent.construct()` is called
+**Then** `parent.Status == Constructing`, `a.Status == Constructing`,
+`b.Status == Destructed`, and `after` has not run
+**And** after the background and foreground work drains, `a` and then `b`
+reach `Constructed`, `after` runs exactly once, and only then does the parent
+publish `Constructed`
+
+> Normatively defined in `02-lifecycle.md §6.1`.
+
+### LIFE-017 — A child failure in the helper rolls the parent back
+
+**Given** a leaf VM whose construct hook passes children `a`, `b` and `c` to
+the child-transition helper
+**And** `b`'s construct hook raises
+**When** `parent.construct()` is called
+**Then** the failure surfaces from the call (the flavor's raised error or `Err`)
+**And** `parent.Status == Destructed`
+**And** `a.Status == Constructed`: the helper does not undo a sibling that
+already constructed
+**And** `b.Status == Destructed` and `c.Status == Destructed` (the helper never
+started `c`)
+
+> Normatively defined in `02-lifecycle.md §6.1`.
+
+### LIFE-018 — Registered members are disposed depth-first before the parent
+
+**Given** a `Constructed` leaf VM with two member VMs registered through the
+member-disposal helper (`OwnMember` / `_own_member` / `ownMember` /
+`own_member`), where the first member is a container with one `Constructed`
+child
+**And** a hub subscriber that records each `ConstructionStatusChangedMessage`
+whose status is `Disposed`
+**When** `parent.dispose()` is called
+**Then** the recorded senders are, in order: the first member's child, the
+first member, the second member, and the parent
+**And** when the first member's disposal hook raises, the second member and
+the parent still reach `Disposed`, and the first failure surfaces from the
+call in flavors with a throwing or result-based disposal surface
+**And** a member registered after the parent reached `Disposed` is disposed
+when it is registered
+
+> Normatively defined in `02-lifecycle.md §7.1`.
+
+### LIFE-019 — The helper destructs children in the order the caller passes
+
+**Given** a `Constructed` leaf VM with `Constructed` children `a`, `b` and `c`
+**And** a destruct hook that passes `c`, `b`, `a` (the reversed list) to the
+child-transition helper
+**When** `parent.destruct()` is called
+**Then** the hub records `Destructing` and `Destructed` for `c`, then for `b`,
+then for `a`, and no child starts `Destructing` before the previous child is
+`Destructed`
+**And** the parent publishes `Destructed` after `a`
+
+> Normatively defined in `02-lifecycle.md §6.1`.
+
+### LIFE-020 — The helper joins a child that is already in transit
+
+**Given** a leaf VM whose construct hook passes child `a` to the
+child-transition helper
+**And** `a` runs its lifecycle on a background scheduler, and `a.construct()`
+was called before the parent's, so `a.Status == Constructing`
+**When** `parent.construct()` is called
+**Then** the call does not raise the concurrent-operation error, and `a`'s
+construct hook runs exactly once
+**And** `parent.Status == Constructing` until `a` reaches `Constructed`, and the
+parent then publishes `Constructed`
+
+> Normatively defined in `02-lifecycle.md §6.1`.
 
 ______________________________________________________________________
 

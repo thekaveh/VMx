@@ -26,6 +26,36 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `ChildOrder::Insertion`, keeps the current order. Construct order does not
   change, and every child is still disposed before its container (ADR-0161,
   `GRP-014`, `COMP-046`) (#662).
+- A supported child-transition helper for consumer view-model types that
+  compose a `ComponentVm` (#661, ADR-0162, `LIFE-016`..`LIFE-020`).
+  `ComponentVm::construct_with_children`, `destruct_with_children` and
+  `reconstruct_with_children` run the component's own transition and, after
+  its hook, pass a new `ChildTransitions` handle to a walk closure.
+  `ChildTransitions::transition` constructs or destructs one member at a time,
+  in the order given. It skips a member already at the target and joins one
+  already in transit. `ChildTransitions::then` runs a callback before the
+  component publishes its terminal status. A background member keeps the
+  component transient until it settles, and a failing member or callback rolls
+  the component back. The handle borrows the transition, so the compiler
+  rejects a use outside the closure.
+- `ComponentVm::own_member` registers a member view-model. `dispose()` now
+  disposes the registered members in registration order before the component
+  publishes `Disposed`, keeps the first failure, and returns it after the
+  component's own teardown. A member registered after disposal began is
+  disposed at once. Registering the component itself returns
+  `VmxError::OwnershipCycle`. While the members are being disposed, any other
+  `dispose()` of the component, re-entrant or from another thread, returns
+  `Ok(())` at once without waiting, and the first call finishes the work. A
+  component with no members disposes as before (#661, ADR-0162, `LIFE-018`).
+- The walk methods have two limits (#661, ADR-0162).
+  `construct_with_children` and `destruct_with_children` return
+  `VmxError::InvalidArgument` for a component built with `background(true)`
+  and start no transition, because the walk cannot move to the background
+  dispatcher. Members built with `background(true)` still run their hooks in
+  the background. `reconstruct_with_children` runs on the calling thread for
+  every component, as `reconstruct()` does. `reconstruct()` and
+  `reconstruct_command()` run only the component's hooks and never a walk, so
+  a consumer type reconstructs through `reconstruct_with_children`.
 
 ### Changed
 

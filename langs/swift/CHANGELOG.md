@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A supported child-transition helper and depth-first member disposal on
+  `ComponentVMBase` (#661, ADR-0162, LIFE-016..LIFE-020). A subclass in
+  another module calls `try _transitionChildren(children, construct:, after:)`
+  from its `_onConstruct()` or `_onDestruct()` override, including the phases
+  of `reconstruct()` and a background hook. The helper walks the children in
+  the given order, joins a child already in transit, waits for a background
+  child, rolls the parent back when a child fails, and runs `after` once
+  before the parent publishes its terminal status. Outside the VM's own hook
+  it throws `ChildTransitionError`, which is now public, and starts no child.
+  `@discardableResult ownMember(_:)` registers a member VM: `dispose()`
+  disposes the members in registration order before the parent publishes
+  `Disposed`, and a member registered after disposal started (including
+  during a container's child cascade) is disposed at once. While the cascade
+  runs, a further `dispose()` of the VM, on the same thread or another one,
+  returns at once; `AggregateVM1`..`AggregateVM6` now follow the same rule
+  for their component cascade. Swift disposal does not throw, so every member is attempted and a
+  failing member is not reported. Registering the VM itself traps. The
+  container-only walk (late children, population joins) stays internal as
+  `_transitionContainerChildren`.
 - `ExpandableState.expandCommand`, `collapseCommand` and
   `toggleExpansionCommand` (#660, ADR-0159, EXP-006..008). Each command's
   predicate is the matching `can*` check, its task calls the verb, and its

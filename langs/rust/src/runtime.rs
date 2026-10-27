@@ -2577,6 +2577,19 @@ pub trait TreeNode: VmNode {
 
 type Hook = Arc<Mutex<dyn FnMut() -> VmxResult<()> + Send + 'static>>;
 type OwnedCleanup = Box<dyn FnOnce() + Send + 'static>;
+/// Disposes one member registered through `ComponentVm::own_member`.
+pub(crate) type MemberDisposal = Box<dyn FnOnce() -> VmxResult<()> + Send + 'static>;
+
+/// Where a component's member disposal stands (spec/02 §7.1).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MemberPhase {
+    /// No dispose has started: registrations are kept.
+    Open,
+    /// A dispose is disposing the members; any other dispose is a no-op.
+    Running,
+    /// The members are disposed: a registration disposes its member now.
+    Done,
+}
 pub(crate) type ModelHint<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 
 #[derive(Clone)]
@@ -2640,6 +2653,9 @@ struct ComponentCoreInner<D: Dispatcher> {
     expanded: bool,
     child_settle: Option<ChildSettle>,
     settle_waiters: Vec<LifecycleSettleCallback>,
+    /// Members disposed before this component, in registration order.
+    members: Vec<(usize, MemberDisposal)>,
+    member_phase: MemberPhase,
 }
 
 /// Admits `reconstruct` from `status` with the same errors the lifecycle core
@@ -2699,6 +2715,8 @@ impl<D: Dispatcher> ComponentCore<D> {
                 expanded: false,
                 child_settle: None,
                 settle_waiters: Vec::new(),
+                members: Vec::new(),
+                member_phase: MemberPhase::Open,
             })),
             hook_ready: Arc::new(Condvar::new()),
         }
@@ -3634,6 +3652,102 @@ impl<D: Dispatcher> ComponentCore<D> {
     ) -> VmxResult<()> {
         let child = child.clone();
         self.child_step(self.weak_step(move |core| core.run_child_transition(&child, operation)))
+    }
+
+    /// Constructs or destructs `child` as one step of the supported
+    /// child-transition walk (spec/02 §6.1). At its turn the step skips a
+    /// child already at the target, joins one already in the transient
+    /// status (or publishing a sealed construct), and otherwise runs the
+    /// transition like [`Self::transition_child`].
+    pub(crate) fn transition_or_join_child<N: VmNode>(
+        &self,
+        child: &N,
+        operation: LifecycleOperation,
+    ) -> VmxResult<()> {
+        let (transient, target) = match operation {
+            LifecycleOperation::Construct => (
+                ConstructionStatus::Constructing,
+                ConstructionStatus::Constructed,
+            ),
+            LifecycleOperation::Destruct => (
+                ConstructionStatus::Destructing,
+                ConstructionStatus::Destructed,
+            ),
+            LifecycleOperation::Dispose => return Ok(()),
+        };
+        let child = child.clone();
+        self.child_step(self.weak_step(move |core| {
+            let status = child.status();
+            if status == transient || child.lifecycle_publication_pending() {
+                core.await_child(&child, target)
+            } else if status == target {
+                Ok(())
+            } else {
+                core.run_child_transition(&child, operation)
+            }
+        }))
+    }
+
+    /// Registers a member disposed before this component (spec/02 §7.1).
+    /// A registration after the members were disposed disposes the member
+    /// now. The component itself is rejected; a member already registered
+    /// is kept once.
+    pub(crate) fn own_member(&self, member_id: usize, dispose: MemberDisposal) -> VmxResult<()> {
+        let (now, duplicate) = {
+            let mut inner = lock(&self.inner);
+            if member_id == inner.id {
+                return Err(VmxError::OwnershipCycle);
+            }
+            if inner.member_phase != MemberPhase::Open
+                || inner.status == ConstructionStatus::Disposed
+            {
+                (Some(dispose), None)
+            } else if inner.members.iter().any(|(id, _)| *id == member_id) {
+                (None, Some(dispose))
+            } else {
+                inner.members.push((member_id, dispose));
+                (None, None)
+            }
+        };
+        // A member handle can be the last one; drop it outside the guard.
+        drop(duplicate);
+        now.map_or(Ok(()), |dispose| dispose())
+    }
+
+    /// Takes the registered members for disposal, in registration order,
+    /// and marks the member cascade running under the core lock (spec/02
+    /// §7.1). While it runs, every other dispose, re-entrant or from another
+    /// thread, gets `None` and returns at once without waiting: waiting could
+    /// deadlock against a member hook that disposes this component. The
+    /// first dispose disposes the members and then the component. A
+    /// component with no members never marks a cascade, so its disposal is
+    /// unchanged.
+    pub(crate) fn begin_member_disposal(&self) -> Option<Vec<MemberDisposal>> {
+        let mut inner = lock(&self.inner);
+        match inner.member_phase {
+            MemberPhase::Open if inner.members.is_empty() => {
+                inner.member_phase = MemberPhase::Done;
+                Some(Vec::new())
+            }
+            MemberPhase::Open => {
+                inner.member_phase = MemberPhase::Running;
+                let members = std::mem::take(&mut inner.members);
+                Some(members.into_iter().map(|(_, dispose)| dispose).collect())
+            }
+            MemberPhase::Running => None,
+            MemberPhase::Done => Some(Vec::new()),
+        }
+    }
+
+    /// Marks the member cascade finished.
+    pub(crate) fn finish_member_disposal(&self) {
+        lock(&self.inner).member_phase = MemberPhase::Done;
+    }
+
+    /// Whether construct and destruct hooks run through the background
+    /// dispatcher.
+    pub(crate) fn is_background(&self) -> bool {
+        lock(&self.inner).background
     }
 
     /// Whether auto-construct-on-add constructs a child added now without a

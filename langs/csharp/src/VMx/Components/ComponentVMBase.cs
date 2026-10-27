@@ -324,6 +324,17 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private readonly IMessageHub _hub;
     private readonly List<IDisposable> _ownedResources = [];
 
+    // Member VMs registered through OwnMember, disposed in registration order
+    // before this VM publishes Disposed (spec/02 §7.1). Guarded by _gate.
+    private readonly List<IComponentVM> _members = [];
+    // Set under _gate when disposal takes the member list; a later
+    // registration disposes its member at once.
+    private bool _membersTaken;
+    // Set under _gate when a disposal with registered members starts. Until
+    // that disposal publishes Disposed, any further Dispose() on any thread
+    // returns at once and does nothing (spec/02 §7.1).
+    private bool _memberCascadeRunning;
+
     /// <summary>
     /// The dispatcher supplied at construction. <c>private protected</c> so
     /// same-assembly container subclasses can schedule on it without re-storing
@@ -416,12 +427,38 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     protected virtual void OnDestruct() => _onDestruct?.Invoke();
 
     /// <summary>
-    /// Defers the parent's terminal lifecycle transition until asynchronous child
-    /// transitions have settled. A synchronously completed task is observed
-    /// immediately so hook failures retain their existing throw behavior.
+    /// Defers this VM's terminal lifecycle status until <paramref name="task"/>
+    /// settles. Call it from this VM's own <see cref="OnConstruct"/> or
+    /// <see cref="OnDestruct"/> override, including the two phases of
+    /// <see cref="Reconstruct"/>, with the task that
+    /// <see cref="TransitionChildrenAsync(IEnumerable{IComponentVM}, bool, Action?)"/>
+    /// returns (spec/02 §6.1, ADR-0162):
+    /// <code>
+    /// protected override void OnConstruct()
+    ///     =&gt; CompleteLifecycleHookAfter(TransitionChildrenAsync([_chart, _table], construct: true));
+    ///
+    /// protected override void OnDestruct()
+    ///     =&gt; CompleteLifecycleHookAfter(TransitionChildrenAsync([_table, _chart], construct: false));
+    /// </code>
+    /// While the task is pending, this VM stays <see cref="ConstructionStatus.Constructing"/>
+    /// or <see cref="ConstructionStatus.Destructing"/>. When the task completes, this VM
+    /// publishes its terminal status. When the task faults, this VM rolls back to its
+    /// prior settled status, and the fault reaches the caller of the asynchronous
+    /// lifecycle method or the background-failure path. A task that already
+    /// completed is observed at once, so a synchronous failure throws from the hook.
     /// </summary>
+    /// <param name="task">The work that this VM's transition waits for.</param>
+    /// <exception cref="InvalidOperationException">
+    /// This VM's own construct or destruct hook is not running on the calling
+    /// thread, or the running hook already deferred its completion.
+    /// </exception>
     protected void CompleteLifecycleHookAfter(Task task)
     {
+        ThrowHelper.ThrowIfNull(task, nameof(task));
+        if (!ReferenceEquals(t_lifecycleHookScope?.Owner, this))
+            throw new InvalidOperationException(
+                $"CompleteLifecycleHookAfter can be called only from the construct or destruct hook of '{Name}'.");
+
         if (task.IsCompleted)
         {
             task.GetAwaiter().GetResult();
@@ -445,12 +482,55 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         public int GetHashCode(IComponentVM obj) => RuntimeHelpers.GetHashCode(obj);
     }
 
-    /// <summary>Transitions children sequentially and validates their settled state.</summary>
+    /// <summary>
+    /// Constructs or destructs member view-models as part of this VM's own
+    /// transition (spec/02 §6.1, ADR-0162). Pass the returned task to
+    /// <see cref="CompleteLifecycleHookAfter"/> from the same hook:
+    /// <code>
+    /// protected override void OnConstruct()
+    ///     =&gt; CompleteLifecycleHookAfter(TransitionChildrenAsync([_chart, _table], construct: true));
+    /// </code>
+    /// <list type="bullet">
+    /// <item>The walk takes <paramref name="children"/> in the given order and
+    /// starts a child only after the previous child settled. To destruct in
+    /// reverse, pass the reversed list.</item>
+    /// <item>A child already at the target status (<see cref="ConstructionStatus.Constructed"/>
+    /// or <see cref="ConstructionStatus.Destructed"/>) is skipped. A child already
+    /// <see cref="ConstructionStatus.Constructing"/> or <see cref="ConstructionStatus.Destructing"/>
+    /// is joined and is not started again.</item>
+    /// <item>A background child keeps this VM in its transient status until the
+    /// child settles. The rest of the walk then continues on this VM's
+    /// foreground dispatcher.</item>
+    /// <item>A child that settles at another status faults the task with an
+    /// <see cref="InvalidOperationException"/>, and later children do not start.
+    /// This VM then rolls back to its prior settled status. Siblings that already
+    /// reached the target are not undone.</item>
+    /// <item><paramref name="after"/> runs exactly once, after every child settled at
+    /// the target and before this VM publishes its terminal status. A throwing
+    /// <paramref name="after"/> faults the task like a failing child.</item>
+    /// </list>
+    /// Members are not container children: the walk sets no parent link and no
+    /// selection. Register them with <see cref="OwnMember{T}"/> for disposal.
+    /// </summary>
+    /// <param name="children">The member view-models, in walk order.</param>
+    /// <param name="construct"><see langword="true"/> to construct; <see langword="false"/> to destruct.</param>
+    /// <param name="after">Optional work that runs once every child settled at the target.</param>
+    /// <returns>A task that completes when the walk and <paramref name="after"/> finished.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// No construct or destruct hook is running on the calling thread. The
+    /// exception is thrown synchronously, and no child starts.
+    /// </exception>
     protected static Task TransitionChildrenAsync(
         IEnumerable<IComponentVM> children,
         bool construct,
         Action? after = null)
-        => TransitionChildrenAsync(children, construct, after, joined: null);
+    {
+        ThrowHelper.ThrowIfNull(children, nameof(children));
+        if (t_lifecycleHookScope is null)
+            throw new InvalidOperationException(
+                "TransitionChildrenAsync can be called only from a construct or destruct hook.");
+        return TransitionChildrenAsync(children, construct, after, joined: null);
+    }
 
     /// <summary>
     /// Transitions children sequentially. A child in <paramref name="joined"/>
@@ -1457,7 +1537,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     }
 
     /// <inheritdoc/>
-    public virtual void Dispose() => DisposeAtHookBoundary(cascade: null);
+    public virtual void Dispose() => DisposeAtHookBoundary(cascade: null, resumed: false);
 
     /// <summary>
     /// Disposes a container: its LIFE-013 child cascade, then this VM, at the
@@ -1470,9 +1550,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// that the hook may need.
     /// </summary>
     private protected void DisposeWithChildren(IEnumerable<IDisposable?> children)
-        => DisposeAtHookBoundary(() => DisposeChildren(children));
+        => DisposeAtHookBoundary(() => DisposeChildren(children), resumed: false);
 
-    private void DisposeAtHookBoundary(Func<ExceptionDispatchInfo?>? cascade)
+    /// <param name="cascade">The container's child cascade, if any.</param>
+    /// <param name="resumed">
+    /// <see langword="true"/> only for the call that publishes Disposed after
+    /// this disposal already ran its cascade.
+    /// </param>
+    private void DisposeAtHookBoundary(Func<ExceptionDispatchInfo?>? cascade, bool resumed)
     {
         ExceptionDispatchInfo? firstError = null;
         bool shouldDrain;
@@ -1482,9 +1567,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         lock (_gate)
         {
             if (_status == ConstructionStatus.Disposed) return;
+            // While the member cascade runs, a further disposal on any thread
+            // is a no-op: the first call disposes the members, then publishes
+            // Disposed (spec/02 §7.1).
+            if (_memberCascadeRunning && !resumed) return;
 
             // A pending child walk is abandoned before any child is disposed.
             AbandonChildTransitionLocked();
+            // Members follow the container cascade at the same hook boundary:
+            // a container's children first, then the members (LIFE-018).
+            cascade = WithMemberCascadeLocked(cascade);
             hookLease = _activeHookLease;
             if (cascade is not null &&
                 (hookLease is null ||
@@ -1506,7 +1598,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         if (cascadeFirst)
         {
             var cascadeError = cascade!();
-            try { DisposeAtHookBoundary(cascade: null); }
+            try { DisposeAtHookBoundary(cascade: null, resumed: true); }
             catch (Exception error) { cascadeError ??= ExceptionDispatchInfo.Capture(error); }
             cascadeError?.Throw();
             return;
@@ -1620,6 +1712,29 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             }
         }
         FinishDisposal();
+    }
+
+    /// <summary>
+    /// Takes the registered members and appends their disposal to
+    /// <paramref name="cascade"/>. Returns <paramref name="cascade"/> unchanged
+    /// when no member is registered.
+    /// </summary>
+    private Func<ExceptionDispatchInfo?>? WithMemberCascadeLocked(Func<ExceptionDispatchInfo?>? cascade)
+    {
+        _membersTaken = true;
+        if (_members.Count == 0) return cascade;
+        IComponentVM[] members = [.. _members];
+        _members.Clear();
+        // Set before the first child or member is disposed. It is never
+        // cleared: once this disposal publishes Disposed, every later call
+        // returns at the terminal check anyway.
+        _memberCascadeRunning = true;
+        return () =>
+        {
+            var firstError = cascade?.Invoke();
+            var memberError = DisposeChildren(members);
+            return firstError ?? memberError;
+        };
     }
 
     // ── Selection predicates ────────────────────────────────────────────────
@@ -2139,6 +2254,51 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     /// <summary>Registers a cleanup action for terminal VM cleanup.</summary>
     protected IDisposable Own(Action cleanup) => Own(Disposable.Create(cleanup));
+
+    /// <summary>
+    /// Registers a member view-model that this VM disposes before it publishes
+    /// <see cref="ConstructionStatus.Disposed"/> (spec/02 §7.1, ADR-0162), and
+    /// returns it for inline field assignment:
+    /// <code>
+    /// _chart = OwnMember(new ChartVM(hub, dispatcher));
+    /// </code>
+    /// <see cref="Dispose()"/> disposes the members in registration order, after a
+    /// container's own children, so the cascade stays depth-first. Every member is
+    /// attempted. The first failure is rethrown after this VM's mandatory teardown.
+    /// While the members are disposed, a further <see cref="Dispose()"/> on any
+    /// thread returns at once and does nothing; the first call publishes
+    /// <see cref="ConstructionStatus.Disposed"/> after the last member.
+    /// A member registered after this VM's disposal started is disposed at once,
+    /// and a failure from that disposal is thrown from this call.
+    /// A member is not a container child: registration sets no parent link and
+    /// does not construct it. Use
+    /// <see cref="TransitionChildrenAsync(IEnumerable{IComponentVM}, bool, Action?)"/>
+    /// to construct and destruct members.
+    /// </summary>
+    /// <typeparam name="T">The member's type.</typeparam>
+    /// <param name="member">The member view-model.</param>
+    /// <returns><paramref name="member"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="member"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="member"/> is this VM or a forwarding decorator of it.
+    /// </exception>
+    protected T OwnMember<T>(T member) where T : IComponentVM
+    {
+        ThrowHelper.ThrowIfNull(member, nameof(member));
+        if (ReferenceEquals(member.GetOwnershipIdentity(), this))
+            throw new InvalidOperationException($"View-model '{Name}' cannot own itself as a member.");
+
+        bool disposeNow;
+        lock (_gate)
+        {
+            disposeNow = _membersTaken;
+            if (!disposeNow)
+                _members.Add(member);
+        }
+        if (disposeNow)
+            member.Dispose();
+        return member;
+    }
 
     /// <summary>Registers a resource for a forwarding decorator of this VM (ADR-0151).</summary>
     internal T OwnForAlias<T>(T resource) where T : IDisposable => Own(resource);

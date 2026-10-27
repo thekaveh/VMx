@@ -32,15 +32,15 @@ resource cancellation.
 
 ## 6.8.2. The Seven Disposal Families
 
-| Family                        | Representative surfaces                                             | Cross-cutting ID | Detailed coverage                                 |
-| ----------------------------- | ------------------------------------------------------------------- | ---------------- | ------------------------------------------------- |
-| VM and owner cascades         | Component, composite, group, aggregate, hierarchy, forwarding       | `DISP-001`       | `LIFE-004`, `LIFE-012`, `LIFE-013`, `CVM-009`     |
-| Commands                      | Relay, async relay, composite/decorator, modeled CRUD               | `DISP-002`       | `CMD-012`, `CMD-013`, `CMDD-010`..`CMDD-013`      |
-| Hubs and services             | Message hub, notification hub                                       | `DISP-003`       | `HUB-012`, `NOTIF-017`                            |
-| Interaction owners            | Form, modal, notification rendering VMs                             | `DISP-004`       | `DIA-011`, `DIA-012`, `FORM-014`, `NOTIF-017`     |
-| Reactive helpers              | Derived property, expansion/search state, discriminator             | `DISP-005`       | `DPROP-011`                                       |
-| Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections | `DISP-006`       | `COMP-013`, `COMP-035`, `GRP-006`, `COL-024..031` |
-| Async resource owners         | AsyncResourceVM loader, commands, and accepted value                | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`                |
+| Family                        | Representative surfaces                                             | Cross-cutting ID | Detailed coverage                                         |
+| ----------------------------- | ------------------------------------------------------------------- | ---------------- | --------------------------------------------------------- |
+| VM and owner cascades         | Component, composite, group, aggregate, hierarchy, forwarding       | `DISP-001`       | `LIFE-004`, `LIFE-012`, `LIFE-013`, `LIFE-018`, `CVM-009` |
+| Commands                      | Relay, async relay, composite/decorator, modeled CRUD               | `DISP-002`       | `CMD-012`, `CMD-013`, `CMDD-010`..`CMDD-013`              |
+| Hubs and services             | Message hub, notification hub                                       | `DISP-003`       | `HUB-012`, `NOTIF-017`                                    |
+| Interaction owners            | Form, modal, notification rendering VMs                             | `DISP-004`       | `DIA-011`, `DIA-012`, `FORM-014`, `NOTIF-017`             |
+| Reactive helpers              | Derived property, expansion/search state, discriminator             | `DISP-005`       | `DPROP-011`                                               |
+| Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections | `DISP-006`       | `COMP-013`, `COMP-035`, `GRP-006`, `COL-024..031`         |
+| Async resource owners         | AsyncResourceVM loader, commands, and accepted value                | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`                        |
 
 `AggregateChangeStream` disposal is covered by `AGCH-010`.
 
@@ -69,6 +69,11 @@ model.
   container child. It is disposed parent-first: the parent publishes
   `Disposed`, runs its subclass hook, and then disposes owned registrations,
   including that child, in LIFO order.
+- A member view-model registered with the member-disposal helper (`OwnMember`
+  in C#, `_own_member` in Python, `ownMember` in TypeScript and Swift,
+  `own_member` in Rust) is disposed depth-first instead: members are disposed
+  in registration order before the parent publishes `Disposed`, after a
+  container's own children (`LIFE-018`, spec 02 §7.1).
 - A terminal cascade does not stop at a failing child or subclass hook. The
   teardown of every sibling still runs. The base teardown of the parent also
   runs. Flavors that throw or return results report the first failure only

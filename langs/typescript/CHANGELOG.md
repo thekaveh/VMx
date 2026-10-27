@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `ComponentVMBase._transitionChildren(children, construct, after?)` is now
+  supported API, and `ComponentVMBase.ownMember(member)` is new (#661,
+  ADR-0162, LIFE-016..LIFE-020). A leaf VM calls `_transitionChildren` from its
+  own construct or destruct hook to settle member VMs, one at a time in the
+  order given, before it publishes its terminal status. A background member
+  defers that status, a member failure rolls the VM back, and a member already
+  in transit is joined. A call from outside the VM's own hook throws an `Error`
+  and starts no child. `ownMember` registers a member VM that `dispose()`
+  disposes, in registration order, before the VM publishes `Disposed`; the
+  first member failure is thrown after the whole teardown. The container-only
+  `joined` parameter moved to an internal method.
 - `ExpandableState.expandCommand`, `collapseCommand` and
   `toggleExpansionCommand` (#660, ADR-0159, EXP-006..008). Each command's
   predicate is the matching `can*` check, its task calls the verb, and its
@@ -35,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `"insertion"` keeps today's order. Construct order does not change, and
   every child is still disposed before its container (LIFE-013). Covered by
   GRP-014 and COMP-046.
+
+### Changed
+
+- `dispose()` re-entered while the VM is disposing is now a no-op (#661,
+  ADR-0162). The first call finishes the work: it disposes the registered
+  members, then publishes `Disposed`.
 
 ### Deprecated
 
