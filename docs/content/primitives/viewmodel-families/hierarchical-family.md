@@ -76,8 +76,8 @@ class NavNodeVM extends HierarchicalVM<NavItem, NavNodeVM> {
 ```
 
 C#, Python, and Swift require the services. The TypeScript raw constructor still
-accepts a node without them, but that form is `@deprecated`, and TypeScript 4.0
-requires both. Rust's `HierarchicalVm::new` builds a private hub; use
+accepts a node without them, but that form is `@deprecated`, and
+`@thekaveh/vmx` 4.0 requires both. Rust's `HierarchicalVm::new` builds a private hub; use
 `with_children_factory` to pass the application hub (ADR-0009).
 
 ## 6.2.6.4. Disposing A Subtree

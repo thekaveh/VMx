@@ -180,7 +180,10 @@ never carry a slowdown.
 `benchmarks/baselines/` holds one report per flavor, recorded on a clean
 checkout of the commit named in the report. Before you compare, check the
 baseline's recorded `commit` and `package_version`. The committed baselines
-record TypeScript 3.26.0, Python 3.25.0, and Rust 0.31.0. Compare a change
+record TypeScript 3.26.0, Python 3.25.0, and Rust 0.31.0. All three record
+commit `2f67dba3` from pull request #586, which was squash-merged as
+`00727f3c`, so a clone of `develop` does not have it. Fetch it with
+`git fetch origin refs/pull/586/head`. Compare a change
 against the baseline of its flavor:
 
 ```bash
