@@ -63,6 +63,47 @@ Rust dialog, modal, notification-waiter, and confirmation-gate awaitables use
 `AsyncValue<T>`. The handle implements `Future` for async hosts and `wait()` for
 synchronous hosts, keeping the core independent of Tokio or another executor.
 
+### 6.6.3.1. Application Request Messages
+
+A request from a view-model to its host, such as a navigation request, is an
+application message type. The hub carries any `IMessage`, so VMx adds no
+request family:
+
+<!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#request-message -->
+
+```typescript
+// An application message: the hub carries any IMessage.
+class NavigateRequest implements IMessage {
+  constructor(
+    readonly sender: unknown,
+    readonly senderName: string,
+    readonly route: string,
+  ) {}
+}
+```
+
+The host subscribes to that type and acts on each request:
+
+<!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#request-host -->
+
+```typescript
+// Subscribe the host before any view-model can send a request.
+const host = hub.messages
+  .pipe(filter((m): m is NavigateRequest => m instanceof NavigateRequest))
+  .subscribe((request) => router.navigate(request.route));
+
+hub.send(new NavigateRequest(toolbar, toolbar.name, "/settings"));
+```
+
+Requests follow the hub delivery rules. Rust adds one limit:
+
+- **No replay.** The hub is hot. A request sent before the host subscribes is
+  lost. Subscribe the host before any view-model can send a request.
+- **Every subscriber receives it.** The hub picks no handler and returns no
+  reply. If two hosts subscribe, both act on the request.
+- **Rust.** `Message::Custom` has only the sender fields and a `name`, so a
+  Rust request carries no payload (#673).
+
 ## 6.6.4. Cross-Language Surface
 
 | Service            | Purpose                                              |
@@ -136,6 +177,56 @@ current property value instead. The raw predicates are the appropriate choice
 when classifying a mixed message stream or array, especially when one pipeline
 must recognize several message families.
 
+### 6.6.5.1. Watching Several Properties Of One Source
+
+`whenPropertyChanged` matches one property name. To watch several properties of
+one source, own one subscription per name. The header below publishes a
+`label` change when the editor's `title` or `dirty` property changes:
+
+<!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#watch-properties -->
+
+```typescript
+class HeaderVM extends ComponentVMBase {
+  readonly #editor: EditorVM;
+
+  constructor(editor: EditorVM, hub: IMessageHub, dispatcher: IDispatcher) {
+    super({ name: "header", hub, dispatcher });
+    this.#editor = editor;
+    // One owned subscription per watched property of the source.
+    for (const name of ["title", "dirty"]) {
+      this.own(
+        whenPropertyChanged(editor.hub, editor, name).subscribe(() =>
+          this._notifyPropertyChanged("label"),
+        ),
+      );
+    }
+  }
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  get label(): string {
+    return this.#editor.dirty ? `${this.#editor.title} *` : this.#editor.title;
+  }
+}
+```
+
+In TypeScript, one subscription can combine `isPropertyChanged` with a set of
+names (ADR-0094). Pass the subscription to `own()`, or unsubscribe it when you
+dispose its owner:
+
+<!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#watch-properties-predicate -->
+
+```typescript
+const watched = new Set(["title", "dirty"]);
+const subscription = editor.hub.messages
+  .pipe(filter((m) => isPropertyChanged(m, { sender: editor }) && watched.has(m.propertyName)))
+  .subscribe(() => refreshHeader());
+```
+
+Use one of these two forms until #664 ships.
+
 ## 6.6.6. Imperative Selected-State Bridge
 
 Use `subscribeValue` when a renderer, audio engine, canvas host, shader bridge,
@@ -186,6 +277,48 @@ selector, equality, or callback.
 The source set is deliberately fixed. `subscribeValue` does not discover
 collection members, track selector dependencies, or resubscribe when membership
 changes. Use `AggregateChangeStream` (ADR-0098) for dynamic member fan-in.
+
+### 6.6.6.1. Observing Same-Value Republishes
+
+The default equality hides a same-reference republish. `republishModel()` sends
+a `model` message for the retained model, and `Object.is` reports no change.
+The selector still runs for each property message from the source (SUBV-002,
+ADR-0095 §3). An equality that always returns `false` therefore calls the
+callback for each property message from the source, including messages for
+other properties:
+
+<!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#republish -->
+
+```typescript
+const renders: Note[] = [];
+const subscription = subscribeValue(
+  note,
+  (vm) => vm.model,
+  (model) => renders.push(model),
+  // Never equal: each property message from `note` calls the callback.
+  { equality: () => false },
+);
+
+note.model.title = "Edited in place";
+note.republishModel(); // same reference as before
+```
+
+### 6.6.6.2. Binding Nested Values
+
+A child view-model sends its own property messages. Bind to the child directly.
+The parent does not need to re-announce, or bubble, the child's changes:
+
+<!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#nested-child -->
+
+```typescript
+// The child sends its own PropertyChangedMessage. Bind to it directly.
+const subscription = subscribeValue(panel.chart, (chart) => chart.plot, draw);
+```
+
+A selector can also read across view-models on one hub. In React,
+`useVmx(store, () => panel.chart.plot)` runs its selector again after each
+message on the store's hub, so the child's message updates the view. See
+[React Integration](../integration/react.md).
 
 ## 6.6.7. Hub Transactions
 

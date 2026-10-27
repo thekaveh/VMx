@@ -307,6 +307,67 @@ derived properties with their initial value, so it has no unseeded state.
 The [Disposal Contract](disposal-contract.md) inventories which helpers expose
 disposal, which last values remain readable, and which streams complete.
 
+### 6.5.5.1. Publishing A Derived Value
+
+A `DerivedProperty` is self-contained and sends nothing on the hub (ADR-0011).
+To publish a derived value as a view-model property, own the derived property
+and forward its `valueChanged` to `_notifyPropertyChanged(name)`:
+
+<!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#derived-total -->
+
+```typescript
+class CartVM extends ComponentVMBase {
+  readonly #quantity$ = new BehaviorSubject(1);
+  readonly #total: DerivedProperty<number>;
+
+  constructor(prices: Observable<number>, hub: IMessageHub, dispatcher: IDispatcher) {
+    super({ name: "cart", hub, dispatcher });
+    // Seed every source, so `total` has a value at once (DPROP-001).
+    this.#total = this.own(
+      fromTwo(prices.pipe(startWith(0)), this.#quantity$, (price, quantity) => price * quantity),
+    );
+    // A DerivedProperty sends nothing on the hub. Forward each change.
+    this.own(this.#total.valueChanged.subscribe(() => this._notifyPropertyChanged("total")));
+  }
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  get total(): number {
+    return this.#total.value;
+  }
+
+  get quantity(): number {
+    return this.#quantity$.value;
+  }
+
+  // No compare-and-assign helper: compare, assign, then notify.
+  set quantity(value: number) {
+    if (this.#quantity$.value === value) return;
+    this.#quantity$.next(value);
+    this._notifyPropertyChanged("quantity");
+  }
+}
+```
+
+- **Seed every source.** `fromTwo` waits until each source emits once, and
+  `.value` throws until then. A `BehaviorSubject` or `startWith` gives `total`
+  a value at construction (DPROP-001).
+- **The first value is silent** (DPROP-009, see above). Construction therefore
+  publishes no `total` message. A binding reads the getter when it attaches.
+- **Ownership.** `own()` disposes the derived property and the forwarding
+  subscription with the view-model.
+
+### 6.5.5.2. Comparing Before Notifying
+
+VMx has no compare-and-assign helper, by design (spec 05 §2.3, ADR-0083 §4.4).
+`_notifyPropertyChanged` does not compare or assign values. The setter keeps
+the idiom: compare, assign, then notify. The `quantity` setter above shows it:
+an assignment of the same value returns early and publishes nothing. See
+[Authoring A Mutable Property](viewmodel-families/component-family.md#6229-authoring-a-mutable-property)
+for the helper name in each flavor.
+
 ## 6.5.6. Cross-Language Surface
 
 | Helper                    | Key surface                                       |
