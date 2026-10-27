@@ -1856,7 +1856,7 @@ recording `update_current(vm)` action
 **Then** the recorder is empty
 **And** when the confirm delegate resolves `true`, the recorder records `vm1`
 
-### COMP-025 — `Current(selector)` builder hook drives initial selection during construct
+### COMP-025 — `Current(selector)` builder hook drives selection during every construct
 
 **Given** a `CompositeVM<VM>` built with three children `a`, `b`, `c` and
 `.Current(xs => xs.Skip(1).First())` (idiomatic per flavor) in `Destructed` state
@@ -1864,6 +1864,10 @@ recording `update_current(vm)` action
 **Then** after `construct()` returns, `composite.Current == b`
 **And** the selector ran exactly once, after every child reached `Constructed` and
 before the composite reached `Constructed`
+**And** after `selectComponent(c)`, `destruct()` (which sets `Current` to `null`)
+and `construct()`, the selector has run twice and `composite.Current == b`
+**And** after `reconstruct()` of the constructed composite, the selector has run
+three times and `composite.Current == b`
 **And** when the same composite is instead built with `.Current(_ => null)`,
 after `construct()` returns `composite.Current` is `null` and no
 `PropertyChangedMessage("Current")` is published

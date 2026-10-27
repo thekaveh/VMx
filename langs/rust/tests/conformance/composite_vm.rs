@@ -1495,6 +1495,9 @@ fn batch_update_emits_single_reset() {
 }
 
 /// COMP-025 — `Current(selector)` builder hook drives initial selection during construct
+///
+/// The selector runs on every construct, including a construct after `destruct()`
+/// and the construct phase of `reconstruct()`.
 #[test]
 fn current_selector_builder_hook_drives_initial_selection_during_construct() {
     let hub = MessageHub::new();
@@ -1522,6 +1525,34 @@ fn current_selector_builder_hook_drives_initial_selection_during_construct() {
 
     assert_eq!(composite.current(), Some(children[1].clone()));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    // The selector runs on every construct: destruct clears current
+    // (COMP-005), and the next construct runs the selector again.
+    composite.select_component(&children[2]).unwrap();
+    assert_eq!(composite.current(), Some(children[2].clone()));
+    composite.destruct().unwrap();
+    assert_eq!(
+        composite.current(),
+        None,
+        "destruct clears current (COMP-005)"
+    );
+    composite.construct().unwrap();
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "the selector must run again on a later construct"
+    );
+    assert_eq!(composite.current(), Some(children[1].clone()));
+
+    // Reconstruct runs a construct phase, so the selector runs again.
+    composite.reconstruct().unwrap();
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        3,
+        "the selector must run during the construct phase of a reconstruct"
+    );
+    assert_eq!(composite.current(), Some(children[1].clone()));
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
 
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
