@@ -311,6 +311,13 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         std::mem::replace(&mut *current, model)
     }
 
+    /// Returns the model generation. A reader that saw a model installed by
+    /// [`store_model`](Self::store_model) or `replace_model` then sees a
+    /// generation past the one read before that install.
+    pub(crate) fn model_generation(&self) -> u64 {
+        self.model_generation.load(Ordering::SeqCst)
+    }
+
     /// Replaces the hook invoked during construction.
     pub fn on_construct<F>(&self, hook: F)
     where
