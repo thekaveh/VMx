@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 
 namespace VMx.Capabilities;
 
@@ -69,14 +70,8 @@ public sealed class ExpandableState : IExpandable, ICollapsible, IExpansionToggl
         // A throwing completion observer must not skip disposing the subject.
         // Run every step, then rethrow the first failure (#768).
         ExceptionDispatchInfo? firstError = null;
-        CaptureDisposalFailure(ref firstError, _changes.OnCompleted);
-        CaptureDisposalFailure(ref firstError, _changes.Dispose);
+        FirstFailure.Capture(ref firstError, _changes.OnCompleted);
+        FirstFailure.Capture(ref firstError, _changes.Dispose);
         firstError?.Throw();
-    }
-
-    private static void CaptureDisposalFailure(ref ExceptionDispatchInfo? firstError, Action action)
-    {
-        try { action(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 }

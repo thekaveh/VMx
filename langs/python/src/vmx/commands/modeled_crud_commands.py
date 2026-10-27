@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Generic, TypeVar
 
+from vmx._disposal import _run_disposal_steps
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
 from vmx.commands.protocols import Command
 from vmx.commands.relay_command import RelayCommand
@@ -92,12 +93,4 @@ class ModeledCrudCommands(Generic[M, VM]):
         for command in (self.update_current_command, self.delete_current_command):
             if isinstance(command, ConfirmationDecoratorCommand):
                 disposables.append(command)
-        first_error: BaseException | None = None
-        for cmd in disposables:
-            try:
-                cmd.dispose()
-            except BaseException as error:
-                if first_error is None:
-                    first_error = error
-        if first_error is not None:
-            raise first_error
+        _run_disposal_steps(*(command.dispose for command in disposables))

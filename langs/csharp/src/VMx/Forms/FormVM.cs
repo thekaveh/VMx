@@ -386,26 +386,20 @@ public sealed class FormVM<TM> : IDisposable
         ExceptionDispatchInfo? firstError = null;
         lock (_approveErrorGate)
         {
-            CaptureTeardownFailure(ref firstError, _approveErrors.OnCompleted);
-            CaptureTeardownFailure(ref firstError, _approveErrors.Dispose);
+            FirstFailure.Capture(ref firstError, _approveErrors.OnCompleted);
+            FirstFailure.Capture(ref firstError, _approveErrors.Dispose);
         }
-        CaptureTeardownFailure(ref firstError, _onApproved.OnCompleted);
-        CaptureTeardownFailure(ref firstError, _onApproved.Dispose);
-        CaptureTeardownFailure(ref firstError, _errorsChanged.OnCompleted);
-        CaptureTeardownFailure(ref firstError, _errorsChanged.Dispose);
-        CaptureTeardownFailure(ref firstError, _canExecuteChangedTrigger.OnCompleted);
-        CaptureTeardownFailure(ref firstError, _canExecuteChangedTrigger.Dispose);
+        FirstFailure.Capture(ref firstError, _onApproved.OnCompleted);
+        FirstFailure.Capture(ref firstError, _onApproved.Dispose);
+        FirstFailure.Capture(ref firstError, _errorsChanged.OnCompleted);
+        FirstFailure.Capture(ref firstError, _errorsChanged.Dispose);
+        FirstFailure.Capture(ref firstError, _canExecuteChangedTrigger.OnCompleted);
+        FirstFailure.Capture(ref firstError, _canExecuteChangedTrigger.Dispose);
         if (DenyCommand is IDisposable d1)
-            CaptureTeardownFailure(ref firstError, d1.Dispose);
+            FirstFailure.Capture(ref firstError, d1.Dispose);
         if (ApproveCommand is IDisposable d2)
-            CaptureTeardownFailure(ref firstError, d2.Dispose);
+            FirstFailure.Capture(ref firstError, d2.Dispose);
         if (rethrowFailure) firstError?.Throw();
-    }
-
-    private static void CaptureTeardownFailure(ref ExceptionDispatchInfo? firstError, Action action)
-    {
-        try { action(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     private void EmitApproveError(Exception error)

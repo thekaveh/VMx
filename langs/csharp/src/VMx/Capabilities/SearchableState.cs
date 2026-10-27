@@ -3,6 +3,7 @@ using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 
 namespace VMx.Capabilities;
 
@@ -128,19 +129,13 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
         // Best-effort teardown: a throwing completion observer must not skip the
         // remaining subjects. Run every step, then rethrow the first failure.
         ExceptionDispatchInfo? firstError = null;
-        CaptureDisposalFailure(ref firstError, _subscription.Dispose);
-        CaptureDisposalFailure(ref firstError, _termSubject.OnCompleted);
-        CaptureDisposalFailure(ref firstError, _termSubject.Dispose);
-        CaptureDisposalFailure(ref firstError, _filteredSubject.OnCompleted);
-        CaptureDisposalFailure(ref firstError, _filteredSubject.Dispose);
-        CaptureDisposalFailure(ref firstError, _forceSearchSubject.OnCompleted);
-        CaptureDisposalFailure(ref firstError, _forceSearchSubject.Dispose);
+        FirstFailure.Capture(ref firstError, _subscription.Dispose);
+        FirstFailure.Capture(ref firstError, _termSubject.OnCompleted);
+        FirstFailure.Capture(ref firstError, _termSubject.Dispose);
+        FirstFailure.Capture(ref firstError, _filteredSubject.OnCompleted);
+        FirstFailure.Capture(ref firstError, _filteredSubject.Dispose);
+        FirstFailure.Capture(ref firstError, _forceSearchSubject.OnCompleted);
+        FirstFailure.Capture(ref firstError, _forceSearchSubject.Dispose);
         firstError?.Throw();
-    }
-
-    private static void CaptureDisposalFailure(ref ExceptionDispatchInfo? firstError, Action action)
-    {
-        try { action(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 }
