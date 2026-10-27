@@ -730,9 +730,11 @@ def test_COMP_013_batch_update_emits_one_reset() -> None:
 
 @pytest.mark.conformance("COMP-025")
 def test_COMP_025_current_selector_drives_initial_selection() -> None:
-    """COMP-025: current(selector) runs once during construct, after all children
-    reach Constructed and before the composite reaches Constructed. The
-    selector's return value becomes current. See spec/06 §3.2 and ADR-0042.
+    """COMP-025: current(selector) runs once during each construct, after all
+    children reach Constructed and before the composite reaches Constructed.
+    The selector's return value becomes current. A later construct and the
+    construct phase of a reconstruct run the selector again. See spec/06 §3.2
+    and ADR-0042.
     """
     hub = _hub()
     disp = _dispatcher()
@@ -768,6 +770,22 @@ def test_COMP_025_current_selector_drives_initial_selection() -> None:
     assert seen_composite_status == [ConstructionStatus.CONSTRUCTING], (
         "the selector must run before the composite reached Constructed"
     )
+
+    # The selector runs on every construct: destruct clears current
+    # (COMP-005), and the next construct runs the selector again.
+    composite.select_component(children[2])
+    assert composite.current is children[2]
+    composite.destruct()
+    assert composite.current is None, "destruct must clear current (COMP-005)"
+    composite.construct()
+    assert selector_calls == 2, "the selector must run again on a later construct"
+    assert composite.current is children[1]
+
+    # Reconstruct runs a construct phase, so the selector runs again.
+    composite.reconstruct()
+    assert selector_calls == 3, "the selector must run during the construct phase of a reconstruct"
+    assert composite.current is children[1]
+    assert composite.status == ConstructionStatus.CONSTRUCTED
 
     # A null-returning selector leaves current None and publishes no
     # PropertyChangedMessage('current').

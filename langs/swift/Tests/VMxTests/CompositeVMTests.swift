@@ -321,9 +321,10 @@ final class CompositeVMTests: XCTestCase {
     /// during construct. Three clauses (spec/12 COMP-025, parity with the
     /// Python/C# conformance tests):
     ///   1. the selector's return value becomes `current`;
-    ///   2. the selector runs EXACTLY ONCE — after every child reached
-    ///      `.constructed` and before the composite itself reaches
-    ///      `.constructed`;
+    ///   2. the selector runs EXACTLY ONCE per construct — after every child
+    ///      reached `.constructed` and before the composite itself reaches
+    ///      `.constructed`. A later construct after `destruct()` and the
+    ///      construct phase of `reconstruct()` run it again;
     ///   3. a null-returning selector leaves `current` nil AND publishes no
     ///      `PropertyChangedMessage("current")`.
     func testCOMP025CurrentSelectorDrivesInitialSelection() throws {
@@ -364,6 +365,23 @@ final class CompositeVMTests: XCTestCase {
                       "the selector must run after every child reached Constructed")
         XCTAssertEqual(compositeStatusAtSelector, .constructing,
                        "the selector must run before the composite itself reaches Constructed")
+
+        // Clause 2 (continued) — the selector runs on every construct: destruct
+        // clears current (COMP-005), and the next construct runs it again.
+        try composite.selectComponent(cChild)
+        XCTAssertTrue(composite.current === cChild)
+        try composite.destruct()
+        XCTAssertNil(composite.current, "destruct clears current (COMP-005)")
+        try composite.construct()
+        XCTAssertEqual(selectorCalls, 2, "the selector must run again on a later construct")
+        XCTAssertTrue(composite.current === b)
+
+        // Reconstruct runs a construct phase, so the selector runs again.
+        try composite.reconstruct()
+        XCTAssertEqual(selectorCalls, 3,
+                       "the selector must run during the construct phase of a reconstruct")
+        XCTAssertTrue(composite.current === b)
+        XCTAssertEqual(composite.status, .constructed)
 
         // Clause 3 — a null-returning selector leaves current nil and publishes
         // no PropertyChangedMessage("current") on the hub.
