@@ -36,6 +36,29 @@ All notable changes to the C# flavor are documented here. The format is based on
   disposed before the container publishes `Disposed` (LIFE-013). New protected
   `GroupVMBase<VM>` and `CompositeVMBase<VM>` constructor overloads take the
   order for custom containers.
+- Added: the child-transition helper and member disposal for leaf view-models
+  (#661, ADR-0162, LIFE-016..LIFE-020). The protected
+  `ComponentVMBase.TransitionChildrenAsync(children, construct, after)` and
+  `CompleteLifecycleHookAfter(Task)` are now supported API: a subclass calls
+  `CompleteLifecycleHookAfter(TransitionChildrenAsync(members, construct:
+  true))` from its own hook. The walk takes the children in the given order,
+  skips a child already at the target, joins a child already in transit,
+  waits for a background child, and rolls the parent back when a child fails.
+  Pass the reversed list to destruct in reverse. The new protected
+  `OwnMember<T>(T member)` registers a member view-model that `Dispose()`
+  disposes in registration order, after a container's children and before
+  this VM publishes `Disposed`. Member disposal is best-effort and rethrows
+  the first failure. While the member cascade runs, a further `Dispose()` on
+  any thread returns at once and does nothing. A member registered after
+  disposal started is disposed at once, and registering the VM itself throws
+  `InvalidOperationException`.
+- Changed: the protected `CompositeVMBase.ConstructChildren()`,
+  `ComponentVMBase.CompleteLifecycleHookAfter(Task)` and
+  `ComponentVMBase.TransitionChildrenAsync(children, construct, after)` now
+  throw `InvalidOperationException` when they are called outside the VM's own
+  construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
+  throws synchronously and starts no child. This breaks an external subclass
+  that called one of them from anywhere else.
 - Fixed: `ObservableDictionary`: an entry added from a `Keys1` subscriber no
   longer puts `Keys2` out of first-appearance order. `Keys2` now updates
   first, so a `Keys1` subscriber already sees the new Key2. When a `Keys2`

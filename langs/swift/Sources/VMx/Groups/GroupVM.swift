@@ -676,7 +676,7 @@ open class GroupVM<Child: ComponentVMBase>:
         let (snapshot, scope) = membershipGate.withLock {
             (children, _autoConstructOnAdd ? lateStarts.beginWalkLocked() : nil)
         }
-        try _transitionChildren(
+        try _transitionContainerChildren(
             snapshot,
             construct: true,
             joined: joined,
@@ -782,7 +782,7 @@ open class GroupVM<Child: ComponentVMBase>:
     open override func _onDestruct() throws {
         // `destructOrder` orders the walk and its waits (ADR-0161).
         let snapshot = destructOrder.arrange(snapshot())
-        try _transitionChildren(snapshot, construct: false) {
+        try _transitionContainerChildren(snapshot, construct: false) {
             try super._onDestruct()
         }
     }
@@ -828,6 +828,9 @@ open class GroupVM<Child: ComponentVMBase>:
                 continue
             }
             guard let snapshot else { return }
+            // Disposal started: `ownMember` now disposes a new member at once,
+            // including one registered during the child cascade (spec/02 §7.1).
+            _ = _enterDispose()
             // A disposed peer must not roll back a pending transition.
             _abandonChildTransition()
             // LIFE-013: depth-first dispose children in `destructOrder`, then self.

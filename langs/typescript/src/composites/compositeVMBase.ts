@@ -583,7 +583,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
     // spec/02 §6: the composite settles only after every child has (a
     // background child defers the composite's terminal status).
-    this._transitionChildren(
+    this._transitionChildrenJoining(
       constructWalk(() => this._children, this.#autoConstructOnAdd, joined),
       true,
       () => {

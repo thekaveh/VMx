@@ -66,18 +66,21 @@ open class AggregateVM6<
         _notifyPropertyChanged("component6")
 
         // Background components defer Constructed until each is (spec/02 §6).
-        try _transitionChildren([c1, c2, c3, c4, c5, c6] as [ComponentVMBase], construct: true)
+        try _transitionContainerChildren([c1, c2, c3, c4, c5, c6] as [ComponentVMBase], construct: true)
         }
     }
 
     open override func _onDestruct() throws {
         let components = childComponents
-        try _transitionChildren(components, construct: false) {
+        try _transitionContainerChildren(components, construct: false) {
             try super._onDestruct()
         }
     }
 
     open override func dispose() {
+        // A re-entrant or concurrent dispose returns at once (spec/02 §7.1);
+        // the first call disposes the components, the members, then self.
+        guard _enterDispose() else { return }
         aggregateParent.withTransaction {
         _abandonChildTransition()
         component1?.dispose(); component2?.dispose()

@@ -210,6 +210,10 @@ export abstract class ComponentVMBase {
   #activePropertyNotifications = 0;
   #propertyNotificationTeardownPending = false;
   #ownedResources: OwnedResource[] = [];
+  /** Member VMs registered through `ownMember`, in registration order. */
+  #members: ComponentVMBase[] = [];
+  /** Set once `dispose()` starts, so a re-entrant call is a no-op. */
+  #disposeStarted = false;
   #activeLifecycleHook = false;
   #terminalCleanupPending = false;
   #terminalCleanupStarted = false;
@@ -804,23 +808,83 @@ export abstract class ComponentVMBase {
   }
 
   /**
-   * Transition `children` sequentially to Constructed (`construct === true`)
-   * or Destructed, then run `after`. Call only from `_onConstruct` /
-   * `_onDestruct`. A child that settles synchronously keeps the hook
-   * synchronous. A child left in its transient status (a background child)
-   * defers this VM's own terminal status until the child settles (spec/02 §6,
-   * spec/08 §8); a child that settles anywhere else rolls this VM back. A child
-   * already in the transient status is joined, not restarted. A child in
-   * `joined` already started this transition (factory population): it is
-   * joined and its settled status is final, so it is never restarted.
-   * `children` is pulled lazily, one child at a time, and `joined` is read
-   * live, so a container can extend its walk while it runs.
+   * Construct (`construct === true`) or destruct the given child VMs as part
+   * of this VM's own transition (spec/02-lifecycle.md §6.1, ADR-0162). A leaf
+   * VM that holds member VMs calls this from its `_onConstruct` or
+   * `_onDestruct` override, so the members settle before this VM publishes
+   * `Constructed` or `Destructed`:
+   *
+   * - The walk takes `children` in the order given, one child at a time: a
+   *   child starts only after the previous child settled. To destruct in
+   *   reverse order, pass a reversed list.
+   * - A child already at the target status is skipped. A child already in the
+   *   transient status (`Constructing` / `Destructing`) is joined: the walk
+   *   waits for it and does not start it again.
+   * - A child left in its transient status (a background child) defers this
+   *   VM's terminal status. This VM stays `Constructing` / `Destructing` until
+   *   the child settles, and then the walk continues.
+   * - A child that settles at any other status (its hook failed, or it was
+   *   disposed) stops the walk and rolls this VM back to its prior settled
+   *   status. Siblings that already reached the target are not undone. A
+   *   synchronous failure is thrown from `construct()` / `destruct()`.
+   * - `after` runs exactly once, after every child reached the target and
+   *   before this VM publishes its terminal status. A throwing `after` rolls
+   *   this VM back like a child failure.
+   *
+   * Call it only from this VM's own construct or destruct hook, including the
+   * two phases of `reconstruct()`. A call from anywhere else throws an `Error`
+   * and starts no child. `children` is read lazily, one child at a time.
+   *
+   * @example
+   * ```ts
+   * protected override _onConstruct(): void {
+   *   super._onConstruct();
+   *   this._transitionChildren([this.chart, this.table], true);
+   * }
+   * protected override _onDestruct(): void {
+   *   this._transitionChildren([this.table, this.chart], false, () => super._onDestruct());
+   * }
+   * ```
    */
   protected _transitionChildren(
     children: Iterable<ComponentVMBase>,
     construct: boolean,
     after?: () => void,
-    joined?: ReadonlySet<ComponentVMBase>,
+  ): void {
+    this.#requireOwnLifecycleHook();
+    this.#walkChildren(children, construct, after, undefined);
+  }
+
+  /**
+   * @internal Unsupported: not part of the public API; containers only.
+   * Container form of {@link _transitionChildren}. A child in
+   * `joined` already started this transition (factory population): it is
+   * joined and its settled status is final, so it is never restarted.
+   * `joined` is read live, so a container can extend its walk while it runs.
+   */
+  protected _transitionChildrenJoining(
+    children: Iterable<ComponentVMBase>,
+    construct: boolean,
+    after: (() => void) | undefined,
+    joined: ReadonlySet<ComponentVMBase>,
+  ): void {
+    this.#requireOwnLifecycleHook();
+    this.#walkChildren(children, construct, after, joined);
+  }
+
+  #requireOwnLifecycleHook(): void {
+    if (!this.#activeLifecycleHook) {
+      throw new Error(
+        "_transitionChildren can only be called from this VM's own construct or destruct hook",
+      );
+    }
+  }
+
+  #walkChildren(
+    children: Iterable<ComponentVMBase>,
+    construct: boolean,
+    after: (() => void) | undefined,
+    joined: ReadonlySet<ComponentVMBase> | undefined,
   ): void {
     const target = construct ? ConstructionStatus.Constructed : ConstructionStatus.Destructed;
     const transient = construct
@@ -930,11 +994,17 @@ export abstract class ComponentVMBase {
   }
 
   dispose(): void {
-    if (this.#status === ConstructionStatus.Disposed) return;
+    // A re-entrant call (for example from a member's disposal) is a no-op;
+    // the outer call finishes the teardown.
+    if (this.#status === ConstructionStatus.Disposed || this.#disposeStarted) return;
+    this.#disposeStarted = true;
 
     disposeBestEffort([
       // A transition waiting on a child never settles once Disposed.
       () => this.#abandonDeferredLifecycle(),
+      // Depth-first (spec/02 §7.1, ADR-0162): members reach Disposed before
+      // this VM publishes Disposed.
+      () => this.#disposeMembers(),
       () => this._setStatus(ConstructionStatus.Disposed),
       // A parent waiting for this VM's release now sees Disposed and settles.
       () => this.#runAfterRelease(),
@@ -1066,6 +1136,44 @@ export abstract class ComponentVMBase {
       this.#ownedResources.push(resource);
     }
     return resource;
+  }
+
+  /**
+   * Register `member` as a member VM that this VM disposes (spec/02 §7.1,
+   * ADR-0162). `dispose()` disposes the members in registration order before
+   * this VM publishes `Disposed`, so a member and its own children reach
+   * `Disposed` first. Every member is disposed even when one throws; the
+   * first failure is thrown from `dispose()` after the rest of the teardown.
+   *
+   * A member is not a container child: it has no parent link, takes no part
+   * in selection, and is not constructed with this VM. Pass it to
+   * {@link _transitionChildren} from the construct and destruct hooks to
+   * transition it with this VM.
+   *
+   * A member registered while this VM is disposing or already disposed is
+   * disposed at once, and a failure of that disposal is thrown from this
+   * call. Registering this VM itself throws an `Error`. Returns `member`, so
+   * a field can register it inline:
+   * `readonly chart = this.ownMember(new ChartVM(...))`.
+   */
+  protected ownMember<T extends ComponentVMBase>(member: T): T {
+    // A forwarding decorator registers on the wrapped component (ADR-0151).
+    const owner = this._ownershipIdentity;
+    if (owner !== this) return owner.ownMember(member);
+    if (member._ownershipIdentity === owner) {
+      throw new Error("A VM cannot register itself as its own member");
+    }
+    if (this.#disposeStarted || this.#status === ConstructionStatus.Disposed) {
+      member.dispose();
+    } else if (!this.#members.includes(member)) {
+      this.#members.push(member);
+    }
+    return member;
+  }
+
+  #disposeMembers(): void {
+    const members = this.#members.splice(0);
+    disposeBestEffort(members.map((member) => () => member.dispose()));
   }
 
   static #disposeOwnedResource(resource: OwnedResource): void {

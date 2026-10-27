@@ -134,7 +134,7 @@ class CancellableWalkVM(DeferThenRaiseVM):
             # The commit step must never run for a cancelled walk.
             self.seal_calls += 1
 
-        self.walk = self._transition_children(
+        self.walk = self._transition_container_children(
             self._children(), construct=True, after=after, seal=seal
         )
         self._complete_lifecycle_hook_after(self.walk)

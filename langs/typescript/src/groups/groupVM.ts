@@ -438,7 +438,7 @@ export class GroupVM<VM extends ComponentVMBase>
     // lifecycle hook that mutates the group must not skip/repeat siblings.
     // spec/02 §6: the group settles only after every child has (a background
     // child defers the group's terminal status).
-    this._transitionChildren(
+    this._transitionChildrenJoining(
       constructWalk(() => this._children, this.#autoConstructOnAdd, joined),
       true,
       undefined,

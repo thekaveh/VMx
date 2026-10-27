@@ -777,7 +777,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         # This walk's scope of start records, begun before its snapshot.
         walk = self._late_starts.begin_walk(self)
         visited: dict[int, VM] = {}
-        walking = self._transition_children(
+        walking = self._transition_container_children(
             self._construct_walk(joined, visited, walk),
             construct=True,
             after=apply_initial_current,

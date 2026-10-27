@@ -368,15 +368,23 @@ final class LifecycleDeferral {
     }
 }
 
-/// A child did not reach the status its parent's transition requires.
-struct ChildTransitionError: Error, CustomStringConvertible {
-    let childName: String
-    let reason: String
-    var description: String { "Child '\(childName)' \(reason)" }
+/// A child walk failed or was misused (spec/02 §6.1).
+///
+/// ``ComponentVMBase/_transitionChildren(_:construct:after:)`` throws it when
+/// a child does not reach the status the parent's transition requires, when
+/// the helper is called outside the parent's own construct or destruct hook,
+/// and when a hook defers its completion twice. `childName` names the child
+/// that failed, or the parent for a usage error.
+public struct ChildTransitionError: Error, CustomStringConvertible {
+    /// The name of the child that failed, or of the parent for a usage error.
+    public let childName: String
+    /// Why the walk failed.
+    public let reason: String
+    public var description: String { "Child '\(childName)' \(reason)" }
 }
 
 /// Supplies a child walk with children added while it runs (see
-/// `_transitionChildren`). A struct, not a bare closure, so trailing-closure
+/// `_transitionContainerChildren`). A struct, not a bare closure, so trailing-closure
 /// matching of `after` stays unambiguous.
 struct LateChildSource {
     /// The start records of the adds that attached late children
@@ -744,6 +752,16 @@ open class ComponentVMBase {
     private var activePropertyNotifications = 0
     private var propertyNotificationTeardownPending = false
     private var ownedCleanups: [() throws -> Void] = []
+    /// Member VMs registered through `ownMember`, in registration order.
+    private var ownedMembers: [ComponentVMBase] = []
+    /// Set under `lifecycleLock` when disposal starts: at a container's
+    /// `dispose()` entry (`_enterDispose()`), before its child cascade, or at
+    /// this base `dispose()` entry. From then on `ownMember` disposes a new
+    /// member at once (spec/02 §7.1).
+    private var disposeEntered = false
+    /// Set when this base `dispose()` body starts, before the member
+    /// cascade, so a re-entrant or concurrent `dispose()` returns at once.
+    private var baseDisposeStarted = false
 
     private final class LifecyclePublication {
         let status: ConstructionStatus
@@ -1392,6 +1410,73 @@ open class ComponentVMBase {
         lifecycleLock.unlock()
     }
 
+    /// Constructs or destructs `children` one at a time as part of this VM's
+    /// own transition, then runs `after` (spec/02 §6.1, ADR-0162).
+    ///
+    /// Call it only from this VM's `_onConstruct()` or `_onDestruct()`
+    /// override, including the two phases of `reconstruct()` and a hook that
+    /// runs on the background dispatcher. A leaf VM that keeps child VMs in
+    /// fields uses it instead of a hand-written loop:
+    ///
+    /// ```swift
+    /// open override func _onConstruct() throws {
+    ///     try _transitionChildren([chart, table], construct: true)
+    /// }
+    /// open override func _onDestruct() throws {
+    ///     try _transitionChildren([table, chart], construct: false)
+    /// }
+    /// ```
+    ///
+    /// The walk follows these rules:
+    /// - It walks `children` in the given order and starts a child only after
+    ///   the previous child settled. For reverse-order destruct, pass the
+    ///   reversed list.
+    /// - It skips a child that is already at the target status. It joins a
+    ///   child that is already `.constructing` (construct) or `.destructing`
+    ///   (destruct) and does not start it again.
+    /// - A child that stays in its transient status (a background child)
+    ///   defers this VM's terminal status. This VM stays `.constructing` or
+    ///   `.destructing` until the child settles, and then the walk continues.
+    /// - A child that settles at any other status fails the walk. This VM
+    ///   rolls back to its prior settled status. A synchronous failure is
+    ///   thrown from this call and then from `construct()`, `destruct()` or
+    ///   `reconstruct()`. Siblings that already reached the target are not
+    ///   undone.
+    /// - `after` runs once, after every child settled at the target and before
+    ///   this VM publishes its terminal status. A throwing `after` rolls this
+    ///   VM back like a failing child.
+    ///
+    /// Outside this VM's own construct or destruct hook the call throws
+    /// ``ChildTransitionError`` and starts no child. The method is `public`
+    /// and not `open`: a subclass in another module calls it, and no subclass
+    /// replaces it (ADR-0066).
+    ///
+    /// - Parameters:
+    ///   - children: The children to transition, in walk order.
+    ///   - construct: `true` to construct the children, `false` to destruct
+    ///     them.
+    ///   - after: Runs once after every child settled at the target.
+    /// - Throws: ``ChildTransitionError`` for a usage error or a child that
+    ///   did not reach the target; any error a child's `construct()` or
+    ///   `destruct()` or `after` throws.
+    public func _transitionChildren(
+        _ children: [ComponentVMBase],
+        construct: Bool,
+        after: (() throws -> Void)? = nil
+    ) throws {
+        lifecycleLock.lock()
+        let inOwnHook = activeHookLease?.threadID == Self.currentThreadID
+        lifecycleLock.unlock()
+        guard inOwnHook else {
+            throw ChildTransitionError(
+                childName: name,
+                reason: "_transitionChildren was called outside this VM's construct or destruct hook"
+            )
+        }
+        try _transitionContainerChildren(children, construct: construct, after: after)
+    }
+
+    /// The container form of `_transitionChildren` (no usage guard).
     /// Transitions `children` sequentially to Constructed (`construct`) or
     /// Destructed, then runs `after`. Call only from `_onConstruct` /
     /// `_onDestruct`. Children that settle synchronously keep the hook fully
@@ -1405,7 +1490,7 @@ open class ComponentVMBase {
     /// walk runs) and joins it, until `lateChild` returns `nil`. The walk
     /// never starts a late child: it waits until the add's start attempt is
     /// done, then joins the child (`LateChildStarts`, spec/06 §5.1).
-    func _transitionChildren(
+    func _transitionContainerChildren(
         _ children: [ComponentVMBase],
         construct: Bool,
         joined: [ComponentVMBase] = [],
@@ -1470,11 +1555,54 @@ open class ComponentVMBase {
         return deferral
     }
 
+    /// A container's `dispose()` override calls this at entry, before its
+    /// child cascade, under `lifecycleLock`. It marks disposal as started so
+    /// `ownMember` disposes a new member at once, and returns `false` when
+    /// disposal already started (a re-entrant or concurrent call, which then
+    /// returns at once without waiting, spec/02 §7.1).
+    func _enterDispose() -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard !disposeEntered, !disposalRequested, _status != .disposed else {
+            return false
+        }
+        disposeEntered = true
+        return true
+    }
+
     /// Idempotent terminal transition. From any non-Disposed state,
     /// transitions to `.disposed` and invokes `_onDispose()`. Subclasses
     /// override `_onDispose()` (and may override `dispose()` itself to
     /// cascade to children).
+    ///
+    /// Before this VM publishes `.disposed`, it stops waiting for a pending
+    /// child walk and disposes every member registered through
+    /// ``ownMember(_:)``, in registration order (spec/02 §7.1). A container
+    /// disposes its own children first. A `dispose()` call that arrives while
+    /// the members are being disposed returns at once.
     open func dispose() {
+        lifecycleLock.lock()
+        if baseDisposeStarted || disposalRequested || _status == .disposed {
+            lifecycleLock.unlock()
+            return
+        }
+        // A leaf enters disposal here; a container already entered through
+        // `_enterDispose()` before its child cascade and reaches this body
+        // once, through `super.dispose()`.
+        baseDisposeStarted = true
+        disposeEntered = true
+        let members = ownedMembers
+        ownedMembers.removeAll()
+        lifecycleLock.unlock()
+        if !members.isEmpty {
+            // A member reaching Disposed must not roll this VM back ahead of
+            // its own disposal (as the containers' child cascade, LIFE-013).
+            _abandonChildTransition()
+            // Depth-first, before this VM publishes Disposed. Swift dispose
+            // does not throw, so every member is attempted.
+            for member in members { member.dispose() }
+        }
+
         lifecycleLock.lock()
         if disposalRequested || _status == .disposed {
             lifecycleLock.unlock()
@@ -1592,6 +1720,60 @@ open class ComponentVMBase {
     /// Register a Combine cancellable for terminal VM disposal.
     open func own(_ cancellable: any Cancellable) {
         own { cancellable.cancel() }
+    }
+
+    /// Registers `member` for depth-first disposal and returns it
+    /// (spec/02 §7.1, ADR-0162).
+    ///
+    /// `dispose()` disposes the registered members in registration order,
+    /// before this VM publishes `.disposed`. A container disposes its own
+    /// children first. Every member is attempted. Swift disposal does not
+    /// throw, so a member's failing cleanup is not reported (the flavors with
+    /// a throwing disposal surface report the first failure).
+    ///
+    /// ```swift
+    /// let chart: ChartVM
+    ///
+    /// init(hub: MessageHubProtocol, dispatcher: Dispatcher) {
+    ///     chart = ChartVM(hub: hub, dispatcher: dispatcher)
+    ///     super.init(name: "panel", hub: hub, dispatcher: dispatcher)
+    ///     ownMember(chart)
+    /// }
+    /// ```
+    ///
+    /// A member is not a container child. It gets no parent link and no
+    /// selection, and registration does not construct it. Use
+    /// ``_transitionChildren(_:construct:after:)`` in the lifecycle hooks to
+    /// construct and destruct it. A member registered after this VM's
+    /// `dispose()` started is disposed at once. Registering a member twice
+    /// is harmless, because `dispose()` is idempotent. A forwarding decorator
+    /// registers the member on the component it wraps, as `own` does
+    /// (ADR-0151).
+    ///
+    /// Registering this VM itself (or a forwarding decorator of it) is a
+    /// programming error and traps, because the method does not throw
+    /// (ADR-0009).
+    @discardableResult
+    public func ownMember<T: ComponentVMBase>(_ member: T) -> T {
+        let owner = _ownershipIdentity
+        precondition(
+            member._ownershipIdentity !== owner,
+            "ownMember: a view-model cannot register itself as its own member"
+        )
+        if owner !== self {
+            owner.ownMember(member)
+            return member
+        }
+        lifecycleLock.lock()
+        let disposeNow = disposeEntered || disposalRequested || _status == .disposed
+        if !disposeNow {
+            ownedMembers.append(member)
+        }
+        lifecycleLock.unlock()
+        if disposeNow {
+            member.dispose()
+        }
+        return member
     }
 
     private func disposeOwnedResources() {

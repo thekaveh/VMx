@@ -5,7 +5,7 @@ You will build a `ComponentVm<Model>`, a `RelayCommand`, and a `CompositeVm<T>`
 with child selection — all in a plain Cargo binary.
 
 > The Rust source line v0.36.0 declares `MIN_SPEC_VERSION = "3.30.0"` and has
-> behavioral tests for all 431 library conformance IDs. The
+> behavioral tests for all 436 library conformance IDs. The
 > [Rust flavor page](../flavors/rust.md) describes its status and parity
 > evidence.
 >
@@ -254,7 +254,7 @@ callers can branch on the result. Builders return `Err` from `build()` when a
 required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> lifecycle contract (`LIFE-001..015`), including transition and disposal
+> lifecycle contract (`LIFE-001..020`), including transition and disposal
 > coordination.
 
 ## 3.6.7. Where to go next

@@ -271,7 +271,7 @@ completes the underlying Rx subject. The later sections still use the hub, so
 the full shutdown sequence appears at the end of section 3.4.9.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> full lifecycle contract (`LIFE-001..015`),
+> full lifecycle contract (`LIFE-001..020`),
 > including the transition table and admitted-hook/disposal coordination.
 
 ______________________________________________________________________

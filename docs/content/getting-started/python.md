@@ -339,7 +339,7 @@ hub, so the full shutdown sequence appears after them.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
 > full transition table and the
-> lifecycle contract (`LIFE-001..015`), including `StatusTransitionError`
+> lifecycle contract (`LIFE-001..020`), including `StatusTransitionError`
 > rules and admitted-hook/disposal coordination.
 
 ______________________________________________________________________
