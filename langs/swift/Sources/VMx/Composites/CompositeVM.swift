@@ -709,104 +709,59 @@ open class CompositeVM<Child: ComponentVMBase>:
         }
     }
 
-    /// Delivers `event` to local subscribers first, then publishes the
-    /// equivalent `CollectionChangedMessage` on `hub`, sent by this composite
-    /// (spec/01 §1.4, spec/06 §4, ADR-0142). Like the local delivery, it runs
-    /// outside `membershipGate`; publication uses the hub's ordinary `send`,
-    /// so hub transactions defer it. A disposed composite publishes nothing.
+    /// Delivers `event` locally, then publishes it on `hub` (see
+    /// `ContainerSupport.deliverCollectionChanged`). A disposed composite
+    /// publishes nothing.
     private func deliverCollectionChanged(_ event: CollectionChangedEvent) {
-        collectionChangedSubject.send(event)
-        guard !membershipGate.withLock({ disposeRequested }) else { return }
-        hub.send(event.hubMessage(sentBy: self))
+        ContainerSupport.deliverCollectionChanged(
+            event,
+            from: self,
+            subject: collectionChangedSubject,
+            gate: membershipGate,
+            disposeRequested: { disposeRequested }
+        )
     }
 
     // ── Lifecycle overrides ─────────────────────────────────────────────
 
-    /// Supplies the construct walk with each child added while it runs whose
-    /// add starts it, with that add's start record; the walk joins such a
-    /// child and never starts it. A late child no add starts is skipped
-    /// (spec/02 §6, spec/06 §5.1). The final pull drops every record.
+    /// Supplies the construct walk with each late child whose add starts it
+    /// (see `ContainerSupport.lateChildSource`).
     private func lateChildSource(
         after snapshot: [Child],
         scope: LateChildStarts.Scope?
     ) -> LateChildSource? {
-        guard _autoConstructOnAdd, let scope else { return nil }
-        // Shared by the late pull and the commit-time seal.
-        var visited = Set(snapshot.map(ObjectIdentifier.init))
-        let starts = lateStarts
-        // Under `membershipGate`: the next unvisited child with a start
-        // record in this walk's scope; a child without one is skipped.
-        let pullLocked: () -> (child: ComponentVMBase, record: LateChildStarts.Record)? = {
-            [unowned self] in
-            while true {
-                guard let late = self.children.first(where: {
-                    !visited.contains(ObjectIdentifier($0))
-                }) else { return nil }
-                visited.insert(ObjectIdentifier(late))
-                if let record = starts.take(late, from: scope) { return (late, record) }
-            }
-        }
-        return LateChildSource(
-            starts: starts,
+        ContainerSupport.lateChildSource(
+            for: self,
+            after: snapshot,
             scope: scope,
-            next: { [weak self] in
-                guard let self else { return nil }
-                let late = self.membershipGate.withLock { pullLocked() }
-                if late == nil { starts.probe(self, .lastScanDone) }
-                return late
-            },
-            seal: { [weak self] in
-                guard let self else { return nil }
-                // Commit or keep walking (spec/06 §5.1): with no late child
-                // left, flip the state in this same gate section, so a later
-                // add reads `.constructed`, and end the walk's scope.
-                return self.membershipGate.withLock {
-                    if let late = pullLocked() { return late }
-                    self._flipConstructedForSeal()
-                    starts.endWalk(scope)
-                    return nil
-                }
-            },
-            willSeal: { [weak self] in
-                guard let self else { return }
-                starts.probe(self, .sealing)
-            }
+            autoConstructOnAdd: _autoConstructOnAdd,
+            starts: lateStarts,
+            gate: membershipGate,
+            children: { $0.children }
         )
     }
 
-    /// Call under `membershipGate`, in the section that attaches `child`.
-    /// Registers a start record when this add will start the child: with
-    /// auto-construct-on-add while this container is `Constructing`.
+    /// Call under `membershipGate`, in the section that attaches `child`
+    /// (see `ContainerSupport.registerLateStartLocked`).
     private func registerLateStartLocked(_ child: Child) -> LateChildStarts.Record? {
-        lateStarts.attachLocked(
-            child, starting: _autoConstructOnAdd && status == .constructing
+        ContainerSupport.registerLateStartLocked(
+            child, in: self, autoConstructOnAdd: _autoConstructOnAdd, starts: lateStarts
         )
     }
 
     /// Auto-construct-on-add of a child an add attached; returns the child's
-    /// construct error. With a start `record` (this container was
-    /// `Constructing` at the attach), a `Destructed` child starts now and the
-    /// record is marked done right after the attempt, before the add
-    /// publishes anything. Without one, the child starts only when this
-    /// container is `Constructed`: one attached before the walk's snapshot is
-    /// constructed by the walk (spec/06 §5.1).
+    /// construct error (see `ContainerSupport.autoConstructAttached`).
     private func autoConstructAttached(
         _ child: Child,
         record: LateChildStarts.Record?
     ) -> Error? {
-        guard _autoConstructOnAdd else { return nil }
-        guard let record else {
-            guard isConstructed else { return nil }
-            do { try child.construct() } catch { return error }
-            return nil
-        }
-        lateStarts.probe(child, .attached)
-        defer {
-            lateStarts.finish(child, record, constructing: status == .constructing)
-        }
-        guard child.status == .destructed else { return nil }
-        do { try child.construct() } catch { return error }
-        return nil
+        ContainerSupport.autoConstructAttached(
+            child,
+            in: self,
+            record: record,
+            autoConstructOnAdd: _autoConstructOnAdd,
+            starts: lateStarts
+        )
     }
 
     /// Test-only seam: runs at each `LateChildStage` of this container's
