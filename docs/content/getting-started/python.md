@@ -19,6 +19,14 @@ Add VMx as described in [Installation](../installation.md). PyPI provides
 version; the Python tab on the installation page installs the source line from
 a checkout.
 
+> To start a new console project, use the Python console starter template in
+> [`starters/python-console/`](../../../starters/python-console/). It was
+> verified against `vmx` 3.23.0 from PyPI. From a VMx checkout, run
+> `python3 tools/create-starter.py --channel python-console`. The command writes
+> the project to a new directory outside the checkout. It creates a virtual
+> environment there, installs the exact PyPI version and runs the starter's
+> smoke test.
+
 ______________________________________________________________________
 
 ## 3.3.2. Wire up `MessageHub` and `RxDispatcher`
