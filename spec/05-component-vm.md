@@ -238,8 +238,9 @@ and disposal boundary. Modeled composites and `FormVM` do not gain the operation
 | `SelectPreviousCommand` | parent has a "previous" child | move parent's `Current` to previous sibling |
 | `ReconstructCommand`    | `can_reconstruct()`           | `reconstruct()`                             |
 
-All five commands re-evaluate their predicates on every relevant `Status` change of
-the VM (via a trigger derived from `Status`).
+All five commands raise `CanExecuteChanged` on every relevant `Status` change of
+the VM (via a trigger derived from `Status`); consumers re-read `CanExecute`
+(chapter 04 §4).
 
 `SelectNextCommand` / `SelectPreviousCommand` are present on the `IComponentVM`
 baseline for a uniform surface, but a leaf VM does not enumerate its parent's

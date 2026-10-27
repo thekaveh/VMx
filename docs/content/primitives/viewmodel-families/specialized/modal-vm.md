@@ -25,8 +25,10 @@ helper; the other flavors ship `ModalVM<T>` directly.
 Modal completion is single-winner and host-driven:
 
 - `Dismiss(result)` completes the modal exactly once
-- `Dispose()` completes it with the cancellation result
-- null dialog presentation returns the cancellation result immediately
+- `Dispose()` completes it with the cancellation result, unless it is already
+  dismissed
+- null dialog presentation dismisses an undismissed modal with the cancellation
+  result at once; an already-dismissed modal keeps its result
 - awaiters never hang if the modal is disposed instead of explicitly dismissed
 - when dismissal and disposal race, only the first result is accepted; Swift
   `BasicModalVM` also registers waiters atomically

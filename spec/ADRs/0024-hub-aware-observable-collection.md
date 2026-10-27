@@ -1,6 +1,7 @@
 # ADR 0024 — `ServicedObservableCollection<T>` (hub-aware observable collection)
 
-**Status:** Accepted (2026-05-27)
+**Status:** Accepted (2026-05-27; §2 option 2 adopted for `CompositeVM` and
+`GroupVM` by ADR-0142)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context
@@ -76,3 +77,7 @@ defined in `spec/21-collections.md` §2. Key rules:
   incorrect — ADR-0013 introduced `INotificationHub`; `IMessageHub` is a core
   contract defined in `spec/03-messages.md` (ch. 03) and predates ADR-0013.
   The §1 sentence has been corrected accordingly.
+- **ADR-0142** (2026-10-12, spec v3.26.0) amends §2. It adopts option 2 for
+  `CompositeVM` and `GroupVM`, which now publish their collection changes on
+  the message hub. `ServicedObservableCollection<T>` stays the opt-in primitive
+  for other collections.

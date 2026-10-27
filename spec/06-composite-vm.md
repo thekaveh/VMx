@@ -329,8 +329,9 @@ The helper takes:
 - Optional `confirm_update` / `confirm_delete` async delegates that gate
   execution via `ConfirmationDecoratorCommand` (see chapter 04 §Decorators).
 - An optional `current_changed` trigger (`Observable<Unit>`) — typically the
-  owning composite's current-child-changed stream — that re-evaluates the
-  Update/Delete `CanExecute` when the selection changes (spec v3, ADR-0049).
+  owning composite's current-child-changed stream — that raises the
+  Update/Delete `CanExecuteChanged` when the selection changes, so consumers
+  re-read `CanExecute` (spec v3, ADR-0049).
 
 Behavior:
 
@@ -346,8 +347,8 @@ Behavior:
   fire on its own (chapter 04 §4), so a bound button's enabled state would go
   stale on every selection change. When a `current_changed` trigger is supplied,
   the helper wires it as a `Triggers` source on the Update and Delete commands so
-  each `CanExecute` is re-evaluated and `CanExecuteChanged` fires the moment the
-  selection changes (chapter 04 §4.2, ADR-0049). Supplying the trigger is
+  `CanExecuteChanged` fires the moment the selection changes and consumers
+  re-read `CanExecute` (chapter 04 §4.2, ADR-0049). Supplying the trigger is
   RECOMMENDED whenever the commands are bound to UI; omitting it leaves
   `CanExecute` correct on demand but non-reactive. Exposing the optional
   `current_changed` parameter is, per ADR-0049, a clarification first realized in

@@ -47,10 +47,10 @@ Each policy below extends an existing disposal decision.
    earlier may finish. No inner command, predicate, action, or `confirm`
    delegate runs under a lock.
 1. **Change streams (ADR-0068, ADR-0086).** A wrapper never completes or disposes
-   an inner command's stream. Wrappers that hold their own subscriptions (C#
-   wrappers and Rust's `CompositeCommand`) release them at disposal. Wrappers
-   that expose a merged or delegated inner stream (TypeScript, Python, Swift, and
-   Rust's decorators) leave it to the inner commands. As for relay commands, a
+   an inner command's stream. Wrappers that hold their own subscriptions (C# and
+   Swift wrappers, and Rust's `CompositeCommand`) release them at disposal.
+   Wrappers that expose a merged or delegated inner stream (TypeScript, Python,
+   and Rust's decorators) leave it to the inner commands. As for relay commands, a
    flavor may notify `CanExecuteChanged` once during disposal.
 1. **Rust surface.** `CompositeCommand` and `DecoratorCommand` gain a `dispose()`
    method. Clones share disposal state, as `ConfirmationDecoratorCommand` clones

@@ -402,6 +402,19 @@ fn null_modal_presentation_uses_cancellation_result() {
     assert!(modal.is_dismissed());
 }
 
+/// DIA-010 — Null modal presentation keeps an already-dismissed modal's result
+#[test]
+fn null_modal_presentation_keeps_an_earlier_result() {
+    let service = NullDialogService;
+    let modal = ModalVm::new("cancel");
+    modal.dismiss("chosen");
+
+    let result = service.present(&modal);
+
+    assert_eq!(result.wait(), "chosen");
+    assert_eq!(modal.result(), Some("chosen"));
+}
+
 /// DIA-011 — Modal disposal completes with cancellation result
 #[test]
 fn modal_disposal_completes_with_cancellation_result() {
