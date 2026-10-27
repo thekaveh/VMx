@@ -5,10 +5,10 @@ region of it); ``make docs-check`` (scripts/docs/check_docs.py) fails when a
 fence differs. These tests keep the markers in place and the sources executed.
 """
 
-import re
 from pathlib import Path
 
 import pytest
+from scripts.docs.snippets import checked_snippets, markdown_section
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INTEGRATION = REPO_ROOT / "docs" / "content" / "integration"
@@ -20,11 +20,15 @@ NICEGUI = "examples/python/nicegui/notes_showcase/src/nicegui_notes"
 
 def _checked_fences(guide: str, heading: str, language: str) -> list[str]:
     """The checked-snippet sources of the guide section's fences, in order."""
-    text = (INTEGRATION / guide).read_text(encoding="utf-8")
-    assert heading in text, f"{guide} lost its '{heading}' section"
-    section = text.split(heading, 1)[1].split("\n## ", 1)[0]
-    fences = re.findall(rf"(?:<!-- checked-snippet: (\S+) -->\n\n)?```{language}\n", section)
-    assert fences, f"{guide} shows no {language} block under '{heading}'"
+    section = markdown_section((INTEGRATION / guide).read_text(encoding="utf-8"), heading)
+    assert section is not None, f"{guide} lost its '{heading}' section"
+    fences = [
+        snippet.source for snippet in checked_snippets(section) if snippet.language == language
+    ]
+    assert fences, f"{guide} shows no checked {language} block under '{heading}'"
+    assert len(fences) == section.count(f"```{language}\n"), (
+        f"{guide} shows an unchecked {language} block under '{heading}'"
+    )
     return fences
 
 

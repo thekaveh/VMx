@@ -8,6 +8,9 @@ from pathlib import Path
 TOOLS_DIR = Path(__file__).resolve().parents[1]
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
+# The repository root makes scripts.docs.snippets (standard library only) importable.
+if str(TOOLS_DIR.parent) not in sys.path:
+    sys.path.insert(1, str(TOOLS_DIR.parent))
 
 
 # The script's filename uses a hyphen, so `import check_conformance_coverage` would
