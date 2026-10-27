@@ -453,7 +453,7 @@ public class HIER_001_to_014_HierarchicalVM_Tests
 
     /// <summary>
     /// HIER-013: SearchableState composition filters the materialized portion
-    /// of the tree (children).
+    /// of the tree, as the expand-aware walk yields it.
     /// </summary>
     [Fact]
     [Trait("Conformance", "HIER-013")]
@@ -462,45 +462,52 @@ public class HIER_001_to_014_HierarchicalVM_Tests
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
 
-        // "banana" owns a lazy child "mango" (which would also match "an") that
-        // is never accessed, so it stays un-materialized.
+        // "cherry" is collapsed and owns a lazy child "bandana", which would
+        // match "an" if it were materialized.
         var lazyFactoryCalls = 0;
-        var mango = new MyNode(new MyModel("mango"), _ => [], hub, dispatcher);
-        var apple = new MyNode(new MyModel("apple"), _ => [], hub, dispatcher);
-        var banana = new MyNode(
-            new MyModel("banana"),
+        var bandana = new SearchNode("bandana", _ => [], hub, dispatcher);
+        var apple = new SearchNode("apple", _ => [], hub, dispatcher);
+        var banana = new SearchNode("banana", _ => [], hub, dispatcher);
+        var mango = new SearchNode("mango", _ => [], hub, dispatcher);
+        var cherry = new SearchNode(
+            "cherry",
             _ =>
             {
                 lazyFactoryCalls++;
-                return [mango];
+                return [bandana];
             },
             hub,
-            dispatcher);
-        var cherry = new MyNode(new MyModel("cherry"), _ => [], hub, dispatcher);
-        var root = NodeWithChildren([apple, banana, cherry], hub, dispatcher);
+            dispatcher,
+            collapsed: true);
+        var root = new SearchNode("root", _ => [apple, banana, mango, cherry], hub, dispatcher);
 
-        // Compose SearchableState filtering by model value over the materialized
-        // portion of the tree (the root's accessed children).
-        var search = new SearchableState<MyNode>(
-            items: () => root.Children.Cast<MyNode>(),
+        // The materialized portion comes from the library's expand-aware walk,
+        // which stops at the collapsed "cherry" without touching its children.
+        IEnumerable<SearchNode> Materialized() =>
+            TreeHelper.WalkExpanded(root).Where(node => !ReferenceEquals(node, root)).Cast<SearchNode>();
+        var search = new SearchableState<SearchNode>(
+            items: Materialized,
             predicate: (node, term) => node.Model.Value.Contains(term, StringComparison.OrdinalIgnoreCase),
             debounce: TimeSpan.Zero);
 
-        IReadOnlyList<MyNode> result = [];
+        IReadOnlyList<SearchNode> result = [];
         search.Filtered.Subscribe(r => result = r.ToList().AsReadOnly());
 
         search.SearchTerm = "an";
         search.Search(); // force immediate apply
 
-        result.Should().HaveCount(1, "only one materialized leaf matches 'an'");
-        result.Single().Should().BeSameAs(banana);
-        result.Should().NotContain(mango, "un-materialized lazy children are not included in results");
+        result.Should().Equal([banana, mango], "exactly the matching materialized nodes, in walk order");
+        result.Should().NotContain(bandana, "un-materialized lazy children are not included in results");
         lazyFactoryCalls.Should().Be(0, "searching does not materialize lazy children");
 
-        search.SearchTerm = "e";
-        search.Search();
-        result.Should().Equal(apple, cherry);
+        // Non-vacuity: the walk reaches the collapsed node, and its lazy child
+        // matches once materialized. The collapsed boundary still hides it.
+        Materialized().Should().Contain(cherry);
         lazyFactoryCalls.Should().Be(0);
+        TreeHelper.Walk(root).Should().Contain((IComponentVM)bandana);
+        lazyFactoryCalls.Should().Be(1);
+        search.Search();
+        result.Should().Equal([banana, mango], "a collapsed boundary still hides the lazy child");
     }
 
     // ── HIER-014 ──────────────────────────────────────────────────────────────
@@ -559,6 +566,32 @@ public class HIER_001_to_014_HierarchicalVM_Tests
     }
 
     // ── Private test helpers ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// HIER-013 node: expanded unless built collapsed, so the expand-aware walk
+    /// stops at a collapsed node.
+    /// </summary>
+    private sealed class SearchNode : HierarchicalVM<MyModel, SearchNode>, IExpandable
+    {
+        private readonly ExpandableState _expansion;
+
+        public override ViewModelType Type => ViewModelType.Component;
+
+        public SearchNode(
+            string value,
+            Func<SearchNode, IEnumerable<SearchNode>> childrenFactory,
+            TestHub hub,
+            TestDispatcher dispatcher,
+            bool collapsed = false)
+            : base(new MyModel(value), childrenFactory, hub, dispatcher)
+        {
+            _expansion = new ExpandableState(initiallyExpanded: !collapsed);
+        }
+
+        public bool IsExpanded => _expansion.IsExpanded;
+        public bool CanExpand() => _expansion.CanExpand();
+        public void Expand() => _expansion.Expand();
+    }
 
     /// <summary>
     /// Expandable node for HIER-012: HierarchicalVM + composed ExpandableState.
