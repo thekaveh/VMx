@@ -69,24 +69,6 @@ describe("DIA-003", () => {
     expect(r1).toBe(false);
     expect(r2).toBe(false);
   });
-
-  it("Confirm resolves true when the user confirms and false on cancel (test double)", async () => {
-    const answers = [true, false];
-    const calls: [string, string | null | undefined][] = [];
-    const sut: IDialogService = {
-      pickFileToOpen: () => Promise.resolve(null),
-      pickFileToSave: () => Promise.resolve(null),
-      confirm: (message, title) => {
-        calls.push([message, title]);
-        return Promise.resolve(answers.shift() ?? false);
-      },
-      notify: () => Promise.resolve(),
-    };
-
-    expect(await sut.confirm("Proceed?", "Title")).toBe(true);
-    expect(await sut.confirm("Proceed?")).toBe(false);
-    expect(calls).toEqual([["Proceed?", "Title"], ["Proceed?", undefined]]);
-  });
 });
 
 // ---------------------------------------------------------------------------
