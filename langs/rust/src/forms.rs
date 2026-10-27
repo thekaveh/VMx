@@ -256,6 +256,29 @@ struct PreparedUpdate<M> {
     eligible: bool,
 }
 
+/// The validation errors, kept in step with the model they belong to (#770).
+///
+/// The model lives in the component's mutex, so a commit cannot replace both
+/// under one lock without nesting the two mutexes. A user `Clone` runs under
+/// the model mutex and may read the errors, so nesting them could deadlock.
+/// A commit therefore stages the next errors with the model generation read
+/// before it installs the model. Readers use the staged errors once the
+/// generation has moved past that value, which is when they can see the new
+/// model.
+struct ErrorState {
+    committed: BTreeMap<String, String>,
+    staged: Option<(u64, BTreeMap<String, String>)>,
+}
+
+impl ErrorState {
+    fn new() -> Self {
+        Self {
+            committed: BTreeMap::new(),
+            staged: None,
+        }
+    }
+}
+
 #[derive(Clone)]
 /// Editable model state with validation, persistence, approval, and revert commands.
 pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
@@ -265,7 +288,7 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     snapshotter: FormSnapshotter<M>,
     reset_on_approved: Option<FormResetOnApproved<M>>,
     strict: Arc<Mutex<bool>>,
-    errors: Arc<Mutex<BTreeMap<String, String>>>,
+    errors: Arc<Mutex<ErrorState>>,
     field_validators: Arc<Mutex<BTreeMap<String, FieldValidator<M>>>>,
     model_validators: Arc<Mutex<Vec<ModelValidator<M>>>>,
     errors_changed: MessageHub,
@@ -318,7 +341,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             snapshotter: Arc::new(|model| model.clone()),
             reset_on_approved: None,
             strict: Arc::new(Mutex::new(strict)),
-            errors: Arc::new(Mutex::new(BTreeMap::new())),
+            errors: Arc::new(Mutex::new(ErrorState::new())),
             field_validators: Arc::new(Mutex::new(BTreeMap::new())),
             model_validators: Arc::new(Mutex::new(Vec::new())),
             errors_changed: MessageHub::new(),
@@ -432,9 +455,17 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// compares the model with the live model and, in strict mode, with the
     /// snapshot, and runs the validators. It changes nothing, so a callback
     /// that reads the form sees the previous state. The commit then installs
-    /// the model and its errors in one step, and the call publishes
+    /// the model and its errors together, and the call publishes
     /// `errors_changed`, the approve command's eligibility change, and the
     /// `"model"` hub message, in that order.
+    ///
+    /// A reader on another thread never pairs one model with another model's
+    /// errors. After it reads the new model, [`is_valid`](Self::is_valid),
+    /// [`errors`](Self::errors), [`error_map`](Self::error_map), and
+    /// [`field_error`](Self::field_error) report that model's errors, or a
+    /// later model's.
+    /// Before the new model is installed, they report the previous model's
+    /// errors. An approval that resets the model gives the same guarantee.
     ///
     /// Updates are serialized: another thread's update, approval admission,
     /// approval commit, or disposal waits until this preparation and commit
@@ -511,22 +542,22 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
 
     /// Returns the current validation messages in field-key order.
     pub fn errors(&self) -> Vec<String> {
-        lock(&self.errors).values().cloned().collect()
+        self.read_errors(|errors| errors.values().cloned().collect())
     }
 
     /// Returns the current validation errors keyed by field.
     pub fn error_map(&self) -> BTreeMap<String, String> {
-        lock(&self.errors).clone()
+        self.read_errors(BTreeMap::clone)
     }
 
     /// Returns the current error for `field`, when present.
     pub fn field_error(&self, field: &str) -> Option<String> {
-        lock(&self.errors).get(field).cloned()
+        self.read_errors(|errors| errors.get(field).cloned())
     }
 
     /// Reports whether no validation errors are present.
     pub fn is_valid(&self) -> bool {
-        lock(&self.errors).is_empty()
+        self.read_errors(BTreeMap::is_empty)
     }
 
     /// Reports whether approval is currently admitted.
@@ -701,10 +732,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self.commit_generation.fetch_add(1, Ordering::SeqCst);
         let replaced_snapshot = std::mem::replace(&mut *lock(&self.snapshot), snapshot);
         let (errors_changed, replaced_model) = match reset {
-            Some((model, errors)) => (
-                self.replace_validation_errors(errors),
-                Some(self.component.store_model(model)),
-            ),
+            Some((model, errors)) => {
+                let (errors_changed, replaced) = self.install(model, errors);
+                (errors_changed, Some(replaced))
+            }
             None => (false, None),
         };
         drop(serialized);
@@ -1014,7 +1045,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// and produces no form (spec/20 §5.4).
     fn with_initial_validation(self) -> Self {
         let errors = self.validation_errors_for(&self.model());
-        *lock(&self.errors) = errors;
+        lock(&self.errors).committed = errors;
         self
     }
 
@@ -1111,10 +1142,41 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
         self.commit_generation.fetch_add(1, Ordering::SeqCst);
         // The replaced model is dropped after the model mutex is released.
-        let replaced = self.component.store_model(update.model);
-        let errors_changed = self.replace_validation_errors(update.errors);
+        let (errors_changed, replaced) = self.install(update.model, update.errors);
         drop(replaced);
         Some(errors_changed)
+    }
+
+    /// Installs `model` and its `errors` (see [`ErrorState`]). The caller
+    /// holds the update lock, so no other commit stages errors or installs a
+    /// model meanwhile. No user code runs between the three steps, and the
+    /// replaced model is returned for the caller to drop.
+    ///
+    /// Returns whether the effective errors changed, and the replaced model.
+    fn install(&self, model: M, errors: BTreeMap<String, String>) -> (bool, M) {
+        let generation = self.component.model_generation();
+        lock(&self.errors).staged = Some((generation, errors));
+        let replaced = self.component.store_model(model);
+        let mut state = lock(&self.errors);
+        let errors_changed = state.staged.take().is_some_and(|(_, next)| {
+            let changed = state.committed != next;
+            state.committed = next;
+            changed
+        });
+        (errors_changed, replaced)
+    }
+
+    /// Runs `read` on the errors of the model a reader can see now: the
+    /// staged errors once their model is installed, else the committed ones.
+    /// Only the error mutex is held, and `read` runs no user code.
+    fn read_errors<R>(&self, read: impl FnOnce(&BTreeMap<String, String>) -> R) -> R {
+        let state = lock(&self.errors);
+        match &state.staged {
+            Some((generation, staged)) if self.component.model_generation() != *generation => {
+                read(staged)
+            }
+            _ => read(&state.committed),
+        }
     }
 
     fn validation_errors_for(&self, model: &M) -> BTreeMap<String, String> {
@@ -1144,15 +1206,15 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         next
     }
 
+    /// Replaces the errors of the live model. The caller holds the update
+    /// lock, so no errors are staged.
     fn replace_validation_errors(&self, next: BTreeMap<String, String>) -> bool {
-        {
-            let mut errors = lock(&self.errors);
-            if *errors == next {
-                false
-            } else {
-                *errors = next;
-                true
-            }
+        let mut state = lock(&self.errors);
+        if state.committed == next {
+            false
+        } else {
+            state.committed = next;
+            true
         }
     }
 
@@ -1331,7 +1393,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             snapshotter: self.snapshotter,
             reset_on_approved: self.reset_on_approved,
             strict: Arc::new(Mutex::new(self.strict)),
-            errors: Arc::new(Mutex::new(BTreeMap::new())),
+            errors: Arc::new(Mutex::new(ErrorState::new())),
             field_validators: Arc::new(Mutex::new(self.field_validators)),
             model_validators: Arc::new(Mutex::new(self.model_validators)),
             errors_changed: MessageHub::new(),

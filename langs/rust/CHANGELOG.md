@@ -23,6 +23,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVm` reader on another thread no longer pairs one model with another
+  model's errors. Before, `set_model` and `revert` installed the model before
+  its errors. An approval reset installed the errors before the model. So
+  `is_valid()` could report the wrong validity. Now, once a reader sees the new
+  model, `is_valid()`, `can_approve()`, `errors()`, `error_map()`, and
+  `field_error()` report that model's errors, or a later model's. Readers still
+  hold no lock while `PartialEq` or a validator runs (#770).
 - `MessageHub` delivery no longer locks the hub before each subscriber to
   check that it is still attached. Each subscriber now carries an active
   flag. Unsubscribing, dropping the `Subscription` and disposing the hub clear
