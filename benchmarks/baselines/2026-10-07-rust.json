@@ -186,9 +186,7 @@
       "retained_growth_bytes": 56,
       "retained_growth_limit_bytes": 1048576,
       "bounded": true,
-      "max_queue_depth": 0,
-      "hub_history_size": 0,
-      "hub_history_note": "MessageHub::history() length after the cycles (ADR-0141: hubs retain nothing)"
+      "max_queue_depth": 0
     }
   }
 }

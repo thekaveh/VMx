@@ -399,9 +399,7 @@
       "retained_growth_bytes": 216,
       "retained_growth_limit_bytes": 2097152,
       "bounded": true,
-      "max_queue_depth": 0,
-      "hub_history_size": 0,
-      "hub_history_note": "Python hubs retain no delivered messages"
+      "max_queue_depth": 0
     }
   }
 }
