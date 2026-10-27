@@ -1874,6 +1874,15 @@ impl ParentHandle {
         self.inner.upgrade().map(|inner| inner.id)
     }
 
+    /// The owner's registration while the owner is alive. A stored command
+    /// keeps only this weak handle, so it does not keep a dropped container
+    /// registered as its children's parent.
+    pub(crate) fn registration(&self) -> Option<ParentRegistration> {
+        self.inner
+            .upgrade()
+            .map(|inner| ParentRegistration { inner })
+    }
+
     pub(crate) fn parent(&self) -> Option<Self> {
         self.inner.upgrade().and_then(|inner| (inner.parent)())
     }
