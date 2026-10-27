@@ -34,3 +34,5 @@ can be out of date.
   controlled-interleaving work for issue 348.
 - [Application starters](2026-10-27-application-starters.md): starter
   decision, stop condition and TypeScript pilot for issue 410.
+- [Form model lens pilot](2026-10-27-form-model-lens-pilot.md): lens
+  feasibility for issue 411; recommends no public lens.
