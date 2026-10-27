@@ -345,7 +345,10 @@ public class CommandDecoratorsConformanceTests
     /// <summary>CMDD-012: a confirmation that resolves on another thread while the
     /// decorator is being disposed runs the inner command at most once, emits at most
     /// one error before <c>Errors</c> completes, and completes <c>Errors</c> exactly
-    /// once. Each iteration races the resolution against <c>Dispose()</c>.</summary>
+    /// once. Each iteration races the resolution against <c>Dispose()</c>.
+    /// Stress coverage only: it passes without the post-confirmation disposal
+    /// re-check. <see cref="CMDD_012_Confirmation_Resolving_After_Disposal_Runs_Nothing"/>
+    /// guards that re-check.</summary>
     [Theory, Trait("Conformance", "CMDD-012")]
     [InlineData("true")]
     [InlineData("faulted")]
