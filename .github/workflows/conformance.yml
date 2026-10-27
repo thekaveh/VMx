@@ -33,6 +33,8 @@ on:
       - "examples/**/Cargo.lock"
       - "benchmarks/rust/Cargo.lock"
       - "tools/**"
+      # Starter templates read by tools/tests/test_create_starter.py.
+      - "starters/**"
       - ".pre-commit-config.yaml"
       - ".github/dependabot.yml"
       - ".github/workflows/**"
