@@ -25,8 +25,10 @@ public sealed class GroupVM<VM> : GroupVMBase<VM>, IGroupVM<VM>
         bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
-        Action? onDestruct)
-        : base(name, hint, hub, dispatcher, autoConstructOnAdd, onConstruct, onDestruct)
+        Action? onDestruct,
+        ChildOrder destructOrder)
+        : base(name, hint, hub, dispatcher, autoConstructOnAdd, onConstruct, onDestruct,
+            destructOrder)
     {
         _childrenFactory = childrenFactory;
     }
@@ -47,7 +49,8 @@ public sealed class GroupVM<VM> : GroupVMBase<VM>, IGroupVM<VM>
     {
         var b = GroupVMBuilder<VM>.Empty
             .Hint(options.Hint)
-            .AutoConstructOnAdd(options.AutoConstructOnAdd);
+            .AutoConstructOnAdd(options.AutoConstructOnAdd)
+            .DestructOrder(options.DestructOrder);
         if (options.Name is not null) b = b.Name(options.Name);
         if (options.Hub is not null) b = b.OptionHub(options.Hub);
         if (options.Dispatcher is not null) b = b.OptionDispatcher(options.Dispatcher);
@@ -66,8 +69,10 @@ public sealed class GroupVM<VM> : GroupVMBase<VM>, IGroupVM<VM>
         bool autoConstructOnAdd,
         Func<IEnumerable<VM>>? childrenFactory,
         Action? onConstruct,
-        Action? onDestruct)
-        => new(name, hint, hub, dispatcher, autoConstructOnAdd, childrenFactory, onConstruct, onDestruct);
+        Action? onDestruct,
+        ChildOrder destructOrder)
+        => new(name, hint, hub, dispatcher, autoConstructOnAdd, childrenFactory, onConstruct,
+            onDestruct, destructOrder);
 
     /// <inheritdoc/>
     protected override void PopulateChildren()

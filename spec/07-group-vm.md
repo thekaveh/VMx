@@ -61,13 +61,22 @@ membership boundary before the old parent snapshots and cascades its children.
 
 Identical to `CompositeVM`: `construct()` waits for every child to reach
 `Constructed`; `destruct()` waits for every child to reach `Destructed`. The
-order in which children are visited is unspecified.
+order in which children are visited is unspecified by default.
+
+A group built with `DestructOrder(ChildOrder.Reverse)` (spec v3.30, ADR-0161)
+destructs and disposes its children in reverse child order, last child first,
+as chapter 06 §5 says for composites. This covers the destruct phase of
+`reconstruct()`. The option does not change `construct()`. The default, `Insertion`,
+keeps the current behavior, and every reference implementation walks the
+children first child first. Every child is disposed before the group
+publishes `Disposed` (`LIFE-013`).
 
 ## 3. Builder
 
 The builder accepts:
 
 - `children : () -> Iterable<VM>` (factory, evaluated on `construct()`).
+- `DestructOrder : ChildOrder` (optional, default `Insertion`; §2, ADR-0161).
 
 Open Rust gap: Rust's `GroupVmBuilder::build()` evaluates the `children` factory
 and attaches the initial population at build time, not on `construct()`.
@@ -77,7 +86,8 @@ Only the non-modeled variant currently ships.
 
 `GroupVM<VM>` may also be built with the additive positional-options form
 (`Create`/`create` — see `10-builders.md §7`), which validates the same required
-fields (`name`, services, `children`) and produces an identical VM.
+fields (`name`, services, `children`) and produces an identical VM. Its
+optional destruct-order field matches the builder setter.
 
 ## 4. Auto-construct on add (spec v1.1)
 
@@ -111,8 +121,8 @@ in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
 
 ## 7. Conformance
 
-`GRP-001` through `GRP-006`, `GRP-007` through `GRP-010`, `GRP-011`, and
-`GRP-012` through `GRP-013` in `12-conformance.md` cover:
+`GRP-001` through `GRP-006`, `GRP-007` through `GRP-010`, `GRP-011`,
+`GRP-012` through `GRP-013`, and `GRP-014` in `12-conformance.md` cover:
 
 - collection-change events on add/remove
 - absence of `Current`
@@ -124,6 +134,9 @@ in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
 - (v3.26) each effective collection change publishes one hub
   `CollectionChangedMessage` sent by the group, and a batch publishes one
   `Reset` on outermost completion (`GRP-012`, `GRP-013`)
+- (v3.30) `DestructOrder(ChildOrder.Reverse)` destructs and disposes the
+  children last child first, and construct is the same with and without the
+  option (`GRP-014`)
 - atomic cross-parent transfer, duplicate/cycle rejection, isolated rollback
   with explicit compensation failure, and old-removal-before-new-add
   observation order (`COMP-038` through `COMP-041`)

@@ -141,7 +141,7 @@ export {
 
 // Components
 export { ViewModelType } from "./components/types.js";
-export type { IComponentVM, IComponentVMOf } from "./components/types.js";
+export type { ChildOrder, IComponentVM, IComponentVMOf } from "./components/types.js";
 export {
   ComponentVMBase,
   type DisposableResource,

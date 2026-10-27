@@ -25,6 +25,17 @@ All notable changes to the C# flavor are documented here. The format is based on
   group without parameters are now ambiguous and must name the overload. A
   call with no names now compiles and throws `ArgumentException` (spec/03 §7.2,
   ADR-0160, #664).
+- Added: opt-in reverse child order for container teardown (#662, ADR-0161,
+  GRP-014, COMP-046). The new `ChildOrder` enum (`VMx.Components`) has
+  `Insertion` (the default) and `Reverse`. `GroupVMBuilder<VM>`,
+  `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` gain
+  `.DestructOrder(ChildOrder)`, and `GroupVMOptions<VM>` and
+  `CompositeVMOptions<VM>` gain `DestructOrder`. With `Reverse`, destruct (also
+  the destruct phase of `Reconstruct()`) and the `Dispose()` cascade walk the
+  children last-first. Construct order is unchanged, and every child is still
+  disposed before the container publishes `Disposed` (LIFE-013). New protected
+  `GroupVMBase<VM>` and `CompositeVMBase<VM>` constructor overloads take the
+  order for custom containers.
 - Fixed: `ObservableDictionary`: an entry added from a `Keys1` subscriber no
   longer puts `Keys2` out of first-appearance order. `Keys2` now updates
   first, so a `Keys1` subscriber already sees the new Key2. When a `Keys2`

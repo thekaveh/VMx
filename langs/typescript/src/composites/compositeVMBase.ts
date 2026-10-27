@@ -26,9 +26,11 @@ import { emittedIndex } from "../collections/emittedIndex.js";
 import {
   constructWalk,
   deliverCollectionChanged,
+  destructWalk,
   maybeAutoConstruct,
 } from "../components/vmContainer.js";
 import { ViewModelType } from "../components/types.js";
+import type { ChildOrder } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
@@ -56,6 +58,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   readonly owner = this;
   readonly #asyncSelection: boolean;
   readonly #autoConstructOnAdd: boolean;
+  readonly #destructOrder: ChildOrder;
   protected _children: VM[] = [];
   #current: VM | null = null;
   readonly #collectionChangedSubject = new Subject<CollectionChangedEvent>();
@@ -78,6 +81,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     dispatcher: IDispatcher;
     asyncSelection?: boolean;
     autoConstructOnAdd?: boolean;
+    /** Defaults to `"insertion"` (spec/06 §5, ADR-0161). */
+    destructOrder?: ChildOrder;
     onConstruct?: (() => void) | null;
     onDestruct?: (() => void) | null;
     currentSelector?: ((xs: Iterable<VM>) => VM | null) | null;
@@ -86,6 +91,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     super(opts);
     this.#asyncSelection = opts.asyncSelection ?? false;
     this.#autoConstructOnAdd = opts.autoConstructOnAdd ?? false;
+    this.#destructOrder = opts.destructOrder ?? "insertion";
     this.#currentSelector = opts.currentSelector ?? null;
     this.#onCurrentChanged = opts.onCurrentChanged ?? null;
   }
@@ -600,7 +606,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     if (this.#current !== null) {
       this._setCurrent(null, false);
     }
-    this._transitionChildren([...this._children], false, () => {
+    // spec/06 §5: children are destructed in the configured order (ADR-0161).
+    this._transitionChildren(destructWalk(this._children, this.#destructOrder), false, () => {
       super._onDestruct();
     });
   }
@@ -612,10 +619,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       return;
     }
     this.#disposeRequested = true;
-    // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
+    // Dispose cascade (LIFE-013): depth-first dispose each child, in the
+    // configured destruct order (ADR-0161), then self.
     disposeBestEffort([
       () => this._abandonChildTransition(),
-      ...[...this._children].map((child) => () => child.dispose()),
+      ...destructWalk(this._children, this.#destructOrder).map((child) => () => child.dispose()),
       () => super.dispose(),
     ]);
   }

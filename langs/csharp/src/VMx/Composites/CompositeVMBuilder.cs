@@ -22,6 +22,7 @@ public sealed class CompositeVMBuilder<VM>
     private readonly string _hint;
     private readonly bool _asyncSelection;
     private readonly bool _autoConstructOnAdd;
+    private readonly ChildOrder _destructOrder;
     private readonly Func<IEnumerable<VM>>? _childrenFactory;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
@@ -44,7 +45,8 @@ public sealed class CompositeVMBuilder<VM>
         Action? onConstruct,
         Action? onDestruct,
         Func<IEnumerable<VM>, VM?>? currentSelector,
-        Action<VM?>? onCurrentChanged)
+        Action<VM?>? onCurrentChanged,
+        ChildOrder destructOrder)
     {
         _name = name;
         _hub = hub;
@@ -57,6 +59,7 @@ public sealed class CompositeVMBuilder<VM>
         _onDestruct = onDestruct;
         _currentSelector = currentSelector;
         _onCurrentChanged = onCurrentChanged;
+        _destructOrder = destructOrder;
     }
 
     /// <summary>Sets the required Name.</summary>
@@ -125,6 +128,13 @@ public sealed class CompositeVMBuilder<VM>
     /// </summary>
     public CompositeVMBuilder<VM> AutoConstructOnAdd(bool autoConstructOnAdd) => With(autoConstructOnAdd: autoConstructOnAdd);
 
+    /// <summary>
+    /// Sets the order in which destruct and dispose walk the children
+    /// (default: <see cref="ChildOrder.Insertion"/>). <see cref="ChildOrder.Reverse"/>
+    /// tears down the last child first; construct order is unchanged (ADR-0161).
+    /// </summary>
+    public CompositeVMBuilder<VM> DestructOrder(ChildOrder order) => With(destructOrder: order);
+
     /// <summary>Sets the optional OnConstruct lifecycle callback.</summary>
     public CompositeVMBuilder<VM> OnConstruct(Action callback) => With(onConstruct: callback);
 
@@ -144,7 +154,7 @@ public sealed class CompositeVMBuilder<VM>
         return CompositeVM<VM>.Create(
             _name, _hint, _hub, _dispatcher,
             _asyncSelection, _autoConstructOnAdd, _childrenFactory,
-            _onConstruct, _onDestruct, _currentSelector, _onCurrentChanged);
+            _onConstruct, _onDestruct, _currentSelector, _onCurrentChanged, _destructOrder);
     }
 
     private CompositeVMBuilder<VM> With(
@@ -158,7 +168,8 @@ public sealed class CompositeVMBuilder<VM>
         Action? onConstruct = null,
         Action? onDestruct = null,
         Func<IEnumerable<VM>, VM?>? currentSelector = null,
-        Action<VM?>? onCurrentChanged = null)
+        Action<VM?>? onCurrentChanged = null,
+        ChildOrder? destructOrder = null)
         => new(
             name ?? _name,
             hub ?? _hub,
@@ -170,7 +181,8 @@ public sealed class CompositeVMBuilder<VM>
             onConstruct ?? _onConstruct,
             onDestruct ?? _onDestruct,
             currentSelector ?? _currentSelector,
-            onCurrentChanged ?? _onCurrentChanged);
+            onCurrentChanged ?? _onCurrentChanged,
+            destructOrder ?? _destructOrder);
 }
 
 /// <summary>
@@ -194,6 +206,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     private readonly string _hint;
     private readonly bool _asyncSelection;
     private readonly bool _autoConstructOnAdd;
+    private readonly ChildOrder _destructOrder;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
     private readonly Func<IEnumerable<VM>, VM?>? _currentSelector;
@@ -216,7 +229,8 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         Action? onConstruct,
         Action? onDestruct,
         Func<IEnumerable<VM>, VM?>? currentSelector,
-        Action<VM?>? onCurrentChanged)
+        Action<VM?>? onCurrentChanged,
+        ChildOrder destructOrder)
     {
         _name = name;
         _hub = hub;
@@ -230,6 +244,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         _onDestruct = onDestruct;
         _currentSelector = currentSelector;
         _onCurrentChanged = onCurrentChanged;
+        _destructOrder = destructOrder;
     }
 
     /// <summary>Sets the required Name.</summary>
@@ -295,6 +310,13 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     public CompositeVMOfMBuilder<M, VM> AutoConstructOnAdd(bool autoConstructOnAdd)
         => With(autoConstructOnAdd: autoConstructOnAdd);
 
+    /// <summary>
+    /// Sets the order in which destruct and dispose walk the children
+    /// (default: <see cref="ChildOrder.Insertion"/>). <see cref="ChildOrder.Reverse"/>
+    /// tears down the last child first; construct order is unchanged (ADR-0161).
+    /// </summary>
+    public CompositeVMOfMBuilder<M, VM> DestructOrder(ChildOrder order) => With(destructOrder: order);
+
     /// <summary>Sets the optional OnConstruct callback.</summary>
     public CompositeVMOfMBuilder<M, VM> OnConstruct(Action callback) => With(onConstruct: callback);
 
@@ -316,7 +338,7 @@ public sealed class CompositeVMOfMBuilder<M, VM>
             _name, _hint, _hub, _dispatcher,
             _asyncSelection, _autoConstructOnAdd,
             _childrenModels, _childModelToChildViewModel,
-            _onConstruct, _onDestruct, _currentSelector, _onCurrentChanged);
+            _onConstruct, _onDestruct, _currentSelector, _onCurrentChanged, _destructOrder);
     }
 
     private CompositeVMOfMBuilder<M, VM> With(
@@ -331,7 +353,8 @@ public sealed class CompositeVMOfMBuilder<M, VM>
         Action? onConstruct = null,
         Action? onDestruct = null,
         Func<IEnumerable<VM>, VM?>? currentSelector = null,
-        Action<VM?>? onCurrentChanged = null)
+        Action<VM?>? onCurrentChanged = null,
+        ChildOrder? destructOrder = null)
         => new(
             name ?? _name,
             hub ?? _hub,
@@ -344,5 +367,6 @@ public sealed class CompositeVMOfMBuilder<M, VM>
             onConstruct ?? _onConstruct,
             onDestruct ?? _onDestruct,
             currentSelector ?? _currentSelector,
-            onCurrentChanged ?? _onCurrentChanged);
+            onCurrentChanged ?? _onCurrentChanged,
+            destructOrder ?? _destructOrder);
 }

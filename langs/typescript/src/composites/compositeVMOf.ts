@@ -9,6 +9,7 @@ import { ComponentVMBase } from "../components/componentVMBase.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import type { ChildOrder } from "../components/types.js";
 
 export class CompositeVMOf<M, VM extends ComponentVMBase> extends CompositeVMBase<VM> {
   readonly #childrenModels: () => Iterable<M>;
@@ -22,6 +23,7 @@ export class CompositeVMOf<M, VM extends ComponentVMBase> extends CompositeVMBas
     dispatcher: IDispatcher;
     asyncSelection?: boolean;
     autoConstructOnAdd?: boolean;
+    destructOrder?: ChildOrder;
     childrenModels: () => Iterable<M>;
     childModelToChildViewModel: (m: M) => VM;
     onConstruct?: (() => void) | null;
@@ -56,6 +58,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
   #dispatcher: IDispatcher | null = null;
   #asyncSelection = false;
   #autoConstructOnAdd = false;
+  #destructOrder: ChildOrder = "insertion";
   #childrenModels: (() => Iterable<M>) | null = null;
   #childModelToChildViewModel: ((m: M) => VM) | null = null;
   #onConstruct: (() => void) | null = null;
@@ -71,6 +74,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
       this.#dispatcher = from.#dispatcher;
       this.#asyncSelection = from.#asyncSelection;
       this.#autoConstructOnAdd = from.#autoConstructOnAdd;
+      this.#destructOrder = from.#destructOrder;
       this.#childrenModels = from.#childrenModels;
       this.#childModelToChildViewModel = from.#childModelToChildViewModel;
       this.#onConstruct = from.#onConstruct;
@@ -108,6 +112,19 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
   autoConstructOnAdd(value: boolean): CompositeVMOfBuilder<M, VM> {
     const b = new CompositeVMOfBuilder<M, VM>(this);
     b.#autoConstructOnAdd = value;
+    return b;
+  }
+
+  /**
+   * Sets the order in which the composite destructs and disposes its children
+   * (spec/06 §5, ADR-0161). `"insertion"` (the default) walks them first child
+   * first; `"reverse"` walks them last child first. Construct order is
+   * unchanged, and every child is still disposed before the composite
+   * (LIFE-013).
+   */
+  destructOrder(order: ChildOrder): CompositeVMOfBuilder<M, VM> {
+    const b = new CompositeVMOfBuilder<M, VM>(this);
+    b.#destructOrder = order;
     return b;
   }
 
@@ -181,6 +198,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
       dispatcher: this.#dispatcher,
       asyncSelection: this.#asyncSelection,
       autoConstructOnAdd: this.#autoConstructOnAdd,
+      destructOrder: this.#destructOrder,
       childrenModels: this.#childrenModels,
       childModelToChildViewModel: this.#childModelToChildViewModel,
       onConstruct: this.#onConstruct,

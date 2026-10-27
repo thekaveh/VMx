@@ -89,6 +89,7 @@ from vmx.commands import (
     wrap_with,
 )
 from vmx.components import (
+    ChildOrder,
     ComponentVM,
     ComponentVMBuilder,
     ComponentVMOf,
@@ -213,6 +214,7 @@ __all__ = [
     "BatchAttachResult",
     "BatchUpdateHandle",
     "BuilderValidationError",
+    "ChildOrder",
     "CollectionChangedEvent",
     "CollectionChangedMessage",
     "Command",

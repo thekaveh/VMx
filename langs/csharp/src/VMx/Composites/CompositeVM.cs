@@ -28,8 +28,9 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
         Action? onConstruct,
         Action? onDestruct,
         Func<IEnumerable<VM>, VM?>? currentSelector,
-        Action<VM?>? onCurrentChanged)
-        : base(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd, onConstruct, onDestruct, currentSelector, onCurrentChanged)
+        Action<VM?>? onCurrentChanged,
+        ChildOrder destructOrder)
+        : base(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd, onConstruct, onDestruct, currentSelector, onCurrentChanged, destructOrder)
     {
         _childrenFactory = childrenFactory;
     }
@@ -51,7 +52,8 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
         var b = CompositeVMBuilder<VM>.Empty
             .Hint(options.Hint)
             .AsyncSelection(options.AsyncSelection)
-            .AutoConstructOnAdd(options.AutoConstructOnAdd);
+            .AutoConstructOnAdd(options.AutoConstructOnAdd)
+            .DestructOrder(options.DestructOrder);
         if (options.Name is not null) b = b.Name(options.Name);
         if (options.Hub is not null) b = b.OptionHub(options.Hub);
         if (options.Dispatcher is not null) b = b.OptionDispatcher(options.Dispatcher);
@@ -75,8 +77,9 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
         Action? onConstruct,
         Action? onDestruct,
         Func<IEnumerable<VM>, VM?>? currentSelector,
-        Action<VM?>? onCurrentChanged)
-        => new(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd, childrenFactory, onConstruct, onDestruct, currentSelector, onCurrentChanged);
+        Action<VM?>? onCurrentChanged,
+        ChildOrder destructOrder)
+        => new(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd, childrenFactory, onConstruct, onDestruct, currentSelector, onCurrentChanged, destructOrder);
 
     /// <inheritdoc/>
     protected override void PopulateChildren()

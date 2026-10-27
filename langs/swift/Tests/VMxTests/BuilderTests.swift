@@ -183,4 +183,53 @@ final class BuilderTests: XCTestCase {
             XCTAssertEqual((error as? BuilderValidationError)?.missingField, "name")
         }
     }
+
+    /// BLD-001 / BLD-004 / BLD-006 — `destructOrder(_:)` on the group,
+    /// composite and modeled composite builders returns a new builder, the
+    /// original keeps the `.insertion` default, and the options field
+    /// (default `.insertion`) reaches the built VM (ADR-0161).
+    func testDestructOrderSetterAndOptionsField() throws {
+        let group = GroupVM<ComponentVM>.builder()
+            .name("g").withNullServices().children { [] }
+        let reversedGroup = group.destructOrder(.reverse)
+        XCTAssertEqual(try group.build().destructOrder, .insertion)
+        XCTAssertEqual(try reversedGroup.build().destructOrder, .reverse)
+        XCTAssertEqual(
+            try reversedGroup.destructOrder(.insertion).build().destructOrder, .insertion)
+
+        let composite = CompositeVM<ComponentVM>.builder()
+            .name("p").withNullServices().children { [] }
+        let reversedComposite = composite.destructOrder(.reverse)
+        XCTAssertEqual(try composite.build().destructOrder, .insertion)
+        XCTAssertEqual(try reversedComposite.build().destructOrder, .reverse)
+
+        let modeled = CompositeVMOf<String, ComponentVM>.builder()
+            .name("m").withNullServices()
+            .childrenModels { [] }
+            .childModelToChildViewModel { name in
+                try! ComponentVM.builder().name(name).withNullServices().build()
+            }
+        let reversedModeled = modeled.destructOrder(.reverse)
+        XCTAssertEqual(try modeled.build().destructOrder, .insertion)
+        XCTAssertEqual(try reversedModeled.build().destructOrder, .reverse)
+
+        let hub = NullMessageHub.INSTANCE
+        let dispatcher = NullDispatcher.INSTANCE
+        XCTAssertEqual(GroupVMOptions<ComponentVM>().destructOrder, .insertion)
+        XCTAssertEqual(CompositeVMOptions<ComponentVM>().destructOrder, .insertion)
+        XCTAssertEqual(try GroupVM<ComponentVM>.create(GroupVMOptions(
+            name: "g", hub: hub, dispatcher: dispatcher, children: { [] }
+        )).destructOrder, .insertion)
+        XCTAssertEqual(try GroupVM<ComponentVM>.create(GroupVMOptions(
+            name: "g", hub: hub, dispatcher: dispatcher, children: { [] },
+            destructOrder: .reverse
+        )).destructOrder, .reverse)
+        XCTAssertEqual(try CompositeVM<ComponentVM>.create(CompositeVMOptions(
+            name: "p", hub: hub, dispatcher: dispatcher, children: { [] }
+        )).destructOrder, .insertion)
+        XCTAssertEqual(try CompositeVM<ComponentVM>.create(CompositeVMOptions(
+            name: "p", hub: hub, dispatcher: dispatcher, children: { [] },
+            destructOrder: .reverse
+        )).destructOrder, .reverse)
+    }
 }

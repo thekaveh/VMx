@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   hub subscription and emits each matching message once, in hub order. A
   one-name call still binds to `whenPropertyChanged(_:_:)`, and a call without
   names does not compile (spec/03 §7.2, ADR-0160, #664).
+- `ChildOrder` and an opt-in reverse child order for container teardown
+  (#662, ADR-0161, GRP-014, COMP-046). `.destructOrder(.reverse)` on the
+  `GroupVM`, `CompositeVM` and `CompositeVMOf` builders, or
+  `destructOrder: .reverse` in `GroupVMOptions` and `CompositeVMOptions`,
+  makes `destruct()`, the destruct phase of `reconstruct()` and the
+  `dispose()` cascade walk the children from the last one to the first. A
+  background child is waited for in that order. Construct order does not
+  change, and every child is still disposed before the container publishes
+  `.disposed` (LIFE-013). The default, `.insertion`, keeps today's order.
 
 ### Fixed
 

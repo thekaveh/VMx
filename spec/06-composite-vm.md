@@ -270,9 +270,25 @@ children:
   child; each call returns once that child reaches `Destructed`. Once every
   child is `Destructed`, the composite transitions to `Destructed`.
 
-The order in which children are visited is unspecified. Chapter 02 §6 says which
-reference implementations drive container children sequentially and which start
-factory-populated children during population.
+The order in which children are visited is unspecified by default. Chapter 02
+§6 says which reference implementations drive container children sequentially
+and which start factory-populated children during population.
+
+Both composite builders, and the options form of the non-modeled composite,
+accept an optional `DestructOrder(ChildOrder)` (spec v3.30, ADR-0161):
+
+- `Insertion` is the default. The composite keeps the current behavior, and
+  every reference implementation walks the children first child first.
+- `Reverse` makes `destruct()`, including the destruct phase of
+  `reconstruct()`, and the `dispose()` cascade walk the children in reverse
+  child order, last child first. The composite still sets `Current = null`
+  before it destructs a child. The walk waits for each background child before
+  it starts the next one. Every child is disposed before the composite
+  publishes `Disposed` (`LIFE-013`).
+
+The option does not change `construct()`. The rollback of a failed
+population or a failed `Add`, `Insert` or `Replace` keeps its own order, newest
+attachment first. The order is fixed when the composite is built.
 
 ### 5.1 Add after Constructed
 
@@ -529,6 +545,11 @@ Hub publication of collection changes (chapter 01 §1.4, ADR-0142) is covered by
   failed preflight, rollback, and same-index moves publish nothing.
 - `COMP-045` — hub transactions defer the messages in order, a disposed
   composite publishes nothing, and a forwarding wrapper adds no publication.
+
+The `DestructOrder` option introduced in §5 is covered by:
+
+- `COMP-046` — `Reverse` destructs and disposes the children last child first,
+  and construct is the same with and without the option.
 
 The builder hooks introduced in §3.2 are covered by:
 

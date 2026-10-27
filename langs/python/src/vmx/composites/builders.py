@@ -16,6 +16,7 @@ from typing import Generic, TypeVar
 from vmx.builders import _validation
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.base import _ComponentVMBase
+from vmx.components.child_order import ChildOrder
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHubProto
@@ -48,6 +49,7 @@ class CompositeVMBuilder(Generic[VM]):
     _on_destruct: Callable[[], None] | None = dataclasses.field(default=None)
     _current_selector: Callable[[Iterable[VM]], VM | None] | None = dataclasses.field(default=None)
     _on_current_changed: Callable[[VM | None], None] | None = dataclasses.field(default=None)
+    _destruct_order: ChildOrder = dataclasses.field(default=ChildOrder.INSERTION)
 
     # ── Fluent setters ───────────────────────────────────────────────────────
 
@@ -119,6 +121,14 @@ class CompositeVMBuilder(Generic[VM]):
         """
         return dataclasses.replace(self, _on_current_changed=callback)
 
+    def destruct_order(self, order: ChildOrder) -> CompositeVMBuilder[VM]:
+        """Set the order of the destruct walk and dispose cascade (default: insertion).
+
+        ``ChildOrder.REVERSE`` destructs and disposes the children from the last
+        index to the first. Construct order does not change (ADR-0161).
+        """
+        return dataclasses.replace(self, _destruct_order=order)
+
     # ── Build ────────────────────────────────────────────────────────────────
 
     def build(self) -> CompositeVM[VM]:
@@ -145,6 +155,7 @@ class CompositeVMBuilder(Generic[VM]):
             on_destruct=self._on_destruct,
             current_selector=self._current_selector,
             on_current_changed=self._on_current_changed,
+            destruct_order=self._destruct_order,
         )
 
 
@@ -174,6 +185,7 @@ class CompositeVMOfBuilder(Generic[M, VM]):
     _on_destruct: Callable[[], None] | None = dataclasses.field(default=None)
     _current_selector: Callable[[Iterable[VM]], VM | None] | None = dataclasses.field(default=None)
     _on_current_changed: Callable[[VM | None], None] | None = dataclasses.field(default=None)
+    _destruct_order: ChildOrder = dataclasses.field(default=ChildOrder.INSERTION)
 
     # ── Fluent setters ───────────────────────────────────────────────────────
 
@@ -235,6 +247,14 @@ class CompositeVMOfBuilder(Generic[M, VM]):
         """
         return dataclasses.replace(self, _on_current_changed=callback)
 
+    def destruct_order(self, order: ChildOrder) -> CompositeVMOfBuilder[M, VM]:
+        """Set the order of the destruct walk and dispose cascade (default: insertion).
+
+        ``ChildOrder.REVERSE`` destructs and disposes the children from the last
+        index to the first. Construct order does not change (ADR-0161).
+        """
+        return dataclasses.replace(self, _destruct_order=order)
+
     # ── Build ────────────────────────────────────────────────────────────────
 
     def build(self) -> CompositeVMOf[M, VM]:
@@ -265,6 +285,7 @@ class CompositeVMOfBuilder(Generic[M, VM]):
             on_destruct=self._on_destruct,
             current_selector=self._current_selector,
             on_current_changed=self._on_current_changed,
+            destruct_order=self._destruct_order,
         )
 
 

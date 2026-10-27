@@ -27,6 +27,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     where VM : class, IComponentVM
 {
     private readonly bool _autoConstructOnAdd;
+    private readonly ChildOrder _destructOrder;
 
     // ── Children backing store ────────────────────────────────────────────────
     private readonly List<VM> _children = new();
@@ -85,9 +86,29 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         bool autoConstructOnAdd,
         Action? onConstruct,
         Action? onDestruct)
+        : this(name, hint, hub, dispatcher, autoConstructOnAdd, onConstruct, onDestruct,
+            ChildOrder.Insertion)
+    {
+    }
+
+    /// <summary>
+    /// Initializes the group base with an explicit child destruct order
+    /// (ADR-0161). <paramref name="destructOrder"/> sets the order in which
+    /// destruct and dispose walk the children; construct order is unchanged.
+    /// </summary>
+    protected GroupVMBase(
+        string name,
+        string hint,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        bool autoConstructOnAdd,
+        Action? onConstruct,
+        Action? onDestruct,
+        ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
         _autoConstructOnAdd = autoConstructOnAdd;
+        _destructOrder = destructOrder;
     }
 
     /// <summary>
@@ -766,12 +787,13 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     }
 
     /// <summary>
-    /// Overrides Destruct: destructs all children.
+    /// Overrides Destruct: destructs all children in the configured destruct
+    /// order (ADR-0161).
     /// </summary>
     protected override void OnDestruct()
     {
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            Snapshot().ToArray(),
+            Snapshot().ToArray().InDestructOrder(_destructOrder),
             construct: false,
             after: () => base.OnDestruct()));
     }
@@ -794,9 +816,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 return;
             }
             _disposeRequested = 1;
-            snapshot = _children.ToArray();
+            snapshot = _children.ToArray().InDestructOrder(_destructOrder);
         }
-        // Depth-first: dispose each child before self. Snapshot with ToArray so a
+        // Depth-first: dispose each child before self, in the configured
+        // destruct order (ADR-0161). Snapshot with ToArray so a
         // child whose Dispose() reentrantly removes a sibling cannot invalidate the
         // enumerator (parity with OnConstruct/OnDestruct and CompositeVMBase.Dispose).
         // The cascade runs at the base's admitted-hook boundary (LIFE-015): a
