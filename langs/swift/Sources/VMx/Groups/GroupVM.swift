@@ -555,7 +555,7 @@ open class GroupVM<Child: ComponentVMBase>:
                 throw ContainerOwnershipError.attachmentFailed(GroupDisposalAdmissionError())
             }
             guard !membershipTransactionActive else {
-                throw ContainerOwnershipError.attachmentFailed(GroupMembershipTransactionError())
+                throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
             }
             try validateMoveIndex(fromIndex)
             try validateMoveIndex(toIndex)
@@ -852,7 +852,7 @@ open class GroupVM<Child: ComponentVMBase>:
         }
         if membershipTransactionActive {
             guard allowJoin, membershipTransactionToken === transaction else {
-                throw ContainerOwnershipError.attachmentFailed(GroupMembershipTransactionError())
+                throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
             }
             membershipTransactionDepth += 1
             return
@@ -886,23 +886,32 @@ open class GroupVM<Child: ComponentVMBase>:
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool
     ) throws {
+        try ContainerSupport.enterMembershipTransaction {
+            try tryEnterMembershipTransaction(transaction, allowJoin: allowJoin)
+        }
+    }
+
+    /// Opens or joins the transaction, or records a wait for another thread's
+    /// open transaction and returns its completion. Throws on a same-thread
+    /// conflict (ADR-0118) and on a wait that would close a cycle in the
+    /// shared wait graph (#551, #703).
+    private func tryEnterMembershipTransaction(
+        _ transaction: ContainerOwnershipTransaction,
+        allowJoin: Bool
+    ) throws -> DispatchGroup? {
         let caller = ThreadWaitGraph.currentThread
-        while true {
-            let blocker = try membershipGate.withLock { () -> DispatchGroup? in
-                if membershipTransactionActive,
-                   !(allowJoin && membershipTransactionToken === transaction),
-                   let owner = membershipTransactionOwner, owner != caller,
-                   let completion = membershipTransactionCompletion {
-                    guard registerMembershipWaitLocked(owner: owner) else {
-                        throw ContainerOwnershipError.attachmentFailed(GroupMembershipTransactionError())
-                    }
-                    return completion
+        return try membershipGate.withLock { () -> DispatchGroup? in
+            if membershipTransactionActive,
+               !(allowJoin && membershipTransactionToken === transaction),
+               let owner = membershipTransactionOwner, owner != caller,
+               let completion = membershipTransactionCompletion {
+                guard registerMembershipWaitLocked(owner: owner) else {
+                    throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
                 }
-                try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
-                return nil
+                return completion
             }
-            guard let blocker else { return }
-            awaitMembershipTransaction(blocker)
+            try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
+            return nil
         }
     }
 
@@ -944,5 +953,3 @@ open class GroupVM<Child: ComponentVMBase>:
         if shouldDispose { dispose() }
     }
 }
-
-private struct GroupMembershipTransactionError: Error {}

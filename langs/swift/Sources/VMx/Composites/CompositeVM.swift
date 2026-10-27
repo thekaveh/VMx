@@ -1041,8 +1041,8 @@ open class CompositeVM<Child: ComponentVMBase>:
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool
     ) throws {
-        while let completion = try tryEnterMembershipTransaction(transaction, allowJoin: allowJoin) {
-            awaitMembershipTransaction(completion)
+        try ContainerSupport.enterMembershipTransaction {
+            try tryEnterMembershipTransaction(transaction, allowJoin: allowJoin)
         }
     }
 
@@ -1271,8 +1271,6 @@ open class CompositeVM<Child: ComponentVMBase>:
         if shouldDispose { dispose() }
     }
 }
-
-private struct ContainerMembershipTransactionError: Error {}
 
 /// Thrown by `CompositeVM.setCurrent(_:)` when the argument is not a member of
 /// the composite's children (spec/06 §3.1 — `Current` must be a member; cf.
