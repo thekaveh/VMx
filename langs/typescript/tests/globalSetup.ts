@@ -16,6 +16,11 @@ export function isGeneratedBuildPath(file: string): boolean {
   );
 }
 
+/** Vite matches module ids with forward slashes, as the Vitest watcher passes them. */
+export function toViteFileId(file: string): string {
+  return file.replace(/\\/g, "/");
+}
+
 function generatedFiles(): string[] {
   return generatedDirectories.flatMap((directory) =>
     existsSync(directory)
@@ -29,7 +34,7 @@ function build(project: TestProject): void {
   execSync("npm run build", { cwd: packageRoot, stdio: "inherit" });
   // The watcher ignores generated writes; invalidate old and new chunk names.
   for (const file of new Set([...previous, ...generatedFiles()])) {
-    project.vitest.invalidateFile(file);
+    project.vitest.invalidateFile(toViteFileId(file));
   }
 }
 
