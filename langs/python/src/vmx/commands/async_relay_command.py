@@ -235,7 +235,11 @@ class AsyncRelayCommand:
             raise primary_exception.with_traceback(traceback)
 
     def execute(self, parameter: object = None) -> None:
-        """Fire-and-forget. Schedules ``execute_async`` on the current event loop.
+        """Fire-and-forget. Admits the run before it returns, then schedules it.
+
+        The run goes to the running event loop, or to the VMx background loop
+        when no loop runs. It does not go through :meth:`execute_async`, so an
+        override of that method does not run for ``execute()``.
 
         A faulting task is routed to the :attr:`errors` channel instead of being
         swallowed; a cancellation is already swallowed by the non-throwing default.

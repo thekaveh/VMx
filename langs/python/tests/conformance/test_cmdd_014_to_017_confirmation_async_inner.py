@@ -75,8 +75,8 @@ class _Confirmation:
 class _SpyAsyncCommand(AsyncRelayCommand):
     """A real ``AsyncRelayCommand`` that counts calls to each entry point.
 
-    The base fire-and-forget ``execute`` runs through ``execute_async``, so an
-    ``execute`` call also counts once under ``execute_async_calls``.
+    The base fire-and-forget ``execute`` does not call ``execute_async``, so an
+    ``execute`` call counts only under ``execute_calls``.
     """
 
     def __init__(self, task: Callable[[], Awaitable[None]]) -> None:
