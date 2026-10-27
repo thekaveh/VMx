@@ -16,6 +16,12 @@ All notable changes to the Python flavor are documented here. The format is base
   `can_execute_changed` fires on every expansion change. The helper builds each
   command on first read and owns it: `dispose()` disposes the commands, which
   are then inert. An owner re-exports a command instead of building one.
+- `when_property_changed(hub, sender, property_name, *property_names)` accepts
+  further property names: `when_property_changed(hub, chart, "plot", "range")`
+  emits each message from `chart` whose property name is any of the names. It
+  makes one hub subscription and emits each matching message once, in hub
+  order. Pass a sequence as `*names`; a call with no names raises `TypeError`.
+  A single-name call behaves as before (spec/03 §7.2, ADR-0160, #664).
 
 ### Fixed
 

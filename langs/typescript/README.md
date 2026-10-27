@@ -191,7 +191,7 @@ Key exports:
 | `PagedComposition<TVM>`         | Pageable iterable decorator          |
 | Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands |
 | `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots |
-| `whenPropertyChanged`           | Hub helper yielding matching property-change messages |
+| `whenPropertyChanged`           | Hub helper yielding matching property-change messages for one name or an array of names |
 | `isPropertyChanged` / `isCollectionChanged` / `isConstructionStatusChanged` | Filter-safe predicates for mixed raw messages |
 | `subscribeValue`                | Fixed-VM selected-state bridge returning an RxJS `Subscription` |
 

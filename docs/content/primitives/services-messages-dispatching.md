@@ -171,7 +171,10 @@ sender and item types independently. An explicitly present `undefined`
 constraint is compared exactly, while an omitted field is ignored.
 
 Use `whenPropertyChanged(hub, sender, propertyName)` when those three inputs are
-already known and the subscriber needs the matching message. Use
+already known and the subscriber needs the matching message. Pass an array,
+such as `["plot", "range"]`, to watch several properties of one sender with one
+hub subscription. C# takes further name arguments or a `string[]`; Python and
+Swift take further name arguments (spec/03 §7.2, ADR-0160). Use
 `propertyValueChangedMessagesFor(hub, sender, propertyName)` when it needs the
 current property value instead. The raw predicates are the appropriate choice
 when classifying a mixed message stream or array, especially when one pipeline
@@ -179,9 +182,10 @@ must recognize several message families.
 
 ### 6.6.5.1. Watching Several Properties Of One Source
 
-`whenPropertyChanged` matches one property name. To watch several properties of
-one source, own one subscription per name. The header below publishes a
-`label` change when the editor's `title` or `dirty` property changes:
+To watch several properties of one source, pass all the names to
+`whenPropertyChanged`. It makes one hub subscription and emits each matching
+message once, in hub order (spec/03 §7.2, ADR-0160). The header below publishes a `label` change when the editor's `title` or
+`dirty` property changes:
 
 <!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#watch-properties -->
 
@@ -192,14 +196,12 @@ class HeaderVM extends ComponentVMBase {
   constructor(editor: EditorVM, hub: IMessageHub, dispatcher: IDispatcher) {
     super({ name: "header", hub, dispatcher });
     this.#editor = editor;
-    // One owned subscription per watched property of the source.
-    for (const name of ["title", "dirty"]) {
-      this.own(
-        whenPropertyChanged(editor.hub, editor, name).subscribe(() =>
-          this._notifyPropertyChanged("label"),
-        ),
-      );
-    }
+    // One owned hub subscription for both watched properties.
+    this.own(
+      whenPropertyChanged(editor.hub, editor, ["title", "dirty"]).subscribe(() =>
+        this._notifyPropertyChanged("label"),
+      ),
+    );
   }
 
   get type(): ViewModelType {
@@ -212,8 +214,8 @@ class HeaderVM extends ComponentVMBase {
 }
 ```
 
-In TypeScript, one subscription can combine `isPropertyChanged` with a set of
-names (ADR-0094). Pass the subscription to `own()`, or unsubscribe it when you
+In a raw-message pipeline, combine `isPropertyChanged` with a set of names
+(ADR-0094). Pass the subscription to `own()`, or unsubscribe it when you
 dispose its owner:
 
 <!-- checked-snippet: langs/typescript/tests/unit/propertyMessageRecipes.test.ts#watch-properties-predicate -->
@@ -224,8 +226,6 @@ const subscription = editor.hub.messages
   .pipe(filter((m) => isPropertyChanged(m, { sender: editor }) && watched.has(m.propertyName)))
   .subscribe(() => refreshHeader());
 ```
-
-Use one of these two forms until #664 ships.
 
 ## 6.6.6. Imperative Selected-State Bridge
 

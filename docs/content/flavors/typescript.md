@@ -116,7 +116,8 @@ field.
 
 Use these predicates for mixed raw message arrays and streams. When the hub,
 sender, and property are already known, `whenPropertyChanged` is the shorter
-message-returning helper, while `propertyValueChangedMessagesFor` emits the
+message-returning helper; it also takes an array of property names for one
+sender (ADR-0160), while `propertyValueChangedMessagesFor` emits the
 property's current value.
 
 These predicates are TypeScript-only; see ADR-0094.

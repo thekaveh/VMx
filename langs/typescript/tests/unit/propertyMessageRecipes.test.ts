@@ -108,14 +108,12 @@ class HeaderVM extends ComponentVMBase {
   constructor(editor: EditorVM, hub: IMessageHub, dispatcher: IDispatcher) {
     super({ name: "header", hub, dispatcher });
     this.#editor = editor;
-    // One owned subscription per watched property of the source.
-    for (const name of ["title", "dirty"]) {
-      this.own(
-        whenPropertyChanged(editor.hub, editor, name).subscribe(() =>
-          this._notifyPropertyChanged("label"),
-        ),
-      );
-    }
+    // One owned hub subscription for both watched properties.
+    this.own(
+      whenPropertyChanged(editor.hub, editor, ["title", "dirty"]).subscribe(() =>
+        this._notifyPropertyChanged("label"),
+      ),
+    );
   }
 
   get type(): ViewModelType {
