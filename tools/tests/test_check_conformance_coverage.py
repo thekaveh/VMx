@@ -705,6 +705,21 @@ def test_required_rust_missing_id_fails_with_actionable_report(
     assert "required languages have conformance gaps: ['rust']" in captured.err
 
 
+def test_duplicate_catalog_id_exits_2_even_in_report_only_mode(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # #784: a catalog error has one exit code, with or without --require.
+    spec = tmp_path / "spec"
+    spec.mkdir()
+    (spec / "12-conformance.md").write_text(
+        "### LIFE-001 — first\n\n### LIFE-001 — again\n", encoding="utf-8"
+    )
+
+    assert ccc.main(["--repo-root", str(tmp_path)]) == 2
+    assert ccc.main(["--repo-root", str(tmp_path), "--require", "python"]) == 2
+    assert "LIFE-001" in capsys.readouterr().err
+
+
 def test_duplicate_catalog_headings_are_reported(tmp_path: Path) -> None:
     catalog = tmp_path / "catalog.md"
     catalog.write_text(

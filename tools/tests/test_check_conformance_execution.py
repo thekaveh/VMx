@@ -366,6 +366,32 @@ def test_same_named_test_in_another_class_is_never_credited(tmp_path: Path) -> N
     ]
 
 
+def test_same_named_class_in_another_project_does_not_credit_a_skipped_id(
+    tmp_path: Path,
+) -> None:
+    # #784: VMx.Tests holds a class and method with the conformance names.
+    repo = _repo(tmp_path)
+    _write(repo / "langs/csharp/tests/VMx.Conformance.Tests/LifecycleTests.cs", CS_SOURCE)
+    conformance = _write(
+        tmp_path / "conformance.trx",
+        _trx([("LIFE_001_Constructs", "LIFE_001_Constructs", "NotExecuted")]),
+    )
+    unit = _write(
+        tmp_path / "unit.trx",
+        _trx(
+            [("LIFE_001_Constructs", "LIFE_001_Constructs", "Passed")],
+            class_name="VMx.Tests.LifecycleConformanceTests",
+        ),
+    )
+
+    _, data = _run(repo, "csharp", conformance, unit)
+
+    assert data["ids"]["LIFE-001"]["status"] == "skipped"
+    assert data["ids"]["LIFE-001"]["cases"] == [
+        {"case": "LIFE_001_Constructs", "outcome": "skipped"}
+    ]
+
+
 def test_trx_host_error_and_count_mismatch_are_rejected(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _write(repo / "langs/csharp/tests/VMx.Conformance.Tests/LifecycleTests.cs", CS_SOURCE)
@@ -484,6 +510,32 @@ def test_libtest_output_maps_through_rust_source_markers(tmp_path: Path) -> None
         "LIFE-003": "skipped",
         "LIFE-004": "missing",
     }
+
+
+def test_src_unit_test_sharing_the_file_stem_does_not_credit_a_skipped_id(
+    tmp_path: Path,
+) -> None:
+    # #784: src/lifecycle.rs holds a unit test with the conformance function name.
+    repo = _repo(tmp_path)
+    _write(repo / "langs/rust/tests/conformance/lifecycle.rs", RUST_SOURCE)
+    report = _write(
+        tmp_path / "cargo-test.log",
+        """\
+        running 1 test
+        test lifecycle::tests::life_003_ignored ... ok
+
+        test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+        running 1 test
+        test conformance::lifecycle::life_003_ignored ... ignored
+
+        test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out
+        """,
+    )
+
+    _, data = _run(repo, "rust", report)
+
+    assert data["ids"]["LIFE-003"]["status"] == "skipped"
 
 
 @pytest.mark.parametrize(
