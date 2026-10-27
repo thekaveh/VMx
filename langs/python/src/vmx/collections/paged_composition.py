@@ -17,6 +17,7 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps
 from vmx.capabilities.pageable import Pageable
 
 TVM = TypeVar("TVM")
@@ -208,14 +209,14 @@ class PagedComposition(Pageable, Generic[TVM]):
         if self._disposed:
             return
         self._disposed = True
-        for sub in self._subscriptions:
-            try:
-                sub.dispose()  # type: ignore[attr-defined]
-            except Exception:
-                pass
+        subscriptions = list(self._subscriptions)
         self._subscriptions.clear()
-        self._prop_changed.on_completed()
-        self._prop_changed.dispose()
+        # Every step runs, then the first failure is re-raised (#768).
+        _run_disposal_steps(
+            *(sub.dispose for sub in subscriptions),  # type: ignore[attr-defined]
+            self._prop_changed.on_completed,
+            self._prop_changed.dispose,
+        )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 

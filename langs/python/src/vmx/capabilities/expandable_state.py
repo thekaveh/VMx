@@ -9,6 +9,7 @@ from reactivex import Observable
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps
 from vmx.capabilities.expansion import (
     ICollapsible,
     IExpandable,
@@ -69,5 +70,5 @@ class ExpandableState(IExpandable, ICollapsible, IExpansionTogglable):
         if self._disposed:
             return
         self._disposed = True
-        self._changes.on_completed()
-        self._changes.dispose()
+        # A raising completion observer must not skip the subject dispose (#768).
+        _run_disposal_steps(self._changes.on_completed, self._changes.dispose)

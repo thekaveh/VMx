@@ -10,6 +10,12 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `ExpandableState.dispose()`, `DiscriminatorVM.dispose()` and
+  `PagedComposition.dispose()` now dispose their subject when a completion
+  observer raises, then re-raise that error. Before, a later subscriber
+  received `on_completed` instead of `DisposedException`.
+  `PagedComposition.dispose()` also re-raises the first source-subscription
+  disposal error instead of discarding it, after it runs every step (#768).
 - The `eager_children` documentation on `HierarchicalVM` and
   `HierarchicalVMBuilder.eager_children()` no longer claims the entire subtree.
   The option applies to this node's children only. It continues deeper only

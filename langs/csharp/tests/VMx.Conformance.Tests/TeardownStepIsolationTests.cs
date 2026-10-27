@@ -7,14 +7,15 @@ using Microsoft.Reactive.Testing;
 using VMx.Capabilities;
 using VMx.Notifications;
 using VMx.Properties;
+using VMx.State;
 using Xunit;
 
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// #538: teardown runs every step when one throws, then rethrows the first
-/// failure, as <c>FormVM</c> and <c>TokenPagedComposition</c> already do. A second
-/// <c>Dispose()</c> stays a no-op. Flavor-local repair; no new conformance ID.
+/// #538, #768: teardown runs every step when one throws, then rethrows the
+/// first failure, as <c>FormVM</c> and <c>TokenPagedComposition</c> already do. A
+/// second <c>Dispose()</c> stays a no-op. Flavor-local repair; no new conformance ID.
 /// </summary>
 public class TeardownStepIsolationTests
 {
@@ -37,6 +38,36 @@ public class TeardownStepIsolationTests
 
         act.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(boom);
         SubjectIsDisposed(sut, "_changes").Should().BeTrue("the step after the failing one still runs");
+        sut.Invoking(s => s.Dispose()).Should().NotThrow("a second Dispose is a no-op");
+    }
+
+    [Fact]
+    public void ExpandableState_Disposes_Its_Subject_When_A_Completion_Observer_Throws()
+    {
+        var sut = new ExpandableState();
+        var boom = new InvalidOperationException("boom");
+        sut.IsExpandedChanged.Subscribe(_ => { }, () => throw boom);
+
+        var act = () => sut.Dispose();
+
+        act.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(boom);
+        sut.Invoking(s => s.IsExpandedChanged.Subscribe(_ => { }))
+            .Should().Throw<ObjectDisposedException>("the step after the failing one still runs");
+        sut.Invoking(s => s.Dispose()).Should().NotThrow("a second Dispose is a no-op");
+    }
+
+    [Fact]
+    public void DiscriminatorVM_Disposes_Its_Subject_When_A_Completion_Observer_Throws()
+    {
+        var sut = new DiscriminatorVM<string>("a");
+        var boom = new InvalidOperationException("boom");
+        sut.ActiveChanged.Subscribe(_ => { }, () => throw boom);
+
+        var act = () => sut.Dispose();
+
+        act.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(boom);
+        sut.Invoking(s => s.ActiveChanged.Subscribe(_ => { }))
+            .Should().Throw<ObjectDisposedException>("the step after the failing one still runs");
         sut.Invoking(s => s.Dispose()).Should().NotThrow("a second Dispose is a no-op");
     }
 

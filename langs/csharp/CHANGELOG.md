@@ -8,6 +8,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `ExpandableState.Dispose()` and `DiscriminatorVM<TKey>.Dispose()` now
+  dispose their subject when a completion observer throws, then rethrow that
+  exception. Before, a later subscriber received completion instead of
+  `ObjectDisposedException` (#768).
 - Fixed: the `eagerChildren` documentation on the `HierarchicalVM`
   constructor and `HierarchicalVMBuilder.EagerChildren` no longer claims the
   entire subtree. The option applies to this node's children only. It continues
