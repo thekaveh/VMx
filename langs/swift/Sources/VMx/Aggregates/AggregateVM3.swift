@@ -9,11 +9,7 @@ open class AggregateVM3<
     C1: ComponentVMBase, C2: ComponentVMBase, C3: ComponentVMBase
 >: ComponentVMBase {
     private lazy var aggregateParent = AggregateParent(owner: self) { [unowned self] in
-        [
-            self.component1 as ComponentVMBase?,
-            self.component2 as ComponentVMBase?,
-            self.component3 as ComponentVMBase?
-        ].compactMap { $0 }
+        self.childComponents
     }
     private let factory1: () -> C1
     private let factory2: () -> C2
@@ -58,10 +54,7 @@ open class AggregateVM3<
     }
 
     open override func _onDestruct() throws {
-        let slots: [ComponentVMBase?] = [
-            component1, component2, component3
-        ]
-        let components = slots.compactMap { $0 }
+        let components = childComponents
         try _transitionChildren(components, construct: false) {
             try super._onDestruct()
         }
