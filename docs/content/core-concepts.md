@@ -20,9 +20,12 @@ is in the [Disposal Contract](primitives/disposal-contract.md).
 
 ## 4.3. Message Hub and Dispatcher
 
-Each VM receives a message hub and dispatcher. The hub carries property and
-lifecycle messages across the tree, while the dispatcher centralizes foreground
-and background scheduling for reactive work.
+Each VM receives a message hub and dispatcher. The hub carries property,
+lifecycle and collection messages across the tree, while the dispatcher
+centralizes foreground and background scheduling for reactive work.
+`CompositeVM` and `GroupVM` send one `CollectionChangedMessage` for each local
+collection change (ADR-0142). A batch that changes the collection sends one
+`Reset`. A renderer can follow composite and group membership through the hub.
 
 ## 4.4. Parent-Child Ownership
 

@@ -36,7 +36,7 @@ Registrations use `TryAdd`, so services registered before `AddVMx` win and a
 second call adds nothing. Applications that construct their hub and dispatcher
 directly do not need this package.
 
-## Documentation
+## 1. Documentation
 
 - [Getting started with C#, including dependency injection](https://github.com/thekaveh/VMx/blob/main/docs/content/getting-started/csharp.md)
 - [Changelog](https://github.com/thekaveh/VMx/blob/main/langs/csharp/CHANGELOG.md)

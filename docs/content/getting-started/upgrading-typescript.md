@@ -5,10 +5,12 @@ onto the current TypeScript package and the official React adapter. The
 [consumer pilot record](../../maintenance/2026-08-10-vmx-react-consumer-pilots.md)
 holds the evidence behind the recipes.
 
-Every example below compiles and runs in the React adapter's test suite
-(`packages/react/tests/migration.test.tsx`). A "before" shape that no longer
-compiles is pinned there with `@ts-expect-error`, so this page fails its checks
-if the core changes again.
+Every example below that carries a checked-snippet marker compiles and runs in
+the React adapter's test suite (`packages/react/tests/migration.test.tsx`). A
+"before" shape that no longer compiles is pinned there with `@ts-expect-error`,
+so this page fails its checks if the core changes again. Only the
+`useLocalList` sketch in §3.7.4 has no marker: it stands for a consumer-local
+hook, which the suite does not contain.
 
 ## 3.7.1. Versions
 

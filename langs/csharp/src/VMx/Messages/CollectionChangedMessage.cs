@@ -5,6 +5,8 @@ namespace VMx.Messages;
 /// <summary>
 /// Default <see cref="ICollectionChangedMessage{T}"/> implementation.
 /// Published to the hub by <see cref="VMx.Collections.ServicedObservableCollection{T}"/>
+/// (including its <see cref="VMx.Collections.KeyedServicedObservableCollection{TKey, TItem}"/>
+/// subclass), by <see cref="VMx.Collections.ObservableDictionary{TKey1, TKey2, TValue}"/>,
 /// and, with the container as sender, by every
 /// <see cref="VMx.Composites.CompositeVMBase{VM}"/> and
 /// <see cref="VMx.Groups.GroupVMBase{VM}"/> after each local collection change.

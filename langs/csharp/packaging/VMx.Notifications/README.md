@@ -14,7 +14,7 @@ and adds:
 It is opt-in: an application that needs only viewmodels and commands uses the
 `VMx` package alone.
 
-## Documentation
+## 1. Documentation
 
 - [Notification viewmodels](https://github.com/thekaveh/VMx/blob/main/docs/content/primitives/viewmodel-families/specialized/notification-vm.md)
 - [Confirmation viewmodels](https://github.com/thekaveh/VMx/blob/main/docs/content/primitives/viewmodel-families/specialized/confirmation-vm.md)

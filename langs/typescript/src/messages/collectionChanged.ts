@@ -1,8 +1,10 @@
 /**
- * CollectionChangedMessage — published by ServicedObservableCollection to the hub
- * when the collection mutates.
+ * CollectionChangedMessage — published to the hub when a collection mutates, by
+ * ServicedObservableCollection, KeyedServicedObservableCollection,
+ * ObservableDictionary and, with the container as sender, by CompositeVM and
+ * GroupVM after each local collection change.
  *
- * See spec/21-collections.md §2 and ADR-0024.
+ * See spec/21-collections.md §2, spec/01-concepts.md §1.4, ADR-0024 and ADR-0142.
  */
 import type { IMessage } from "./types.js";
 

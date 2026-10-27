@@ -108,7 +108,10 @@ subscribed, the next subscriber gets a fresh read instead of that stale value.
 
 ## 9.10.4. Adapter skeleton — Svelte 5 runes
 
-The same fixture mounts this component with changing inputs:
+This recipe needs Svelte 5.25 or later: its effect assigns to a `$derived`
+value, and Svelte 5.25 made derived values writable. Earlier Svelte 5 releases
+reject it with `constant_assignment`. The same fixture mounts this component
+with changing inputs:
 
 <!-- checked-snippet: examples/typescript/integration-recipes/src/svelte/NoteViewRunes.svelte -->
 
