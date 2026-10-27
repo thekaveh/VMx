@@ -116,11 +116,6 @@ The probe reports `bounded: true` only when growth stays under its limit and
 the queue depth stays zero. The growth limit is 4 MiB in TypeScript, 2 MiB in
 Python, and 1 MiB in Rust. A harness exits 1 when its probe is not bounded.
 
-The probe also records the hub's event-history size. A hub that keeps
-delivered messages would hide a leak inside "expected" retention. TypeScript and
-Python hubs keep no history. Rust reports `MessageHub::history().len()`. Rust
-hubs retain no history (ADR-0141), so the probe requires size zero.
-
 ## 13.5. Report Format
 
 Every harness writes a `vmx-bench/1` JSON report:

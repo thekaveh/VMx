@@ -345,8 +345,6 @@ function lifecycleMemoryProbe(batches, cyclesPerBatch) {
     retained_growth_limit_bytes: limit,
     bounded: growth < limit && maxQueueDepth === 0,
     max_queue_depth: maxQueueDepth,
-    hub_history_size: 0,
-    hub_history_note: "TypeScript hubs retain no delivered messages",
   };
 }
 

@@ -426,9 +426,7 @@
       "retained_growth_bytes": 47224,
       "retained_growth_limit_bytes": 4194304,
       "bounded": true,
-      "max_queue_depth": 0,
-      "hub_history_size": 0,
-      "hub_history_note": "TypeScript hubs retain no delivered messages"
+      "max_queue_depth": 0
     }
   }
 }
