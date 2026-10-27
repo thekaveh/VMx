@@ -105,7 +105,7 @@ _SEMVER_TRIPLE = rf"{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT
 _VERSION_RE = re.compile(rf"\b({_SEMVER_TRIPLE})\b", re.ASCII)
 _STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
 _CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
-# The React release-notes extractor (tools/extract-react-release-notes.awk)
+# The release-notes extractor (tools/extract-release-notes.awk)
 # reads awk fields, so a React release heading must start in column 0, keep
 # its optional link free of whitespace, and use only ASCII spaces or tabs.
 _AWK_INVISIBLE_LINE_BREAKS = (

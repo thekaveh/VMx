@@ -20,6 +20,22 @@ def test_every_workflow_job_has_a_hard_timeout() -> None:
             )
 
 
+def test_recipe_suites_run_once_inside_the_package_test_steps() -> None:
+    # #783: the C# Test step (VMx.sln) and both Swift package test steps already
+    # run the recipe suites, so a filtered rerun step only repeats them.
+    def commands(name: str) -> str:
+        text = (WORKFLOWS / name).read_text(encoding="utf-8")
+        return re.sub(r"(?m)^\s*#.*\n", "", text)
+
+    csharp = commands("csharp.yml")
+    swift = commands("swift.yml")
+    assert "XamlRecipeTests" not in csharp
+    assert "SwiftUIRecipeTests" not in swift
+    assert "dotnet test VMx.sln" in csharp
+    assert "run: swift test --parallel\n" in swift
+    assert "run: swift test --parallel --xunit-output" in swift
+
+
 def test_release_verification_deadlines_fit_inside_job_timeouts() -> None:
     workflow = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
     cases = (
