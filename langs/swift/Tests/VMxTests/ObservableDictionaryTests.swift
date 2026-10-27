@@ -96,6 +96,89 @@ final class ObservableDictionaryTests: XCTestCase {
         }
     }
 
+    // #772: an entry added from a key-view subscriber keeps both views in
+    // first-appearance order.
+    func testKeyViewsKeepFirstAppearanceOrderAfterAKeyViewReentrantAdd() {
+        for view in ["keys1", "keys2"] {
+            let sut = ObservableDictionary<String, Int, String>()
+            var nested = false
+            let keyAdded = view == "keys1"
+                ? sut.keys1.itemAdded.map { _ in () }.eraseToAnyPublisher()
+                : sut.keys2.itemAdded.map { _ in () }.eraseToAnyPublisher()
+            keyAdded.sink {
+                guard !nested else { return }
+                nested = true
+                sut.set("b", 2, "nested")
+            }.store(in: &cancellables)
+
+            sut.set("a", 1, "outer")
+
+            XCTAssertEqual(sut.keys1.toArray(), ["a", "b"], view)
+            XCTAssertEqual(sut.keys2.toArray(), [1, 2], view)
+        }
+    }
+
+    func testKeys2ListsTheNewKey2BeforeKeys1Notifies() {
+        let sut = ObservableDictionary<String, Int, String>()
+        var seen: [[Int]] = []
+        sut.keys1.itemAdded.sink { _ in seen.append(sut.keys2.toArray()) }
+            .store(in: &cancellables)
+
+        sut.set("a", 1, "outer")
+
+        XCTAssertEqual(seen, [[1]])
+    }
+
+    /// Runs `nested` once, from the keys2 handler for key2 1, then sets (a, 1).
+    private func addFromAKeys2Handler(
+        _ sut: ObservableDictionary<String, Int, String>, _ nested: @escaping () -> Void
+    ) {
+        var done = false
+        sut.keys2.itemAdded.sink { event in
+            guard !done, event.item == 1 else { return }
+            done = true
+            nested()
+        }.store(in: &cancellables)
+        sut.set("a", 1, "outer")
+    }
+
+    func testKeyViewsStayEmptyWhenAKeys2HandlerRemovesTheNewEntry() {
+        let sut = ObservableDictionary<String, Int, String>()
+
+        addFromAKeys2Handler(sut) { _ = sut.delete("a", 1) }
+
+        XCTAssertEqual(sut.size, 0)
+        XCTAssertEqual(sut.keys1.toArray(), [])
+        XCTAssertEqual(sut.keys2.toArray(), [])
+    }
+
+    func testKeys1ListsAPendingKey1BeforeAKeyThatAKeys2HandlerAdds() {
+        let sut = ObservableDictionary<String, Int, String>()
+        sut.set("x", 0, "first")
+
+        addFromAKeys2Handler(sut) {
+            sut.set("c", 5, "nested")
+            sut.set("a", 3, "nested")
+        }
+
+        XCTAssertEqual(sut.keys1.toArray(), ["x", "a", "c"])
+        XCTAssertEqual(sut.keys2.toArray(), [0, 1, 5, 3])
+    }
+
+    func testKeys1KeepsItsOrderWhenAKeys2HandlerMovesAKey1Later() {
+        let sut = ObservableDictionary<String, Int, String>()
+        sut.set("x", 0, "first")
+        sut.set("y", 2, "second")
+
+        addFromAKeys2Handler(sut) {
+            sut.set("x", 4, "nested")
+            _ = sut.delete("x", 0)
+        }
+
+        XCTAssertEqual(sut.keys1.toArray(), ["x", "y", "a"])
+        XCTAssertEqual(sut.keys2.toArray(), [2, 1, 4])
+    }
+
     func testHubAddIndexFollowsTheKeyPairAfterANestedClearAndReAdd() {
         let hub = MessageHub()
         let sut = ObservableDictionary<String, String, Int>(hub: hub)

@@ -123,6 +123,10 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     private readonly Dictionary<TKey1, int> _key1Counts = [];
     private readonly Dictionary<TKey2, int> _key2Counts = [];
 
+    // Changes on every add, remove, and clear, so an add can tell whether a
+    // key-view subscriber changed the entries during its notification.
+    private int _version;
+
     /// <summary>
     /// Initializes a new instance, optionally wiring it to <paramref name="hub"/>.
     /// </summary>
@@ -224,6 +228,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
 
         _data.Remove((key1, key2));
         _keyOrder.Remove((key1, key2));
+        _version++;
 
         // Update key-axis views: drop a key only when its last entry is gone
         // (O(1) via refcounts, no scan over _data).
@@ -281,6 +286,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     {
         _data.Clear();
         _keyOrder.Clear();
+        _version++;
         _keys1.Clear();
         _keys2.Clear();
         _key1Counts.Clear();
@@ -307,25 +313,52 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         // Capture the position now: a key-view or local handler may add another entry.
         var index = _keyOrder.Count - 1;
         _data[(key1, key2)] = value;
+        var version = ++_version;
 
-        // Update key-axis views only on first appearance (O(1) via refcounts).
-        if (_key1Counts.TryGetValue(key1, out int c1))
-            _key1Counts[key1] = c1 + 1;
-        else
-        {
-            _key1Counts[key1] = 1;
-            _keys1.Add(key1);
-        }
+        // Count both axes before either key view notifies (O(1) via refcounts).
+        _key1Counts.TryGetValue(key1, out int c1);
+        _key1Counts[key1] = c1 + 1;
+        _key2Counts.TryGetValue(key2, out int c2);
+        _key2Counts[key2] = c2 + 1;
 
-        if (_key2Counts.TryGetValue(key2, out int c2))
-            _key2Counts[key2] = c2 + 1;
-        else
-        {
-            _key2Counts[key2] = 1;
+        // Keys2 first, so a Keys1 subscriber sees the new Key2 and cannot put
+        // Keys2 out of first-appearance order (#772).
+        if (c2 == 0)
             _keys2.Add(key2);
-        }
+        if (c1 == 0)
+            AddKey1(key1, version);
 
         OnAdded(key1, key2, value, index);
+    }
+
+    // Appends key1 unless a Keys2 subscriber changed the entries. Then key1 is
+    // listed only while an entry still uses it, after every listed key that has
+    // an entry before key1's first entry.
+    private void AddKey1(TKey1 key1, int version)
+    {
+        if (version == _version)
+        {
+            _keys1.Add(key1);
+            return;
+        }
+        if (!_key1Counts.ContainsKey(key1) || _keys1.Contains(key1))
+            return;
+
+        var comparer = EqualityComparer<TKey1>.Default;
+        var earlier = new HashSet<TKey1>(comparer);
+        foreach (var (k1, _) in _keyOrder)
+        {
+            if (comparer.Equals(k1, key1))
+                break;
+            earlier.Add(k1);
+        }
+        var position = 0;
+        for (var i = 0; i < _keys1.Count; i++)
+        {
+            if (earlier.Contains(_keys1[i]))
+                position = i + 1;
+        }
+        _keys1.Insert(position, key1);
     }
 
     private void OnAdded(TKey1 key1, TKey2 key2, TValue value, int index)

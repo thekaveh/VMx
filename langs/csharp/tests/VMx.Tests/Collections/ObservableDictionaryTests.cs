@@ -197,6 +197,100 @@ public class ObservableDictionaryTests
         indices.Should().BeEquivalentTo(new Dictionary<string, int> { ["a"] = expected });
     }
 
+    // #772: an entry added from a key-view handler keeps both views in
+    // first-appearance order.
+    [Theory]
+    [InlineData("Keys1")]
+    [InlineData("Keys2")]
+    public void Key_Views_Keep_First_Appearance_Order_After_A_Key_View_Reentrant_Add(string view)
+    {
+        var sut = new ObservableDictionary<string, int, string>();
+        var nested = false;
+        void AddNested()
+        {
+            if (nested) return;
+            nested = true;
+            sut.Add("b", 2, "nested");
+        }
+        if (view == "Keys1") sut.Keys1.ItemAdded += (_, _) => AddNested();
+        else sut.Keys2.ItemAdded += (_, _) => AddNested();
+
+        sut.Add("a", 1, "outer");
+
+        sut.Keys1.Should().Equal("a", "b");
+        sut.Keys2.Should().Equal(1, 2);
+    }
+
+    // Runs nested once, from the Keys2 handler for key2 1, then adds (a, 1).
+    private static void AddFromAKeys2Handler(ObservableDictionary<string, int, string> sut, Action nested)
+    {
+        var done = false;
+        sut.Keys2.ItemAdded += (_, e) =>
+        {
+            if (done || e.Item != 1) return;
+            done = true;
+            nested();
+        };
+        sut.Add("a", 1, "outer");
+    }
+
+    [Fact]
+    public void Key_Views_Stay_Empty_When_A_Keys2_Handler_Removes_The_New_Entry()
+    {
+        var sut = new ObservableDictionary<string, int, string>();
+
+        AddFromAKeys2Handler(sut, () => sut.Remove("a", 1));
+
+        sut.Count.Should().Be(0);
+        sut.Keys1.Should().BeEmpty();
+        sut.Keys2.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Keys1_Lists_A_Pending_Key1_Before_A_Key_That_A_Keys2_Handler_Adds()
+    {
+        var sut = new ObservableDictionary<string, int, string>();
+        sut.Add("x", 0, "first");
+
+        AddFromAKeys2Handler(sut, () =>
+        {
+            sut.Add("c", 5, "nested");
+            sut.Add("a", 3, "nested");
+        });
+
+        sut.Keys1.Should().Equal("x", "a", "c");
+        sut.Keys2.Should().Equal(0, 1, 5, 3);
+    }
+
+    [Fact]
+    public void Keys1_Keeps_Its_Order_When_A_Keys2_Handler_Moves_A_Key1_Later()
+    {
+        var sut = new ObservableDictionary<string, int, string>();
+        sut.Add("x", 0, "first");
+        sut.Add("y", 2, "second");
+
+        AddFromAKeys2Handler(sut, () =>
+        {
+            sut.Add("x", 4, "nested");
+            sut.Remove("x", 0);
+        });
+
+        sut.Keys1.Should().Equal("x", "y", "a");
+        sut.Keys2.Should().Equal(2, 1, 4);
+    }
+
+    [Fact]
+    public void Keys2_Contains_The_New_Key2_When_Keys1_Notifies()
+    {
+        var sut = new ObservableDictionary<string, int, string>();
+        int[]? seen = null;
+        sut.Keys1.ItemAdded += (_, _) => seen = [.. sut.Keys2];
+
+        sut.Add("a", 1, "outer");
+
+        seen.Should().Equal(1);
+    }
+
     [Fact]
     public void Hub_Injection_PublishesRemoveMessageOnRemove()
     {
