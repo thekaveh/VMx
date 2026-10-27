@@ -26,11 +26,11 @@ impl<T: Clone + Send + 'static> ModalVm<T> {
         }
     }
 
-    /// Marks the modal as open for presentation.
+    /// Has no effect, and does not reopen a dismissed modal.
     ///
-    /// A modal is open from construction until its first dismissal, so this
-    /// does nothing: a dismissed modal is never reopened and its first result
-    /// stays authoritative (spec/19 §3).
+    /// A modal is open from construction until its first dismissal, so there
+    /// is nothing to open: a dismissed modal is never reopened and its first
+    /// result stays authoritative (spec/19 §3).
     pub fn open(&self) {}
 
     /// Closes the modal with `result` or the configured cancellation result.

@@ -24,7 +24,7 @@ type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 /// auto-construction constructs children added to an already-constructed group.
 pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
-    commands: ComponentCommands,
+    commands: Arc<ComponentCommands>,
     items: ObservableList<T>,
     ownership: ParentRegistration,
     auto_construct_on_add: Arc<Mutex<bool>>,
@@ -146,24 +146,39 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         );
         let auto_construct_on_add = Arc::new(Mutex::new(false));
         let late_starts = LateStarts::new(Arc::clone(&membership_gate));
-        let reconstruct_late = late_starts.clone();
-        let reconstruct_core = core.clone();
-        let reconstruct_items = items.clone();
-        let commands = ComponentCommands::new(&core, move || {
-            if reconstruct_core
-                .transition_with(LifecycleOperation::Destruct, || {
-                    for item in reconstruct_items.to_vec() {
-                        reconstruct_core.transition_child(&item, LifecycleOperation::Destruct)?;
-                    }
-                    Ok(())
-                })
-                .is_ok()
-            {
-                let items = reconstruct_items.clone();
-                let late = reconstruct_late.clone();
-                let _ = reconstruct_core
-                    .construct_after_destruct(move |core| construct_group(core, &items, &late));
-            }
+        // The command runs the full `reconstruct()` (spec/05 §5), so a fix to
+        // the walk lands in one place. The command table is held weakly so
+        // the stored command cannot keep its own table alive.
+        let commands = Arc::new_cyclic(|table| {
+            let table = table.clone();
+            let command_core = core.clone();
+            let items = items.clone();
+            let ownership = ownership.handle();
+            let auto_construct_on_add = Arc::clone(&auto_construct_on_add);
+            let late_starts = late_starts.clone();
+            let dispose_requested = Arc::clone(&dispose_requested);
+            let membership_gate = Arc::clone(&membership_gate);
+            let membership_transaction_active = Arc::clone(&membership_transaction_active);
+            let membership_transaction_control = Arc::clone(&membership_transaction_control);
+            ComponentCommands::new(&core, move || {
+                let (Some(commands), Some(ownership)) = (table.upgrade(), ownership.registration())
+                else {
+                    return;
+                };
+                let group = Self {
+                    core: command_core.clone(),
+                    commands,
+                    items: items.clone(),
+                    ownership,
+                    auto_construct_on_add: Arc::clone(&auto_construct_on_add),
+                    late_starts: late_starts.clone(),
+                    dispose_requested: Arc::clone(&dispose_requested),
+                    membership_gate: Arc::clone(&membership_gate),
+                    membership_transaction_active: Arc::clone(&membership_transaction_active),
+                    membership_transaction_control: Arc::clone(&membership_transaction_control),
+                };
+                let _ = group.reconstruct();
+            })
         });
         Self {
             core,

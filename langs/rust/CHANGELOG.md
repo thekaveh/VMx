@@ -10,6 +10,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The `reconstruct_command()` of `CompositeVm` and `GroupVm` now calls
+  `reconstruct()`, as the aggregates' command does, instead of repeating its
+  steps. A later fix to the walk therefore reaches the command too. The
+  command now also applies the `reconstruct()` admission check, so a container
+  that another thread destructs after the command's `can_execute` check is no
+  longer constructed again by the command. The stored command holds its
+  command table and its parent registration weakly. A command handle that
+  outlives every handle to its container therefore does nothing, and it does
+  not keep that container registered as its children's parent (#799).
 - `ServicedObservableCollection`, `KeyedServicedObservableCollection`,
   `ObservableDictionary` and `ObservableMultiDictionary` now share one stored
   snapshot between concurrent readers, which run `PartialEq` on it (#765).
@@ -23,6 +32,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The summary line of `ModalVm::open()` now says that the call has no effect
+  and does not reopen a dismissed modal. Before, it said that the call marks
+  the modal as open (#799).
 - Rustdoc now matches current behavior (#790). The `ValueStream` type doc says
   that `ValueStream::new` replays the current value and `ValueStream::hot` does
   not, with a doctest. `AsyncRelayCommand::execute` (inherent and trait) points
