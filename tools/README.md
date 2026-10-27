@@ -100,6 +100,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `compare-benchmarks.py` — Compares two benchmark reports and flags cases outside the noise band.
 - `compare-coverage-runs.py` — Compares llvm-cov exports of repeated runs and lists where their coverage differs.
 - `coverage-floors.json` — Recorded Rust and Swift coverage floors read by `check-coverage-floor.py`.
+- `create-starter.py` — Generates an application starter from `starters/<channel>/` outside the checkout, installs the exact public package and runs its smoke test (pilot: TypeScript Node).
 - `ensure-release-changelog-unreleased.py` — Restores the canonical Unreleased section after Release Please runs.
 - `extract-release-notes.awk` — Extracts one changelog section for a flavor's GitHub Release (Python, TypeScript, React, Rust, Swift).
 - `render-csharp-release-notes.py` — Renders C# GitHub Release notes from a selected-package manifest.

@@ -32,3 +32,5 @@ can be out of date.
   testing-utility validation for issue 84.
 - [Concurrency test audit](2026-09-24-controlled-interleavings-audit.md):
   controlled-interleaving work for issue 348.
+- [Application starters](2026-10-27-application-starters.md): starter
+  decision, stop condition and TypeScript pilot for issue 410.

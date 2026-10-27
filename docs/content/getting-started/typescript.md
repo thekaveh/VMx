@@ -22,6 +22,13 @@ there covers the npm package and an unreleased source line. `@thekaveh/vmx`
 ships dual ESM and CJS bundles with full TypeScript declarations, so no
 `@types` package is needed.
 
+> To start a new Node project without a UI, use the TypeScript Node starter
+> template in [`starters/typescript-node/`](../../../starters/typescript-node/).
+> It was verified against `@thekaveh/vmx` 3.30.0 from npm. From a VMx checkout,
+> run `python3 tools/create-starter.py`. The command writes the project to a new
+> directory outside the checkout, installs the exact npm version and runs the
+> starter's smoke test.
+
 ______________________________________________________________________
 
 ## 3.4.2. Wire up `MessageHub` and `RxDispatcher`
