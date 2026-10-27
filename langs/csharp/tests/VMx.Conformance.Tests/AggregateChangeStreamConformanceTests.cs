@@ -658,7 +658,7 @@ public sealed class AggregateChangeStreamConformanceTests
             thread.Start();
             Assert.True(SpinWait.SpinUntil(
                 () => (thread.ThreadState & ThreadState.WaitSleepJoin) != 0,
-                TimeSpan.FromSeconds(5)));
+                HangGuard));
             return thread;
         }
     }
@@ -708,7 +708,7 @@ public sealed class AggregateChangeStreamConformanceTests
                 BackgroundEmitThread.Start();
                 Assert.True(SpinWait.SpinUntil(
                     () => (BackgroundEmitThread.ThreadState & ThreadState.WaitSleepJoin) != 0,
-                    TimeSpan.FromSeconds(5)));
+                    HangGuard));
             }
             return Disposable.Create(() =>
             {

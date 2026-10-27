@@ -7,6 +7,7 @@ using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Integration;
 
@@ -18,8 +19,6 @@ namespace VMx.Tests.Integration;
 /// </summary>
 public class XamlRecipeTests
 {
-    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
-
     private sealed record Note(string Title);
 
     private static ComponentVM<Note> CreateVm(MessageHub hub, bool construct = true)

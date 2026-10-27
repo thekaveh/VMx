@@ -702,7 +702,7 @@ public class CompositeVMConformanceTests
             .OnCurrentChanged(_ =>
             {
                 if (Interlocked.Exchange(ref firstA, 0) == 0) return;
-                barrier.SignalAndWait(TimeSpan.FromMilliseconds(100));
+                barrier.SignalAndWait(HangGuard).Should().BeTrue();
                 if (!ReferenceEquals(compositeB!.Current, childB))
                     compositeB.SelectComponent(childB);
             }).Build();
@@ -711,7 +711,7 @@ public class CompositeVMConformanceTests
             .OnCurrentChanged(_ =>
             {
                 if (Interlocked.Exchange(ref firstB, 0) == 0) return;
-                barrier.SignalAndWait(TimeSpan.FromMilliseconds(100));
+                barrier.SignalAndWait(HangGuard).Should().BeTrue();
                 if (!ReferenceEquals(compositeA!.Current, childA))
                     compositeA.SelectComponent(childA);
             }).Build();
@@ -720,7 +720,8 @@ public class CompositeVMConformanceTests
 
         // The selections block in each other's callbacks by design, so they run
         // on dedicated threads: progress must not depend on thread-pool injection
-        // under the parallel runner. The wait is a hang guard only.
+        // under the parallel runner. Each callback waits for the other, so the
+        // cross-selections always overlap. The waits are hang guards only.
         var taskA = Task.Factory.StartNew(
             () => compositeA.SelectComponent(childA),
             CancellationToken.None,

@@ -2,6 +2,7 @@ using System.Reactive.Subjects;
 using FluentAssertions;
 using VMx.Commands;
 using VMx.Conformance.Tests.Fixtures;
+using VMx.Tests.Helpers;
 using Xunit;
 
 namespace VMx.Conformance.Tests;
@@ -393,7 +394,7 @@ public class CommandConformanceTests
         // sleep the CI scheduler can outrun. IsExecuting flips false in
         // ExecuteAsync's finally, after any error emission in the catch, so once
         // it is false the not-a-fault decision has already been made.
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        var deadline = DateTime.UtcNow + Liveness.HangGuard;
         while (cmd.IsExecuting && DateTime.UtcNow < deadline)
             await Task.Delay(5);
 
