@@ -42,6 +42,32 @@ public class DIA_009_to_013_ModalPresentation_Tests
         modal.Result.Should().Be("chosen");
     }
 
+    // A service that is not an IModalDialogService reaches the
+    // DialogServiceModalExtensions.Present fallback (#782).
+    [Fact, Trait("Conformance", "DIA-010")]
+    public async Task DIA_010_Present_Fallback_Uses_Cancellation_Result()
+    {
+        IDialogService service = new PlainDialogService();
+        var modal = new ModalVM<string>("cancel");
+
+        var result = await service.Present(modal);
+
+        result.Should().Be("cancel");
+        modal.IsDismissed.Should().BeTrue();
+        modal.Result.Should().Be("cancel");
+    }
+
+    [Fact, Trait("Conformance", "DIA-012")]
+    public async Task DIA_012_Present_Fallback_Keeps_An_Earlier_Result()
+    {
+        IDialogService service = new PlainDialogService();
+        var modal = new ModalVM<string>("cancel");
+        modal.Dismiss("chosen");
+
+        (await service.Present(modal)).Should().Be("chosen");
+        modal.Result.Should().Be("chosen");
+    }
+
     [Fact, Trait("Conformance", "DIA-011")]
     public async Task DIA_011_Modal_Dispose_Completes_With_Cancellation_Result()
     {
@@ -74,6 +100,28 @@ public class DIA_009_to_013_ModalPresentation_Tests
         (await sut.PickFileToSave()).Should().BeNull();
         (await sut.Confirm("Proceed?")).Should().BeFalse();
         await sut.Notify("Done");
+    }
+
+    /// <summary>An <see cref="IDialogService"/> without modal presentation.</summary>
+    private sealed class PlainDialogService : IDialogService
+    {
+        public Task<string?> PickFileToOpen(FileFilter? filter = null, string? title = null)
+            => Task.FromResult<string?>(null);
+
+        public Task<string?> PickFileToSave(
+            FileFilter? filter = null,
+            string? title = null,
+            string? suggestedName = null)
+            => Task.FromResult<string?>(null);
+
+        public Task<bool> Confirm(string message, string? title = null)
+            => Task.FromResult(false);
+
+        public Task Notify(
+            string message,
+            string? title = null,
+            NotificationSeverity severity = NotificationSeverity.Info)
+            => Task.CompletedTask;
     }
 
     private sealed class HostDialogService : IModalDialogService
