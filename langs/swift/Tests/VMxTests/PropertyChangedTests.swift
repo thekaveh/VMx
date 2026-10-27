@@ -125,6 +125,59 @@ final class PropertyChangedTests: XCTestCase {
         cancel.cancel()
     }
 
+    /// The several-name whenPropertyChanged emits each message from `sender` whose
+    /// name is any of the names, once and in hub order (spec/03 §7.2, ADR-0160).
+    func testWhenPropertyChangedSeveralNamesMatchesAnyInHubOrder() {
+        let hub = MessageHub()
+        let a = NSObject()
+        let b = NSObject()
+
+        var seen: [String] = []
+        let cancel = hub.whenPropertyChanged(a, "foo", "bar").sink { seen.append($0.propertyName) }
+
+        hub.send(PropertyChangedMessage(sender: a, senderName: "A", propertyName: "bar"))  // match
+        hub.send(PropertyChangedMessage(sender: a, senderName: "A", propertyName: "baz"))  // not listed
+        hub.send(PropertyChangedMessage(sender: b, senderName: "B", propertyName: "foo"))  // wrong sender
+        hub.send(PropertyChangedMessage(sender: a, senderName: "A", propertyName: "foo"))  // match
+        hub.send(PropertyChangedMessage(sender: a, senderName: "A", propertyName: "Foo"))  // exact match only
+        hub.send(PropertyChangedMessage(sender: a, senderName: "A", propertyName: "bar"))  // match
+
+        XCTAssertEqual(seen, ["bar", "foo", "bar"])
+        cancel.cancel()
+    }
+
+    /// A name passed twice still emits each matching message once (ADR-0160).
+    func testWhenPropertyChangedRepeatedNameEmitsOnce() {
+        let hub = MessageHub()
+        let sender = NSObject()
+
+        var hits = 0
+        let cancel = hub.whenPropertyChanged(sender, "foo", "foo", "bar").sink { _ in hits += 1 }
+
+        hub.send(PropertyChangedMessage(sender: sender, senderName: "S", propertyName: "foo"))
+
+        XCTAssertEqual(hits, 1)
+        cancel.cancel()
+    }
+
+    /// The several-name form makes one hub subscription; cancelling it stops
+    /// every name (ADR-0160).
+    func testWhenPropertyChangedSeveralNamesUsesOneSubscription() {
+        let hub = CountingHub()
+        let sender = NSObject()
+
+        var seen: [String] = []
+        let cancel = hub.whenPropertyChanged(sender, "foo", "bar").sink { seen.append($0.propertyName) }
+        XCTAssertEqual(hub.subscriptions, 1)
+
+        hub.send(PropertyChangedMessage(sender: sender, senderName: "S", propertyName: "foo"))
+        cancel.cancel()
+        hub.send(PropertyChangedMessage(sender: sender, senderName: "S", propertyName: "bar"))
+
+        XCTAssertEqual(seen, ["foo"])
+        XCTAssertEqual(hub.cancellations, 1)
+    }
+
     /// propertyValueChangedMessagesFor emits the current value each time the named
     /// property changes on the hub (spec/03 §7.1, ADR-0050).
     func testPropertyValueChangedMessagesForEmitsCurrentValue() throws {
@@ -142,4 +195,22 @@ final class PropertyChangedTests: XCTestCase {
         XCTAssertEqual(labels, ["b", "c"])
         cancel.cancel()
     }
+}
+
+/// Hub stand-in that counts subscriptions to, and cancellations of, `messages`.
+private final class CountingHub: MessageHubProtocol {
+    private let subject = PassthroughSubject<any Message, Never>()
+    private(set) var subscriptions = 0
+    private(set) var cancellations = 0
+
+    var messages: AnyPublisher<any Message, Never> {
+        subject
+            .handleEvents(
+                receiveSubscription: { [unowned self] _ in subscriptions += 1 },
+                receiveCancel: { [unowned self] in cancellations += 1 }
+            )
+            .eraseToAnyPublisher()
+    }
+
+    func send(_ message: any Message) { subject.send(message) }
 }

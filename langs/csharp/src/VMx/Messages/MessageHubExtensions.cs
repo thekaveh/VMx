@@ -40,4 +40,55 @@ public static class MessageHubExtensions
             .Where(m => ReferenceEquals(m.SenderObject, sender)
                 && string.Equals(m.PropertyName, propertyName, StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// Returns the stream of <see cref="IPropertyChangedMessage{TSender}"/> events
+    /// published to <paramref name="hub"/> by <paramref name="sender"/> for any of
+    /// the properties named in <paramref name="propertyNames"/> (spec/03 §7.2,
+    /// ADR-0160).
+    ///
+    /// <para>
+    /// Each subscription makes one subscription to <see cref="IMessageHub.Messages"/>.
+    /// Each matching message is emitted once, in hub order, even when its name
+    /// appears more than once in <paramref name="propertyNames"/>. The names are
+    /// matched by ordinal comparison and copied when the method is called, so a
+    /// later change to the array has no effect. A call with one name behaves as
+    /// <see cref="WhenPropertyChanged(IMessageHub, object, string)"/>, which a
+    /// single string argument binds to. A call that passes the <c>null</c> literal
+    /// as the only name is ambiguous between the two overloads; cast it to
+    /// <see cref="string"/> or <c>string[]</c>.
+    /// </para>
+    /// </summary>
+    /// <param name="hub">The hub whose message stream to observe.</param>
+    /// <param name="sender">The sender instance to match by reference.</param>
+    /// <param name="propertyNames">The property names to match (ordinal). At least one is required.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="hub"/>, <paramref name="sender"/> or <paramref name="propertyNames"/> is null.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="propertyNames"/> is empty or contains a null name.
+    /// </exception>
+    public static IObservable<IPropertyChangedMessage<object>> WhenPropertyChanged(
+        this IMessageHub hub,
+        object sender,
+        params string[] propertyNames)
+    {
+        ThrowHelper.ThrowIfNull(hub, nameof(hub));
+        ThrowHelper.ThrowIfNull(sender, nameof(sender));
+        ThrowHelper.ThrowIfNull(propertyNames, nameof(propertyNames));
+        if (propertyNames.Length == 0)
+            throw new ArgumentException("At least one property name is required.", nameof(propertyNames));
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var name in propertyNames)
+        {
+            if (name is null)
+                throw new ArgumentException("Property names must not be null.", nameof(propertyNames));
+            names.Add(name);
+        }
+
+        return hub.Messages
+            .OfType<IPropertyChangedMessage<object>>()
+            .Where(m => ReferenceEquals(m.SenderObject, sender) && names.Contains(m.PropertyName));
+    }
 }
