@@ -10,9 +10,10 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// LIFE-001..015 — see spec/12-conformance.md.
+/// LIFE-001..020 — see spec/12-conformance.md. LIFE-015 lives in the container
+/// conformance files and LIFE-016..020 in LIFE_016_to_020_ChildTransitionHelper_Tests.
 ///
-/// Every LIFE-* id is exercised here by a self-contained test that drives a
+/// Every LIFE-* id is exercised by a self-contained test that drives a
 /// real VM instance and asserts that id's own normative behavior (the
 /// transition reached, the ConstructionStatusChangedMessage sequence emitted,
 /// the gating exception, the idempotency, or the depth-first dispose cascade).

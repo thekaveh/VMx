@@ -107,7 +107,9 @@ and `ModeledCompositeVm` have the lifecycle but no hook methods, and
 
 The hooks preserve the per-construct vs. long-lived cleanup split without two
 public bags (ADR-0041, refined by ADR-0090). The container VMs of §6 and §7 use
-them to drive their child construct/destruct/dispose cascades.
+them to drive their child construct/destruct/dispose cascades. A leaf
+view-model drives its member view-models with the child-transition helper of
+§6.1 and disposes them with the member-disposal helper of §7.1.
 
 ### 2.3 Owned resources
 
@@ -293,6 +295,58 @@ child, the destination attaches it, and only destination
 existing chapter 06/07 rule. Failure restores the pre-transfer lifecycle and
 membership state. Transfer never calls `destruct()` or `dispose()`.
 
+### 6.1 Child-transition helper for leaf view-models
+
+A leaf view-model (a subclass of `ComponentVMBase`) that keeps member
+view-models in fields uses the child-transition helper to construct and
+destruct them inside its own transition (ADR-0162). The helper takes an
+ordered list of children, a direction, and an optional `after` callback:
+
+- It walks the list in the given order. It starts a child only after the
+  previous child settled.
+- It skips a child that is already at the target status (`Constructed` for
+  construct, `Destructed` for destruct). It joins a child that is already in
+  the transient status (`Constructing` or `Destructing`) and does not start it
+  again (`LIFE-020`).
+- It waits for a background child. The parent stays in its transient status
+  until the child settles, and only then starts the next child (`LIFE-016`).
+- A child that settles at any status other than the target fails the walk.
+  The parent rolls back to its prior settled status, as in §2.5, and the
+  failure surfaces from the call or through the flavor's background-failure
+  path (`LIFE-017`). The helper does not undo a sibling that already reached
+  the target. Whether a walk should undo it is an open question.
+- It runs `after` exactly once, after every child settled at the target and
+  before the parent publishes its terminal status. A failing `after` rolls the
+  parent back like a failing child.
+- Only the parent's own construct and destruct hooks may call it, including
+  the two phases of `reconstruct()`. A call from anywhere else raises the
+  flavor's usage error and starts no child.
+
+The helper has no child-order option: the caller passes the children in the
+order it wants. A leaf that destructs its members in reverse passes the
+reversed list (`LIFE-019`).
+
+| Flavor     | Helper                                                                                           | Usage error                 |
+| ---------- | ------------------------------------------------------------------------------------------------ | --------------------------- |
+| C#         | `CompleteLifecycleHookAfter(TransitionChildrenAsync(children, construct, after))`                | `InvalidOperationException` |
+| Python     | `self._complete_lifecycle_hook_after(self._transition_children(children, construct=…, after=…))` | `RuntimeError`              |
+| TypeScript | `this._transitionChildren(children, construct, after)`                                           | `Error`                     |
+| Swift      | `try _transitionChildren(children, construct: …, after: …)` (`public`)                           | `ChildTransitionError`      |
+| Rust       | `construct_with_children` / `destruct_with_children` / `reconstruct_with_children`               | none (compile time)         |
+
+C#, Python and TypeScript keep the helper protected. Swift makes it `public`
+so that a subclass in another module can call it. Rust has no subclassing: a
+consumer view-model type composes a `ComponentVm` and calls its walk methods,
+which run the component's transition and pass a `ChildTransitions` handle to a
+closure. The handle adds child steps (`transition`) and the `after` step
+(`then`). It borrows the transition, so it cannot be used outside the closure. Two
+Rust limits apply. `construct_with_children` and `destruct_with_children`
+reject a component built with `background(true)` with
+`VmxError::InvalidArgument` (chapter 11 §4). `ComponentVm::reconstruct()` and
+the reconstruct command run only the hooks, because the component does not know
+the consumer's walk; a consumer type routes its reconstruct through
+`reconstruct_with_children`, which covers both phases.
+
 ## 7. Disposal cascade
 
 `dispose()` on a parent disposes every child (synchronously, depth-first). This
@@ -320,6 +374,37 @@ and completes normally. Upstream cancellation remains responsible for stopping
 application resources; this guard prevents only late VM state admission
 (ADR-0091).
 
+### 7.1 Depth-first member disposal
+
+A leaf view-model registers each member view-model with the member-disposal
+helper: `OwnMember` in C#, `_own_member` in Python, `ownMember` in TypeScript
+and Swift, and `own_member` in Rust (ADR-0162). Registration returns the member
+in C#, Python, TypeScript and Swift; Rust returns a `VmxResult<()>`.
+
+`dispose()` stops waiting for a pending child walk, then disposes the
+registered members in registration order before the parent publishes
+`Disposed`. Each member disposes its own children first, so the cascade stays
+depth-first (`LIFE-018`). A container disposes its children before its members.
+Member disposal is best-effort, as in §7: every member is attempted, and the
+first failure is reported after the parent's mandatory teardown. Swift
+disposal does not throw, so Swift attempts every member and reports nothing. A
+member registered once the parent's disposal has started, or after it reached
+`Disposed`, is disposed at once. While the member cascade runs, any further
+`dispose()` of the parent returns at once without waiting and does nothing,
+whether it is re-entrant on the same thread or comes from another thread. The
+first call finishes the cascade and publishes `Disposed` only after the
+members, so a caller that returns early can observe the parent before it is
+`Disposed`. Registering the view-model itself is a usage error:
+`InvalidOperationException` in C#, `RuntimeError` in Python, `Error` in
+TypeScript, a trap in Swift (ADR-0009), and `VmxError::OwnershipCycle` in Rust.
+Member disposal follows the admitted-hook rule of §2.4 (`LIFE-015`) in the same
+way as the container cascade.
+
+A member is not a container child. It has no parent link and no selection
+state, and registration does not construct it. A leaf that wants reverse
+teardown registers its members in reverse order. Resources registered with
+`own` (§2.3) are still released after the parent publishes `Disposed`.
+
 ## 8. Reference table
 
 See `fixtures/lifecycle-transitions.json` for the complete legal/illegal transition
@@ -328,7 +413,7 @@ directly.
 
 ## 9. Conformance
 
-`LIFE-001` through `LIFE-015` in `12-conformance.md` cover:
+`LIFE-001` through `LIFE-020` in `12-conformance.md` cover:
 
 - legal state transitions (construct / destruct / reconstruct / dispose)
 - predicates raising `StatusTransitionError` / `StatusTransitionException` (or
@@ -346,6 +431,12 @@ directly.
 - admitted-hook coordination: terminal disposal waits for the active hook,
   performs terminal cleanup only after hook release, and suppresses post-hook
   container work after terminal supersession (`LIFE-015`, §2.4)
+- the child-transition helper for leaf view-models: it waits for a background
+  child (`LIFE-016`), rolls the parent back on a child failure (`LIFE-017`),
+  destructs in the order the caller passes (`LIFE-019`) and joins a child in
+  transit (`LIFE-020`) (§6.1)
+- depth-first member disposal before the parent publishes `Disposed`
+  (`LIFE-018`, §7.1)
 
 `DISP-001` adds the cross-cutting at-most-once assertion: invoking a parent
 dispose path more than once produces one observable terminal transition and

@@ -1,11 +1,13 @@
 //
 // Lifecycle conformance tests.
 //
-// Claimed IDs: LIFE-001..015 (LIFE-005/006 now
+// Claimed IDs: LIFE-001..020 (LIFE-005/006 now
 // assert a *catchable throw* — v3 converges Swift to the throwing contract per
 // ADR-0053, superseding ADR-0037 §2.5). LIFE-008 (concurrent re-invocation
 // raises) is claimed in `LifecycleRaceTests`. LIFE-011 asserts the
 // fixture-driven table. LIFE-014 asserts transactional hook-failure rollback.
+// LIFE-016..020 (child-transition helper, member disposal) are claimed in
+// `ChildTransitionHelperConformanceTests`, which imports VMx without @testable.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
 // module); this target is CI-verified only (`swift.yml` on macos-latest).

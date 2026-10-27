@@ -290,7 +290,7 @@ completes at `Disposed` and the abandoned transition cannot overwrite it.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
 > transition table and the
-> lifecycle contract (`LIFE-001..015`), including `StatusTransitionException`
+> lifecycle contract (`LIFE-001..020`), including `StatusTransitionException`
 > rules and admitted-hook/disposal coordination.
 
 ______________________________________________________________________

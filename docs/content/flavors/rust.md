@@ -12,7 +12,7 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Reactive primitive: VMx-owned hot-stream facade (ADR-0103)
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: behavioral Rust tests cover all 431 library IDs. Rust has no UI
+- Conformance: behavioral Rust tests cover all 436 library IDs. Rust has no UI
   scenario suite for the five THEME IDs.
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The

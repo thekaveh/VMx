@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 `CompositeVM<TabVM>` with tab selection — all in a Swift Package or playground.
 
-> The Swift source line 3.31.0 covers all 431 library conformance IDs. The
+> The Swift source line 3.31.0 covers all 436 library conformance IDs. The
 > SwiftUI Notes Workspace flagship covers the 5 `THEME-00x` scenario IDs. The
 > [Swift flavor](../flavors/swift.md) page lists the documented Swift-specific
 > divergences.
@@ -231,7 +231,7 @@ a non-child. A builder throws `BuilderValidationError` from `build()` when a
 required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> full lifecycle contract (`LIFE-001..015`),
+> full lifecycle contract (`LIFE-001..020`),
 > including the transition table and admitted-hook/disposal coordination.
 
 ______________________________________________________________________

@@ -167,6 +167,9 @@ class _AggregateVMBase(_ComponentVMBase):
             # Abandon a pending child walk first, so a disposed slot does not
             # roll this aggregate back before its own Disposed (#755).
             self._abandon_child_transition()
+            # A member registered while the slots are disposed is disposed at
+            # once (spec/02 §7.1).
+            self._close_member_registration()
             slots = tuple(getattr(self, name) for name in slot_names)
             _dispose_children_then_self(slots, super().dispose)
 

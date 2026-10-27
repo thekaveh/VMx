@@ -24,7 +24,7 @@ flavor's spelling.
 
 | Band                          | Part                  | Role                                                                                                                                                                      |
 | ----------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Specification control plane   | `spec/`               | Source of truth: 24 chapters, the ADRs, four JSON fixtures, and the catalog of 431 library IDs plus 5 THEME scenario IDs. `spec/VERSION` pins the version.                |
+| Specification control plane   | `spec/`               | Source of truth: 24 chapters, the ADRs, four JSON fixtures, and the catalog of 436 library IDs plus 5 THEME scenario IDs. `spec/VERSION` pins the version.                |
 | Core runtime surface          | Lifecycle base        | A fixture-backed state machine guards every transition and runs the dispose cascade.                                                                                      |
 | Core runtime surface          | VM families           | Component, composite, group, and fixed aggregate VMs, with shared child collections and atomic move.                                                                      |
 | Core runtime surface          | Commands              | Relay commands with an execute action, a can-execute predicate, reactive triggers, and explicit re-evaluation; command decorators; modeled CRUD commands.                 |

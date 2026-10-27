@@ -109,6 +109,27 @@ def _exclusive_ownership_reservation_batch(
 _CHILD_WALK_FUTURES: weakref.WeakSet[Future[None]] = weakref.WeakSet()
 
 
+# Counts the lifecycle hooks running on each thread. The child-transition
+# helper checks it, so a call from outside any construct or destruct hook
+# raises before it starts a child (spec/02 §6.1, ADR-0162).
+_hook_scope = threading.local()
+
+
+def _lifecycle_hook_is_running() -> bool:
+    """True while a construct or destruct hook runs on the calling thread."""
+    depth: int = getattr(_hook_scope, "depth", 0)
+    return depth > 0
+
+
+@contextmanager
+def _lifecycle_hook_scope() -> Iterator[None]:
+    _hook_scope.depth = getattr(_hook_scope, "depth", 0) + 1
+    try:
+        yield
+    finally:
+        _hook_scope.depth -= 1
+
+
 class _Disposable(Protocol):
     def dispose(self) -> None: ...
 
@@ -116,6 +137,10 @@ class _Disposable(Protocol):
 # ``_own`` returns the argument's own type so an owned field can be assigned
 # inline under ``mypy --strict`` (spec/02 §2.3).
 _OwnedResourceT = TypeVar("_OwnedResourceT", bound="Callable[[], None] | _Disposable")
+
+# ``_own_member`` returns the member's own type for inline field assignment
+# (spec/02 §7.1).
+_MemberT = TypeVar("_MemberT", bound="ComponentVMProto")
 
 
 class _LifecyclePublication:
@@ -353,6 +378,15 @@ class _ComponentVMBase(ABC):
         self._on_destruct_cb: Callable[[], None] | None = on_destruct
         self._background: bool = background
         self._owned_resources: list[Callable[[], None] | _Disposable] = []
+        # Member VMs that ``dispose()`` disposes depth-first, in registration
+        # order, before this VM publishes Disposed (spec/02 §7.1).
+        self._owned_members: list[_Disposable] = []
+        # Set when disposal starts; a later registration is disposed at once.
+        self._members_released: bool = False
+        # Set from dispose() entry until the member cascade and the terminal
+        # publication finished. Any further dispose(), re-entrant or from
+        # another thread, returns at once; the first call finishes the work.
+        self._member_disposal_active: bool = False
 
         # ── Lifecycle state ──────────────────────────────────────────────────
         self._status: ConstructionStatus = ConstructionStatus.DESTRUCTED
@@ -969,8 +1003,10 @@ class _ComponentVMBase(ABC):
     def dispose(self) -> None:
         """Transition to Disposed from any state. Terminal; idempotent.
 
-        Disposes commands and completes the status trigger / property_changed
-        subjects.
+        Disposes the members registered with :meth:`_own_member` first, in
+        registration order, before this VM publishes Disposed (spec/02 §7.1).
+        Then disposes commands and completes the status trigger /
+        property_changed subjects.
         """
         self._dispose_at_hook_boundary(None)
 
@@ -988,7 +1024,12 @@ class _ComponentVMBase(ABC):
         snapshot = tuple(children)
         self._dispose_at_hook_boundary(lambda: _dispose_children(snapshot))
 
-    def _dispose_at_hook_boundary(self, cascade: Callable[[], BaseException | None] | None) -> None:
+    def _dispose_at_hook_boundary(
+        self,
+        cascade: Callable[[], BaseException | None] | None,
+        *,
+        resume: bool = False,
+    ) -> None:
         # A pending child walk is abandoned before any child is disposed, so a
         # child reaching Disposed does not roll this VM back first (#755).
         self._abandon_child_transition()
@@ -1003,8 +1044,22 @@ class _ComponentVMBase(ABC):
                     first_error = error
 
         with self._lifecycle_lock:
-            if self._status == ConstructionStatus.DISPOSED:
+            # While the member cascade runs, any further dispose() (re-entrant
+            # or from another thread) returns at once: the first call finishes
+            # the teardown (spec/02 §7.1). ``resume`` is that first call.
+            if self._status == ConstructionStatus.DISPOSED or (
+                self._member_disposal_active and not resume
+            ):
                 return
+
+            # From here on a new member is disposed at registration, also
+            # while a container disposes its own children (spec/02 §7.1).
+            self._members_released = True
+            if self._owned_members and not resume:
+                # The members join the cascade, after a container's own
+                # children, at the same admitted-hook boundary (LIFE-015).
+                self._member_disposal_active = True
+                cascade = self._with_member_cascade(cascade)
 
             hook_lease = self._active_hook_lease
             cascade_first = cascade is not None and (
@@ -1034,10 +1089,13 @@ class _ComponentVMBase(ABC):
         if cascade_first and cascade is not None:
             cascade_error = cascade()
             try:
-                self._dispose_at_hook_boundary(None)
+                self._dispose_at_hook_boundary(None, resume=True)
             except BaseException as error:
                 if cascade_error is None:
                     cascade_error = error
+            finally:
+                with self._lifecycle_lock:
+                    self._member_disposal_active = False
             if cascade_error is not None:
                 raise cascade_error
             return
@@ -1089,6 +1147,26 @@ class _ComponentVMBase(ABC):
                 finally:
                     _unregister_lifecycle_wait(caller)
         finish_disposal()
+
+    def _with_member_cascade(
+        self, children: Callable[[], BaseException | None] | None
+    ) -> Callable[[], BaseException | None]:
+        """Extend a dispose cascade with the registered members.
+
+        The container's children go first, then the members in registration
+        order. Every member is attempted; the first failure is kept
+        (ADR-0108).
+        """
+
+        def cascade() -> BaseException | None:
+            first_error = children() if children is not None else None
+            with self._lifecycle_lock:
+                members = self._owned_members
+                self._owned_members = []
+            member_error = _dispose_children(members)
+            return first_error if first_error is not None else member_error
+
+        return cascade
 
     # ── Selection predicates ─────────────────────────────────────────────────
     def can_select(self) -> bool:
@@ -1146,7 +1224,8 @@ class _ComponentVMBase(ABC):
             # Each hook starts with a fresh deferral slot.
             self._deferred_lifecycle_future = None
         try:
-            hook()
+            with _lifecycle_hook_scope():
+                hook()
         except BaseException:
             # A hook that raises after deferring completion abandons the
             # deferral, so the next transition starts clean. A child walk this
@@ -1193,7 +1272,41 @@ class _ComponentVMBase(ABC):
             self._on_destruct_cb()
 
     def _complete_lifecycle_hook_after(self, future: Future[None]) -> None:
-        """Keep the parent transient until asynchronous child work settles."""
+        """Keep this VM transient until ``future`` settles (spec/02 §6.1).
+
+        Supported API for subclasses. Call it from this VM's own construct or
+        destruct hook (``_on_construct`` / ``_on_destruct``, including both
+        phases of :meth:`reconstruct`), usually with the future that
+        :meth:`_transition_children` returns::
+
+            def _on_construct(self) -> None:
+                self._complete_lifecycle_hook_after(
+                    self._transition_children(
+                        [self.chart, self.table], construct=True, after=self._bind
+                    )
+                )
+
+        A future that already completed is settled at once: its failure is
+        raised from this call, so the hook raises and this VM rolls back to
+        its prior settled status. A pending future defers the terminal
+        status: this VM stays ``Constructing`` / ``Destructing`` until the
+        future settles, then publishes the target status on success or rolls
+        back (construct to ``Destructed``, destruct to ``Constructed``) on
+        failure. A hook defers at most once.
+
+        Raises:
+            RuntimeError: When this VM's own construct or destruct hook is not
+                running on the calling thread, or when the hook already
+                deferred its completion.
+        """
+        with self._lifecycle_lock:
+            lease = self._active_hook_lease
+            hook_running = lease is not None and lease.owner_thread == threading.get_ident()
+        if not hook_running:
+            raise RuntimeError(
+                "_complete_lifecycle_hook_after must be called from this VM's own "
+                "construct or destruct hook"
+            )
         if future.done():
             future.result()
             return
@@ -1208,24 +1321,81 @@ class _ComponentVMBase(ABC):
         *,
         construct: bool,
         after: Callable[[], None] | None = None,
+    ) -> Future[None]:
+        """Construct or destruct ``children`` one at a time (spec/02 §6.1).
+
+        Supported API for subclasses that keep child VMs in fields. Call it
+        from the VM's own construct or destruct hook and hand the returned
+        future to :meth:`_complete_lifecycle_hook_after`, which keeps the VM
+        transient until the walk settles.
+
+        The walk follows these rules:
+
+        - It walks ``children`` in the given order and starts a child only
+          after the previous child settled. For a reverse-order destruct, pass
+          the reversed list.
+        - It skips a child that is already at the target status
+          (``Constructed`` for ``construct=True``, ``Destructed`` otherwise).
+          It joins a child that is already ``Constructing`` / ``Destructing``
+          and does not start it again.
+        - It waits for a background child: the future stays pending until
+          the child settles, then the walk continues.
+        - A child that settles at any other status fails the walk with the
+          child's error (or a ``RuntimeError``). The walk starts no later
+          child, and it does not undo children that already reached the
+          target.
+        - ``after`` runs once, after every child settled at the target and
+          before the VM publishes its terminal status. A raising ``after``
+          fails the walk like a failing child.
+
+        Args:
+            children: The child VMs, in walk order.
+            construct: ``True`` to construct the children, ``False`` to
+                destruct them.
+            after: Optional callback that runs once after every child settled.
+
+        Returns:
+            A future that completes when the walk succeeded and fails with the
+            first child (or ``after``) failure.
+
+        Raises:
+            RuntimeError: When no construct or destruct hook is running on the
+                calling thread. No child is started.
+        """
+        return _ComponentVMBase._transition_container_children(
+            children, construct=construct, after=after
+        )
+
+    @staticmethod
+    def _transition_container_children(
+        children: Iterable[ComponentVMProto],
+        *,
+        construct: bool,
+        after: Callable[[], None] | None = None,
         joined: Iterable[object] = (),
         join: Callable[[object], Future[None] | None] | None = None,
         seal: Callable[[], ComponentVMProto | None] | None = None,
     ) -> Future[None]:
-        """Transition children sequentially and validate each settled state.
+        """Internal: the containers' variant of :meth:`_transition_children`.
 
-        A child in ``joined`` already started this transition (factory
-        population) or is a late auto-constructed add: it is joined through
-        ``join`` when that returns a future (default: join only), and its
-        settled status is final, so it is never restarted once started.
-        ``children`` is pulled lazily, one child at a time, and a ``joined``
-        list is read live, so a container can extend its walk while it runs.
+        Not supported API (ADR-0162 §2.1). The extra parameters serve
+        composites and groups only. A child in ``joined`` already started
+        this transition (factory population) or is a late auto-constructed
+        add: it is joined through ``join`` when that returns a future
+        (default: join only), and its settled status is final, so it is never
+        restarted once started. ``children`` is pulled lazily, one child at a
+        time, and a ``joined`` list is read live, so a container can extend
+        its walk while it runs.
 
         After the children and ``after`` (which runs once), a container's
         commit step ``seal`` returns a child added after the walk's last scan,
         which the walk then joins, or commits the Constructed state and returns
         ``None`` (spec/06 §5.1).
         """
+        if not _lifecycle_hook_is_running():
+            raise RuntimeError(
+                "_transition_children must be called from a construct or destruct hook"
+            )
         result: Future[None] = Future()
         _CHILD_WALK_FUTURES.add(result)
         iterator = iter(children)
@@ -1359,6 +1529,58 @@ class _ComponentVMBase(ABC):
         if dispose_now:
             self._dispose_owned_resource(resource)
         return resource
+
+    def _close_member_registration(self) -> None:
+        """Dispose any later member at registration (spec/02 §7.1).
+
+        A container whose own child cascade runs before the base dispose
+        calls this at its dispose entry.
+        """
+        with self._lifecycle_lock:
+            self._members_released = True
+
+    def _own_member(self, member: _MemberT) -> _MemberT:
+        """Register a member VM that :meth:`dispose` disposes depth-first.
+
+        Supported API for subclasses that keep child VMs in fields
+        (spec/02 §7.1)::
+
+            self.chart = self._own_member(ChartVM(...))
+
+        ``dispose()`` disposes the registered members before this VM
+        publishes ``Disposed``: in registration order, after a container's
+        own children, and before the subclass ``_on_dispose`` hook and the
+        resources registered with :meth:`_own`. Every member is attempted;
+        the first failure is raised after this VM's teardown finished
+        (ADR-0108). A member registered after this VM reached ``Disposed``
+        is disposed at once, and its failure is raised from this call.
+
+        A member is not a container child: it gets no parent link and no
+        selection, and registration does not construct it. Use
+        :meth:`_transition_children` to construct and destruct it.
+
+        Returns:
+            ``member``, for inline field assignment.
+
+        Raises:
+            RuntimeError: When ``member`` is this VM (or a forwarding alias of
+                it).
+        """
+        # A forwarding decorator registers on the wrapped component (ADR-0151).
+        owner = self._ownership_identity
+        if member is self or (
+            isinstance(member, _ComponentVMBase) and member._ownership_identity is owner
+        ):
+            raise RuntimeError("a view-model cannot register itself as its own member")
+        if owner is not self:
+            return owner._own_member(member)
+        with self._lifecycle_lock:
+            dispose_now = self._status is ConstructionStatus.DISPOSED or self._members_released
+            if not dispose_now:
+                self._owned_members.append(member)
+        if dispose_now:
+            member.dispose()
+        return member
 
     @staticmethod
     def _dispose_owned_resource(resource: Callable[[], None] | _Disposable) -> None:
