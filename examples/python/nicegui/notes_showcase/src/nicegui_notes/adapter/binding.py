@@ -13,6 +13,7 @@ reconnects, and the page would lose its bindings on a brief network drop.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Collection
 from typing import Any, cast
 
@@ -30,6 +31,8 @@ from vmx.commands.protocols import Command
 from vmx.properties.derived import DerivedProperty
 
 from nicegui_notes.adapter.delivery import ClientDelivery
+
+_log = logging.getLogger(__name__)
 
 
 def _hub(vm: Any) -> MessageHub[Message]:
@@ -122,11 +125,19 @@ def bind_derived_property(
     derived: DerivedProperty[Any],
     transform: Callable[[Any], object] | None = None,
 ) -> DisposableBase:
-    """One-way: a :class:`DerivedProperty`'s value → ``element.<attr>``."""
+    """One-way: a :class:`DerivedProperty`'s value → ``element.<attr>``.
+
+    A property whose source has not emitted has no value yet, so the element
+    stays unset. Its first value arrives without a ``value_changed`` emission,
+    so the element shows the next change after it (#364).
+    """
     delivery = ClientDelivery()
 
     def _show() -> None:
-        value = derived.value
+        try:
+            value = derived.value
+        except RuntimeError:
+            return  # no first value yet
         setattr(element, attr, transform(value) if transform is not None else value)
 
     _show()
@@ -134,7 +145,12 @@ def bind_derived_property(
 
 
 def bind_command(button: ui.button, command: Command) -> DisposableBase:
-    """``button`` runs ``command``; its enabled state follows ``command.can_execute()``."""
+    """``button`` runs ``command``; its enabled state follows ``command.can_execute()``.
+
+    A command with an ``errors`` channel, such as ``AsyncRelayCommand``, reports a
+    fire-and-forget failure there instead of to the caller. The binding logs each
+    failure and shows it in a negative notification on the page.
+    """
     delivery = ClientDelivery()
     state = {"active": True}
 
@@ -148,10 +164,18 @@ def bind_command(button: ui.button, command: Command) -> DisposableBase:
     def _deactivate() -> None:
         state["active"] = False
 
+    def _report(error: BaseException) -> None:
+        _log.error("command failed", exc_info=error)
+        delivery.run(lambda: ui.notify(f"Command failed: {error}", type="negative"))
+
     _sync_enabled()
     button.on_click(_click)
     changes = command.can_execute_changed.subscribe(on_next=lambda _: delivery.run(_sync_enabled))
-    return CompositeDisposable(changes, Disposable(_deactivate))
+    disposables = [changes, Disposable(_deactivate)]
+    errors: rx.Observable[BaseException] | None = getattr(command, "errors", None)
+    if errors is not None:
+        disposables.append(errors.subscribe(on_next=_report))
+    return CompositeDisposable(*disposables)
 
 
 def bind_refreshable(render: refreshable[..., Any], changes: rx.Observable[Any]) -> DisposableBase:
