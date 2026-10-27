@@ -674,7 +674,11 @@ fn disposed_confirmation_decorator_is_inert_including_pending_confirmations() {
 }
 
 /// CMDD-012 — A confirmation resolving on another thread while the decorator is
-/// being disposed runs the inner command at most once
+/// being disposed runs the inner command at most once.
+///
+/// Stress coverage only: it passes without the post-confirmation disposal
+/// re-check. `disposed_confirmation_decorator_is_inert_including_pending_confirmations`
+/// guards that re-check.
 #[test]
 fn confirmation_resolving_while_disposing_runs_the_inner_command_at_most_once() {
     for _ in 0..200 {

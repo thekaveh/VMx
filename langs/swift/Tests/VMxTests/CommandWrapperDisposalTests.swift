@@ -224,6 +224,9 @@ final class CommandWrapperDisposalTests: XCTestCase {
     }
 
     /// CMDD-012 — a confirmation resolving on another thread while the decorator is being disposed runs the inner command at most once and completes `errors` exactly once.
+    /// Stress coverage only: it passes without the post-confirmation disposal re-check.
+    /// `testCmdd012ConfirmationResolvingAfterDisposalRunsNothing` and
+    /// `testCmdd012FireAndForgetConfirmationResolvingAfterDisposalRunsNothing` guard that re-check.
     func testCmdd012ConfirmationRacingDisposeOnAnotherThreadStaysConsistent() async throws {
         for iteration in 0..<50 {
             let recorder = Recorder()
