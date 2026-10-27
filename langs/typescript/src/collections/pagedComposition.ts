@@ -241,7 +241,8 @@ export class PagedComposition<TVM> implements IPageable {
   #clampIndex(index: number): number {
     // When pageCount == 0 (empty source + paging enabled), index stays at 0
     const max = Math.max(0, this.pageCount - 1);
-    if (index < 0) return 0;
+    // `<=` also turns -0 into +0 (#769).
+    if (index <= 0) return 0;
     if (index > max) return max;
     return index;
   }

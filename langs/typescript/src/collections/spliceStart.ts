@@ -1,3 +1,5 @@
+import { emittedIndex } from "./emittedIndex.js";
+
 /**
  * Resolves a splice start index the way `Array.prototype.splice` does:
  * ToIntegerOrInfinity, then negatives count from the end and out-of-range
@@ -12,7 +14,6 @@ export function resolveSpliceStart(start: number, length: number): number {
 function toIntegerOrInfinity(value: number): number {
   if (Number.isNaN(value) || value === 0) return 0;
   if (!Number.isFinite(value)) return value;
-  const integer = Math.trunc(value);
   // Math.trunc(-0.5) is -0; an emitted index must be +0.
-  return integer === 0 ? 0 : integer;
+  return emittedIndex(Math.trunc(value));
 }
