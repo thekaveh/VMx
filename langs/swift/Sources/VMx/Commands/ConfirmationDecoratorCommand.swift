@@ -45,6 +45,10 @@ public final class ConfirmationDecoratorCommand: Command {
     private let errorsSubject = PassthroughSubject<Error, Never>()
     private let disposalLock = NSLock()
     private var disposed = false
+
+    // Test-only seam: called when the flow that a fire-and-forget `execute()`
+    // starts has ended, so a test can check what it did not do.
+    var onExecuteSettledForTesting: (@Sendable () -> Void)?
     private let changes: WrapperChangeStream
 
     /// Re-reads disposal after a call-out that may have disposed this wrapper.
@@ -78,8 +82,10 @@ public final class ConfirmationDecoratorCommand: Command {
     /// neither awaits the inner operation nor re-emits its failures (CMDD-015).
     public func execute() {
         let command = UncheckedSendableBox(self)
+        let settled = onExecuteSettledForTesting
         Task { [command] in
             await command.value.confirmThenStartInner()
+            settled?()
         }
     }
 

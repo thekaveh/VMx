@@ -19,6 +19,38 @@ import Combine
 import Foundation
 @testable import VMx
 
+/// A value shared with a worker thread.
+private final class SharedValue<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: T
+    init(_ value: T) { storage = value }
+    var value: T {
+        get { lock.withLock { storage } }
+        set { lock.withLock { storage = newValue } }
+    }
+}
+
+/// Two threads meet here. Each learns whether the other arrived in time.
+private final class Rendezvous: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var arrivals = 0
+
+    func meet(timeout: TimeInterval) -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        arrivals += 1
+        if arrivals == 2 {
+            condition.broadcast()
+            return true
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        while arrivals < 2 {
+            if !condition.wait(until: deadline) { return false }
+        }
+        return true
+    }
+}
+
 final class CompositeVMTests: XCTestCase {
 
     private func leaf(_ name: String) -> ComponentVM {
@@ -451,18 +483,29 @@ final class CompositeVMTests: XCTestCase {
     }
 
     /// COMP-026 — opposing `onCurrentChanged` callbacks that synchronously
-    /// select children in two composites complete without deadlock.
+    /// select children in two composites complete without deadlock. The two
+    /// first callbacks meet before they cross-select, so the cross-selections
+    /// always overlap.
     func testCOMP026OpposingCurrentCallbacksAcrossCompositesDoNotDeadlock() throws {
         let leftChild = leaf("left-child")
         let rightChild = leaf("right-child")
+        let rendezvous = Rendezvous()
+        let leftMet = SharedValue<Bool?>(nil)
+        let rightMet = SharedValue<Bool?>(nil)
         var left: CompositeVM<ComponentVM>!
         var right: CompositeVM<ComponentVM>!
         left = try CompositeVM<ComponentVM>.builder().name("left")
             .withNullServices().children { [leftChild] }
-            .onCurrentChanged { _ in right.selectChild(rightChild) }.build()
+            .onCurrentChanged { _ in
+                if leftMet.value == nil { leftMet.value = rendezvous.meet(timeout: 10) }
+                right.selectChild(rightChild)
+            }.build()
         right = try CompositeVM<ComponentVM>.builder().name("right")
             .withNullServices().children { [rightChild] }
-            .onCurrentChanged { _ in left.selectChild(leftChild) }.build()
+            .onCurrentChanged { _ in
+                if rightMet.value == nil { rightMet.value = rendezvous.meet(timeout: 10) }
+                left.selectChild(leftChild)
+            }.build()
         try left.construct()
         try right.construct()
 
@@ -483,8 +526,13 @@ final class CompositeVMTests: XCTestCase {
         start.signal()
         start.signal()
 
-        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
-                       "opposing current callbacks must not deadlock")
+        // A deadlocked worker keeps holding a gate that `current` needs, so
+        // stop here instead of hanging.
+        guard done.wait(timeout: .now() + 20) == .success else {
+            return XCTFail("opposing current callbacks must not deadlock")
+        }
+        XCTAssertEqual(leftMet.value, true, "the left callback met the right one")
+        XCTAssertEqual(rightMet.value, true, "the right callback met the left one")
         XCTAssertTrue(left.current === leftChild)
         XCTAssertTrue(right.current === rightChild)
     }
@@ -623,7 +671,8 @@ final class CompositeVMTests: XCTestCase {
     /// composite's membership transaction waits for it and then completes. It
     /// was dropped (`selectChild`), rejected as a non-member (`setCurrent`), or
     /// trapped (`current =`), which also made the crossing test above flaky.
-    /// The add's construct hook parks with a timeout, so the add always ends.
+    /// The add's construct hook parks until the selection reports that it
+    /// waits for the add's transaction; its wait is a hang guard only.
     func testCOMP026SelectionFromAnotherThreadWaitsForAnOpenMembershipTransaction() throws {
         let a = leaf("a")
         let b = leaf("b")
@@ -632,14 +681,20 @@ final class CompositeVMTests: XCTestCase {
             .withNullServices().children { [a, b, c] }
             .autoConstructOnAdd(true).build()
         try composite.construct()
+        let selector = ThreadWaitGraph.currentThread
+        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
 
         func whileAnotherThreadAdds(_ name: String, _ select: () throws -> Void) rethrows {
             let entered = DispatchSemaphore(value: 0)
-            let release = DispatchSemaphore(value: 0)
+            let selectionWaits = DispatchSemaphore(value: 0)
+            let released = SharedValue<DispatchTimeoutResult?>(nil)
+            ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+                if accepted, caller == selector { selectionWaits.signal() }
+            }
             let parked = try! ComponentVM.builder().name(name).withNullServices()
                 .onConstruct {
                     entered.signal()
-                    _ = release.wait(timeout: .now() + 0.2)
+                    released.value = selectionWaits.wait(timeout: .now() + 10)
                 }.build()
             let added = DispatchGroup()
             added.enter()
@@ -648,11 +703,9 @@ final class CompositeVMTests: XCTestCase {
                 added.leave()
             }
             XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
-            defer {
-                release.signal()
-                XCTAssertEqual(added.wait(timeout: .now() + 10), .success)
-            }
             try select()
+            XCTAssertEqual(added.wait(timeout: .now() + 20), .success)
+            XCTAssertEqual(released.value, .success, "\(name): the selection waits for the add")
         }
 
         whileAnotherThreadAdds("parked-1") { composite.selectChild(a) }
@@ -678,13 +731,19 @@ final class CompositeVMTests: XCTestCase {
             .autoConstructOnAdd(true).build()
         try composite.construct()
         let entered = DispatchSemaphore(value: 0)
-        let selectionStarted = DispatchSemaphore(value: 0)
+        let selectionWaits = DispatchSemaphore(value: 0)
+        let selector = SharedValue<UInt64?>(nil)
+        let released = SharedValue<DispatchTimeoutResult?>(nil)
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            if accepted, caller == selector.value { selectionWaits.signal() }
+        }
+        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
         let parked = try ComponentVM.builder().name("parked").withNullServices()
             .onConstruct {
                 entered.signal()
-                // Give the other thread time to start waiting, then select.
-                _ = selectionStarted.wait(timeout: .now() + 10)
-                Thread.sleep(forTimeInterval: 0.05)
+                // Select only once the other thread's selection waits for
+                // this add's transaction.
+                released.value = selectionWaits.wait(timeout: .now() + 10)
                 other.selectChild(o)
             }.build()
 
@@ -697,13 +756,17 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
         done.enter()
         DispatchQueue.global().async {
-            selectionStarted.signal()
+            selector.value = ThreadWaitGraph.currentThread
             composite.selectChild(a)
             done.leave()
         }
 
-        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
-                       "a waiting selection must not block selection in another composite")
+        // A deadlocked worker keeps holding the shared selection coordinator,
+        // so stop here instead of reading `current`.
+        guard done.wait(timeout: .now() + 20) == .success else {
+            return XCTFail("a waiting selection must not block selection in another composite")
+        }
+        XCTAssertEqual(released.value, .success, "the selection waits for the add")
         XCTAssertTrue(other.current === o)
         XCTAssertTrue(composite.current === a)
     }
