@@ -305,20 +305,38 @@ The C# helper matches across the covariant `IPropertyChangedMessage<TSender>`, s
 message published under any concrete sender generic argument is captured; sender
 identity is always compared by reference, never by value. Null arguments raise.
 
+**Several names (spec v3.30, ADR-0160).** A multi-name form takes several
+property names for the same `sender`, for example
+`whenPropertyChanged(hub, chart, ["plot", "range"])`. It keeps the single-name
+rules for sender identity, exact name match and flavor-idiom names. In
+addition:
+
+1. A message matches when its `PropertyName` equals any of the given names.
+1. Each subscription to the result makes one subscription to `Messages`.
+   Disposing that subscription stops every name.
+1. Each matching message is emitted once, in hub order. A name that appears
+   more than once in the list does not emit a message twice.
+1. The names are copied when the helper is called. A later change to the
+   caller's list has no effect.
+1. At least one name is required. A call with none is rejected with the
+   flavor's argument error, or it does not compile.
+1. A single-name call behaves as before.
+
 Per-flavor names and shapes:
 
-| Flavor     | Name                    | Entry point                             |
-| ---------- | ----------------------- | --------------------------------------- |
-| C#         | `WhenPropertyChanged`   | Extension method on `IMessageHub`       |
-| Python     | `when_property_changed` | Module-level function in `vmx.messages` |
-| TypeScript | `whenPropertyChanged`   | Named export from `src/messages`        |
-| Swift      | `whenPropertyChanged`   | Method on `MessageHubProtocol`          |
+| Flavor     | Name                    | Entry point                             | Multi-name form                                             | No names                       |
+| ---------- | ----------------------- | --------------------------------------- | ----------------------------------------------------------- | ------------------------------ |
+| C#         | `WhenPropertyChanged`   | Extension method on `IMessageHub`       | `params string[] propertyNames` overload                    | `ArgumentException`            |
+| Python     | `when_property_changed` | Module-level function in `vmx.messages` | `property_name, *property_names` (pass `*names` for a list) | `TypeError` (missing argument) |
+| TypeScript | `whenPropertyChanged`   | Named export from `src/messages`        | `propertyName: string \| readonly string[]`                 | `RangeError`                   |
+| Swift      | `whenPropertyChanged`   | Method on `MessageHubProtocol`          | `String, String, String...` overload (two or more names)    | Does not compile               |
 
-Like §7.1 the helper is informative (no conformance ID); the four flavors that
-ship this convenience helper cover it with a unit test (`WhenPropertyChangedTests` /
-`test_when_property_changed` / `whenPropertyChanged.test.ts` / `PropertyChangedTests`
-in Swift). Rust consumers use `MessageHub::subscribe` with the
-`Message::PropertyChanged` variant directly. See ADR-0050 for the rationale.
+Like §7.1 the helper is informative (no conformance ID), and so is its multi-name
+form; the four flavors that ship this convenience helper cover both with a unit
+test (`WhenPropertyChangedTests` / `test_when_property_changed` /
+`whenPropertyChanged.test.ts` / `PropertyChangedTests` in Swift). Rust consumers use `MessageHub::subscribe` with the
+`Message::PropertyChanged` variant directly, for one name or several. See ADR-0050
+for the rationale and ADR-0160 for the multi-name form.
 
 ### 7.3 TypeScript raw-message predicates (informative, spec v3.14)
 

@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `canExecuteChanged` fires on every expansion change. The helper builds each
   command on first read and owns it: `dispose()` disposes the commands, which
   are then inert. An owner re-exports a command instead of building one.
+- `whenPropertyChanged` accepts an array of property names:
+  `whenPropertyChanged(hub, chart, ["plot", "range"])` emits each message from
+  `chart` whose property name is any of the names. It makes one hub
+  subscription and emits each matching message once, in hub order. An empty
+  array throws `RangeError`. A single string behaves as before (spec/03 §7.2,
+  ADR-0160, #664).
 - The raw constructors default `hint` to `""`, as the builders do (spec/10
   §4): `ComponentVMBase`, `ComponentVMOf`, `ReadonlyComponentVMOf`,
   `CompositeVMBase`, `CompositeVM`, `CompositeVMOf`, `GroupVM`, and

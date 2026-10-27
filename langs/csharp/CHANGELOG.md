@@ -14,6 +14,17 @@ All notable changes to the C# flavor are documented here. The format is based on
   `CanExecuteChanged` fires on every expansion change. The helper builds each
   command on first read and owns it: `Dispose()` disposes the commands, which
   are then inert. An owner re-exports a command instead of building one.
+- Added: a `MessageHubExtensions.WhenPropertyChanged(IMessageHub, object,
+  params string[])` overload emits each message from the sender whose property
+  name is any of the names. It makes one hub subscription and emits each
+  matching message once, in hub order. A null array throws
+  `ArgumentNullException`; an empty array or a null name throws
+  `ArgumentException`. A call with one string still binds to the single-name
+  overload. Source break: a call whose only name is the `null` literal, `null!`
+  or `default`, a method group with no target type, and a `cref` to the method
+  group without parameters are now ambiguous and must name the overload. A
+  call with no names now compiles and throws `ArgumentException` (spec/03 §7.2,
+  ADR-0160, #664).
 - Fixed: `ObservableDictionary`: an entry added from a `Keys1` subscriber no
   longer puts `Keys2` out of first-appearance order. `Keys2` now updates
   first, so a `Keys1` subscriber already sees the new Key2. When a `Keys2`
