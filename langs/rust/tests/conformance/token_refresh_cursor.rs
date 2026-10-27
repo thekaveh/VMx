@@ -557,9 +557,9 @@ fn retained_and_replaced_item_vms_are_never_disposed_by_the_composition() {
 
     assert_eq!(pages.items(), loaded);
     assert_eq!(pages.current_token(), Some("t3"));
-    assert!(changed_head
+    assert!(loaded
         .iter()
-        .all(|item| item.status() == ConstructionStatus::Destructed));
+        .all(|item| item.status() == ConstructionStatus::Constructed));
 
     replace_head.store(true, Ordering::SeqCst);
     pages.refresh();
