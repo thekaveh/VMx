@@ -42,7 +42,7 @@ them from a VMx checkout.
 | Python        | `vmx` 3.23.0 on PyPI               | 3.30.0      |
 | Swift         | `VMx` 3.24.0 through SwiftPM       | 3.31.0      |
 | TypeScript    | `@thekaveh/vmx` 3.30.0 on npm      | 3.31.0      |
-| React adapter | `@thekaveh/vmx-react` 0.1.1 on npm | 0.1.1       |
+| React adapter | `@thekaveh/vmx-react` 0.1.1 on npm | 0.1.2       |
 | C#            | Not yet published to NuGet         | 3.30.0      |
 | Rust          | Not yet published to crates.io     | 0.36.0      |
 

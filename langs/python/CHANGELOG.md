@@ -158,8 +158,6 @@ All notable changes to the Python flavor are documented here. The format is base
 - A `ForwardingComponentVM` around a background component can be a
   factory-populated child: the composite joins it through the wrapped VM.
   Before, construct raised `AttributeError`.
-- A lifecycle hook that defers on its own future and then raises leaves that
-  future alone; VMx cancels only the child walks it created.
 - A `ForwardingCompositeVM` can now be added to a composite or group. Before
   this fix, `add` raised `AttributeError: _ownership_identity`. The decorator
   now shares one ownership identity and its parent link with the composite it
@@ -170,7 +168,9 @@ All notable changes to the Python flavor are documented here. The format is base
 - A lifecycle hook that defers completion and then raises abandons that
   deferral. The next transition starts clean instead of staying in the
   transient state or raising "a lifecycle hook already deferred completion",
-  and the abandoned child transition never runs its continuation.
+  and the abandoned child transition never runs its continuation. A future
+  the hook supplied is dropped, not cancelled; VMx cancels only the child walks
+  it created.
 - `CompositeVM`, `GroupVM`, `AggregateVM*`, and `HierarchicalVM` wait for a
   background child in any position, including the last. The container
   publishes its terminal status after every child settles, and it rolls back
@@ -188,17 +188,14 @@ All notable changes to the Python flavor are documented here. The format is base
   runs once. Before, the add skipped auto-construction until the container was
   `Constructed` and the walk used a snapshot taken before the add, so the
   container reached `Constructed` with the added child still `Destructed`.
-- `FilteredCompositeVM.set_predicate` keeps the new predicate when an
-  `on_changed` observer raises. Before, it restored the previous predicate
-  while the projection already used the new one, so the next source change
-  reverted the filter.
 - `CompositeVM` and `GroupVM` join the background children that factory
   population starts and never construct them again. A later child that fails
   while the container waits on an earlier one rolls the container back, and
   its construct hook runs once (spec/02 §6, LIFE-014). Before, the child walk
   restarted the failed child and ran its hook a second time.
 - `FilteredCompositeVM.set_predicate` restores the previous predicate when the
-  new one raises, so later source changes keep using the working predicate.
+  new one raises, so later source changes keep using the working predicate. A
+  raising `on_changed` observer does not roll the predicate back.
 - `FormVM.set_model(None)` raises `ValueError` to the caller during an
   approval's settlement, instead of being queued and surfacing later from
   `approve_async`.

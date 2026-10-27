@@ -108,7 +108,7 @@ export abstract class HierarchicalVM<
   /**
    * @deprecated Pass `hub` and `dispatcher`, or build the node with
    * `HierarchicalVMBuilder`. Without them the node publishes to a private hub
-   * that no application observer sees. TypeScript 4.0 requires both
+   * that no application observer sees. `@thekaveh/vmx` 4.0 requires both
    * (ADR-0009).
    */
   // eslint-disable-next-line @typescript-eslint/unified-signatures
