@@ -336,6 +336,9 @@ ExpandableState : IExpandable, ICollapsible, IExpansionTogglable:
     IsExpanded : bool                       # current state (read-only; mutate via Expand/Collapse/Toggle)
     Expand() / Collapse() / ToggleExpansion()
     IsExpandedChanged : Observable<bool>    # emits on every change
+    ExpandCommand : Command                 # CanExpand() / Expand()            (spec v3.30, ADR-0159)
+    CollapseCommand : Command               # CanCollapse() / Collapse()
+    ToggleExpansionCommand : Command        # CanToggleExpansion() / ToggleExpansion()
 ```
 
 Open Rust gap: Rust's `ExpandableState` has no `Observable<bool>`. Its
@@ -347,9 +350,48 @@ The helper is composition-friendly: VMs that want expand/collapse hold an
 `walk_expanded` tree utility (see `13-tree-utilities.md`) recognizes any
 `IExpandable` implementation and gates descent on `IsExpanded`.
 
+### 8.1 Expansion commands
+
+`ExpandableState` exposes one relay command (chapter 04) for each verb
+(ADR-0159):
+
+| Command                  | Predicate              | Task                |
+| ------------------------ | ---------------------- | ------------------- |
+| `ExpandCommand`          | `CanExpand()`          | `Expand()`          |
+| `CollapseCommand`        | `CanCollapse()`        | `Collapse()`        |
+| `ToggleExpansionCommand` | `CanToggleExpansion()` | `ToggleExpansion()` |
+
+The names follow each flavor's idiom (ADR-0006): C# `ExpandCommand`, Python
+`expand_command`, TypeScript and Swift `expandCommand`, and Rust
+`expand_command()`. The other two commands follow the same pattern.
+
+1. The predicate of each command is the matching `can*` check, and its task
+   calls the matching verb. The task runs only when the predicate is true
+   (chapter 04).
+1. The trigger of each command is the helper's change stream:
+   `IsExpandedChanged`, or the `expanded_changed()` hub in Rust. So each
+   command raises `CanExecuteChanged` once for every effective expansion
+   change. A verb call that does not change the state raises nothing.
+1. Every read of a command returns the same command. In Rust, every call
+   returns a clone of the same command, and clones of the helper share it.
+1. A flavor builds each command on its first read. A helper whose commands
+   are never read holds no trigger subscriptions, and its disposal builds no
+   command.
+1. The helper owns its commands. Callers do not dispose them. The helper's
+   `dispose()` disposes every command that was read, then completes or
+   disposes the change stream. It runs every step. When a step fails, it
+   rethrows the first failure after the last step. After that, each command
+   is inert (ADR-0068): `CanExecute` is `false` and `Execute` does nothing. A command first read after the helper's
+   disposal is already disposed.
+1. The commands publish nothing to a message hub. The owning VM publishes
+   `IsExpanded` changes (chapter 14 rule 6). It forwards `IsExpandedChanged`
+   to its own property-change notification, as the
+   [state and reactive helpers guide](../docs/content/primitives/state-reactive-helpers.md)
+   shows.
+
 ## 9. Conformance
 
-`CVM-001` through `CVM-010` and `EXP-001` through `EXP-005` in
+`CVM-001` through `CVM-010` and `EXP-001` through `EXP-008` in
 `12-conformance.md` cover:
 
 - status emission on construct
@@ -366,3 +408,6 @@ The helper is composition-friendly: VMs that want expand/collapse hold an
 - inert modeled assignment after disposal (`DISP-014`)
 - explicit model republish identity, channel, variant, forwarding, null-hub,
   re-entrancy, and disposal behavior
+- `ExpandableState` state, verbs, and change stream (`EXP-001..004`)
+- `ExpandableState` command predicates and `CanExecuteChanged`, command
+  execution, and command inertness after helper disposal (`EXP-006..008`)

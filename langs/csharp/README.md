@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.30.0** — implements `spec-v3.30.0` end-to-end. 426/426 library conformance IDs
+**v3.30.0** — implements `spec-v3.30.0` end-to-end. 429/429 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.1` and `VMx.Notifications` (opt-in
@@ -181,7 +181,7 @@ The public API lives under the `VMx.*` namespaces:
 | `Tree.WalkExpanded(root)`       | DFS walk gated on `IExpandable.IsExpanded` |
 | `Tree.Find(root, predicate)`    | Short-circuit tree search                         |
 | `DerivedProperty<TValue>`       | N-source computed value               |
-| `ExpandableState`               | `IExpandable`+`ICollapsible` helper   |
+| `ExpandableState`               | Expansion helper + expand/collapse/toggle commands |
 | `SearchableState<TItem>`        | Debounced filter + optional source signal |
 | `AsyncResourceVM<T>`            | Cancellable latest-wins async value state |
 | `ILocalizer` / `NullLocalizer`  | i18n hook + null-default              |
@@ -240,7 +240,7 @@ VMx does not attach that handle to the observed VM's lifetime. See
 
 ## 6. Conformance
 
-Implements all 426 library conformance IDs; THEME scenario IDs live in the
+Implements all 429 library conformance IDs; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](../../spec/12-conformance.md).
 
 Run the suite:

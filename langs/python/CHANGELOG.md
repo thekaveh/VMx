@@ -8,6 +8,15 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [3.30.0] — unreleased source version
 
+### Added
+
+- `ExpandableState.expand_command`, `collapse_command` and
+  `toggle_expansion_command` (#660, ADR-0159, EXP-006..008). Each command's
+  predicate is the matching `can_*` check, its task calls the verb, and its
+  `can_execute_changed` fires on every expansion change. The helper builds each
+  command on first read and owns it: `dispose()` disposes the commands, which
+  are then inert. An owner re-exports a command instead of building one.
+
 ### Fixed
 
 - The `AsyncRelayCommand.execute` docstring now says that `execute()` admits

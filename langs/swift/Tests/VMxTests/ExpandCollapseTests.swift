@@ -1,9 +1,10 @@
 //
-// Expand/collapse conformance tests — EXP-001..005
-// (spec/14-capabilities.md §2.2, spec/13-tree-utilities.md).
+// Expand/collapse conformance tests — EXP-001..008
+// (spec/14-capabilities.md §2.2, spec/13-tree-utilities.md, spec/05 §8).
 //
 // EXP-001..004 exercise the existing `ExpandableState` composition helper;
-// EXP-005 exercises `walkExpanded`, which prunes at collapsed Expandable nodes.
+// EXP-005 exercises `walkExpanded`, which prunes at collapsed Expandable nodes;
+// EXP-006..008 exercise the helper's expansion commands (ADR-0159).
 //
 // Ports langs/typescript/tests/conformance/expandCollapse.test.ts.
 //
@@ -118,5 +119,105 @@ final class ExpandCollapseTests: XCTestCase {
         b.expand()
         let expanded = walkExpanded(root)
         XCTAssertEqual(expanded.map(\.name), ["root", "a", "b", "b1", "b2"])
+    }
+
+    /// EXP-006 — expansion command predicates track the can* checks, and each command's canExecuteChanged fires once per effective expansion change.
+    func testExp006CommandPredicatesTrackCanChecks() {
+        let state = ExpandableState()
+        let expand = state.expandCommand
+        let collapse = state.collapseCommand
+        let toggle = state.toggleExpansionCommand
+        var counts = [0, 0, 0]
+        var cancellables: [AnyCancellable] = []
+        for (index, command) in [expand, collapse, toggle].enumerated() {
+            cancellables.append(command.canExecuteChanged.sink { counts[index] += 1 })
+        }
+
+        XCTAssertTrue(expand.canExecute())
+        XCTAssertFalse(collapse.canExecute())
+        XCTAssertTrue(toggle.canExecute())
+
+        state.expand()
+        XCTAssertEqual(counts, [1, 1, 1])
+        XCTAssertFalse(expand.canExecute())
+        XCTAssertTrue(collapse.canExecute())
+        XCTAssertTrue(toggle.canExecute())
+
+        state.expand() // a no-op verb is not an expansion change
+        XCTAssertEqual(counts, [1, 1, 1])
+
+        state.collapse()
+        XCTAssertEqual(counts, [2, 2, 2])
+        XCTAssertTrue(expand.canExecute())
+        XCTAssertFalse(collapse.canExecute())
+
+        XCTAssertTrue(state.expandCommand === expand)
+        XCTAssertTrue(state.collapseCommand === collapse)
+        XCTAssertTrue(state.toggleExpansionCommand === toggle)
+        cancellables.forEach { $0.cancel() }
+    }
+
+    /// EXP-007 — executing each expansion command performs its verb.
+    func testExp007ExecutingCommandsPerformsVerbs() {
+        let state = ExpandableState()
+        var observed: [Bool] = []
+        let cancel = state.isExpandedChanged.sink { observed.append($0) }
+
+        state.expandCommand.execute()
+        XCTAssertTrue(state.isExpanded)
+        state.expandCommand.execute() // the predicate is false while expanded
+        XCTAssertEqual(observed, [true])
+
+        state.collapseCommand.execute()
+        XCTAssertFalse(state.isExpanded)
+        state.collapseCommand.execute()
+        XCTAssertEqual(observed, [true, false])
+
+        state.toggleExpansionCommand.execute()
+        XCTAssertTrue(state.isExpanded)
+        state.toggleExpansionCommand.execute()
+        XCTAssertFalse(state.isExpanded)
+        XCTAssertEqual(observed, [true, false, true, false])
+        cancel.cancel()
+    }
+
+    /// EXP-008 — disposing the helper makes its expansion commands inert, including commands first read after disposal.
+    func testExp008HelperDisposeMakesCommandsInert() {
+        let state = ExpandableState()
+        let commands = [state.expandCommand, state.collapseCommand, state.toggleExpansionCommand]
+        var observed: [Bool] = []
+        let cancel = state.isExpandedChanged.sink { observed.append($0) }
+
+        state.dispose()
+
+        for command in commands {
+            XCTAssertFalse(command.canExecute())
+            command.execute()
+        }
+        XCTAssertFalse(state.isExpanded)
+        XCTAssertEqual(observed, [])
+
+        let late = ExpandableState()
+        late.dispose()
+        for command in [late.expandCommand, late.collapseCommand, late.toggleExpansionCommand] {
+            XCTAssertFalse(command.canExecute())
+            command.execute()
+        }
+        XCTAssertFalse(late.isExpanded)
+        XCTAssertTrue(late.expandCommand === late.expandCommand)
+        cancel.cancel()
+    }
+
+    /// The cached commands hold the helper weakly, so they do not keep it alive.
+    func testExpansionCommandsDoNotRetainTheHelper() {
+        weak var weakState: ExpandableState?
+        var command: RelayCommand?
+        do {
+            let state = ExpandableState()
+            weakState = state
+            command = state.toggleExpansionCommand
+        }
+        XCTAssertNil(weakState)
+        XCTAssertFalse(command?.canExecute() ?? true)
     }
 }

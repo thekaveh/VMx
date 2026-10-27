@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.30.0 source** — implements `spec-v3.30.0` end-to-end. 426/426 library conformance IDs
+**v3.30.0 source** — implements `spec-v3.30.0` end-to-end. 429/429 library conformance IDs
 pass. Supports Python 3.10–3.14.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations.
@@ -153,7 +153,7 @@ from vmx import ComponentVM, ConstructionStatus, MessageHub, RelayCommand, RxDis
 | `walk_expanded(root)`                             | DFS walk gated on `IExpandable.is_expanded`                                  |
 | `find(root, predicate)`                           | Short-circuit tree search                                                           |
 | `DerivedProperty[TValue]` / `from_sources(...)`   | N-source computed value                                                 |
-| `ExpandableState`                                 | `IExpandable`+`ICollapsible` helper                                     |
+| `ExpandableState`                                 | Expansion helper + expand/collapse/toggle commands                      |
 | `SearchableState[T]`                              | Debounced filter + optional source signal                              |
 | `AsyncResourceVM[T]`                             | Cancellable latest-wins async value state                              |
 | `ILocalizer` / `NullLocalizer` / `NULL_LOCALIZER` | i18n hook + null-default                                                     |
@@ -216,7 +216,7 @@ The opt-in `vmx.notifications` subpackage adds:
 
 ## 6. Conformance
 
-Implements all 426 library conformance IDs; THEME scenario IDs live in the
+Implements all 429 library conformance IDs; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blob/main/spec/12-conformance.md).
 [`tests/conformance/README.md`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/conformance/README.md)
 documents the test-layout conventions.

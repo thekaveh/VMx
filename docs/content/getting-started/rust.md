@@ -5,7 +5,7 @@ You will build a `ComponentVm<Model>`, a `RelayCommand`, and a `CompositeVm<T>`
 with child selection — all in a plain Cargo binary.
 
 > The Rust source line v0.36.0 declares `MIN_SPEC_VERSION = "3.30.0"` and has
-> behavioral tests for all 426 library conformance IDs. The
+> behavioral tests for all 429 library conformance IDs. The
 > [Rust flavor page](../flavors/rust.md) describes its status and parity
 > evidence.
 >

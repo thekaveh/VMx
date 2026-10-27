@@ -6,9 +6,9 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 ## 1. Status
 
 **v3.31.0 source — total parity.** Swift implements `spec-v3.30.0` and covers
-all **426 of 426** library conformance IDs. The SwiftUI notes-showcase exercises
-the five additional `THEME-00x` scenarios, for **431 total**, matching the other
-UI-backed flavors; Rust covers the 426 library IDs and has no UI scenario suite.
+all **429 of 429** library conformance IDs. The SwiftUI notes-showcase exercises
+the five additional `THEME-00x` scenarios, for **434 total**, matching the other
+UI-backed flavors; Rust covers the 429 library IDs and has no UI scenario suite.
 See [CHANGELOG.md](CHANGELOG.md) for history.
 
 The package requires Combine and iOS 16, macOS 13, tvOS 16, or watchOS 9. The
@@ -161,7 +161,7 @@ owns; VMx does not attach it to the observed VM's lifetime. See
 
 ## 5. Conformance
 
-Swift implements all 426 library conformance IDs. The
+Swift implements all 429 library conformance IDs. The
 `examples/swift/notes-showcase/` flagship covers `THEME-001..005` in
 `ThemeVMTests.swift`, validated by the `examples (notes-showcase)` job in
 `.github/workflows/swift.yml`. See
