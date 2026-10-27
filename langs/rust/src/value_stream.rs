@@ -88,12 +88,33 @@ struct ValueStreamState<T> {
     disposed: bool,
 }
 
-/// A typed, synchronous, replaying stream owned by VMx.
+/// A typed, synchronous stream owned by VMx.
 ///
-/// Every subscriber immediately receives the current value. Calls to
-/// [`send`](Self::send) synchronously publish the replacement value, and
-/// [`dispose`](Self::dispose) completes current and future subscriptions.
-/// Subscriber panics are isolated from publishers and other subscribers.
+/// A stream made with [`new`](Self::new) replays the current value to each new
+/// subscriber. A stream made with [`hot`](Self::hot) does not: a subscriber
+/// receives only later sends. Calls to [`send`](Self::send) synchronously
+/// publish the replacement value, and [`dispose`](Self::dispose) completes
+/// current and future subscriptions. Subscriber panics are isolated from
+/// publishers and other subscribers.
+///
+/// ```
+/// use std::sync::{Arc, Mutex};
+/// use vmx::ValueStream;
+///
+/// let replaying = ValueStream::new(1);
+/// let seen = Arc::new(Mutex::new(Vec::new()));
+/// let sink = seen.clone();
+/// let _replayed = replaying.subscribe(move |value| sink.lock().unwrap().push(value));
+/// replaying.send(2);
+/// assert_eq!(*seen.lock().unwrap(), vec![1, 2]);
+///
+/// let hot = ValueStream::hot(1);
+/// let seen = Arc::new(Mutex::new(Vec::new()));
+/// let sink = seen.clone();
+/// let _live = hot.subscribe(move |value| sink.lock().unwrap().push(value));
+/// hot.send(2);
+/// assert_eq!(*seen.lock().unwrap(), vec![2]);
+/// ```
 #[derive(Clone)]
 pub struct ValueStream<T: Clone + Send + 'static> {
     inner: Arc<Mutex<ValueStreamState<T>>>,

@@ -23,6 +23,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rustdoc now matches current behavior (#790). The `ValueStream` type doc says
+  that `ValueStream::new` replays the current value and `ValueStream::hot` does
+  not, with a doctest. `AsyncRelayCommand::execute` (inherent and trait) points
+  to `error_stream()` for failures. The `FormVm` type doc states that a
+  validator registration after `dispose` has no effect. The `background_errors()`
+  docs on the composites, the group and the aggregates describe the deferred
+  failures the stream carries, not only those that settle after the call
+  returns. The parity ledger limits "no join of an in-flight child" to
+  `AggregateVm1`–`AggregateVm6`.
 - A `FormVm` reader on another thread no longer pairs one model with another
   model's errors. Before, `set_model` and `revert` installed the model before
   its errors. An approval reset installed the errors before the model. So
