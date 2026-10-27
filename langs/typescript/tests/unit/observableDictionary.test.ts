@@ -1,6 +1,7 @@
 // Unit tests for ObservableDictionary<TKey1, TKey2, TValue>.
 // Conformance-level tests live in tests/conformance/.
 
+import type { Observable } from "rxjs";
 import { describe, expect, it } from "vitest";
 import { ObservableDictionary } from "../../src/collections/observableDictionary.js";
 import { CollectionChangedMessage } from "../../src/messages/collectionChanged.js";
@@ -556,5 +557,93 @@ describe("ObservableDictionary hub add index", () => {
       [7, 0],
       [0, 0],
     ]);
+  });
+});
+
+// #772: an entry added from a key-view subscriber keeps both views in
+// first-appearance order.
+describe("ObservableDictionary key-view order", () => {
+  it.each(["keys1", "keys2"] as const)(
+    "keeps first-appearance order after a %s subscriber's reentrant add",
+    (view) => {
+      const sut = new ObservableDictionary<string, number, string>();
+      let nested = false;
+      const keyAdded: Observable<unknown> =
+        view === "keys1" ? sut.keys1.itemAdded : sut.keys2.itemAdded;
+      keyAdded.subscribe(() => {
+        if (nested) return;
+        nested = true;
+        sut.add("b", 2, "nested");
+      });
+
+      sut.add("a", 1, "outer");
+
+      expect([...sut.keys1]).toEqual(["a", "b"]);
+      expect([...sut.keys2]).toEqual([1, 2]);
+    },
+  );
+
+  it("lists the new key2 before keys1 notifies", () => {
+    const sut = new ObservableDictionary<string, number, string>();
+    const seen: number[][] = [];
+    sut.keys1.itemAdded.subscribe(() => seen.push([...sut.keys2]));
+
+    sut.add("a", 1, "outer");
+
+    expect(seen).toEqual([[1]]);
+  });
+});
+
+// #772: entries changed from a keys2 subscriber during an add.
+describe("ObservableDictionary keys2-subscriber changes during an add", () => {
+  /** Runs `nested` once, from the keys2 handler for key2 1, then adds (a, 1). */
+  function addFromAKeys2Handler(
+    sut: ObservableDictionary<string, number, string>,
+    nested: () => void,
+  ): void {
+    let done = false;
+    sut.keys2.itemAdded.subscribe((event) => {
+      if (done || event.item !== 1) return;
+      done = true;
+      nested();
+    });
+    sut.add("a", 1, "outer");
+  }
+
+  it("keeps both views empty when the handler removes the new entry", () => {
+    const sut = new ObservableDictionary<string, number, string>();
+
+    addFromAKeys2Handler(sut, () => sut.delete("a", 1));
+
+    expect(sut.size).toBe(0);
+    expect([...sut.keys1]).toEqual([]);
+    expect([...sut.keys2]).toEqual([]);
+  });
+
+  it("lists a pending key1 before a key that the handler adds", () => {
+    const sut = new ObservableDictionary<string, number, string>();
+    sut.add("x", 0, "first");
+
+    addFromAKeys2Handler(sut, () => {
+      sut.add("c", 5, "nested");
+      sut.add("a", 3, "nested");
+    });
+
+    expect([...sut.keys1]).toEqual(["x", "a", "c"]);
+    expect([...sut.keys2]).toEqual([0, 1, 5, 3]);
+  });
+
+  it("keeps keys1 order when the handler moves a key1 later", () => {
+    const sut = new ObservableDictionary<string, number, string>();
+    sut.add("x", 0, "first");
+    sut.add("y", 2, "second");
+
+    addFromAKeys2Handler(sut, () => {
+      sut.add("x", 4, "nested");
+      sut.delete("x", 0);
+    });
+
+    expect([...sut.keys1]).toEqual(["x", "y", "a"]);
+    expect([...sut.keys2]).toEqual([2, 1, 4]);
   });
 });

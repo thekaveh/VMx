@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ObservableDictionary`: an entry added from a `keys1` subscriber no longer
+  puts `keys2` out of first-appearance order. `keys2` now updates first, so a
+  `keys1` subscriber already sees the new key2. When a `keys2` subscriber
+  changes the entries, the new key1 goes to its first-appearance position in
+  `keys1` (#772).
 - The `eagerChildren` documentation on `HierarchicalVM` and
   `HierarchicalVMBuilder.eagerChildren(_:)` no longer claims the child subtree.
   The option applies to this node's children only. It continues deeper only
