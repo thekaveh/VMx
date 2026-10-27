@@ -4,7 +4,7 @@ Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framewo
 
 ## 1. Status
 
-**v0.36.0** implements `spec-v3.30.0`. Behavioral Rust tests cover all 426
+**v0.36.0** implements `spec-v3.30.0`. Behavioral Rust tests cover all 429
 library conformance IDs. Rust has no UI scenario suite for the five THEME IDs.
 
 The public surface and some behaviors are not fully aligned with the other
@@ -109,8 +109,9 @@ The crate uses idiomatic Rust naming and error handling:
 - Every canonical component VM family exposes its `ViewModelType`.
 - Capability traits include predicate filtering, finite-page navigation,
   readable expansion state, and mutable search terms. `ExpandableState`
-  supports an explicit initial state and owned disposal. A disposed
-  `SearchableState` reads as an empty term.
+  supports an explicit initial state, owned disposal, and owned expand,
+  collapse, and toggle commands. A disposed `SearchableState` reads as an
+  empty term.
 - `ValueStream<T>` provides typed replay and completion. Message subscriptions
   can observe completion, and notification pending state replays.
 - `DerivedProperty` recomputes from one through five owned source

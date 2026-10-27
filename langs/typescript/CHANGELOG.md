@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `ExpandableState.expandCommand`, `collapseCommand` and
+  `toggleExpansionCommand` (#660, ADR-0159, EXP-006..008). Each command's
+  predicate is the matching `can*` check, its task calls the verb, and its
+  `canExecuteChanged` fires on every expansion change. The helper builds each
+  command on first read and owns it: `dispose()` disposes the commands, which
+  are then inert. An owner re-exports a command instead of building one.
 - The raw constructors default `hint` to `""`, as the builders do (spec/10
   §4): `ComponentVMBase`, `ComponentVMOf`, `ReadonlyComponentVMOf`,
   `CompositeVMBase`, `CompositeVM`, `CompositeVMOf`, `GroupVM`, and

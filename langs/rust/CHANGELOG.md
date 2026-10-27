@@ -8,6 +8,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.36.0] — unreleased source version
 
+### Added
+
+- `ExpandableState::expand_command()`, `collapse_command()` and
+  `toggle_expansion_command()`, and an inherent `can_toggle_expansion()`
+  (#660, ADR-0159, EXP-006..008). Each command's predicate is the matching
+  `can_*` check, its action calls the verb, and the `expanded_changed()` hub
+  triggers its `can_execute_changed()`. The state builds each command on first
+  read, under a lock, and owns it: every call returns a clone of the same
+  command, clones of the state share it, and `dispose()` disposes it, after
+  which it is inert.
+
 ### Changed
 
 - The `reconstruct_command()` of `CompositeVm` and `GroupVm` now calls

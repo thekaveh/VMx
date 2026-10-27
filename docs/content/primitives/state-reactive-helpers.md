@@ -368,12 +368,53 @@ an assignment of the same value returns early and publishes nothing. See
 [Authoring A Mutable Property](viewmodel-families/component-family.md#6229-authoring-a-mutable-property)
 for the helper name in each flavor.
 
+### 6.5.5.3. Expansion Commands
+
+`ExpandableState` exposes `ExpandCommand`, `CollapseCommand`, and
+`ToggleExpansionCommand` (Python `expand_command`, TypeScript and Swift
+`expandCommand`, Rust `expand_command()`; ADR-0159). Each command's predicate
+is the matching `can*` check, and its `CanExecuteChanged` fires on every
+expansion change. The helper builds each command on its first read and owns
+it: disposing the helper disposes the commands, which are then inert.
+
+The helper publishes nothing to a message hub. The owning VM publishes
+`isExpanded` with a one-line forwarder, and re-exports the commands it binds:
+
+<!-- checked-snippet: langs/typescript/tests/unit/expandableStateRecipes.test.ts#expansion-forwarder -->
+
+```typescript
+class TreeNodeVM extends ComponentVMBase {
+  readonly #expansion = this.own(new ExpandableState());
+  // The helper owns its commands; the owner only re-exports them.
+  readonly toggleCommand = this.#expansion.toggleExpansionCommand;
+
+  constructor(name: string, hub: IMessageHub, dispatcher: IDispatcher) {
+    super({ name, hub, dispatcher });
+    // The one-line forwarder: the owner publishes isExpanded (spec 14 rule 6).
+    this.own(
+      this.#expansion.isExpandedChanged.subscribe(() => this._notifyPropertyChanged("isExpanded")),
+    );
+  }
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  get isExpanded(): boolean {
+    return this.#expansion.isExpanded;
+  }
+}
+```
+
+In Rust, the helper reports changes through its `expanded_changed()` hub
+instead of an observable, so the owner subscribes to that hub.
+
 ## 6.5.6. Cross-Language Surface
 
 | Helper                    | Key surface                                       |
 | ------------------------- | ------------------------------------------------- |
 | `SearchableState<TItem>`  | search term, filtered view, force-search          |
-| `ExpandableState`         | expanded flag, expand/collapse/toggle             |
+| `ExpandableState`         | expanded flag, expand/collapse/toggle + commands  |
 | `DerivedProperty<TValue>` | value, value-changed, optional write-back         |
 | `DiscriminatorVM<TKey>`   | active key, modal depth, clear/open/close helpers |
 | `FormVM<TM>`              | model, snapshot, dirty/valid state, approve/deny  |

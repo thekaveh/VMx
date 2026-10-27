@@ -1,4 +1,4 @@
-use vmx::{walk_expanded, ExpandableState, Message};
+use vmx::{walk_expanded, Command, ExpandableState, Message};
 
 use super::expandable_support::ExpandableHierarchy;
 
@@ -127,4 +127,118 @@ fn walk_expanded_skips_collapsed_descendants() {
         .map(|node| node.model())
         .collect::<Vec<_>>();
     assert_eq!(names, vec!["root", "a", "b", "b1", "b2"]);
+}
+
+fn expansion_values(record: &vmx::MessageRecorder) -> Vec<String> {
+    record
+        .messages()
+        .into_iter()
+        .map(|message| match message {
+            Message::Custom { name, .. } => name,
+            other => panic!("unexpected expansion message {other:?}"),
+        })
+        .collect()
+}
+
+/// EXP-006 — Expansion command predicates track the can checks and re-fire on each change
+#[test]
+fn expansion_command_predicates_track_can_checks_and_refire() {
+    let state = ExpandableState::new();
+    let expand = state.expand_command();
+    let collapse = state.collapse_command();
+    let toggle = state.toggle_expansion_command();
+    let records =
+        [&expand, &collapse, &toggle].map(|command| command.can_execute_changed().record(1024));
+    let counts = || {
+        records
+            .iter()
+            .map(|record| record.messages().len())
+            .collect::<Vec<_>>()
+    };
+
+    assert!(expand.can_execute());
+    assert!(!collapse.can_execute());
+    assert!(toggle.can_execute());
+
+    state.expand();
+    assert_eq!(counts(), vec![1, 1, 1]);
+    assert!(!expand.can_execute());
+    assert!(collapse.can_execute());
+    assert!(toggle.can_execute());
+
+    state.expand(); // a no-op verb is not an expansion change
+    assert_eq!(counts(), vec![1, 1, 1]);
+
+    state.collapse();
+    assert_eq!(counts(), vec![2, 2, 2]);
+    assert!(expand.can_execute());
+    assert!(!collapse.can_execute());
+
+    // Every read returns a clone of the same command.
+    state.expand_command().raise_can_execute_changed();
+    state.collapse_command().raise_can_execute_changed();
+    state.toggle_expansion_command().raise_can_execute_changed();
+    assert_eq!(counts(), vec![3, 3, 3]);
+}
+
+/// EXP-007 — Executing an expansion command performs its verb
+#[test]
+fn executing_each_expansion_command_performs_its_verb() {
+    let state = ExpandableState::new();
+    let record = state.expanded_changed().record(1024);
+
+    state.expand_command().execute();
+    assert!(state.is_expanded());
+    state.expand_command().execute(); // the predicate is false while expanded
+    assert_eq!(expansion_values(&record), vec!["true"]);
+
+    state.collapse_command().execute();
+    assert!(!state.is_expanded());
+    state.collapse_command().execute();
+    assert_eq!(expansion_values(&record), vec!["true", "false"]);
+
+    state.toggle_expansion_command().execute();
+    assert!(state.is_expanded());
+    state.toggle_expansion_command().execute();
+    assert!(!state.is_expanded());
+    assert_eq!(
+        expansion_values(&record),
+        vec!["true", "false", "true", "false"]
+    );
+}
+
+/// EXP-008 — Disposing the helper makes its expansion commands inert
+#[test]
+fn disposing_the_helper_makes_expansion_commands_inert() {
+    let state = ExpandableState::new();
+    let commands = [
+        state.expand_command(),
+        state.collapse_command(),
+        state.toggle_expansion_command(),
+    ];
+    let record = state.expanded_changed().record(1024);
+
+    state.dispose();
+
+    for command in &commands {
+        assert!(!command.can_execute());
+        command.execute();
+    }
+    assert!(!state.is_expanded());
+    assert!(record.messages().is_empty());
+
+    // A command first read after disposal is inert as well, also through a
+    // clone of the state.
+    let late = ExpandableState::new();
+    late.dispose();
+    let clone = late.clone();
+    for command in [
+        clone.expand_command(),
+        clone.collapse_command(),
+        clone.toggle_expansion_command(),
+    ] {
+        assert!(!command.can_execute());
+        command.execute();
+    }
+    assert!(!late.is_expanded());
 }

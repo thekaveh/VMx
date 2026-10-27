@@ -42,6 +42,7 @@ on:
       - "langs/typescript/tests/unit/componentAuthoringRecipes.test.ts"
       - "langs/typescript/tests/unit/compositeRestoreRecipe.test.ts"
       - "langs/typescript/tests/unit/connectionStateRecipe.test.ts"
+      - "langs/typescript/tests/unit/expandableStateRecipes.test.ts"
       - "langs/typescript/tests/unit/hierarchicalServicesRecipe.test.ts"
       - "langs/typescript/tests/unit/hierarchicalSubtreeDisposalRecipe.test.ts"
       - "langs/typescript/tests/unit/imperativeBridgeRecipe.test.ts"

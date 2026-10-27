@@ -51,9 +51,17 @@ public protocol ExpansionTogglable {
 /// synchronous read of the latest value. `expand()` / `collapse()` are guarded:
 /// a no-op transition publishes nothing. `toggleExpansion()` flips the state, so
 /// a double-toggle returns to the initial value (CAP-003/006 idempotence).
+///
+/// `expandCommand`, `collapseCommand` and `toggleExpansionCommand` wrap the
+/// three verbs (ADR-0159). Each is built on its first read, so a helper whose
+/// commands are never read holds no trigger subscriptions and disposal creates
+/// none.
 public final class ExpandableState: Expandable, Collapsible, ExpansionTogglable {
     private let expandedSubject: CurrentValueSubject<Bool, Never>
     private var disposed = false
+    private var builtExpandCommand: RelayCommand?
+    private var builtCollapseCommand: RelayCommand?
+    private var builtToggleExpansionCommand: RelayCommand?
 
     /// - Parameter initiallyExpanded: the starting expansion state (default
     ///   collapsed).
@@ -69,6 +77,42 @@ public final class ExpandableState: Expandable, Collapsible, ExpansionTogglable 
     /// Completes on `dispose()`.
     public var isExpandedChanged: AnyPublisher<Bool, Never> {
         expandedSubject.dropFirst().eraseToAnyPublisher()
+    }
+
+    /// Runs `expand()` when `canExpand()` is true. This helper owns the
+    /// command: `dispose()` disposes it, and callers must not.
+    public var expandCommand: RelayCommand {
+        if let command = builtExpandCommand { return command }
+        let command = buildCommand(
+            predicate: { [weak self] in self?.canExpand() ?? false },
+            task: { [weak self] in self?.expand() }
+        )
+        builtExpandCommand = command
+        return command
+    }
+
+    /// Runs `collapse()` when `canCollapse()` is true. This helper owns the
+    /// command: `dispose()` disposes it, and callers must not.
+    public var collapseCommand: RelayCommand {
+        if let command = builtCollapseCommand { return command }
+        let command = buildCommand(
+            predicate: { [weak self] in self?.canCollapse() ?? false },
+            task: { [weak self] in self?.collapse() }
+        )
+        builtCollapseCommand = command
+        return command
+    }
+
+    /// Runs `toggleExpansion()` when `canToggleExpansion()` is true. This
+    /// helper owns the command: `dispose()` disposes it, and callers must not.
+    public var toggleExpansionCommand: RelayCommand {
+        if let command = builtToggleExpansionCommand { return command }
+        let command = buildCommand(
+            predicate: { [weak self] in self?.canToggleExpansion() ?? false },
+            task: { [weak self] in self?.toggleExpansion() }
+        )
+        builtToggleExpansionCommand = command
+        return command
     }
 
     public func canExpand() -> Bool { !expandedSubject.value }
@@ -95,11 +139,33 @@ public final class ExpandableState: Expandable, Collapsible, ExpansionTogglable 
         }
     }
 
-    /// Complete `isExpandedChanged` and make later mutations inert. `isExpanded`
-    /// retains its last reading. Idempotent.
+    /// Dispose the commands that were read, complete `isExpandedChanged`, and
+    /// make later mutations inert. `isExpanded` retains its last reading.
+    /// Idempotent.
     public func dispose() {
         guard !disposed else { return }
         disposed = true
+        builtExpandCommand?.dispose()
+        builtCollapseCommand?.dispose()
+        builtToggleExpansionCommand?.dispose()
         expandedSubject.send(completion: .finished)
+    }
+
+    // The closures hold the helper weakly, so the cached commands do not keep
+    // it alive. A command read after disposal is built without the completed
+    // trigger and disposed at once, so it is inert like the others (ADR-0068).
+    private func buildCommand(
+        predicate: @escaping () -> Bool,
+        task: @escaping () -> Void
+    ) -> RelayCommand {
+        var builder = RelayCommand.builder().predicate(predicate).task(task)
+        if !disposed {
+            builder = builder.triggers(
+                isExpandedChanged.map { _ in () }.eraseToAnyPublisher()
+            )
+        }
+        let command = builder.build()
+        if disposed { command.dispose() }
+        return command
     }
 }

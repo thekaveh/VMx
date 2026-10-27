@@ -38,7 +38,7 @@ Package status for each flavor is in [Availability](../index.md#11-availability)
 ## 7.1.4. Common Rules
 
 - All five catalog-complete source flavors target the same VM family model and
-  426-ID library conformance catalog. The
+  429-ID library conformance catalog. The
   [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
   (open items and recorded differences in §12.4.7 and §12.7–§12.12) tracks the remaining Rust
   public-surface and behavior gaps.
