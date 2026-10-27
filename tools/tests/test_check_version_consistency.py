@@ -2010,6 +2010,37 @@ def test_react_changelog_section_is_required_for_the_current_version(tmp_path: P
     assert cvc.check_react_changelog_section(tmp_path) == []
 
 
+@pytest.mark.parametrize(
+    ("sections", "error"),
+    [
+        (
+            "## [0.1.1]\n\n- Older.\n\n## [0.1.2]\n\n- Current.\n",
+            "first react version '0.1.1' != manifest version '0.1.2'",
+        ),
+        (
+            "## [0.1.3]\n\n- Newer.\n\n## [0.1.2]\n\n- Current.\n",
+            "first react version '0.1.3' != manifest version '0.1.2'",
+        ),
+        (
+            "## [0.1.2]\n\n- Current.\n\n## [0.1.0]\n\n- Oldest.\n\n## [0.1.1]\n\n- Older.\n",
+            "react CHANGELOG versions are not strictly descending at '0.1.0', '0.1.1'",
+        ),
+    ],
+    ids=["older-above-current", "newer-than-package-json", "older-sections-out-of-order"],
+)
+def test_react_changelog_versions_start_current_and_descend(
+    tmp_path: Path, sections: str, error: str
+) -> None:
+    # #786: the flavor CHANGELOG order rule applies to the React adapter too.
+    react = tmp_path / "packages/react"
+    react.mkdir(parents=True)
+    (react / "package.json").write_text('{"version": "0.1.2"}', encoding="utf-8")
+    changelog = react / "CHANGELOG.md"
+    changelog.write_text(f"## [Unreleased]\n\n{sections}", encoding="utf-8")
+
+    assert cvc.check_react_changelog_section(tmp_path) == [f"  {changelog}: {error}"]
+
+
 def test_check_react_example_locks_reports_stale_adapter_version(tmp_path: Path) -> None:
     lock_path = tmp_path / cvc.REACT_EXAMPLE_LOCKS[0]
     lock_path.parent.mkdir(parents=True)

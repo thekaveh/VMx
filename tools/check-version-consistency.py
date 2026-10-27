@@ -399,6 +399,7 @@ def _check_changelog_version_order(
     changelog: Path,
     sections: dict[str, list[str]],
     expected_versions: dict[str, str],
+    core_label: str = "core",
 ) -> list[str]:
     """Require each package namespace to start current and descend strictly."""
     versions: dict[str, list[str]] = {}
@@ -418,7 +419,7 @@ def _check_changelog_version_order(
         history = versions.get(namespace, [])
         if not history:
             continue
-        label = namespace or "core"
+        label = namespace or core_label
         if history[0] != expected:
             return [
                 f"  {changelog}: first {label} version {history[0]!r} "
@@ -498,6 +499,9 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
 def check_react_changelog_section(repo_root: Path) -> list[str]:
     """Require a substantive section for the React adapter's current version.
 
+    The versioned sections must also start at the package.json version and
+    descend strictly, as check_changelog_sections requires of each flavor.
+
     The adapter is versioned independently of the core TypeScript package and
     is not part of the flavor manifests, so it gets its own check: a release
     tag must never publish a version whose notes are missing.
@@ -529,6 +533,10 @@ def check_react_changelog_section(repo_root: Path) -> list[str]:
         return extractable
     if version not in sections:
         return [f"  react: CHANGELOG section {version!r} is missing for current version"]
+    # The same order rule as the flavor CHANGELOGs (#786).
+    order = _check_changelog_version_order(changelog, sections, {"": version}, "react")
+    if order:
+        return order
     if not _has_substantive_markdown(sections[version]):
         return [f"  react: CHANGELOG section {version!r} has no substantive release notes"]
     return []
