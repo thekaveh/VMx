@@ -699,6 +699,22 @@ describe("COMP-025", () => {
     expect(compositeStatusInSelector).not.toBe(ConstructionStatus.Constructed);
     expect(compositeStatusInSelector).toBe(ConstructionStatus.Constructing);
 
+    // The selector runs on every construct: destruct clears current
+    // (COMP-005), and the next construct runs the selector again.
+    composite.selectComponent(children[2]!);
+    expect(composite.current).toBe(children[2]);
+    composite.destruct();
+    expect(composite.current, "destruct clears current (COMP-005)").toBeNull();
+    composite.construct();
+    expect(selectorCalls, "the selector must run again on a later construct").toBe(2);
+    expect(composite.current).toBe(children[1]);
+
+    // Reconstruct runs a construct phase, so the selector runs again.
+    composite.reconstruct();
+    expect(selectorCalls, "the selector must run during the construct phase of a reconstruct").toBe(3);
+    expect(composite.current).toBe(children[1]);
+    expect(composite.status).toBe(ConstructionStatus.Constructed);
+
     // A null-returning selector leaves current null and publishes no
     // PropertyChangedMessage("current").
     const hub2 = makeHub();

@@ -525,9 +525,11 @@ public class CompositeVMConformanceTests
     // ── COMP-025 — Current(selector) drives initial-current during construct ──
 
     /// <summary>
-    /// COMP-025: Current(selector) runs once during construct, after all children
-    /// reach Constructed and before the composite reaches Constructed. The
-    /// selector's return value becomes Current. See spec/06 §3.2 and ADR-0042.
+    /// COMP-025: Current(selector) runs once during each construct, after all
+    /// children reach Constructed and before the composite reaches Constructed.
+    /// The selector's return value becomes Current. A later construct and the
+    /// construct phase of a reconstruct run the selector again. See spec/06
+    /// §3.2 and ADR-0042.
     /// </summary>
     [Fact, Trait("Conformance", "COMP-025")]
     public void COMP_025_Current_Selector_Drives_Initial_Selection()
@@ -565,6 +567,22 @@ public class CompositeVMConformanceTests
             "the selector runs after every child reached Constructed");
         compositeStatusInSelector.Should().Be(ConstructionStatus.Constructing,
             "the selector runs before the composite reaches Constructed");
+
+        // The selector runs on every construct: destruct clears Current
+        // (COMP-005), and the next construct runs the selector again.
+        composite.SelectComponent(c);
+        composite.Current.Should().BeSameAs(c);
+        composite.Destruct();
+        composite.Current.Should().BeNull("destruct clears Current (COMP-005)");
+        composite.Construct();
+        selectorCalls.Should().Be(2, "the selector must run again on a later construct");
+        composite.Current.Should().BeSameAs(b);
+
+        // Reconstruct runs a construct phase, so the selector runs again.
+        composite.Reconstruct();
+        selectorCalls.Should().Be(3, "the selector must run during the construct phase of a reconstruct");
+        composite.Current.Should().BeSameAs(b);
+        composite.Status.Should().Be(ConstructionStatus.Constructed);
 
         // A null-returning selector leaves Current null and publishes no
         // PropertyChangedMessage("Current").
