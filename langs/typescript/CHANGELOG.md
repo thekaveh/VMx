@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `AggregateVM1` to `AggregateVM6`. `ComponentVMOf` and `ReadonlyComponentVMOf`
   also default `modeledHinter` to a hinter that returns `""`. A subclass no
   longer passes `hint: ""` through `super(...)` (#663).
+- An opt-in reverse child order for container teardown (ADR-0161, #662).
+  `GroupVM`, `CompositeVM` and `CompositeVMOf` builders gain
+  `.destructOrder(order)`, and `GroupVM.create` and `CompositeVM.create` accept
+  a `destructOrder` field. The new `ChildOrder` type is `"insertion" |
+  "reverse"`. With `"reverse"`, destruct, the destruct phase of `reconstruct()`
+  and `dispose()` walk the children last child first. The default
+  `"insertion"` keeps today's order. Construct order does not change, and
+  every child is still disposed before its container (LIFE-013). Covered by
+  GRP-014 and COMP-046.
 
 ### Deprecated
 

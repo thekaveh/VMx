@@ -263,15 +263,23 @@ respect to other lifecycle operations on the same VM.
   reached `Constructed`.
 - A composite/group/aggregate's `destruct()` completes only when every child has
   reached `Destructed`.
-- The order in which children are constructed/destructed is unspecified.
-  Implementations MAY drive them sequentially or concurrently. The reference
-  implementations drive aggregates and the Rust composites and groups
-  sequentially. The C#, Python, TypeScript, and Swift composites and groups
-  start factory-populated children during population, so background children
-  in those containers can run concurrently. The parent observes its children's
-  `ConstructionStatusChangedMessage` emissions to know when to finalize its own
-  state. Because the order is unspecified, subscribers MUST NOT rely on a
-  particular child visitation order; no conformance ID constrains it (VMX-046).
+- The order in which children are constructed/destructed is unspecified,
+  except as the next item says. Implementations MAY drive them sequentially or
+  concurrently. The reference implementations drive aggregates and the Rust
+  composites and groups sequentially. The C#, Python, TypeScript, and Swift
+  composites and groups start factory-populated children during population,
+  so background children in those containers can run concurrently. The parent
+  observes its children's `ConstructionStatusChangedMessage` emissions to know
+  when to finalize its own state. Because the default order is unspecified,
+  subscribers MUST NOT rely on a particular child visitation order (VMX-046).
+- A `GroupVM` or `CompositeVM` built with the `Reverse` destruct order
+  (chapter 06 §5, chapter 07 §2, ADR-0161) MUST destruct and dispose its
+  children in reverse child order, last child first. This covers the destruct
+  phase of `reconstruct()`, and the walk waits for each background child
+  before it starts the next one. Construct order does not change. The default
+  order, `Insertion`, stays unspecified; every reference implementation walks
+  the children first child first. `GRP-014` and `COMP-046` constrain the
+  `Reverse` order.
 
 Conformance IDs for this behavior are cataloged in `12-conformance.md` under the
 `COMP-NNN`, `GRP-NNN`, and `AGG-NNN` prefixes; each VM file's `## Conformance` section
@@ -288,7 +296,9 @@ membership state. Transfer never calls `destruct()` or `dispose()`.
 ## 7. Disposal cascade
 
 `dispose()` on a parent disposes every child (synchronously, depth-first). This
-ensures no orphaned `IDisposable` resources are left behind.
+ensures no orphaned `IDisposable` resources are left behind. A `GroupVM` or
+`CompositeVM` built with the `Reverse` destruct order disposes its children
+last child first (§6, ADR-0161).
 
 Once disposal begins, a failure cannot abort the remaining terminal work.
 Every child is attempted in deterministic order before the parent completes

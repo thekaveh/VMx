@@ -18,9 +18,20 @@ project adheres to [Semantic Versioning](https://semver.org/).
   read, under a lock, and owns it: every call returns a clone of the same
   command, clones of the state share it, and `dispose()` disposes it, after
   which it is inert.
+- `GroupVmBuilder`, `CompositeVmBuilder` and `ModeledCompositeVmBuilder` have
+  a `destruct_order(ChildOrder)` setter, and `GroupVmOptions` and
+  `CompositeVmOptions` have a `destruct_order` field for `create`. With
+  `ChildOrder::Reverse`, `destruct()`, the destruct phase of `reconstruct()`
+  and `dispose()` walk the children from the last to the first. The default,
+  `ChildOrder::Insertion`, keeps the current order. Construct order does not
+  change, and every child is still disposed before its container (ADR-0161,
+  `GRP-014`, `COMP-046`) (#662).
 
 ### Changed
 
+- Breaking: `GroupVmOptions` and `CompositeVmOptions` have a new
+  `destruct_order` field, so code that builds them with a struct literal must
+  now set it (#662).
 - The `reconstruct_command()` of `CompositeVm` and `GroupVm` now calls
   `reconstruct()`, as the aggregates' command does, instead of repeating its
   steps. A later fix to the walk therefore reaches the command too. The

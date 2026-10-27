@@ -43,6 +43,11 @@ Lifecycle orchestration matches `CompositeVM`:
 
 - construct waits for all children to reach `Constructed`
 - destruct waits for all children to reach `Destructed`
+- by default, destruct and dispose walk the children first child first;
+  `DestructOrder(ChildOrder.Reverse)` walks them last child first, so a child
+  that depends on an earlier sibling is torn down before it (ADR-0161).
+  Construct order does not change, and every child is still disposed before
+  the group
 - `AutoConstructOnAdd(true)` constructs a child added after construct starts;
   construct then also waits for that child
 - `BatchUpdate()` suppresses per-mutation collection events and emits one reset
@@ -58,11 +63,12 @@ while the group is their parent.
 
 ## 6.2.4.4. Cross-Language Surface
 
-| Concept         | C#                      | Python                 | TypeScript              | Swift                   | Rust                       |
-| --------------- | ----------------------- | ---------------------- | ----------------------- | ----------------------- | -------------------------- |
-| Type            | `GroupVM<VM>`           | `GroupVM[VM]`          | `GroupVM<VM>`           | `GroupVM<VM>`           | `GroupVm<VM>`              |
-| Builder entry   | `GroupVM<VM>.Builder()` | `GroupVMBuilder[VM]()` | `GroupVM.builder<VM>()` | `GroupVM<VM>.builder()` | `GroupVm::<VM>::builder()` |
-| Children setter | `Children(...)`         | `children(...)`        | `children(...)`         | `children { ... }`      | `children(...)`            |
+| Concept          | C#                                  | Python                               | TypeScript                 | Swift                     | Rust                                  |
+| ---------------- | ----------------------------------- | ------------------------------------ | -------------------------- | ------------------------- | ------------------------------------- |
+| Type             | `GroupVM<VM>`                       | `GroupVM[VM]`                        | `GroupVM<VM>`              | `GroupVM<VM>`             | `GroupVm<VM>`                         |
+| Builder entry    | `GroupVM<VM>.Builder()`             | `GroupVMBuilder[VM]()`               | `GroupVM.builder<VM>()`    | `GroupVM<VM>.builder()`   | `GroupVm::<VM>::builder()`            |
+| Children setter  | `Children(...)`                     | `children(...)`                      | `children(...)`            | `children { ... }`        | `children(...)`                       |
+| Reverse teardown | `DestructOrder(ChildOrder.Reverse)` | `destruct_order(ChildOrder.REVERSE)` | `destructOrder("reverse")` | `destructOrder(.reverse)` | `destruct_order(ChildOrder::Reverse)` |
 
 ## 6.2.4.5. Example
 

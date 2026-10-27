@@ -36,6 +36,12 @@ public sealed record GroupVMOptions<VM>
     /// <summary>Optional auto-construct-on-add flag (default: false).</summary>
     public bool AutoConstructOnAdd { get; init; }
 
+    /// <summary>
+    /// Optional order in which destruct and dispose walk the children
+    /// (default: <see cref="ChildOrder.Insertion"/>; ADR-0161).
+    /// </summary>
+    public ChildOrder DestructOrder { get; init; } = ChildOrder.Insertion;
+
     /// <summary>Optional OnConstruct lifecycle callback.</summary>
     public Action? OnConstruct { get; init; }
 

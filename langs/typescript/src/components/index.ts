@@ -1,5 +1,5 @@
 export { ViewModelType } from "./types.js";
-export type { IComponentVM, IComponentVMOf } from "./types.js";
+export type { ChildOrder, IComponentVM, IComponentVMOf } from "./types.js";
 export type { IParentVM } from "./componentVMBase.js";
 export { ComponentVMBase } from "./componentVMBase.js";
 export { ComponentVM, ComponentVMBuilder } from "./componentVM.js";

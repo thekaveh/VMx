@@ -330,6 +330,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 {
     private readonly bool _asyncSelection;
     private readonly bool _autoConstructOnAdd;
+    private readonly ChildOrder _destructOrder;
     private readonly Func<IEnumerable<VM>, VM?>? _currentSelector;
     private readonly Action<VM?>? _onCurrentChanged;
 
@@ -500,10 +501,33 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         Action? onDestruct,
         Func<IEnumerable<VM>, VM?>? currentSelector,
         Action<VM?>? onCurrentChanged)
+        : this(name, hint, hub, dispatcher, asyncSelection, autoConstructOnAdd,
+            onConstruct, onDestruct, currentSelector, onCurrentChanged, ChildOrder.Insertion)
+    {
+    }
+
+    /// <summary>
+    /// Initializes the composite base with an explicit child destruct order
+    /// (ADR-0161). <paramref name="destructOrder"/> sets the order in which
+    /// destruct and dispose walk the children; construct order is unchanged.
+    /// </summary>
+    protected CompositeVMBase(
+        string name,
+        string hint,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        bool asyncSelection,
+        bool autoConstructOnAdd,
+        Action? onConstruct,
+        Action? onDestruct,
+        Func<IEnumerable<VM>, VM?>? currentSelector,
+        Action<VM?>? onCurrentChanged,
+        ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
         _asyncSelection = asyncSelection;
         _autoConstructOnAdd = autoConstructOnAdd;
+        _destructOrder = destructOrder;
         _currentSelector = currentSelector;
         _onCurrentChanged = onCurrentChanged;
     }
@@ -1257,7 +1281,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     }
 
     /// <summary>
-    /// Overrides Destruct: sets Current = null first, then waits for every child.
+    /// Overrides Destruct: sets Current = null first, then waits for every child,
+    /// walking the children in the configured destruct order (ADR-0161).
     /// </summary>
     protected override void OnDestruct()
     {
@@ -1265,7 +1290,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             SetCurrent(null, async: false);
 
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            Snapshot().ToArray(),
+            Snapshot().ToArray().InDestructOrder(_destructOrder),
             construct: false,
             after: () => base.OnDestruct()));
     }
@@ -1288,7 +1313,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 return;
             }
             _disposeRequested = 1;
-            snapshot = _children.ToArray();
+            // Depth-first, in the configured destruct order (ADR-0161).
+            snapshot = _children.ToArray().InDestructOrder(_destructOrder);
         }
         // The cascade runs at the base's admitted-hook boundary (LIFE-015): a
         // foreign disposal cleans no child while this container's hook runs.

@@ -15,6 +15,7 @@ from typing import Generic, TypeVar
 
 from vmx.builders import _validation
 from vmx.components.base import _ComponentVMBase
+from vmx.components.child_order import ChildOrder
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHubProto
@@ -50,6 +51,7 @@ class GroupVMBuilder(Generic[VM]):
     _children_factory: Callable[[], Iterable[VM]] | None = dataclasses.field(default=None)
     _on_construct: Callable[[], None] | None = dataclasses.field(default=None)
     _on_destruct: Callable[[], None] | None = dataclasses.field(default=None)
+    _destruct_order: ChildOrder = dataclasses.field(default=ChildOrder.INSERTION)
 
     # ── Fluent setters ───────────────────────────────────────────────────────
 
@@ -93,6 +95,14 @@ class GroupVMBuilder(Generic[VM]):
         """Set the optional on_destruct lifecycle callback."""
         return dataclasses.replace(self, _on_destruct=callback)
 
+    def destruct_order(self, order: ChildOrder) -> GroupVMBuilder[VM]:
+        """Set the order of the destruct walk and dispose cascade (default: insertion).
+
+        ``ChildOrder.REVERSE`` destructs and disposes the children from the last
+        index to the first. Construct order does not change (ADR-0161).
+        """
+        return dataclasses.replace(self, _destruct_order=order)
+
     # ── Build ────────────────────────────────────────────────────────────────
 
     def build(self) -> GroupVM[VM]:
@@ -118,6 +128,7 @@ class GroupVMBuilder(Generic[VM]):
             children_factory=children_factory,
             on_construct=self._on_construct,
             on_destruct=self._on_destruct,
+            destruct_order=self._destruct_order,
         )
 
 

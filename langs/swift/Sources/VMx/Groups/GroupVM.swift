@@ -18,6 +18,9 @@ public struct GroupVMOptions<Child: ComponentVMBase> {
     public var onConstruct: (() throws -> Void)?
     public var onDestruct: (() -> Void)?
     public var autoConstructOnAdd: Bool
+    /// The order in which the group destructs and disposes its children
+    /// (default `.insertion`, ADR-0161).
+    public var destructOrder: ChildOrder
 
     public init(
         name: String? = nil,
@@ -27,7 +30,8 @@ public struct GroupVMOptions<Child: ComponentVMBase> {
         children: (() -> [Child])? = nil,
         onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
-        autoConstructOnAdd: Bool = false
+        autoConstructOnAdd: Bool = false,
+        destructOrder: ChildOrder = .insertion
     ) {
         self.name = name
         self.hint = hint
@@ -37,6 +41,7 @@ public struct GroupVMOptions<Child: ComponentVMBase> {
         self.onConstruct = onConstruct
         self.onDestruct = onDestruct
         self.autoConstructOnAdd = autoConstructOnAdd
+        self.destructOrder = destructOrder
     }
 }
 
@@ -82,6 +87,8 @@ open class GroupVM<Child: ComponentVMBase>:
     private var populationJoined: [ComponentVMBase]?
     private lazy var groupParent = GroupParent(group: self)
     private let _autoConstructOnAdd: Bool
+    /// The order of the destruct walk and the dispose cascade (ADR-0161).
+    let destructOrder: ChildOrder
     private var disposeRequested = false
     private var disposeDeferred = false
     private var membershipTransactionActive = false
@@ -143,10 +150,12 @@ open class GroupVM<Child: ComponentVMBase>:
         childrenFactory: (() -> [Child])? = nil,
         onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
-        autoConstructOnAdd: Bool = false
+        autoConstructOnAdd: Bool = false,
+        destructOrder: ChildOrder = .insertion
     ) {
         self.childrenFactory = childrenFactory
         self._autoConstructOnAdd = autoConstructOnAdd
+        self.destructOrder = destructOrder
         super.init(
             name: name, hint: hint,
             hub: hub, dispatcher: dispatcher,
@@ -771,7 +780,8 @@ open class GroupVM<Child: ComponentVMBase>:
     }
 
     open override func _onDestruct() throws {
-        let snapshot = snapshot()
+        // `destructOrder` orders the walk and its waits (ADR-0161).
+        let snapshot = destructOrder.arrange(snapshot())
         try _transitionChildren(snapshot, construct: false) {
             try super._onDestruct()
         }
@@ -820,7 +830,8 @@ open class GroupVM<Child: ComponentVMBase>:
             guard let snapshot else { return }
             // A disposed peer must not roll back a pending transition.
             _abandonChildTransition()
-            for child in snapshot { child.dispose() }
+            // LIFE-013: depth-first dispose children in `destructOrder`, then self.
+            for child in destructOrder.arrange(snapshot) { child.dispose() }
             super.dispose()
             return
         }
@@ -834,6 +845,7 @@ open class GroupVM<Child: ComponentVMBase>:
         var b = GroupVM<Child>.builder()
             .hint(options.hint)
             .autoConstructOnAdd(options.autoConstructOnAdd)
+            .destructOrder(options.destructOrder)
         if let name = options.name { b = b.name(name) }
         if let hub = options.hub { b = b._optionHub(hub) }
         if let dispatcher = options.dispatcher { b = b._optionDispatcher(dispatcher) }

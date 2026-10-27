@@ -16,6 +16,19 @@ export enum ViewModelType {
   Aggregate = "Aggregate",
 }
 
+/**
+ * The order in which a `GroupVM` or `CompositeVM` destructs and disposes its
+ * children (spec/02 §6, ADR-0161).
+ *
+ * - `"insertion"` (default) walks the children in their current order, first
+ *   child first, as the construct walk does.
+ * - `"reverse"` walks them last child first, so a child that depends on an
+ *   earlier sibling is torn down before that sibling.
+ *
+ * Construct order is the same for both values.
+ */
+export type ChildOrder = "insertion" | "reverse";
+
 /** Shared baseline every VMx viewmodel exposes. */
 export interface IComponentVM {
   readonly name: string;

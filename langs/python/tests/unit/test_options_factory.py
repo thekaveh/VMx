@@ -8,12 +8,18 @@ equivalent to the builder path and validates the same required fields.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import pytest
 
+from vmx import ChildOrder
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.component_vm import ComponentVM, ComponentVMOf
 from vmx.components.protocols import ViewModelType
+from vmx.composites.builders import CompositeVMBuilder, CompositeVMOfBuilder
 from vmx.composites.composite_vm import CompositeVM
+from vmx.groups.builders import GroupVMBuilder
 from vmx.groups.group_vm import GroupVM
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.services.dispatcher import RxDispatcher
@@ -171,3 +177,105 @@ def test_group_vm_create_matches_builder_and_populates() -> None:
 def test_group_vm_create_missing_hub_raises() -> None:
     with pytest.raises(BuilderValidationError):
         GroupVM.create(name="grp", children=lambda: [])
+
+
+# ── destruct_order (ADR-0161, BLD-006) ───────────────────────────────────────
+
+
+def _destruct_sequence(build: Callable[[MessageHub[object], RxDispatcher, Any], Any]) -> list[str]:
+    """Build a container over children a, b; construct, destruct; return the destruct order."""
+    hub, dispatcher = make_hub(), make_dispatcher()
+    order: list[str] = []
+
+    def child(name: str) -> ComponentVM:
+        return (
+            ComponentVM.builder()
+            .name(name)
+            .services(hub, dispatcher)
+            .on_destruct(lambda: order.append(name))
+            .build()
+        )
+
+    children = [child("a"), child("b")]
+    vm = build(hub, dispatcher, lambda: children)
+    vm.construct()
+    vm.destruct()
+    return order
+
+
+def test_child_order_members() -> None:
+    assert [member.name for member in ChildOrder] == ["INSERTION", "REVERSE"]
+
+
+@pytest.mark.parametrize("builder_type", [GroupVMBuilder, CompositeVMBuilder, CompositeVMOfBuilder])
+def test_destruct_order_setter_returns_a_new_builder(builder_type: Any) -> None:
+    original = builder_type()
+    updated = original.destruct_order(ChildOrder.REVERSE)
+
+    assert updated is not original
+    assert original._destruct_order is ChildOrder.INSERTION
+    assert updated._destruct_order is ChildOrder.REVERSE
+    assert updated.destruct_order(ChildOrder.INSERTION)._destruct_order is ChildOrder.INSERTION
+
+
+def test_group_vm_create_destruct_order_defaults_to_insertion() -> None:
+    assert _destruct_sequence(
+        lambda hub, dispatcher, children: GroupVM.create(
+            name="grp", hub=hub, dispatcher=dispatcher, children=children
+        )
+    ) == ["a", "b"]
+
+
+def test_group_vm_create_honors_destruct_order() -> None:
+    assert _destruct_sequence(
+        lambda hub, dispatcher, children: GroupVM.create(
+            name="grp",
+            hub=hub,
+            dispatcher=dispatcher,
+            children=children,
+            destruct_order=ChildOrder.REVERSE,
+        )
+    ) == ["b", "a"]
+
+
+def test_composite_vm_create_destruct_order_defaults_to_insertion() -> None:
+    assert _destruct_sequence(
+        lambda hub, dispatcher, children: CompositeVM.create(
+            name="comp", hub=hub, dispatcher=dispatcher, children=children
+        )
+    ) == ["a", "b"]
+
+
+def test_composite_vm_create_honors_destruct_order() -> None:
+    assert _destruct_sequence(
+        lambda hub, dispatcher, children: CompositeVM.create(
+            name="comp",
+            hub=hub,
+            dispatcher=dispatcher,
+            children=children,
+            destruct_order=ChildOrder.REVERSE,
+        )
+    ) == ["b", "a"]
+
+
+def test_builders_honor_destruct_order() -> None:
+    assert _destruct_sequence(
+        lambda hub, dispatcher, children: (
+            GroupVMBuilder[ComponentVM]()
+            .name("grp")
+            .services(hub, dispatcher)
+            .children(children)
+            .destruct_order(ChildOrder.REVERSE)
+            .build()
+        )
+    ) == ["b", "a"]
+    assert _destruct_sequence(
+        lambda hub, dispatcher, children: (
+            CompositeVMBuilder[ComponentVM]()
+            .name("comp")
+            .services(hub, dispatcher)
+            .children(children)
+            .destruct_order(ChildOrder.REVERSE)
+            .build()
+        )
+    ) == ["b", "a"]

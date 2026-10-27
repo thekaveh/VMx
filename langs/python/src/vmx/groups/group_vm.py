@@ -46,6 +46,7 @@ from vmx.components.base import (
     _ParentCompositeVM,
     _ParentTransfer,
 )
+from vmx.components.child_order import ChildOrder, _in_destruct_order
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -97,6 +98,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         children_factory: Callable[[], Iterable[VM]] | None = None,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
+        destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> None:
         super().__init__(
             name=name,
@@ -107,6 +109,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             on_destruct=on_destruct,
         )
         self._auto_construct_on_add: bool = auto_construct_on_add
+        # Fixed at build time: the destruct walk and dispose cascade order (ADR-0161).
+        self._destruct_order: ChildOrder = destruct_order
         self._children: list[VM] = []
         self._children_factory: Callable[[], Iterable[VM]] | None = children_factory
         self._populated: bool = False
@@ -562,10 +566,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._complete_lifecycle_hook_after(walking)
 
     def _on_destruct(self) -> None:
-        """Destruct every child, then invoke the builder's on_destruct callback."""
+        """Destruct every child in the destruct order, then invoke the on_destruct callback."""
         self._complete_lifecycle_hook_after(
             self._transition_children(
-                list(self.snapshot()),
+                _in_destruct_order(self.snapshot(), self._destruct_order),
                 construct=False,
                 after=self._on_destruct_cb,
             )
@@ -587,7 +591,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 self._dispose_deferred = True
                 return
             self._dispose_requested = True
-            snapshot = list(self._children)
+            snapshot = _in_destruct_order(self._children, self._destruct_order)
         # The cascade runs at the base's admitted-hook boundary (LIFE-015): a
         # foreign dispose cleans no child while this container's hook runs. No
         # lock is held here, so the hook can finish while this call waits.
@@ -754,6 +758,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         auto_construct_on_add: bool = False,
         on_construct: Callable[[], None] | None = None,
         on_destruct: Callable[[], None] | None = None,
+        destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> GroupVM[VM]:
         """Construct a :class:`GroupVM` from keyword options in one call.
 
@@ -767,7 +772,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         from vmx.groups.builders import GroupVMBuilder
 
         builder: GroupVMBuilder[VM] = GroupVMBuilder()
-        builder = builder.hint(hint).auto_construct_on_add(auto_construct_on_add)
+        builder = (
+            builder.hint(hint)
+            .auto_construct_on_add(auto_construct_on_add)
+            .destruct_order(destruct_order)
+        )
         if children is not None:
             builder = builder.children(children)
         if name is not None:

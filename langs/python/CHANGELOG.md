@@ -22,6 +22,15 @@ All notable changes to the Python flavor are documented here. The format is base
   makes one hub subscription and emits each matching message once, in hub
   order. Pass a sequence as `*names`; a call with no names raises `TypeError`.
   A single-name call behaves as before (spec/03 §7.2, ADR-0160, #664).
+- `GroupVMBuilder`, `CompositeVMBuilder` and `CompositeVMOfBuilder` gain
+  `destruct_order(order)`, and `GroupVM.create` and `CompositeVM.create` gain
+  the `destruct_order` keyword. The new `ChildOrder` enum is exported from
+  `vmx`. `ChildOrder.REVERSE` makes `destruct()`, the destruct phase of
+  `reconstruct()` and the `dispose()` cascade walk the children from the last
+  index to the first. Construct order does not change, and every child is
+  still disposed before the container (LIFE-013). The default,
+  `ChildOrder.INSERTION`, keeps the current order (#662, ADR-0161, GRP-014,
+  COMP-046).
 
 ### Fixed
 

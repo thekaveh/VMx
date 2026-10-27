@@ -17,6 +17,7 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
     private var _currentSelector: (([Child]) -> Child?)?
     private var _onCurrentChanged: ((Child?) -> Void)?
     private var _autoConstructOnAdd: Bool = false
+    private var _destructOrder: ChildOrder = .insertion
     private var _asyncSelection: Bool = false
 
     public init() {}
@@ -76,6 +77,12 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
     public func asyncSelection(_ enabled: Bool = true) -> CompositeVMBuilder<Child> {
         var c = self; c._asyncSelection = enabled; return c
     }
+    /// Sets the order in which the composite destructs and disposes its
+    /// children (default `.insertion`). `.reverse` walks the last child
+    /// first; construct order does not change (ADR-0161).
+    public func destructOrder(_ order: ChildOrder) -> CompositeVMBuilder<Child> {
+        var c = self; c._destructOrder = order; return c
+    }
     public func withNullServices() -> CompositeVMBuilder<Child> {
         services(hub: NullMessageHub.INSTANCE, dispatcher: NullDispatcher.INSTANCE)
     }
@@ -98,7 +105,8 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
             currentSelector: _currentSelector,
             onCurrentChanged: _onCurrentChanged,
             autoConstructOnAdd: _autoConstructOnAdd,
-            asyncSelection: _asyncSelection
+            asyncSelection: _asyncSelection,
+            destructOrder: _destructOrder
         )
     }
 }

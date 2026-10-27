@@ -11,12 +11,15 @@ import {
   ComponentVM,
   ComponentVMOf,
   CompositeVM,
+  CompositeVMOf,
   GroupVM,
   ViewModelType,
   ConstructionStatus,
+  ConstructionStatusChangedMessage,
   BuilderValidationError,
 } from "../../src/index.js";
 import type {
+  ChildOrder,
   ComponentVMOptions,
   ComponentVMOfOptions,
   CompositeVMOptions,
@@ -195,5 +198,83 @@ describe("GroupVM.create", () => {
         children: () => [],
       } as unknown as GroupVMOptions<ComponentVM>),
     ).toThrow(BuilderValidationError);
+  });
+});
+
+// ── destructOrder (ADR-0161) ─────────────────────────────────────────────────
+
+describe("destructOrder builder setter and create(options) field", () => {
+  /** Child names in the order the container disposes them. */
+  function disposalOrder(container: {
+    construct(): void;
+    dispose(): void;
+  }, hub: MessageHub): string[] {
+    const order: string[] = [];
+    hub.messages.subscribe((message) => {
+      if (
+        message instanceof ConstructionStatusChangedMessage &&
+        message.status === ConstructionStatus.Disposed &&
+        message.senderName !== "parent"
+      ) order.push(message.senderName);
+    });
+    container.construct();
+    container.dispose();
+    return order;
+  }
+
+  const kids = (hub: MessageHub) => () =>
+    ["a", "b"].map((name) => ComponentVM.create({ name, hub, dispatcher: makeDisp() }));
+
+  it("returns a new builder and leaves the original at the insertion default", () => {
+    const hub = makeHub();
+    const base = GroupVM.builder<ComponentVM>()
+      .name("parent").services(hub, makeDisp()).children(kids(hub));
+    const reversed = base.destructOrder("reverse");
+
+    expect(reversed).not.toBe(base);
+    expect(disposalOrder(base.build(), hub)).toEqual(["a", "b"]);
+    const hub2 = makeHub();
+    expect(disposalOrder(
+      reversed.services(hub2, makeDisp()).children(kids(hub2)).build(), hub2,
+    )).toEqual(["b", "a"]);
+  });
+
+  it("the last destructOrder call wins", () => {
+    const hub = makeHub();
+    const vm = CompositeVM.builder<ComponentVM>()
+      .name("parent").services(hub, makeDisp()).children(kids(hub))
+      .destructOrder("reverse").destructOrder("insertion").build();
+    expect(disposalOrder(vm, hub)).toEqual(["a", "b"]);
+  });
+
+  it("the modeled composite builder setter returns a new builder", () => {
+    const hub = makeHub();
+    const base = CompositeVMOf.builder<string, ComponentVM>()
+      .name("parent").services(hub, makeDisp())
+      .childrenModels(() => ["a", "b"])
+      .childModelToChildViewModel((name) =>
+        ComponentVM.create({ name, hub, dispatcher: makeDisp() }));
+    const reversed = base.destructOrder("reverse");
+    expect(reversed).not.toBe(base);
+    expect(disposalOrder(reversed.build(), hub)).toEqual(["b", "a"]);
+  });
+
+  it.each<[string, ChildOrder | undefined, string[]]>([
+    ["default", undefined, ["a", "b"]],
+    ["insertion", "insertion", ["a", "b"]],
+    ["reverse", "reverse", ["b", "a"]],
+  ])("GroupVM.create and CompositeVM.create honor the %s field", (_label, order, expected) => {
+    const hub = makeHub();
+    const field = order === undefined ? {} : { destructOrder: order };
+    const group = GroupVM.create<ComponentVM>({
+      name: "parent", hub, dispatcher: makeDisp(), children: kids(hub), ...field,
+    });
+    expect(disposalOrder(group, hub)).toEqual(expected);
+
+    const hub2 = makeHub();
+    const composite = CompositeVM.create<ComponentVM>({
+      name: "parent", hub: hub2, dispatcher: makeDisp(), children: kids(hub2), ...field,
+    });
+    expect(disposalOrder(composite, hub2)).toEqual(expected);
   });
 });

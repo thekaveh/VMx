@@ -5,6 +5,7 @@
  */
 import type { Subject } from "rxjs";
 import type { ComponentVMBase } from "./componentVMBase.js";
+import type { ChildOrder } from "./types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import { collectionChangedMessageFor } from "../collections/vmCollectionHubMessage.js";
 import type { CollectionChangedEvent } from "../collections/index.js";
@@ -67,4 +68,17 @@ export function* constructWalk<VM extends ComponentVMBase>(
     joined.add(late);
     yield late;
   }
+}
+
+/**
+ * A snapshot of `children` in the order the container destructs and disposes
+ * them (spec/02 §6, ADR-0161): as given for `"insertion"`, last child first
+ * for `"reverse"`.
+ */
+export function destructWalk<VM extends ComponentVMBase>(
+  children: readonly VM[],
+  order: ChildOrder,
+): VM[] {
+  const snapshot = [...children];
+  return order === "reverse" ? snapshot.reverse() : snapshot;
 }

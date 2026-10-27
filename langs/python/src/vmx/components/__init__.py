@@ -3,6 +3,7 @@
 Public re-exports:
 
 - :class:`ViewModelType` — role discriminator enum
+- :class:`ChildOrder` — container destruct and dispose order
 - :class:`ComponentVMProto` — baseline VM Protocol
 - :class:`ComponentVMOfProto` — modeled VM Protocol
 - :class:`ReadonlyComponentVMOfProto` — readonly modeled VM Protocol
@@ -21,6 +22,7 @@ from vmx.components.builders import (
     ComponentVMOfBuilder,
     ReadonlyComponentVMOfBuilder,
 )
+from vmx.components.child_order import ChildOrder
 from vmx.components.component_vm import ComponentVM, ComponentVMOf
 from vmx.components.protocols import (
     ComponentVMOfProto,
@@ -31,6 +33,7 @@ from vmx.components.protocols import (
 from vmx.components.readonly_component_vm import ReadonlyComponentVMOf
 
 __all__ = [
+    "ChildOrder",
     "ComponentVM",
     "ComponentVMBuilder",
     "ComponentVMOf",
