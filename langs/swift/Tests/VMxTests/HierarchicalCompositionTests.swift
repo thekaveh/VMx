@@ -4,8 +4,8 @@
 // HIER-012: a collapsed HierarchicalVM node composes ExpandableState and
 //           gates walkExpanded descent — collapsed root yields only itself;
 //           after expand(), root + child are yielded.
-// HIER-013: SearchableState composed over a node's materialized children
-//           filters them by search term.
+// HIER-013: SearchableState composed over the tree's materialized portion
+//           (walkExpanded) filters it; a collapsed node hides its lazy child.
 // HIER-014: ModeledCrudCommands composed over a HierarchicalVM tree —
 //           createNewCommand adds a child node; deleteCurrentCommand removes it.
 //
@@ -52,7 +52,29 @@ private final class ExpandableHierNode: HierarchicalVM<HierModel, ExpandableHier
 
 // ── HIER-013 helper ──────────────────────────────────────────────────────────
 
-private final class SearchHierNode: HierarchicalVM<HierModel, SearchHierNode> {}
+/// Expanded unless built collapsed, so `walkExpanded` stops at a collapsed node.
+private final class SearchHierNode: HierarchicalVM<HierModel, SearchHierNode>, Expandable {
+    private let expansion: ExpandableState
+
+    init(
+        _ value: String,
+        collapsed: Bool = false,
+        hub: MessageHubProtocol,
+        childrenFactory: @escaping (SearchHierNode) -> [SearchHierNode] = { _ in [] }
+    ) {
+        self.expansion = ExpandableState(initiallyExpanded: !collapsed)
+        super.init(
+            model: HierModel(value: value),
+            childrenFactory: childrenFactory,
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE
+        )
+    }
+
+    var isExpanded: Bool { expansion.isExpanded }
+    func canExpand() -> Bool { expansion.canExpand() }
+    func expand() { expansion.expand() }
+}
 
 // ── HIER-014 helpers ─────────────────────────────────────────────────────────
 
@@ -92,39 +114,31 @@ final class HierarchicalCompositionTests: XCTestCase {
             "After expand(), root + childLeaf must be yielded")
     }
 
-    /// HIER-013 — SearchableState composed over a node's materialized children
-    /// filters them: setting searchTerm = "an" retains only "banana".
-    func testHier013SearchableStateFiltersChildren() {
+    /// HIER-013 — SearchableState composed over the materialized portion of
+    /// the tree, taken from `walkExpanded`, filters it: "an" retains "banana"
+    /// and "mango", and the lazy child behind the collapsed "cherry" stays out.
+    func testHier013SearchableStateFiltersTheMaterializedPortion() {
         let hub = MessageHub()
-        let apple  = SearchHierNode(model: HierModel(value: "apple"),
-                                    childrenFactory: { _ in [] }, hub: hub,
-                                    dispatcher: ImmediateDispatcher.INSTANCE)
-        // banana owns a lazy grandchild whose name also matches the search
-        // term; it is never accessed, so it must not appear in the results
-        // and its factory must not run (catalog: un-materialized children
-        // are excluded).
+        // cherry is collapsed and owns a lazy child "bandana", which would
+        // match "an" if it were materialized.
         var lazyFactoryCalls = 0
-        let banana = SearchHierNode(model: HierModel(value: "banana"),
-                                    childrenFactory: { _ in
-                                        lazyFactoryCalls += 1
-                                        return [SearchHierNode(
-                                            model: HierModel(value: "bandana"),
-                                            childrenFactory: { _ in [] }, hub: hub,
-                                            dispatcher: ImmediateDispatcher.INSTANCE)]
-                                    }, hub: hub,
-                                    dispatcher: ImmediateDispatcher.INSTANCE)
-        let cherry = SearchHierNode(model: HierModel(value: "cherry"),
-                                    childrenFactory: { _ in [] }, hub: hub,
-                                    dispatcher: ImmediateDispatcher.INSTANCE)
-        let root = SearchHierNode(
-            model: HierModel(value: "root"),
-            childrenFactory: { _ in [apple, banana, cherry] },
-            hub: hub,
-            dispatcher: ImmediateDispatcher.INSTANCE
-        )
+        let bandana = SearchHierNode("bandana", hub: hub)
+        let apple = SearchHierNode("apple", hub: hub)
+        let banana = SearchHierNode("banana", hub: hub)
+        let mango = SearchHierNode("mango", hub: hub)
+        let cherry = SearchHierNode("cherry", collapsed: true, hub: hub) { _ in
+            lazyFactoryCalls += 1
+            return [bandana]
+        }
+        let root = SearchHierNode("root", hub: hub) { _ in [apple, banana, mango, cherry] }
 
+        // The materialized portion comes from the library's expand-aware walk,
+        // which stops at the collapsed cherry without touching its children.
+        func materialized() -> [SearchHierNode] {
+            walkExpanded(root).dropFirst().compactMap { $0 as? SearchHierNode }
+        }
         let search = SearchableState<SearchHierNode>(
-            items: { root.children },
+            items: { materialized() },
             predicate: { node, term in
                 node.model.value.lowercased().contains(term.lowercased())
             }
@@ -137,18 +151,21 @@ final class HierarchicalCompositionTests: XCTestCase {
         search.searchTerm = "an"
         search.search() // force immediate recompute, bypassing debounce
 
-        XCTAssertEqual(result.count, 1, "Only 'banana' should match 'an'")
-        XCTAssertEqual(result.first?.model.value, "banana")
-        XCTAssertTrue(result.first === banana)
-        XCTAssertFalse(result.contains(where: { $0.model.value == "bandana" }),
-            "Un-materialized lazy grandchild must not be included")
+        XCTAssertEqual(result.map { $0.model.value }, ["banana", "mango"])
+        XCTAssertFalse(result.contains { $0 === bandana },
+            "Un-materialized lazy child must not be included")
         XCTAssertEqual(lazyFactoryCalls, 0,
-            "Searching must not materialize banana's lazy children")
+            "Searching must not materialize cherry's lazy children")
 
-        search.searchTerm = "e"
-        search.search()
-        XCTAssertEqual(result.map { $0.model.value }, ["apple", "cherry"])
+        // Non-vacuity: the walk reaches the collapsed node, and its lazy child
+        // matches once materialized. The collapsed boundary still hides it.
+        XCTAssertTrue(materialized().contains { $0 === cherry })
         XCTAssertEqual(lazyFactoryCalls, 0)
+        XCTAssertTrue(walk(root).contains { $0 === bandana })
+        XCTAssertEqual(lazyFactoryCalls, 1)
+        search.search()
+        XCTAssertEqual(result.map { $0.model.value }, ["banana", "mango"],
+            "A collapsed boundary still hides the lazy child")
 
         search.dispose()
     }
