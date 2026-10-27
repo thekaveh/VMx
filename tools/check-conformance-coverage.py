@@ -12,14 +12,15 @@ Exit codes:
     0  All required languages at full coverage with no stray markers (or no --require
        given).
     1  At least one required language has conformance gaps or stray markers.
-    2  Catalog file not found, required language has no conformance directory,
-       or invalid --require argument.
+    2  Catalog file not found or declares an ID under more than one heading,
+       required language has no conformance directory, or invalid --require
+       argument. A catalog error exits 2 with or without --require.
 
 Usage:
     python3 tools/check-conformance-coverage.py [--repo-root PATH] [--require LANG ...]
 
 Examples:
-    # Default: parse and report, never fail
+    # Default: parse and report; fails only on a catalog error (exit 2)
     python3 tools/check-conformance-coverage.py
 
     # Require python and csharp to have full coverage
@@ -545,7 +546,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         help=(
             "Language(s) that MUST have full conformance coverage and no markers for IDs "
             "absent from the catalog; tool exits 1 on any gap or stray marker. "
-            "Omitting --require makes the tool report-only (always exits 0). "
+            "Omitting --require makes the tool report-only: it exits 0 unless the "
+            "catalog is missing or declares an ID twice (exit 2). "
             "May be passed multiple times."
         ),
     )
@@ -563,7 +565,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             "ERROR: catalog IDs declared by more than one heading: " + ", ".join(duplicates),
             file=sys.stderr,
         )
-        return 1
+        return 2
     catalog = parse_catalog_ids(catalog_path)
     coverage, subsets = collect_coverage(repo_root)
 
