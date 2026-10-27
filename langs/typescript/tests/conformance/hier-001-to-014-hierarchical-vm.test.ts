@@ -15,6 +15,7 @@ import {
   SearchableState,
   TreeStructureChangedMessage,
   ViewModelType,
+  walk,
   walkExpanded,
 } from "../../src/index.js";
 import type { HierarchicalVMOptions } from "../../src/index.js";
@@ -472,18 +473,42 @@ describe("HIER-012", () => {
 // HIER-013 — Composition with SearchableState filters materialized portion
 // ---------------------------------------------------------------------------
 
+/** A HIER-013 node that starts collapsed, so walkExpanded stops at it. */
+class CollapsedNode extends MyNode {
+  readonly #expansion = new ExpandableState(false);
+
+  constructor(opts: ConstructorParameters<typeof MyNode>[0] = {}) {
+    super(opts);
+    declareCapabilities(this, "IExpandable");
+  }
+
+  get isExpanded(): boolean {
+    return this.#expansion.isExpanded;
+  }
+
+  expand(): void {
+    this.#expansion.expand();
+  }
+
+  canExpand(): boolean {
+    return this.#expansion.canExpand();
+  }
+}
+
 describe("HIER-013", () => {
   it("Composition with SearchableState filters materialized portion", () => {
     const hub = makeHub();
     const dispatcher = makeDispatcher();
 
-    // "bandana" is a lazy grandchild under banana that is never accessed; it
-    // matches the term "an" and must NOT appear in results.
+    // "cherry" is collapsed and owns a lazy child "bandana", which would
+    // match "an" if it were materialized.
     let lazyFactoryRuns = 0;
     const bandana = new MyNode({ model: makeModel("bandana"), hub, dispatcher });
     const apple = new MyNode({ model: makeModel("apple"), hub, dispatcher });
-    const banana = new MyNode({
-      model: makeModel("banana"),
+    const banana = new MyNode({ model: makeModel("banana"), hub, dispatcher });
+    const mango = new MyNode({ model: makeModel("mango"), hub, dispatcher });
+    const cherry = new CollapsedNode({
+      model: makeModel("cherry"),
       hub,
       dispatcher,
       childrenFactory: () => {
@@ -491,11 +516,14 @@ describe("HIER-013", () => {
         return [bandana];
       },
     });
-    const cherry = new MyNode({ model: makeModel("cherry"), hub, dispatcher });
-    const root = parentNode([apple, banana, cherry], hub);
+    const root = parentNode([apple, banana, mango, cherry], hub);
 
+    // The materialized portion comes from the library's expand-aware walk,
+    // which stops at the collapsed "cherry" without touching its children.
+    const materialized = (): MyNode[] =>
+      [...walkExpanded(root)].filter((node) => node !== root) as MyNode[];
     const search = new SearchableState<MyNode>({
-      items: () => root.children as Iterable<MyNode>,
+      items: materialized,
       predicate: (node, term) =>
         node.model.value.toLowerCase().includes(term.toLowerCase()),
       debounceMs: 0,
@@ -511,15 +539,18 @@ describe("HIER-013", () => {
     search.searchTerm = "an";
     search.search();
 
-    expect(result).toHaveLength(1);
-    expect(result[0]).toBe(banana);
+    expect(result).toEqual([banana, mango]);
     expect(result).not.toContain(bandana);
     expect(lazyFactoryRuns, "search must not materialize lazy children").toBe(0);
 
-    search.searchTerm = "e";
-    search.search();
-    expect(result).toEqual([apple, cherry]);
+    // Non-vacuity: the walk reaches the collapsed node, and its lazy child
+    // matches once materialized. The collapsed boundary still hides it.
+    expect(materialized()).toContain(cherry);
     expect(lazyFactoryRuns).toBe(0);
+    expect([...walk(root)]).toContain(bandana);
+    expect(lazyFactoryRuns).toBe(1);
+    search.search();
+    expect(result).toEqual([banana, mango]);
 
     search.dispose();
   });
