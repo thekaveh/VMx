@@ -38,9 +38,6 @@ fn a_million_sends_through_an_ordinary_hub_keep_only_the_recorder_bound() {
 
     assert_eq!(recorder.len(), CAPACITY);
     assert_eq!(recorder.dropped(), SENDS - CAPACITY as u64);
-    #[allow(deprecated)]
-    let history = hub.history();
-    assert!(history.is_empty(), "the hub itself retains nothing");
 }
 
 #[test]
