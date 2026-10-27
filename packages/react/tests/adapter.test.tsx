@@ -11,7 +11,10 @@ import {
   AsyncResourceVM,
   ComponentVM,
   ComponentVMOf,
+  CompositeCommand,
   CompositeVM,
+  ConfirmationDecoratorCommand,
+  DecoratorCommand,
   DerivedProperty,
   FormVM,
   HierarchicalVM,
@@ -422,6 +425,53 @@ describe("command and collection hooks", () => {
     act(() => command.dispose());
 
     expect(command.canExecute()).toBe(false);
+    expect(button.disabled).toBe(true);
+  });
+
+  it.each([
+    ["DecoratorCommand", (inner: RelayCommand) => new DecoratorCommand(inner)],
+    ["CompositeCommand", (inner: RelayCommand) => new CompositeCommand(inner)],
+    [
+      "ConfirmationDecoratorCommand",
+      (inner: RelayCommand) => new ConfirmationDecoratorCommand(inner, () => Promise.resolve(true)),
+    ],
+  ])("renders a disposed %s as disabled while its inner command stays live", (_name, wrap) => {
+    const inner = RelayCommand.builder().task(() => {}).build();
+    const command = wrap(inner);
+    function Probe(): JSX.Element {
+      const binding = useCommand(command);
+      return <button disabled={!binding.canExecute}>run</button>;
+    }
+    render(<Probe />);
+    const button = screen.getByRole("button") as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+
+    act(() => command.dispose());
+
+    expect(inner.canExecute()).toBe(true);
+    expect(button.disabled).toBe(true);
+  });
+
+  it.each([
+    ["DecoratorCommand", (inner: AsyncRelayCommand) => new DecoratorCommand(inner)],
+    ["CompositeCommand", (inner: AsyncRelayCommand) => new CompositeCommand(inner)],
+    [
+      "ConfirmationDecoratorCommand",
+      (inner: AsyncRelayCommand) => new ConfirmationDecoratorCommand(inner, () => Promise.resolve(true)),
+    ],
+  ])("renders a %s as disabled when only its async inner command is disposed", (_name, wrap) => {
+    const inner = AsyncRelayCommand.builder().task(async () => {}).build();
+    const command = wrap(inner);
+    function Probe(): JSX.Element {
+      const binding = useCommand(command);
+      return <button disabled={!binding.canExecute}>run</button>;
+    }
+    render(<Probe />);
+    const button = screen.getByRole("button") as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+
+    act(() => inner.dispose());
+
     expect(button.disabled).toBe(true);
   });
 

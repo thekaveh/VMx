@@ -3,7 +3,8 @@
  *
  * See spec/04-commands.md §Decorators and ADR-0012.
  */
-import type { Observable } from "rxjs";
+import { Subject, type Observable } from "rxjs";
+import { withDisposalSignal } from "./disposalSignal.js";
 import type { ICommand } from "./types.js";
 
 export interface DecoratorCommandOptions {
@@ -17,6 +18,8 @@ export class DecoratorCommand implements ICommand {
   readonly #pre: (() => void) | null;
   readonly #post: (() => void) | null;
   readonly #extra: (() => boolean) | null;
+  /** Emits once at disposal, so a binding re-reads `canExecute` (spec §8.4). */
+  readonly #disposal = new Subject<void>();
   #disposed = false;
 
   constructor(inner: ICommand, opts: DecoratorCommandOptions = {}) {
@@ -27,7 +30,7 @@ export class DecoratorCommand implements ICommand {
   }
 
   get canExecuteChanged(): Observable<void> {
-    return this.#inner.canExecuteChanged;
+    return withDisposalSignal(this.#inner.canExecuteChanged, this.#disposal);
   }
 
   canExecute(): boolean {
@@ -56,12 +59,16 @@ export class DecoratorCommand implements ICommand {
   }
 
   /**
-   * Make the decorator inert (spec §8.4, ADR-0134). Idempotent. The inner
-   * command stays owned by its creator. `canExecuteChanged` delegates lazily
-   * to the inner command, so nothing else is owned or released here.
+   * Make the decorator inert (spec §8.4, ADR-0134). Idempotent. Notifies this
+   * decorator's `canExecuteChanged` subscribers once; subscribers of the inner
+   * command get nothing. The inner command and its stream stay owned by its
+   * creator.
    */
   dispose(): void {
+    if (this.#disposed) return;
     this.#disposed = true;
+    this.#disposal.next();
+    this.#disposal.complete();
   }
 
   /** Re-reads disposal after a call-out that may have disposed this wrapper. */

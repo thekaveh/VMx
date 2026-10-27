@@ -7,7 +7,7 @@
  */
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { JSX } from "react";
-import { BehaviorSubject, Subject } from "rxjs";
+import { BehaviorSubject, defer, finalize, Subject } from "rxjs";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   AsyncResourceStatus,
@@ -19,6 +19,7 @@ import {
   MessageHub,
   NullDispatcher,
   RelayCommand,
+  type IMessageHub,
 } from "@thekaveh/vmx";
 import {
   useAsyncResource,
@@ -183,7 +184,20 @@ describe("react recipe: optional VM", () => {
       return <Editor title={live.model.title} />;
     }
     // docs-snippet:end react-optional-vm
-    const editor = titled("editor", "Draft");
+    // A hub that counts binding teardowns, so a leaked subscription fails.
+    let teardowns = 0;
+    const countingHub: IMessageHub = {
+      messages: defer(() => hub.messages.pipe(finalize(() => {
+        teardowns += 1;
+      }))),
+      send: (message) => hub.send(message),
+    };
+    const editor = ComponentVMOf.create<Titled>({
+      name: "editor",
+      hub: countingHub,
+      dispatcher,
+      model: { title: "Draft" },
+    });
     const view = render(<MaybeEditor vm={null} />);
     expect(view.container.textContent).toBe("No note");
 
@@ -196,6 +210,7 @@ describe("react recipe: optional VM", () => {
     expect(view.container.textContent).toBe("Edited");
 
     view.rerender(<MaybeEditor vm={null} />);
+    expect(teardowns).toBe(1);
     act(() => {
       editor.model = { title: "After unmount" };
     });

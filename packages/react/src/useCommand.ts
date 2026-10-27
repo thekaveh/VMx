@@ -10,8 +10,11 @@ export interface UseCommandResult {
 export function useCommand(command: ICommand): UseCommandResult {
   const subscribe = useCallback(
     (notify: () => void): (() => void) => {
-      // Some commands only complete this stream when disposed; re-read
-      // canExecute then too, so a disposed command renders as disabled.
+      // Disposal must re-render the binding, so a disposed command renders
+      // as disabled. RelayCommand and the wrappers (DecoratorCommand,
+      // CompositeCommand, ConfirmationDecoratorCommand) emit once when
+      // disposed. AsyncRelayCommand only completes this stream, so re-read
+      // canExecute on complete too.
       const subscription = command.canExecuteChanged.subscribe({
         next: notify,
         complete: notify,
