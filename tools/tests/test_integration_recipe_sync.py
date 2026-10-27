@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 import pytest
+from scripts.docs.snippets import checked_snippets, markdown_section
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INTEGRATION = REPO_ROOT / "docs" / "content" / "integration"
@@ -31,9 +32,9 @@ RECIPES = [
 
 
 def _section(guide: str, heading: str) -> str:
-    text = (INTEGRATION / guide).read_text(encoding="utf-8")
-    assert heading in text, f"{guide} lost its '{heading}' section"
-    return text.split(heading, 1)[1].split("\n## ", 1)[0]
+    section = markdown_section((INTEGRATION / guide).read_text(encoding="utf-8"), heading)
+    assert section is not None, f"{guide} lost its '{heading}' section"
+    return section
 
 
 @pytest.mark.parametrize(("guide", "heading", "language", "fixture"), RECIPES)
@@ -45,8 +46,10 @@ def test_recipe_fence_is_checked_against_the_executed_fixture(
         f"{guide} should show exactly one {language} block"
     )
     source = (FIXTURE / fixture).relative_to(REPO_ROOT).as_posix()
-    marker = rf"<!-- checked-snippet: {re.escape(source)} -->\n\n```{language}\n"
-    assert re.search(marker, section), f"{guide} lost the checked-snippet marker for {fixture}"
+    checked = [
+        snippet.source for snippet in checked_snippets(section) if snippet.language == language
+    ]
+    assert source in checked, f"{guide} lost the checked-snippet marker for {fixture}"
 
 
 def test_fixture_pins_the_host_versions_the_guides_name() -> None:

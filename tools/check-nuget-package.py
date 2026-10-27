@@ -47,11 +47,116 @@ README_IMAGE_HOSTS = {"raw.githubusercontent.com"}
 README_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif")
 _FENCED_CODE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
-_MARKDOWN_TARGET = re.compile(r"(!?)\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
 _HTML_TARGET = re.compile(
     r"""<(img|a|source)\b[^>]*?\b(?:src|href|srcset)\s*=\s*["']([^"']+)["']""", re.IGNORECASE
 )
-_REFERENCE_TARGET = re.compile(r"^ {0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)", re.MULTILINE)
+# An optional "...", '...' or (...) title after an inline destination (CommonMark).
+_TITLE = re.compile(r"""\s+(?:"[^"]*"|'[^']*'|\([^)]*\))""")
+_REFERENCE_LABEL = re.compile(r"\[([^\]]*)\]")
+# The destination may follow on the next line (CommonMark).
+_REFERENCE_DEFINITION = re.compile(
+    r"^ {0,3}\[([^\]]+)\]:[ \t]*(?:\n[ \t]*)?<?([^\s>]+)>?.*$", re.MULTILINE
+)
+
+
+def _label(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _closing_bracket(text: str, start: int) -> int:
+    """Return the index of the ']' that closes the '[' at start, or -1."""
+    depth = 0
+    index = start
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+
+def _destination(text: str, start: int) -> tuple[str, int] | None:
+    """Parse an inline destination and optional title at text[start] == '('.
+
+    Return the URL and the index after the closing ')', or None. A bare
+    destination may hold balanced parentheses at any depth (CommonMark).
+    """
+    if start >= len(text) or text[start] != "(":
+        return None
+    index = start + 1
+    while index < len(text) and text[index] in " \t\n":
+        index += 1
+    if index < len(text) and text[index] == "<":
+        close = text.find(">", index)
+        if close < 0 or "\n" in text[index:close]:
+            return None
+        url, index = text[index + 1 : close], close + 1
+    else:
+        begin, depth = index, 0
+        while index < len(text) and not text[index].isspace():
+            char = text[index]
+            if char == "\\":
+                index += 2
+                continue
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+            index += 1
+        url = text[begin:index]
+        if depth or not url:
+            return None
+    title = _TITLE.match(text, index)
+    if title:
+        index = title.end()
+    while index < len(text) and text[index] in " \t\n":
+        index += 1
+    if index < len(text) and text[index] == ")":
+        return url, index + 1
+    return None
+
+
+def _inline_targets(
+    text: str, definitions: dict[str, str], uses: dict[str, set[bool]]
+) -> list[tuple[bool, str]]:
+    """Return (is_image, url) for inline links and images, including the image
+    inside a linked image. Record which reference definitions are used, and how."""
+    targets: list[tuple[bool, str]] = []
+    index = 0
+    while (start := text.find("[", index)) >= 0:
+        if start > 0 and text[start - 1] == "\\":
+            index = start + 1
+            continue
+        end = _closing_bracket(text, start)
+        if end < 0:
+            # An unmatched '[' is prose; later links still count.
+            index = start + 1
+            continue
+        is_image = start > 0 and text[start - 1] == "!"
+        inner = text[start + 1 : end]
+        destination = _destination(text, end + 1)
+        reference = _REFERENCE_LABEL.match(text, end + 1)
+        label = _label(reference.group(1) or inner) if reference else _label(inner)
+        if destination:
+            url, index = destination
+            targets.append((is_image, url))
+        elif label in definitions:
+            uses.setdefault(label, set()).add(is_image)
+            index = reference.end() if reference else end + 1
+        else:
+            index = start + 1
+            continue
+        targets += _inline_targets(inner, definitions, uses)
+    return targets
 
 
 def validate_readme(text: str, package_id: str) -> list[str]:
@@ -61,9 +166,18 @@ def validate_readme(text: str, package_id: str) -> list[str]:
     if first_line != f"# {package_id}":
         errors.append(f"README must open with the heading '# {package_id}'")
     prose = _INLINE_CODE.sub("", _FENCED_CODE.sub("", text))
-    targets = [(bang == "!", url) for bang, url in _MARKDOWN_TARGET.findall(prose)]
+    definitions = {
+        _label(label): url for label, url in reversed(_REFERENCE_DEFINITION.findall(prose))
+    }
+    uses: dict[str, set[bool]] = {}
+    targets = _inline_targets(_REFERENCE_DEFINITION.sub("", prose), definitions, uses)
     targets += [(tag.lower() != "a", url) for tag, url in _HTML_TARGET.findall(prose)]
-    targets += [(False, url) for url in _REFERENCE_TARGET.findall(prose)]
+    # A definition gets the rules of each way it is used; an unused one is a link.
+    targets += [
+        (is_image, url)
+        for label, url in definitions.items()
+        for is_image in sorted(uses.get(label, {False}))
+    ]
     for is_image, url in targets:
         kind = "image" if is_image else "link"
         if url.startswith("#") and not is_image:

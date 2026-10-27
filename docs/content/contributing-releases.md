@@ -132,9 +132,10 @@ limitations.
 
 ### 11.3.2. Checked Documentation Snippets
 
-A fence in `docs/content` or a package README can be tied to code that CI runs.
-Put the code in a test or example, mark it, and put a marker comment directly
-above the fence:
+A fence in `docs/content` or a published README can be tied to code that CI
+runs. The gate scans `packages/*/README.md`, `langs/*/README.md` and
+`langs/csharp/packaging/*/README.md`. Put the code in a test or example, mark
+it, and put a marker comment directly above the fence:
 
 ```text
 <!-- checked-snippet: path/to/source.ts -->              whole file
@@ -144,9 +145,10 @@ above the fence:
 A region is every line between `docs-snippet:start region-name` and
 `docs-snippet:end region-name` comments in the source, dedented. A source may
 split one region into several start/end pairs, for example around a namespace
-line the page leaves out; the parts are joined in order. `make docs-check`
-fails when a fence differs from its source, including in the generated site
-and wiki pages.
+line the page leaves out; the parts are joined in order. A fence may be
+indented as CommonMark allows, also inside a list item; the check removes that
+indentation first. `make docs-check` fails when a fence differs from its source,
+including in the generated site and wiki pages.
 
 ### 11.3.3. Coverage Floors
 
