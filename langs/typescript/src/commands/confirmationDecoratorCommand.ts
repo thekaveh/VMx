@@ -6,6 +6,7 @@
  */
 import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
+import { withDisposalSignal } from "./disposalSignal.js";
 import type { IAsyncCommand, ICommand } from "./types.js";
 
 export type ConfirmDelegate = () => Promise<boolean>;
@@ -17,6 +18,8 @@ export class ConfirmationDecoratorCommand implements ICommand {
   readonly #inner: ICommand;
   readonly #confirm: ConfirmDelegate;
   readonly #errors = new Subject<unknown>();
+  /** Emits once at disposal, so a binding re-reads `canExecute` (spec §8.4). */
+  readonly #disposal = new Subject<void>();
 
   #disposed = false;
 
@@ -26,7 +29,7 @@ export class ConfirmationDecoratorCommand implements ICommand {
   }
 
   get canExecuteChanged(): Observable<void> {
-    return this.#inner.canExecuteChanged;
+    return withDisposalSignal(this.#inner.canExecuteChanged, this.#disposal);
   }
 
   /**
@@ -83,14 +86,17 @@ export class ConfirmationDecoratorCommand implements ICommand {
 
   /**
    * Make the decorator inert and complete the {@link errors} channel (spec
-   * §8.4, ADR-0134). Idempotent. A pending confirmation that resolves later
-   * runs no inner command and emits nothing. The inner command stays owned by
-   * its creator: an inner operation already running is neither cancelled nor
-   * disposed, and `canExecuteChanged` delegates lazily to it.
+   * §8.4, ADR-0134). Idempotent. Notifies this decorator's `canExecuteChanged`
+   * subscribers once; subscribers of the inner command get nothing. A pending
+   * confirmation that resolves later runs no inner command and emits nothing.
+   * The inner command stays owned by its creator: an inner operation already
+   * running is neither cancelled nor disposed.
    */
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#disposal.next();
+    this.#disposal.complete();
     this.#errors.complete();
   }
 

@@ -3,20 +3,23 @@
  *
  * See spec/04-commands.md §Decorators and ADR-0012.
  */
-import { merge, NEVER, type Observable } from "rxjs";
+import { merge, NEVER, Subject, type Observable } from "rxjs";
+import { withDisposalSignal } from "./disposalSignal.js";
 import type { ICommand } from "./types.js";
 
 export class CompositeCommand implements ICommand {
   readonly #inner: readonly ICommand[];
   readonly canExecuteChanged: Observable<void>;
+  /** Emits once at disposal, so a binding re-reads `canExecute` (spec §8.4). */
+  readonly #disposal = new Subject<void>();
   #disposed = false;
 
   constructor(...inner: ICommand[]) {
     this.#inner = inner;
-    this.canExecuteChanged =
-      inner.length === 0
-        ? NEVER
-        : merge(...inner.map((c) => c.canExecuteChanged));
+    this.canExecuteChanged = withDisposalSignal(
+      inner.length === 0 ? NEVER : merge(...inner.map((c) => c.canExecuteChanged)),
+      this.#disposal,
+    );
   }
 
   canExecute(): boolean {
@@ -36,12 +39,16 @@ export class CompositeCommand implements ICommand {
   }
 
   /**
-   * Make the composite inert (spec §8.4, ADR-0134). Idempotent. The inner
-   * commands stay owned by their creator. `canExecuteChanged` is a lazy merge
-   * of the inner streams, so nothing else is owned or released here.
+   * Make the composite inert (spec §8.4, ADR-0134). Idempotent. Notifies this
+   * composite's `canExecuteChanged` subscribers once; subscribers of the inner
+   * commands get nothing. The inner commands and their streams stay owned by
+   * their creator.
    */
   dispose(): void {
+    if (this.#disposed) return;
     this.#disposed = true;
+    this.#disposal.next();
+    this.#disposal.complete();
   }
 
   /** Re-reads disposal after a call-out that may have disposed this wrapper. */
