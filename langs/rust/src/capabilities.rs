@@ -3,7 +3,8 @@
 //! Spec: `spec/14-capabilities.md`; ADR-0010, ADR-0057.
 
 use super::{
-    lock, Arc, AtomicBool, ConstructionStatus, Message, MessageHub, Mutex, Ordering, VmNode,
+    finish_with_first_failure, lock, retain_first_failure, Arc, AtomicBool, ConstructionStatus,
+    Message, MessageHub, Mutex, Ordering, RelayCommand, VmNode,
 };
 
 /// Opt-in selection capability.
@@ -219,75 +220,53 @@ pub trait Pageable {
 }
 
 #[derive(Clone, Default)]
-/// Reusable expansion state with a hot change-notification hub.
+/// Reusable expansion state with a hot change-notification hub and the
+/// matching expand, collapse and toggle commands.
+///
+/// Clones share the state, the hub and the commands. Each command is built on
+/// its first read (ADR-0159), so a state whose commands are never read holds no
+/// trigger subscriptions, and [`ExpandableState::dispose`] creates none.
+///
+/// ```
+/// use vmx::{Command, ExpandableState};
+///
+/// let state = ExpandableState::new();
+/// let toggle = state.toggle_expansion_command();
+///
+/// toggle.execute();
+/// assert!(state.is_expanded());
+///
+/// state.dispose();
+/// assert!(!toggle.can_execute());
+/// ```
 pub struct ExpandableState {
+    core: ExpansionCore,
+    commands: Arc<Mutex<ExpansionCommands>>,
+}
+
+/// The state that the command closures share. It does not hold the command
+/// cache, so a cached command never keeps itself alive through its closures.
+#[derive(Clone, Default)]
+struct ExpansionCore {
     expanded: Arc<Mutex<bool>>,
     expanded_changed: MessageHub,
     disposed: Arc<AtomicBool>,
 }
 
-impl ExpandableState {
-    /// Creates collapsed expansion state.
-    pub fn new() -> Self {
-        Self::default()
-    }
+#[derive(Default)]
+struct ExpansionCommands {
+    expand: Option<RelayCommand>,
+    collapse: Option<RelayCommand>,
+    toggle_expansion: Option<RelayCommand>,
+}
 
-    /// Creates expansion state with the requested initial value.
-    pub fn with_initial(initially_expanded: bool) -> Self {
-        Self {
-            expanded: Arc::new(Mutex::new(initially_expanded)),
-            ..Self::default()
-        }
-    }
-
-    /// Creates expanded expansion state.
-    pub fn new_expanded() -> Self {
-        Self::with_initial(true)
-    }
-
-    /// Reports whether the state is expanded.
-    pub fn is_expanded(&self) -> bool {
+impl ExpansionCore {
+    fn is_expanded(&self) -> bool {
         *lock(&self.expanded)
     }
 
-    /// Reports whether expansion would change the state.
-    pub fn can_expand(&self) -> bool {
-        !self.is_expanded()
-    }
-
-    /// Reports whether collapse would change the state.
-    pub fn can_collapse(&self) -> bool {
-        self.is_expanded()
-    }
-
-    /// Expands the state and publishes one effective change.
-    pub fn expand(&self) {
-        self.set_expanded(true);
-    }
-
-    /// Collapses the state and publishes one effective change.
-    pub fn collapse(&self) {
-        self.set_expanded(false);
-    }
-
-    /// Toggles the expansion state.
-    pub fn toggle_expansion(&self) {
+    fn toggle_expansion(&self) {
         self.set_expanded(!self.is_expanded());
-    }
-
-    /// Returns the hub that publishes effective expansion changes.
-    pub fn expanded_changed(&self) -> MessageHub {
-        self.expanded_changed.clone()
-    }
-
-    /// Disposes the owned change hub and makes later mutations inert.
-    ///
-    /// Disposal is idempotent.
-    pub fn dispose(&self) {
-        if self.disposed.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        self.expanded_changed.dispose();
     }
 
     fn set_expanded(&self, expanded: bool) {
@@ -310,6 +289,177 @@ impl ExpandableState {
                 name: expanded.to_string(),
             });
         }
+    }
+}
+
+impl ExpandableState {
+    /// Creates collapsed expansion state.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates expansion state with the requested initial value.
+    pub fn with_initial(initially_expanded: bool) -> Self {
+        Self {
+            core: ExpansionCore {
+                expanded: Arc::new(Mutex::new(initially_expanded)),
+                ..ExpansionCore::default()
+            },
+            commands: Arc::default(),
+        }
+    }
+
+    /// Creates expanded expansion state.
+    pub fn new_expanded() -> Self {
+        Self::with_initial(true)
+    }
+
+    /// Reports whether the state is expanded.
+    pub fn is_expanded(&self) -> bool {
+        self.core.is_expanded()
+    }
+
+    /// Reports whether expansion would change the state.
+    pub fn can_expand(&self) -> bool {
+        !self.is_expanded()
+    }
+
+    /// Reports whether collapse would change the state.
+    pub fn can_collapse(&self) -> bool {
+        self.is_expanded()
+    }
+
+    /// Reports whether the state may be toggled. Always `true`.
+    pub fn can_toggle_expansion(&self) -> bool {
+        true
+    }
+
+    /// Expands the state and publishes one effective change.
+    pub fn expand(&self) {
+        self.core.set_expanded(true);
+    }
+
+    /// Collapses the state and publishes one effective change.
+    pub fn collapse(&self) {
+        self.core.set_expanded(false);
+    }
+
+    /// Toggles the expansion state.
+    pub fn toggle_expansion(&self) {
+        self.core.toggle_expansion();
+    }
+
+    /// Returns the hub that publishes effective expansion changes.
+    pub fn expanded_changed(&self) -> MessageHub {
+        self.core.expanded_changed.clone()
+    }
+
+    /// Returns the command that runs [`ExpandableState::expand`] when
+    /// [`ExpandableState::can_expand`] is true.
+    ///
+    /// Every call returns a clone of the same command. Its eligibility changes
+    /// on each effective expansion change. This state owns the command:
+    /// [`ExpandableState::dispose`] disposes it, and callers must not.
+    pub fn expand_command(&self) -> RelayCommand {
+        self.command(
+            |commands| &mut commands.expand,
+            |core| !core.is_expanded(),
+            |core| core.set_expanded(true),
+        )
+    }
+
+    /// Returns the command that runs [`ExpandableState::collapse`] when
+    /// [`ExpandableState::can_collapse`] is true.
+    ///
+    /// Every call returns a clone of the same command. Its eligibility changes
+    /// on each effective expansion change. This state owns the command:
+    /// [`ExpandableState::dispose`] disposes it, and callers must not.
+    pub fn collapse_command(&self) -> RelayCommand {
+        self.command(
+            |commands| &mut commands.collapse,
+            ExpansionCore::is_expanded,
+            |core| core.set_expanded(false),
+        )
+    }
+
+    /// Returns the command that runs [`ExpandableState::toggle_expansion`]
+    /// when [`ExpandableState::can_toggle_expansion`] is true.
+    ///
+    /// Every call returns a clone of the same command. Its eligibility changes
+    /// on each effective expansion change. This state owns the command:
+    /// [`ExpandableState::dispose`] disposes it, and callers must not.
+    pub fn toggle_expansion_command(&self) -> RelayCommand {
+        self.command(
+            |commands| &mut commands.toggle_expansion,
+            |_| true,
+            ExpansionCore::toggle_expansion,
+        )
+    }
+
+    /// Disposes the commands that were read and the owned change hub, and
+    /// makes later mutations inert.
+    ///
+    /// Every step runs, and the first panic resumes after the last step.
+    /// Disposal is idempotent.
+    pub fn dispose(&self) {
+        if self.core.disposed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        // The commands stay cached, so a later read returns the same inert
+        // command.
+        let commands = {
+            let commands = lock(&self.commands);
+            [
+                commands.expand.clone(),
+                commands.collapse.clone(),
+                commands.toggle_expansion.clone(),
+            ]
+        };
+        let mut first_failure = None;
+        for command in commands.into_iter().flatten() {
+            retain_first_failure(&mut first_failure, || {
+                command.dispose();
+                Ok(())
+            });
+        }
+        retain_first_failure(&mut first_failure, || {
+            self.core.expanded_changed.dispose();
+            Ok(())
+        });
+        // Every step returns `Ok`, so only a captured panic can resume here.
+        let _ = finish_with_first_failure(first_failure);
+    }
+
+    // Builds the command in `slot` on its first read. The cache lock orders the
+    // build against `dispose`: a command built after disposal claimed the flag
+    // is disposed at once, and one built before is in the cache when
+    // `dispose` reads it.
+    fn command(
+        &self,
+        slot: fn(&mut ExpansionCommands) -> &mut Option<RelayCommand>,
+        predicate: fn(&ExpansionCore) -> bool,
+        task: fn(&ExpansionCore),
+    ) -> RelayCommand {
+        let mut commands = lock(&self.commands);
+        let slot = slot(&mut commands);
+        if let Some(command) = slot {
+            return command.clone();
+        }
+        let disposed = self.core.disposed.load(Ordering::Acquire);
+        let predicate_core = self.core.clone();
+        let task_core = self.core.clone();
+        let mut builder = RelayCommand::builder()
+            .shared_action(move || task(&task_core))
+            .can_execute(move || predicate(&predicate_core));
+        if !disposed {
+            builder = builder.trigger(self.core.expanded_changed.clone());
+        }
+        let command = builder.build();
+        if disposed {
+            command.dispose();
+        }
+        *slot = Some(command.clone());
+        command
     }
 }
 
@@ -339,7 +489,7 @@ impl Collapsible for ExpandableState {
 
 impl ExpansionTogglable for ExpandableState {
     fn can_toggle_expansion(&self) -> bool {
-        true
+        ExpandableState::can_toggle_expansion(self)
     }
 
     fn toggle_expansion(&self) {
@@ -403,5 +553,24 @@ impl<T: VmNode> Reconstructable for T {
             // The destruct settled at once, or meanwhile.
             construct_when_destructed();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Arc, ExpandableState};
+
+    #[test]
+    fn expansion_commands_do_not_hold_the_command_cache() {
+        let state = ExpandableState::new();
+        let _commands = [
+            state.expand_command(),
+            state.collapse_command(),
+            state.toggle_expansion_command(),
+        ];
+
+        // The command closures share only the core, so the cache has no
+        // second owner and the state and its commands drop without a cycle.
+        assert_eq!(Arc::strong_count(&state.commands), 1);
     }
 }

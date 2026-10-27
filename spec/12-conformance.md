@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 426 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 429 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -2219,10 +2219,11 @@ message follows the local `Reset` on outermost completion
 
 ______________________________________________________________________
 
-## 22. Expand / collapse (`EXP-NNN`) — spec v2.0
+## 22. Expand / collapse (`EXP-NNN`) — spec v2.0 / v3.30
 
-Each EXP-NNN test verifies the `ExpandableState` helper and `walk_expanded`
-tree traversal from spec/05-component-vm.md and spec/13-tree-utilities.md.
+Each EXP-NNN test verifies the `ExpandableState` helper, its expansion
+commands, and `walk_expanded` tree traversal from spec/05-component-vm.md and
+spec/13-tree-utilities.md.
 
 ### EXP-001 — ExpandableState defaults to collapsed
 
@@ -2270,6 +2271,42 @@ root: CompositeVM with IExpandable wrapper, expanded
 
 **When** `list(walk_expanded(root))` is materialized
 **Then** the sequence is `[root, a, b]` — b's children are NOT visited
+
+### EXP-006 — Expansion command predicates track the can checks
+
+**Given** a collapsed `ExpandableState`
+**And** a subscriber to `CanExecuteChanged` on each of `ExpandCommand`,
+`CollapseCommand`, and `ToggleExpansionCommand`
+**Then** `ExpandCommand.CanExecute()` is `true`, `CollapseCommand.CanExecute()`
+is `false`, and `ToggleExpansionCommand.CanExecute()` is `true`
+**When** `Expand()` is called on the helper
+**Then** each subscriber observes exactly one `CanExecuteChanged`
+**And** each `CanExecute()` returns the matching `can*` result
+**And** a second `Expand()` raises no further `CanExecuteChanged`
+**And** a later `Collapse()` raises exactly one more on each command
+**And** a second read of each command returns the same command
+
+### EXP-007 — Executing an expansion command performs its verb
+
+**Given** a collapsed `ExpandableState` and a subscriber to `IsExpandedChanged`
+**When** `ExpandCommand.Execute()` is called twice
+**Then** `IsExpanded == true` and the subscriber observes one `true`
+**When** `CollapseCommand.Execute()` is called twice
+**Then** `IsExpanded == false` and the subscriber observes one `false`
+**When** `ToggleExpansionCommand.Execute()` is called twice
+**Then** `IsExpanded` is `true` after the first call and `false` after the
+second
+
+### EXP-008 — Disposing the helper makes its expansion commands inert
+
+**Given** a collapsed `ExpandableState` whose three commands were read
+**And** a subscriber to `IsExpandedChanged`
+**When** the helper's `dispose()` is called
+**Then** each command's `CanExecute()` returns `false`
+**And** each command's `Execute()` does nothing: `IsExpanded` stays `false`
+and the subscriber observes no value
+**And** on a second helper that is disposed before any command is read, each
+command read after disposal is also inert (ADR-0068, ADR-0159)
 
 ______________________________________________________________________
 

@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Added: `ExpandableState.ExpandCommand`, `CollapseCommand` and
+  `ToggleExpansionCommand` (#660, ADR-0159, EXP-006..008). Each command's
+  predicate is the matching `Can*` check, its task calls the verb, and its
+  `CanExecuteChanged` fires on every expansion change. The helper builds each
+  command on first read and owns it: `Dispose()` disposes the commands, which
+  are then inert. An owner re-exports a command instead of building one.
 - Fixed: `ObservableDictionary`: an entry added from a `Keys1` subscriber no
   longer puts `Keys2` out of first-appearance order. `Keys2` now updates
   first, so a `Keys1` subscriber already sees the new Key2. When a `Keys2`

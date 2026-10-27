@@ -8,8 +8,8 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for expand / collapse, EXP-001..005.
-/// See spec/05-component-vm.md, spec/13-tree-utilities.md, ADR-0015.
+/// Conformance tests for expand / collapse, EXP-001..008.
+/// See spec/05-component-vm.md, spec/13-tree-utilities.md, ADR-0015, ADR-0159.
 /// </summary>
 public class ExpandCollapseConformanceTests
 {
@@ -87,6 +87,106 @@ public class ExpandCollapseConformanceTests
         visited.Should().Contain((IComponentVM)bCollapsed);
         visited.Should().NotContain((IComponentVM)b1);
         visited.Should().NotContain((IComponentVM)b2);
+    }
+
+    // ── EXP-006 ─────────────────────────────────────────────────────────────
+
+    /// <summary>EXP-006: command predicates track the can* checks and re-fire on each change.</summary>
+    [Fact, Trait("Conformance", "EXP-006")]
+    public void EXP_006_CommandPredicates_Track_CanChecks_And_Refire()
+    {
+        var state = new ExpandableState();
+        var expand = state.ExpandCommand;
+        var collapse = state.CollapseCommand;
+        var toggle = state.ToggleExpansionCommand;
+        var counts = new int[3];
+        expand.CanExecuteChanged += (_, _) => counts[0]++;
+        collapse.CanExecuteChanged += (_, _) => counts[1]++;
+        toggle.CanExecuteChanged += (_, _) => counts[2]++;
+
+        expand.CanExecute(null).Should().BeTrue();
+        collapse.CanExecute(null).Should().BeFalse();
+        toggle.CanExecute(null).Should().BeTrue();
+
+        state.Expand();
+        counts.Should().Equal(1, 1, 1);
+        expand.CanExecute(null).Should().BeFalse();
+        collapse.CanExecute(null).Should().BeTrue();
+        toggle.CanExecute(null).Should().BeTrue();
+
+        // A no-op verb is not an expansion change.
+        state.Expand();
+        counts.Should().Equal(1, 1, 1);
+
+        state.Collapse();
+        counts.Should().Equal(2, 2, 2);
+        expand.CanExecute(null).Should().BeTrue();
+        collapse.CanExecute(null).Should().BeFalse();
+
+        state.ExpandCommand.Should().BeSameAs(expand);
+        state.CollapseCommand.Should().BeSameAs(collapse);
+        state.ToggleExpansionCommand.Should().BeSameAs(toggle);
+    }
+
+    // ── EXP-007 ─────────────────────────────────────────────────────────────
+
+    /// <summary>EXP-007: executing each command performs its verb.</summary>
+    [Fact, Trait("Conformance", "EXP-007")]
+    public void EXP_007_Executing_Each_Command_Performs_Its_Verb()
+    {
+        var state = new ExpandableState();
+        var observed = new List<bool>();
+        using var sub = state.IsExpandedChanged.Subscribe(observed.Add);
+
+        state.ExpandCommand.Execute(null);
+        state.IsExpanded.Should().BeTrue();
+        // The predicate is false while expanded, so a second execute is a no-op.
+        state.ExpandCommand.Execute(null);
+        observed.Should().Equal(true);
+
+        state.CollapseCommand.Execute(null);
+        state.IsExpanded.Should().BeFalse();
+        state.CollapseCommand.Execute(null);
+        observed.Should().Equal(true, false);
+
+        state.ToggleExpansionCommand.Execute(null);
+        state.IsExpanded.Should().BeTrue();
+        state.ToggleExpansionCommand.Execute(null);
+        state.IsExpanded.Should().BeFalse();
+        observed.Should().Equal(true, false, true, false);
+    }
+
+    // ── EXP-008 ─────────────────────────────────────────────────────────────
+
+    /// <summary>EXP-008: helper dispose makes its commands inert.</summary>
+    [Fact, Trait("Conformance", "EXP-008")]
+    public void EXP_008_Helper_Dispose_Makes_Commands_Inert()
+    {
+        var state = new ExpandableState();
+        var commands = new[] { state.ExpandCommand, state.CollapseCommand, state.ToggleExpansionCommand };
+        var observed = new List<bool>();
+        using var sub = state.IsExpandedChanged.Subscribe(observed.Add);
+
+        state.Dispose();
+
+        foreach (var command in commands)
+        {
+            command.CanExecute(null).Should().BeFalse();
+            command.Execute(null);
+        }
+        state.IsExpanded.Should().BeFalse();
+        observed.Should().BeEmpty();
+
+        // A command first read after disposal is inert as well.
+        var late = new ExpandableState();
+        late.Dispose();
+        foreach (var command in new[] { late.ExpandCommand, late.CollapseCommand, late.ToggleExpansionCommand })
+        {
+            command.CanExecute(null).Should().BeFalse();
+            command.Execute(null);
+        }
+        late.IsExpanded.Should().BeFalse();
+        late.ExpandCommand.Should().BeSameAs(late.ExpandCommand);
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────
