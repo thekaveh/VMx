@@ -72,8 +72,8 @@ disposable does not stop the remaining channels and commands from completing and
 disposing. Throwing flavors rethrow the first failure after every step has run.
 rxjs reports observer errors asynchronously, and Combine observers cannot throw.
 
-In Python, a teardown deferred until an in-progress set-model or deny finishes
-never replaces an error that mutation is already raising.
+In C# and Python, a teardown deferred until an in-progress set-model or deny
+finishes never replaces an error that mutation is already raising.
 
 `SetModel` / `set_model` and deny are failure-atomic (spec chapter 20 §5.4,
 ADR-0144). VMx runs the equality comparison, the validators, and, for deny, the

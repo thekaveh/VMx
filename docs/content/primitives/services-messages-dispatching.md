@@ -24,7 +24,10 @@ The core message families are:
 - `ConstructionStatusChangedMessage`
 - `TreeStructureChangedMessage`
 - `FormRevertedMessage`
-- collection-changed messages from the collections area
+- `CollectionChangedMessage`, which the hub-aware collections,
+  `ObservableDictionary`, and the `CompositeVM` and `GroupVM` containers send
+  (containers: one message per local change, and one `Reset` per batch that
+  changes the collection, ADR-0142)
 
 ## 6.6.3. Lifecycle And Messaging
 

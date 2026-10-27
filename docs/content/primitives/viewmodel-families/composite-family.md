@@ -73,6 +73,9 @@ The composite owns both child lifecycle and selection messaging:
   dispatcher
 - a non-batched move emits one move event with both indices; a batched move is
   represented by the outer reset
+- each local collection change is followed by one `CollectionChangedMessage` on
+  the composite's hub, and a batch that changes the collection sends one
+  `Reset` (ADR-0142)
 
 Rust background-child settling follows the shared container rule in
 [ViewModel Families](index.md#6213-lifecycle-and-messaging).
