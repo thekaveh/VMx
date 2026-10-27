@@ -297,8 +297,6 @@ def lifecycle_memory_probe(batches: int, cycles_per_batch: int) -> dict[str, Any
         "retained_growth_limit_bytes": limit,
         "bounded": growth < limit and max_queue_depth == 0,
         "max_queue_depth": max_queue_depth,
-        "hub_history_size": 0,
-        "hub_history_note": "Python hubs retain no delivered messages",
     }
 
 

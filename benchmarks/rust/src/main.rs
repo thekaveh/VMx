@@ -307,15 +307,13 @@ fn lifecycle_memory_probe(batches: u64, cycles_per_batch: u64) -> String {
         max_queue_depth = max_queue_depth.max(1 - (delivered.load(Ordering::Relaxed) - before));
         retained.push(LIVE_BYTES.load(Ordering::Relaxed));
     }
-    #[allow(deprecated)]
-    let history_size = hub.history().len();
     drop(subscription);
     hub.dispose();
     // The first batch is warm-up; growth is measured across the remaining
     // batches, where a per-cycle leak would accumulate.
     let growth = retained.last().unwrap() - retained[1];
     let limit: isize = 1024 * 1024;
-    let bounded = growth < limit && max_queue_depth == 0 && history_size == 0;
+    let bounded = growth < limit && max_queue_depth == 0;
     let samples = retained
         .iter()
         .map(ToString::to_string)
@@ -324,9 +322,7 @@ fn lifecycle_memory_probe(batches: u64, cycles_per_batch: u64) -> String {
     format!(
         "{{\n      \"cycles\": {cycles},\n      \"warmup_batches\": 1,\n      \"retained_bytes_samples\": [{samples}],\n      \
          \"retained_growth_bytes\": {growth},\n      \"retained_growth_limit_bytes\": {limit},\n      \
-         \"bounded\": {bounded},\n      \"max_queue_depth\": {max_queue_depth},\n      \
-         \"hub_history_size\": {history_size},\n      \
-         \"hub_history_note\": \"MessageHub::history() length after the cycles (ADR-0141: hubs retain nothing)\"\n    }}",
+         \"bounded\": {bounded},\n      \"max_queue_depth\": {max_queue_depth}\n    }}",
         cycles = batches * cycles_per_batch,
     )
 }
