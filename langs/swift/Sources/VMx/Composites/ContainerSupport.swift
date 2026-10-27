@@ -129,4 +129,20 @@ enum ContainerSupport {
         do { try child.construct() } catch { return error }
         return nil
     }
+
+    /// Enters a membership transaction for either container: `tryEnter` opens
+    /// or joins it, or records a wait for another thread's open transaction
+    /// and returns that transaction's completion, which this waits for before
+    /// trying again (spec/06 §4, spec/07).
+    static func enterMembershipTransaction(
+        _ tryEnter: () throws -> DispatchGroup?
+    ) rethrows {
+        while let completion = try tryEnter() {
+            awaitMembershipTransaction(completion)
+        }
+    }
 }
+
+/// The inner error of `ContainerOwnershipError.attachmentFailed` when a
+/// container refuses a membership wait that would close a cycle.
+struct ContainerMembershipTransactionError: Error {}
