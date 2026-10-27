@@ -17,7 +17,13 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
-from vmx.collections._vm_collection_hub_message import collection_changed_message_for
+from vmx.components._container_helpers import (
+    construct_walk,
+    deliver_collection_changed,
+    emit_collection_changed,
+    join_if_pending,
+    maybe_auto_construct,
+)
 from vmx.components._late_child_starts import (
     _LateChildStage,
     _LateChildStarts,
@@ -661,41 +667,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._deliver_collection_changed(CollectionChangedEvent(action="reset"))
 
     def _emit_collection_changed(self, event: CollectionChangedEvent) -> None:
-        # reactivex raises on post-dispose on_next (rxjs/Combine no-op); a
-        # collection mutation after dispose must be inert, not throw.
-        if self._collection_changed_subject.is_disposed:
-            return
-        if self._batch_depth > 0:
-            self._batch_dirty = True
-            return
-        self._deliver_collection_changed(event)
+        emit_collection_changed(self, event)
 
     def _deliver_collection_changed(self, event: CollectionChangedEvent) -> None:
-        """Deliver one committed change locally, then publish it on the hub.
-
-        Local subscribers see the event first; exactly one
-        ``CollectionChangedMessage`` sent by this composite then follows on its
-        hub (spec ch. 01 §1.4, ADR-0142). Every caller has already released
-        the membership gate, and publication uses the hub's ordinary ``send``,
-        so a hub transaction defers it. A failing local subscriber does not
-        suppress the hub message for the committed change; the first failure
-        is re-raised afterwards. A composite disposed before or during local
-        delivery publishes nothing.
-        """
-        subject = self._collection_changed_subject
-        first_error: BaseException | None = None
-        try:
-            subject.on_next(event)
-        except BaseException as error:
-            first_error = error
-        if not (subject.is_disposed or subject.is_stopped):
-            try:
-                self._hub.send(collection_changed_message_for(self, event))
-            except BaseException as error:
-                if first_error is None:
-                    first_error = error
-        if first_error is not None:
-            raise first_error
+        deliver_collection_changed(self, event)
 
     def _attach_late_start_locked(self, child: VM) -> _StartRecord | None:
         """Called under the gate as an add attaches *child*.
@@ -727,48 +702,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._late_starts.remove(child, record)
 
     def _maybe_auto_construct(self, child: VM) -> None:
-        if not self._auto_construct_on_add:
-            return
-        # While Constructing, only an add with a start record starts its
-        # child; any other child is in the construct walk's snapshot.
-        if self._status != ConstructionStatus.CONSTRUCTED:
-            return
-        if child.status == ConstructionStatus.CONSTRUCTED:
-            return
-        child.construct()
+        maybe_auto_construct(self, child)
 
     def _construct_walk(
         self, joined: list[VM], visited: dict[int, VM], walk: _LateWalk
     ) -> Iterator[VM]:
-        """Yield the construct walk's children, extended by late additions.
-
-        The membership snapshot comes first. With auto-construct-on-add, each
-        child added while the walk runs follows when its add registered a
-        start record in this walk's scope: it is joined like a population
-        child after that add's start attempt, so one whose own construction
-        failed rolls the container back. The walk never starts a late child;
-        one without a record was not started by an add, so it is skipped. The
-        scope stays open after the last scan: ``_seal_or_next_late`` joins a
-        child added after it, then commits Constructed under the membership
-        gate and ends the scope; a failed walk ends it from ``_on_construct``
-        (spec/02 §6, spec/06 §5.1).
-        """
-        snapshot = list(self.snapshot())
-        # Keyed by id but holding each child, so a freed child's id is never
-        # reused by a new member while this walk runs.
-        visited.update((id(child), child) for child in snapshot)
-        yield from snapshot
-        if not self._auto_construct_on_add:
-            walk.end()
-            return
-        while True:
-            late = next((c for c in self.snapshot() if visited.get(id(c)) is not c), None)
-            if late is None:
-                return
-            visited[id(late)] = late
-            if walk.take(late):
-                joined.append(late)
-                yield late
+        return construct_walk(self, joined, visited, walk)
 
     def _seal_or_next_late(
         self, joined: list[VM], visited: dict[int, VM], walk: _LateWalk
@@ -956,12 +895,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         """
 
     def _join_if_pending(self, child: VM) -> None:
-        """Record a child population left pending: the child walk joins it."""
-        if self._population_joined is not None and child.status not in (
-            ConstructionStatus.CONSTRUCTED,
-            ConstructionStatus.DISPOSED,
-        ):
-            self._population_joined.append(child)
+        join_if_pending(self, child)
 
     def _attach_population(self, children: Iterable[VM]) -> None:
         """Attach one factory population as an all-or-nothing transaction."""
