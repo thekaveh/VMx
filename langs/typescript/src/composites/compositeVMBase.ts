@@ -22,6 +22,7 @@ import {
 } from "../components/componentVMBase.js";
 import type { IOwningParentVM } from "../components/componentVMBase.js";
 import { disposeBestEffort } from "../components/disposal.js";
+import { emittedIndex } from "../collections/emittedIndex.js";
 import { collectionChangedMessageFor } from "../collections/vmCollectionHubMessage.js";
 import { ViewModelType } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
@@ -300,6 +301,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);
     }
+    index = emittedIndex(index);
     let transfer: ParentTransfer | null = null;
     let attached = false;
     const originalStatus = item.status;
@@ -367,6 +369,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       if (!Number.isInteger(index) || index < 0 || index >= this._children.length) {
         throw new RangeError(`Index ${String(index)} out of range`);
       }
+      index = emittedIndex(index);
       item = this._children[index] as VM;
     } catch (error) {
       this.#endMembershipTransaction(false);
@@ -418,6 +421,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);
     }
+    index = emittedIndex(index);
     const old = this._children[index] as VM;
     let transfer: ParentTransfer | null = null;
     let attached = false;
@@ -491,8 +495,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   move(fromIndex: number, toIndex: number): void {
     this.#requireChildAdmission();
-    this._validateMoveIndex(fromIndex);
-    this._validateMoveIndex(toIndex);
+    fromIndex = this._validateMoveIndex(fromIndex);
+    toIndex = this._validateMoveIndex(toIndex);
     if (fromIndex === toIndex) return;
     const item = this.at(fromIndex);
     this._children.splice(fromIndex, 1);
@@ -572,10 +576,12 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
   }
 
-  private _validateMoveIndex(index: number): void {
+  /** Rejects an index outside the children; returns it with -0 as +0 (#769). */
+  private _validateMoveIndex(index: number): number {
     if (!Number.isInteger(index) || index < 0 || index >= this._children.length) {
       throw new RangeError(`Move index ${String(index)} out of range`);
     }
+    return emittedIndex(index);
   }
 
   // ── Lifecycle overrides ───────────────────────────────────────────────────

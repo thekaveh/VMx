@@ -15,6 +15,7 @@ import type { Subscription } from "rxjs";
 import type { IMessageHub } from "../services/messageHub.js";
 import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 import type { ObservableMembershipSource } from "./observableMembership.js";
+import { emittedIndex } from "./emittedIndex.js";
 import { resolveSpliceStart } from "./spliceStart.js";
 
 export { CollectionChangedMessage };
@@ -92,7 +93,7 @@ export class ServicedObservableCollection<T>
 
   /** Remove the item at *index*. */
   removeAt(index: number): void {
-    this.#validateIndex(index);
+    index = this.#validateIndex(index);
     const item = this.#items[index] as T;
     this.#items.splice(index, 1);
     this.#emit(CollectionChangedMessage.forRemove(this, item, index));
@@ -131,7 +132,7 @@ export class ServicedObservableCollection<T>
 
   /** Replace the item at *index*, emitting even when the value is identical. */
   replace(index: number, newItem: T): void {
-    this.#validateIndex(index);
+    index = this.#validateIndex(index);
     const oldItem = this.#items[index] as T;
     this.#items[index] = newItem;
     this.#emit(
@@ -154,8 +155,8 @@ export class ServicedObservableCollection<T>
 
   /** Move an item using pre-move source and destination indices. */
   move(fromIndex: number, toIndex: number): void {
-    this.#validateIndex(fromIndex);
-    this.#validateIndex(toIndex);
+    fromIndex = this.#validateIndex(fromIndex);
+    toIndex = this.#validateIndex(toIndex);
     if (fromIndex === toIndex) return;
 
     const item = this.#items[fromIndex] as T;
@@ -182,7 +183,8 @@ export class ServicedObservableCollection<T>
     this.#hub?.send(msg);
   }
 
-  #validateIndex(index: number): void {
+  /** Rejects an index outside the items; returns it with -0 as +0 (#769). */
+  #validateIndex(index: number): number {
     if (
       !Number.isInteger(index) ||
       index < 0 ||
@@ -190,5 +192,6 @@ export class ServicedObservableCollection<T>
     ) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
+    return emittedIndex(index);
   }
 }

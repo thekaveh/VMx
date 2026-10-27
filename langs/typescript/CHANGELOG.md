@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An index of `-0` no longer reaches a collection event or hub message as
+  `-0`. `Number.isInteger(-0)` is true and `-0 < 0` is false, so every index
+  guard admitted it. `ObservableList` (`insert`, `removeAt`, `replace`),
+  `CompositeVM` and `GroupVM` (`insert`, `removeAt`, `setAt`, `move`), and
+  `ServicedObservableCollection` and `KeyedServicedObservableCollection`
+  (`removeAt`, `replace`, `setAt`, `move`) now emit `+0`. After
+  `replace(-0, …)`, a later keyed `upsert` or `delete` also emits `+0`. The
+  `PagedComposition.currentPageIndex` setter also stores `+0` (#769).
 - The default `FormVM` dirty comparison (`deepEquals`) checks the four boxed
   primitive constructors directly instead of in a loop. The loop almost
   doubled the cost of comparing most object pairs. On a 2,000-row model one
