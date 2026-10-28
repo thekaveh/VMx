@@ -15,4 +15,5 @@ export {
   isCollectionChanged,
   isConstructionStatusChanged,
   isPropertyChanged,
+  isTreeStructureChanged,
 } from "./predicates.js";

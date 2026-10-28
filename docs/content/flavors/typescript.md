@@ -95,18 +95,20 @@ subscription; VMx does not attach it to the observed VM's lifetime.
 
 ## 7.4.5. Raw Message Predicates
 
-The package root and message barrel export three filter-safe type predicates:
+The package root and message barrel export four filter-safe type predicates:
 
-| Call                                                                            | Narrowed message                                                   |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `isPropertyChanged(message)` or `isPropertyChanged(message, { propertyName? })` | `PropertyChangedMessage<unknown>`                                  |
-| `isPropertyChanged(message, { sender, propertyName? })`                         | `PropertyChangedMessage<TSender>` inferred from the checked sender |
-| `isCollectionChanged(message)` or any source/action constraints                 | `CollectionChangedMessage<unknown>`                                |
-| `isConstructionStatusChanged(message)` or its sender/status constraints         | `ConstructionStatusChangedMessage`                                 |
+| Call                                                                                | Narrowed message                                                   |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `isPropertyChanged(message)` or `isPropertyChanged(message, { propertyName? })`     | `PropertyChangedMessage<unknown>`                                  |
+| `isPropertyChanged(message, { sender, propertyName? })`                             | `PropertyChangedMessage<TSender>` inferred from the checked sender |
+| `isCollectionChanged(message)` or any source/action constraints                     | `CollectionChangedMessage<unknown>`                                |
+| `isConstructionStatusChanged(message)` or its sender/status constraints             | `ConstructionStatusChangedMessage`                                 |
+| `isTreeStructureChanged(message)` or `isTreeStructureChanged(message, { change? })` | `TreeStructureChangedMessage<unknown, unknown>`                    |
+| `isTreeStructureChanged(message, { sender, change? })`                              | `TreeStructureChangedMessage<TSender, unknown>`                    |
 
 Each predicate also has a unary overload, so calls such as
 `messages.filter(isPropertyChanged)` and RxJS
-`filter(isPropertyChanged)` narrow without a consumer cast. Property sender
+`filter(isPropertyChanged)` narrow without a consumer cast. Sender
 narrowing requires a supplied sender. Collection predicates always retain an
 `unknown` payload, even for a typed `ServicedObservableCollection<TItem>` source,
 because source identity cannot prove the independently constructed message item
@@ -120,7 +122,11 @@ message-returning helper; it also takes an array of property names for one
 sender (ADR-0160), while `propertyValueChangedMessagesFor` emits the
 property's current value.
 
-These predicates are TypeScript-only; see ADR-0094.
+`isTreeStructureChanged` also matches a tree message from a second copy of the
+package. It classifies by class, then by shape, while the other three predicates use
+`instanceof`.
+
+These predicates are TypeScript-only; see ADR-0094 and ADR-0163.
 
 ## 7.4.6. Consumer Conformance Adapter
 
