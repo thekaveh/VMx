@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `TreeSelection<TVM>`, an opt-in helper that keeps one current node per
+  `HierarchicalVM` tree (#667, ADR-0164, HIER-033..HIER-040). Construct it on
+  a root node. It exposes `current`, `canSelect(node)`, `select(node)`,
+  `clear()`, a hot `currentChanged` stream and `dispose()`. `select` throws an
+  `Error` for a node that does not reach the root through `parent` links or
+  that has a disposed node on that path. The helper watches the hubs of the
+  path from the current node to the root. It clears the selection when the
+  node is removed, transferred to another tree, dropped by an ancestor's
+  `invalidateChildren`, or disposed, and it keeps the selection after a move
+  inside the tree. It never reads `children`, publishes nothing to a hub, and
+  never changes a node. The owning VM forwards `currentChanged` to its own
+  property notification.
 - `isTreeStructureChanged(message, { sender?, change? })`, a fourth raw-message
   predicate (#666, ADR-0163). It narrows to `TreeStructureChangedMessage` and
   works directly with `Array.filter` and RxJS `filter`. It classifies by shape

@@ -281,7 +281,118 @@ TreeStructureChangedMessage:
   Update / Delete on a node's children) compose with the existing
   `CreateNewCommand`, `UpdateCurrentCommand`, `DeleteCurrentCommand` helpers.
 
-## 10. Conformance
+## 10. Tree selection
+
+A tree node cannot be the `Current` item of a container: its inherited
+`Select()` delegates to the container back-reference (chapter 05 §6.1), which
+tree nodes never set. A consumer that needs one current node per tree composes
+the opt-in `TreeSelection` helper on a tree node, its **root** (ADR-0164). The
+helper adds no `HierarchicalVM` member and implements no capability on the
+nodes.
+
+```
+TreeSelection<TVM>:                     # constructed on a root node
+    Current        : TVM?               # null when nothing is selected
+    CanSelect(node) -> bool
+    Select(node)   -> void              # rejects a node that CanSelect rejects
+    Clear()        -> void
+    CurrentChanged : Observable<TVM?>   # emits on every effective change
+    Dispose()      -> void
+```
+
+| Flavor     | Type                         | Change stream                                                 | Rejection                      |
+| ---------- | ---------------------------- | ------------------------------------------------------------- | ------------------------------ |
+| C#         | `TreeSelection<TModel, TVM>` | `IObservable<TVM?> CurrentChanged`                            | `InvalidOperationException`    |
+| Python     | `TreeSelection[TVM]`         | `current_changed: Observable[TVM \| None]`                    | `ValueError`                   |
+| TypeScript | `TreeSelection<TVM>`         | `currentChanged: Observable<TVM \| null>`                     | `Error`                        |
+| Swift      | `TreeSelection<TModel, TVM>` | `currentChanged: AnyPublisher<TVM?, Never>`                   | `TreeSelectionError.notInTree` |
+| Rust       | `TreeSelection<M>`           | `current_changed() -> ValueStream<Option<HierarchicalVm<M>>>` | `VmxError::InvalidArgument`    |
+
+Swift's `select(_:)` throws (ADR-0053), and Rust's `select` returns a
+`VmxResult<()>`.
+
+### 10.1 Members of the selectable tree
+
+`CanSelect(node)` is true iff all of these hold:
+
+1. the helper is not disposed;
+1. walking `Parent` links from `node` reaches the root (the root itself
+   qualifies); and
+1. no node on that path, from `node` to the root, is `Disposed`.
+
+A non-null `Parent` exists only while the node is in that parent's
+materialized child list (§4, §5, §7). So the walk visits only the root's
+materialized tree. `CanSelect` and `Select` never invoke a children factory
+and never read `Children`.
+
+`Select(node)` first checks `CanSelect(node)`. When the check fails, the call
+raises the error in the table above, and `Current` keeps its value. This plays
+the role of COMP-009 for trees, but only C#, Python and TypeScript raise the
+same error as a `CompositeVM` does: Swift's `CompositeVM` throws
+`CompositeMembershipError` and Rust's returns `VmxError::NonChild`. When the
+check passes, `node` becomes current; selecting the current node again does
+nothing. So a current node that left the tree before the helper cleared it is
+rejected too. `Clear()` sets `Current` to null. `Select` and `Clear` do nothing
+after `Dispose`.
+
+### 10.2 Leaving the tree
+
+`Current` becomes null when the current node leaves the root's selectable
+tree:
+
+- the node or one of its ancestors is removed (`RemoveChild`);
+- the node or one of its ancestors is transferred to a parent outside the
+  tree, including a parent in another tree on another hub;
+- an ancestor's child cache is invalidated (§5), which leaves the dropped
+  nodes live with a null parent; or
+- the node or one of its ancestors is disposed. A disposed ancestor stays in
+  the tree, because node disposal does not detach (§3).
+
+A move inside the tree keeps the selection.
+
+The helper detects these events by watching the path from the current node to
+the root. Each event is published on its own hub by a node on that path: the
+moved node publishes its `Parent` change (§7), the invalidated node publishes
+its `Children` change (§5), and the disposed node publishes its status change
+(chapter 02). On any message from a node on the path, the helper repeats the
+§10.1 check. It clears the selection when the check fails, and it watches the
+new path when the check passes. Spec §7 gains no message from the old parent.
+The helper clears when it receives the message, so inside a hub transaction
+(chapter 03 §7) the clear happens when the hub delivers it. A path node on a
+hub that delivers nothing, such as a null or disposed hub, cannot be watched.
+
+### 10.3 Change stream and ownership
+
+`CurrentChanged` emits the new `Current`, or null, once for every effective
+change. It does not replay a value to a new subscriber. A call or an event
+that leaves `Current` unchanged emits nothing.
+
+Every subscriber receives the changes in the order they happened, and the
+last value it receives is the final `Current`. A subscriber may call `Select`
+or `Clear` while it receives a value. The helper then finishes delivering that
+value to every subscriber before it delivers the new one.
+
+The helper publishes nothing to a message hub. The VM that owns it forwards
+`CurrentChanged` to its own property-change notification (chapter 14 rule 6),
+as with `ExpandableState` (chapter 05 §8).
+
+The helper owns its hub subscriptions. `Dispose()` releases them, sets
+`Current` to null without emitting, and completes the change stream. It runs
+every step and rethrows the first failure; Rust resumes the first panic.
+After disposal the helper is inert, and a second `Dispose()` does nothing.
+Disposing the helper never disposes or detaches a node.
+
+The helper follows the threading model of its tree. The Rust helper is
+`Send + Sync`, like `HierarchicalVm<M>`. In the other flavors the helper, like
+the tree, is used from one thread.
+
+### 10.4 Selection does not navigate
+
+`Select` and `Clear` change only the helper. They do not materialize, expand,
+construct or move a node, do not change any node's `IsCurrent`, and publish no
+hub message. A host maps `Current` to a route or a detail view.
+
+## 11. Conformance
 
 - `HIER-001` — Recursive generic constraint compiles per flavor with the bound
   type parameter.
@@ -357,3 +468,17 @@ TreeStructureChangedMessage:
 - `HIER-032` — A factory that re-enters a structural operation on its receiver
   rejects the complete hydration attempt without mutation or messages; a later
   access retries normally.
+- `HIER-033` — `TreeSelection` selects a member, ignores a repeated select or
+  clear, and publishes each effective change once, in order, also when a
+  subscriber selects again (§10, ADR-0164).
+- `HIER-034` — `TreeSelection` rejects a detached node, a node of another tree
+  and a disposed member without changing `Current` or invoking a factory.
+- `HIER-035` — Removing the current node or an ancestor clears the selection.
+- `HIER-036` — Transferring an ancestor out of the tree clears the selection,
+  also across hubs; a move inside the tree keeps it.
+- `HIER-037` — Invalidating an ancestor's child cache clears the selection.
+- `HIER-038` — Disposing the current node or an ancestor clears the selection.
+- `HIER-039` — Selection does not materialize, construct, move or mark a node
+  and publishes no hub message.
+- `HIER-040` — A disposed `TreeSelection` completes its stream, reads null and
+  ignores later calls and tree changes.

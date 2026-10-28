@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ConstructionStatus,
   type IAsyncCommand,
   MessageHub,
+  PropertyChangedMessage,
   RxDispatcher,
   TreeStructureChangedMessage,
   type IMessage,
@@ -9,6 +11,7 @@ import {
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import { buildSeed } from "../../src/models/seed.js";
+import { NotebookVM } from "../../src/viewmodels/notebookVM.js";
 import { NotebooksRootVM } from "../../src/viewmodels/notebooksRootVM.js";
 
 function makeRoot(): { vm: NotebooksRootVM; hub: MessageHub; repo: InMemoryNoteRepository } {
@@ -107,6 +110,75 @@ describe("NotebooksRootVM", () => {
     const { vm } = makeRoot();
     await vm.populateAsync();
     expect(() => vm.dispose()).not.toThrow();
+  });
+
+  it("current is a TreeSelection: it rejects a notebook outside the tree", async () => {
+    const { vm, hub } = makeRoot();
+    await vm.populateAsync();
+    const [first] = vm.roots;
+    vm.current = first ?? null;
+    const stranger = NotebookVM.builder()
+      .name("nb:stranger")
+      .model({ id: "nb-stranger", name: "Stranger", parentId: null })
+      .services(hub, RxDispatcher.immediate())
+      .build();
+    expect(() => {
+      vm.current = stranger;
+    }).toThrow();
+    expect(vm.current).toBe(first);
+  });
+
+  it("current clears when its notebook leaves the tree", async () => {
+    const { vm, hub } = makeRoot();
+    await vm.populateAsync();
+    const work = vm.all.find((n) => n.model.id === "nb-work")!;
+    const specs = vm.childrenOf(work)[0]!;
+    vm.current = specs;
+    expect(vm.isAncestorOfCurrent(work)).toBe(true);
+
+    const currentChanges: string[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof PropertyChangedMessage && m.sender === vm && m.propertyName === "current") {
+        currentChanges.push(m.propertyName);
+      }
+    });
+    work.parent!.removeChild(work);
+    expect(vm.current).toBeNull();
+    expect(vm.isAncestorOfCurrent(work)).toBe(false);
+    expect(currentChanges).toEqual(["current"]);
+  });
+
+  it("the hidden tree root is not selectable", async () => {
+    const { vm } = makeRoot();
+    await vm.populateAsync();
+    const hidden = vm.roots[0]!.parent!;
+    expect(vm.canSelectNotebook(hidden)).toBe(false);
+    expect(() => {
+      vm.current = hidden;
+    }).toThrow();
+    expect(vm.current).toBeNull();
+  });
+
+  it("isAncestorOfCurrent matches strict ancestors only", async () => {
+    const { vm } = makeRoot();
+    await vm.populateAsync();
+    const work = vm.all.find((n) => n.model.id === "nb-work")!;
+    const specs = vm.childrenOf(work)[0]!;
+    vm.current = specs;
+    expect(vm.isAncestorOfCurrent(work)).toBe(true);
+    expect(vm.isAncestorOfCurrent(specs)).toBe(false);
+    vm.current = work;
+    expect(vm.isAncestorOfCurrent(work)).toBe(false);
+  });
+
+  it("populateAsync clears the current notebook", async () => {
+    const { vm } = makeRoot();
+    await vm.populateAsync();
+    const [first] = vm.roots;
+    vm.current = first ?? null;
+    await vm.populateAsync();
+    expect(vm.current).toBeNull();
+    expect(first?.status).toBe(ConstructionStatus.Disposed);
   });
 
   it("builder validates required fields", () => {

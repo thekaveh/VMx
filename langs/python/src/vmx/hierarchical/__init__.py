@@ -13,6 +13,7 @@ from vmx.hierarchical.hierarchical_vm import (
     HierarchicalVM,
     MissingParentPolicy,
 )
+from vmx.hierarchical.tree_selection import TreeSelection
 
 __all__ = [
     "BatchAttachRejection",
@@ -21,4 +22,5 @@ __all__ = [
     "HierarchicalVM",
     "HierarchicalVMBuilder",
     "MissingParentPolicy",
+    "TreeSelection",
 ]

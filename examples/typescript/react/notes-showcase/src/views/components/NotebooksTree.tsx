@@ -5,7 +5,7 @@
  * 5.a Avalonia UI flagged that nested children were not rendered; Phase 5.b
  * Textual addressed it by recursing on `notebooks.children_of(node)`. This
  * component does the analogous thing using `notebooks.childrenOf(nb)` from
- * `NotebooksRootVM`.
+ * `NotebooksRootVM`, which returns the node's `HierarchicalVM` children.
  *
  * Pure-VM contract (§6.1): no React state. Selection writes back to
  * `ws.notebooksRoot.current` in a one-liner; expansion toggles invoke
@@ -117,15 +117,10 @@ const NotebookTreeNode: React.FC<NotebookTreeNodeProps> = ({ ws, nb, level }) =>
 
   const onToggle = (e: React.MouseEvent): void => {
     e.stopPropagation();
-    if (liveNb.isExpanded && liveRoot.current !== null) {
-      let parentId = liveRoot.current.model.parentId;
-      while (parentId !== null) {
-        if (parentId === nb.model.id) {
-          ws.selectNotebook(nb);
-          break;
-        }
-        parentId = root.all.find((candidate) => candidate.model.id === parentId)?.model.parentId ?? null;
-      }
+    // Collapsing a branch whose descendant is current selects the branch.
+    // Collapsing the current notebook itself keeps the selection.
+    if (liveNb.isExpanded && liveRoot.isAncestorOfCurrent(nb)) {
+      ws.selectNotebook(nb);
     }
     nb.toggleExpansion();
   };

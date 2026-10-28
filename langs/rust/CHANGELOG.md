@@ -10,6 +10,22 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `TreeSelection<M>`, an opt-in helper that keeps one current node for the
+  tree under a root `HierarchicalVm` (#667, ADR-0164, `HIER-033`..`HIER-040`).
+  `TreeSelection::new(&root)` creates it. `can_select` walks parent links to
+  the root and rejects a path with a disposed node, and it never reads
+  children. `select` returns `VmxError::InvalidArgument` for a non-member and
+  keeps the current node. `clear` clears it, and `current_changed()` is a hot
+  `ValueStream` that emits once for every effective change. The helper
+  watches the hubs of the path from the current node to the root and clears
+  the selection when the node is removed, transferred out of the tree,
+  dropped by an ancestor's `invalidate_children`, or disposed, or when an
+  ancestor is. A move inside the tree keeps the selection. The helper
+  publishes nothing to a hub, never navigates, and never disposes a node.
+  Clones share one selection, and the type is `Send + Sync`: its lock is
+  never held while it reads the tree, subscribes or emits, and a revision
+  counter discards a stale re-check. `dispose()` releases the subscriptions,
+  clears without emitting, completes the stream, and is idempotent.
 - `ExpandableState::expand_command()`, `collapse_command()` and
   `toggle_expansion_command()`, and an inherent `can_toggle_expansion()`
   (#660, ADR-0159, EXP-006..008). Each command's predicate is the matching

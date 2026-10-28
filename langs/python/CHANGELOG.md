@@ -46,6 +46,17 @@ All notable changes to the Python flavor are documented here. The format is base
   and the first failure is raised after the teardown. A member registered
   after `Disposed` is disposed at once. Registering the VM itself raises
   `RuntimeError` (#661, ADR-0162, LIFE-018).
+- `TreeSelection[TVM]` in `vmx.hierarchical` and `vmx` holds one current node
+  of the materialized tree under a root node (#667, ADR-0164, spec/18 §10,
+  HIER-033..HIER-040). It exposes `current`, `can_select(node)`,
+  `select(node)`, `clear()`, `current_changed` and `dispose()`. `select`
+  raises `ValueError` for a node that `can_select` rejects. The helper watches
+  the hubs of the path from the current node to the root, and it clears the
+  selection when that node leaves the tree: removal, a transfer out, an
+  ancestor's cache invalidation, or disposal. A move inside the tree keeps the
+  selection. The helper publishes nothing to a hub and never materializes or
+  changes a node. `dispose()` releases the subscriptions and completes the
+  stream without emitting.
 
 ### Fixed
 

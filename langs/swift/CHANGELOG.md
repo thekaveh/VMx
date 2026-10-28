@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `TreeSelection<TModel, TVM>`, an opt-in helper that tracks one current
+  node per hierarchical tree (#667, ADR-0164, HIER-033..HIER-040). Construct
+  it on a root node. `canSelect(_:)` walks only `parent` links and `status`,
+  so it never invokes a children factory. `select(_:)` throws
+  `TreeSelectionError.notInTree` for a node outside the root's materialized
+  tree or on a disposed path, and `clear()` drops the selection.
+  `currentChanged` is a hot `AnyPublisher<TVM?, Never>` that emits once per
+  effective change, in order. The helper watches the hubs of the nodes on the path from
+  the current node to the root. It clears the selection when the node leaves
+  the tree through removal, a transfer out, an ancestor's
+  `invalidateChildren()` or disposal, and it keeps the selection across a
+  move inside the tree. It publishes nothing to a hub, never changes a node,
+  and holds the root weakly. `dispose()` releases the hub subscriptions,
+  sets `current` to `nil` without emitting, and completes the stream.
 - A supported child-transition helper and depth-first member disposal on
   `ComponentVMBase` (#661, ADR-0162, LIFE-016..LIFE-020). A subclass in
   another module calls `try _transitionChildren(children, construct:, after:)`

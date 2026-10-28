@@ -1,21 +1,18 @@
 /**
- * NotebookVM — leaf VM for a notebook tree node.
+ * NotebookVM — one node of the notebooks tree.
  *
  * Capabilities (scenario §6.2): ISelectable, IExpandable, ICollapsible,
  * IExpansionTogglable, IReconstructable.
  *
- * VMx-API adaptation: the modeled `ComponentVMOf<M>` would force a fixed
- * model setter pipeline; we layer the capability mix-ins manually by
- * subclassing `ComponentVMBase` (TypeScript doesn't seal classes, but the
- * structural shape we need is bespoke enough that direct subclassing is
- * cleaner than composing `ComponentVMOf`). Mirrors the C# pattern verbatim
- * (`NotebookVM : ComponentVMBase, ISelectable, …`).
+ * The node is a `HierarchicalVM<NotebookModel, NotebookVM>`, so `parent`,
+ * `children` and `path` come from VMx, and `NotebooksRootVM` tracks the
+ * current notebook with a `TreeSelection` (spec/18 §10). The capability
+ * mix-ins are layered on manually, as in the C# flavor.
  */
 import {
-  ComponentVMBase,
   declareCapabilities,
   ExpandableState,
-  ViewModelType,
+  HierarchicalVM,
   type IDispatcher,
   type IMessageHub,
 } from "@thekaveh/vmx";
@@ -24,7 +21,10 @@ import type { NotebookModel } from "../models/notebookModel.js";
 
 const SENTINEL = Symbol("not-set");
 
-export class NotebookVM extends ComponentVMBase {
+/** Builds the child nodes of a notebook node (see `HierarchicalVM`). */
+export type NotebookChildrenFactory = (parent: NotebookVM) => Iterable<NotebookVM>;
+
+export class NotebookVM extends HierarchicalVM<NotebookModel, NotebookVM> {
   readonly #expansion: ExpandableState;
   #model: NotebookModel;
 
@@ -35,12 +35,15 @@ export class NotebookVM extends ComponentVMBase {
     dispatcher: IDispatcher;
     model: NotebookModel;
     initiallyExpanded: boolean;
+    childrenFactory: NotebookChildrenFactory;
   }) {
     super({
       name: opts.name,
       hint: opts.hint,
       hub: opts.hub,
       dispatcher: opts.dispatcher,
+      model: opts.model,
+      childrenFactory: opts.childrenFactory,
     });
     this.#model = opts.model;
     this.#expansion = new ExpandableState(opts.initiallyExpanded);
@@ -54,21 +57,20 @@ export class NotebookVM extends ComponentVMBase {
     );
   }
 
-  get type(): ViewModelType {
-    return ViewModelType.Component;
-  }
-
   /** Public hub accessor — see C# `NotebookVM.Hub` for the rationale. */
   get hub(): IMessageHub {
     return this._hub;
   }
 
-  /** Current notebook model. Equality-guarded setter emits hub messages. */
-  get model(): NotebookModel {
+  /**
+   * Current notebook model. Equality-guarded setter emits hub messages. It
+   * overrides the read-only `HierarchicalVM.model` so a rename stays local.
+   */
+  override get model(): NotebookModel {
     return this.#model;
   }
 
-  set model(value: NotebookModel) {
+  override set model(value: NotebookModel) {
     if (this.#model === value) return;
     this.#model = value;
     this._notifyPropertyChanged("model");
@@ -137,6 +139,7 @@ export class NotebookVMBuilder {
   #hub: IMessageHub | null = null;
   #dispatcher: IDispatcher | null = null;
   #initiallyExpanded = false;
+  #childrenFactory: NotebookChildrenFactory = () => [];
 
   constructor(from?: NotebookVMBuilder) {
     if (from) {
@@ -146,6 +149,7 @@ export class NotebookVMBuilder {
       this.#hub = from.#hub;
       this.#dispatcher = from.#dispatcher;
       this.#initiallyExpanded = from.#initiallyExpanded;
+      this.#childrenFactory = from.#childrenFactory;
     }
   }
 
@@ -180,6 +184,13 @@ export class NotebookVMBuilder {
     return b;
   }
 
+  /** Optional child factory; a node has no children by default. */
+  childrenFactory(value: NotebookChildrenFactory): NotebookVMBuilder {
+    const b = new NotebookVMBuilder(this);
+    b.#childrenFactory = value;
+    return b;
+  }
+
   build(): NotebookVM {
     if (this.#name === null) throw new Error("name is required");
     if (this.#model === SENTINEL) throw new Error("model is required");
@@ -192,6 +203,7 @@ export class NotebookVMBuilder {
       dispatcher: this.#dispatcher,
       model: this.#model,
       initiallyExpanded: this.#initiallyExpanded,
+      childrenFactory: this.#childrenFactory,
     });
   }
 }
