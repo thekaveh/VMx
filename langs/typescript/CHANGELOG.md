@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `isTreeStructureChanged(message, { sender?, change? })`, a fourth raw-message
+  predicate (#666, ADR-0163). It narrows to `TreeStructureChangedMessage` and
+  works directly with `Array.filter` and RxJS `filter`. It classifies by shape
+  as well as by class, so a tree message from a second copy of the package
+  still matches.
 - `ComponentVMBase._transitionChildren(children, construct, after?)` is now
   supported API, and `ComponentVMBase.ownMember(member)` is new (#661,
   ADR-0162, LIFE-016..LIFE-020). A leaf VM calls `_transitionChildren` from its

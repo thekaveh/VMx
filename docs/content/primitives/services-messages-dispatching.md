@@ -115,7 +115,7 @@ Requests follow the hub delivery rules. Rust adds one limit:
 
 ## 6.6.5. TypeScript Raw-Message Narrowing
 
-TypeScript exports three predicates for classifying mixed raw `IMessage`
+TypeScript exports four predicates for classifying mixed raw `IMessage`
 streams and arrays. Their unary overloads can be passed directly to RxJS or
 array filters; an inline constraint object adds exact sender/source and
 family-specific matching. Sender and source matching uses object identity.
@@ -126,6 +126,7 @@ import {
   isCollectionChanged,
   isConstructionStatusChanged,
   isPropertyChanged,
+  isTreeStructureChanged,
   ServicedObservableCollection,
 } from "@thekaveh/vmx";
 import { filter } from "rxjs";
@@ -161,6 +162,12 @@ const constructed = hub.messages.pipe(
     }),
   ),
 );
+
+const reparented = hub.messages.pipe(
+  filter((message) =>
+    isTreeStructureChanged(message, { sender: root, change: "reparented" }),
+  ),
+);
 ```
 
 The sender generic is inferred only when a sender constraint is supplied and
@@ -169,6 +176,8 @@ even when the source is a typed `ServicedObservableCollection<TItem>`: source
 identity cannot prove a payload type because public message factories accept
 sender and item types independently. An explicitly present `undefined`
 constraint is compared exactly, while an omitted field is ignored.
+`isTreeStructureChanged` also matches a tree message from a second copy of the
+package, because it classifies by shape as well as by class (ADR-0163).
 
 Use `whenPropertyChanged(hub, sender, propertyName)` when those three inputs are
 already known and the subscriber needs the matching message. Pass an array,

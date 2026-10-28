@@ -5,6 +5,10 @@ import {
 } from "./collectionChanged.js";
 import { ConstructionStatusChangedMessage } from "./constructionStatusChanged.js";
 import { PropertyChangedMessage } from "./propertyChanged.js";
+import {
+  TreeStructureChangedMessage,
+  type TreeStructureChange,
+} from "./treeStructureChanged.js";
 import type { IMessage } from "./types.js";
 
 function hasOwn(value: object, key: string): boolean {
@@ -116,5 +120,84 @@ export function isConstructionStatusChanged(
     (match === undefined ||
       !hasOwn(match, "status") ||
       message.status === match.status)
+  );
+}
+
+const treeStructureChanges: ReadonlySet<unknown> = new Set<TreeStructureChange>([
+  "added",
+  "removed",
+  "reparented",
+]);
+
+/**
+ * Classifies a tree-structure message by class, then by shape, so a message
+ * from a second copy of the package still matches (ADR-0163). The shape check
+ * is type-safe only while TreeStructureChangedMessage has no methods or
+ * private fields; adding either needs a new classification rule.
+ */
+function hasTreeStructureShape(message: IMessage): boolean {
+  if (message instanceof TreeStructureChangedMessage) {
+    return true;
+  }
+  // Untyped callers and the hub can pass null; return false, as the other
+  // predicates do, instead of throwing in hasOwn.
+  const value: unknown = message;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = message as {
+    readonly senderName?: unknown;
+    readonly change?: unknown;
+    readonly index?: unknown;
+  };
+  return (
+    hasOwn(candidate, "sender") &&
+    typeof candidate.senderName === "string" &&
+    treeStructureChanges.has(candidate.change) &&
+    hasOwn(candidate, "affected") &&
+    Number.isInteger(candidate.index)
+  );
+}
+
+export function isTreeStructureChanged(
+  message: IMessage,
+): message is TreeStructureChangedMessage<unknown, unknown>;
+export function isTreeStructureChanged<TSender>(
+  message: IMessage,
+  constraints: {
+    readonly sender: TSender;
+    readonly change?: TreeStructureChange | undefined;
+  },
+): message is TreeStructureChangedMessage<TSender, unknown>;
+/* eslint-disable @typescript-eslint/unified-signatures -- the unary overload prevents filter indices from becoming constraints */
+export function isTreeStructureChanged(
+  message: IMessage,
+  constraints: {
+    readonly change?: TreeStructureChange | undefined;
+  },
+): message is TreeStructureChangedMessage<unknown, unknown>;
+/* eslint-enable @typescript-eslint/unified-signatures */
+export function isTreeStructureChanged(
+  message: IMessage,
+  constraints?: {
+    readonly sender?: unknown;
+    readonly change?: TreeStructureChange | undefined;
+  } | number | null,
+): message is TreeStructureChangedMessage<unknown, unknown> {
+  const match =
+    typeof constraints === "object" && constraints !== null
+      ? constraints
+      : undefined;
+  if (!hasTreeStructureShape(message)) {
+    return false;
+  }
+  const tree = message as TreeStructureChangedMessage<unknown, unknown>;
+  return (
+    (match === undefined ||
+      !hasOwn(match, "sender") ||
+      tree.sender === match.sender) &&
+    (match === undefined ||
+      !hasOwn(match, "change") ||
+      tree.change === match.change)
   );
 }
