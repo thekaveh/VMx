@@ -4,6 +4,7 @@ export {
   HierarchicalVMBuilder,
   MissingParentPolicy,
 } from "./hierarchicalVm.js";
+export { TreeSelection } from "./treeSelection.js";
 export type {
   BatchAttachOptions,
   BatchAttachRejection,

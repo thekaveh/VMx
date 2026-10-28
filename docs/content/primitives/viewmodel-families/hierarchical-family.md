@@ -158,7 +158,43 @@ the root clears its parked set.
 Consumers still adapt domain facts that the generic tree must not own, such as
 forest roots, alias parent IDs, and creation of registered domain nodes.
 
-## 6.2.6.6. Cross-Language Surface
+## 6.2.6.6. Tracking A Current Node
+
+A tree node cannot be the `Current` item of a container, so its inherited
+`select()` does nothing. Compose a `TreeSelection` on the tree's root instead
+(spec 18 §10, ADR-0164). It holds one current node:
+
+- Only a node that reaches the root through its parent links can be selected.
+  No node on that path may be disposed. The check reads parent links only, so
+  it never loads lazy children.
+- Selecting any other node raises the flavor's invalid-operation error and
+  keeps the current node.
+- The selection clears by itself when the current node leaves the tree:
+  removal, a transfer to another tree, invalidation of an ancestor, or
+  disposal of the node or an ancestor. A move inside the tree keeps it.
+- `currentChanged` emits the new node or null once per change, in order, even
+  when a subscriber selects again while it receives a value. The helper
+  publishes nothing to the hub, so the owning VM forwards the stream to its
+  own property notification.
+- Selection does not navigate. It does not expand, load, construct or mark a
+  node.
+- The owner disposes the helper. Disposal releases its hub subscriptions and
+  completes the stream. It never disposes a node.
+
+```ts
+const selection = new TreeSelection<NotebookVM>(root);
+const forward = selection.currentChanged.subscribe(() =>
+  this._notifyPropertyChanged("current"),
+);
+selection.select(report); // report must be in root's materialized tree
+root.removeChild(reportsFolder); // report leaves the tree: current is null
+```
+
+The helper watches the hubs of the nodes between the current node and the
+root. Every leave-tree event is published by a node on that path, on its own
+hub. So a transfer to a tree on another hub also clears the selection.
+
+## 6.2.6.7. Cross-Language Surface
 
 | Concept            | C#                                   | Python                               | TypeScript                           | Swift                                   | Rust                              |
 | ------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | --------------------------------------- | --------------------------------- |
@@ -169,16 +205,17 @@ forest roots, alias parent IDs, and creation of registered domain nodes.
 | Batch attach       | `AttachMany(...)`                    | `attach_many(...)`                   | `attachMany(...)`                    | `attachMany(...)`                       | `attach_many(...)`                |
 | Root parent key    | `BatchParentKey<TKey>.Root`          | `None`                               | `null`                               | `nil`                                   | `None`                            |
 | Parked count       | `ParkedAttachCount`                  | `parked_attach_count`                | `parkedAttachCount`                  | `parkedAttachCount`                     | `parked_attach_count()`           |
+| Current node       | `TreeSelection<TModel, TVM>`         | `TreeSelection[TVM]`                 | `TreeSelection<TVM>`                 | `TreeSelection<TModel, TVM>`            | `TreeSelection<M>`                |
 
-## 6.2.6.7. Example
+## 6.2.6.8. Example
 
-The current Notes Workspace examples do **not** subclass `HierarchicalVM` in
-any flavor. In the C#, Python, TypeScript, and Swift showcases, each
-`NotebooksRootVM` owns a flat notebook collection plus
-`roots` / `childrenOf` / `walk` projections and republishes
-`TreeStructureChangedMessage`, which gives the host tree-shaped state without
-making the VM itself a recursive node tree. The Rust TUI companion keeps a
-plain `NotebooksVm` list instead.
+The TypeScript React Notes Workspace showcase builds its notebooks tree from
+`HierarchicalVM` nodes. Its `NotebooksRootVM` keeps a hidden root node and a
+`TreeSelection` for the current notebook. The C#, Python, and Swift showcases
+do **not** subclass `HierarchicalVM`: each `NotebooksRootVM` owns a flat
+notebook collection plus `roots` / `childrenOf` / `walk` projections and
+republishes `TreeStructureChangedMessage`. The Rust TUI companion keeps a plain
+`NotebooksVm` list instead.
 
 Use `HierarchicalVM` when the VM graph should actually be recursive:
 
@@ -248,7 +285,7 @@ when a subclass is required.
 That split is the practical rule: use the tree primitive when the tree is real,
 not simply because the UI displays indentation.
 
-## 6.2.6.8. Common Pitfalls
+## 6.2.6.9. Common Pitfalls
 
 - Recursing `CompositeVM` instead of using the tree primitive and then having to
   rebuild `Parent`, `Depth`, and `Path` yourself.
@@ -261,10 +298,12 @@ not simply because the UI displays indentation.
   cycles.
 - Using a mutable or call-dependent batch key selector. Parked nodes are retried
   with the next call's selectors, so key semantics must stay stable.
+- Calling a node's inherited `select()` to make it current. A tree node has no
+  container; use `TreeSelection` (§6.2.6.6).
 - Treating `park` as a general retry queue. Only missing-parent items park;
   duplicates, cycles, and invalid links are terminal results.
 
-## 6.2.6.9. Related Primitives
+## 6.2.6.10. Related Primitives
 
 - [Composite Family](composite-family.md)
 - [State & Reactive Helpers](../state-reactive-helpers.md)

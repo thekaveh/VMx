@@ -13,8 +13,10 @@ use super::{
 type HierChildrenFactory<M> =
     Arc<dyn Fn(&HierarchicalVm<M>) -> Vec<HierarchicalVm<M>> + Send + Sync>;
 
+// The hook runs only for the node whose identity it names, so tests that
+// materialize other trees in parallel never reach it.
 #[cfg(test)]
-type MaterializationValidationHook = Box<dyn Fn() + Send + 'static>;
+type MaterializationValidationHook = (usize, Box<dyn Fn() + Send + 'static>);
 
 #[cfg(test)]
 static MATERIALIZATION_VALIDATION_HOOK: Mutex<Option<MaterializationValidationHook>> =
@@ -752,8 +754,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         let committed = (|| -> VmxResult<Vec<Self>> {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             #[cfg(test)]
-            if let Some(hook) = lock(&MATERIALIZATION_VALIDATION_HOOK).as_ref() {
-                hook();
+            if let Some((node, hook)) = lock(&MATERIALIZATION_VALIDATION_HOOK).as_ref() {
+                if *node == self.id() {
+                    hook();
+                }
             }
             let mut seen = HashSet::new();
             for child in &children {
@@ -1192,10 +1196,13 @@ mod tests {
         let (resume_tx, resume_rx) = mpsc::channel();
         let resume_rx = Arc::new(Mutex::new(resume_rx));
         let captured_resume = Arc::clone(&resume_rx);
-        *lock(&MATERIALIZATION_VALIDATION_HOOK) = Some(Box::new(move || {
-            at_boundary_tx.send(()).unwrap();
-            captured_resume.lock().unwrap().recv().unwrap();
-        }));
+        *lock(&MATERIALIZATION_VALIDATION_HOOK) = Some((
+            root.id(),
+            Box::new(move || {
+                at_boundary_tx.send(()).unwrap();
+                captured_resume.lock().unwrap().recv().unwrap();
+            }),
+        ));
 
         let (hydration_tx, hydration_rx) = mpsc::channel();
         let first_root = root.clone();

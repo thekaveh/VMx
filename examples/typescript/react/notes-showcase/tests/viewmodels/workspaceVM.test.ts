@@ -57,6 +57,20 @@ describe("WorkspaceVM", () => {
     ws.dispose();
   });
 
+  it("selectNotebook ignores a notebook dropped by populateAsync", async () => {
+    const ws = makeWorkspace();
+    await ws.constructAsync();
+    const stale = ws.notebooksRoot.roots.find((nb) => nb.model.id === "nb-work")!;
+    await ws.notebooksRoot.populateAsync();
+    const fresh = ws.notebooksRoot.roots.find((nb) => nb.model.id === "nb-work")!;
+    ws.selectNotebook(fresh);
+
+    expect(() => ws.selectNotebook(stale)).not.toThrow();
+    expect(ws.notebooksRoot.current).toBe(fresh);
+
+    ws.dispose();
+  });
+
   it("observes a failed selection bind and permits a retry", async () => {
     const repo = new InMemoryNoteRepository(buildSeed(), {
       loadAllDelayMs: 0,

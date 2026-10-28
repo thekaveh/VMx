@@ -110,6 +110,8 @@ pub use hierarchical::{
     find, walk, walk_expanded, BatchAttachRejection, BatchAttachRejectionReason, BatchAttachResult,
     HierarchicalVm, HierarchicalVmBuilder, MissingParentPolicy,
 };
+mod tree_selection;
+pub use tree_selection::TreeSelection;
 /// Returns the embedded language-neutral lifecycle transition fixture.
 pub fn lifecycle_transition_fixture() -> &'static str {
     include_str!("fixtures/lifecycle-transitions.json")

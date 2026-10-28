@@ -57,8 +57,8 @@ Message payload property names follow the local idiom, with the documented
 
 ## 4.7. Conformance Catalog
 
-The spec defines 441 conformance IDs: 436 library IDs plus 5 `THEME-00x`
-scenario IDs. Every catalog-complete flavor carries the 436 library IDs in its own
+The spec defines 449 conformance IDs: 444 library IDs plus 5 `THEME-00x`
+scenario IDs. Every catalog-complete flavor carries the 444 library IDs in its own
 conformance suite, and repository tooling checks coverage before CI passes.
 
 ## 4.8. Framework Surface
@@ -77,7 +77,8 @@ flavor exposes these parts under its own naming idiom:
 - Tree utilities (`walk`, `find`, `walk_expanded`) for introspection.
 - 22 opt-in capability micro-interfaces (`ISelectable`, `IExpandable`,
   `IClosable`, `IFilterable`, `IPageable`, …) that layer behavior onto VMs.
-- Helper state classes `ExpandableState` and `SearchableState`.
+- Helper state classes `ExpandableState`, `SearchableState`, and
+  `TreeSelection`, which tracks one current node of a hierarchy.
   `SearchableState` can observe a source-change signal, so an unchanged term
   stays synchronized with collection or member invalidations.
 - `DerivedProperty<T>` for computed values over N sources.

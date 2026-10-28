@@ -8,6 +8,20 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Added: the opt-in `TreeSelection<TModel, TVM>` helper (`VMx.Hierarchical`)
+  holds one current node of a hierarchical tree (#667, ADR-0164,
+  HIER-033..HIER-040). It is constructed on a root node and exposes `Current`,
+  `CanSelect(node)`, `Select(node)`, `Clear()`, a hot
+  `IObservable<TVM?> CurrentChanged` and `Dispose()`. `CanSelect` walks only
+  `HierarchicalParent` links and status, so it never invokes a children
+  factory. `Select` throws `InvalidOperationException` for a node outside the
+  root's materialized tree or under a disposed node. The helper watches the
+  hubs of the path from the current node to the root and clears the selection
+  when the node is removed, transferred out, dropped by an invalidation or
+  disposed. A move inside the tree keeps the selection. The helper publishes
+  nothing to a hub and never changes a node. `Dispose()` releases the hub
+  subscriptions, sets `Current` to null without emitting, completes the stream
+  and rethrows the first failure. `HierarchicalVM` gains no member.
 - Added: `ExpandableState.ExpandCommand`, `CollapseCommand` and
   `ToggleExpansionCommand` (#660, ADR-0159, EXP-006..008). Each command's
   predicate is the matching `Can*` check, its task calls the verb, and its
