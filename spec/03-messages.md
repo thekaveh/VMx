@@ -341,8 +341,10 @@ for the rationale and ADR-0160 for the multi-name form.
 ### 7.3 TypeScript raw-message predicates (informative, spec v3.14)
 
 TypeScript additionally exports `isPropertyChanged`, `isCollectionChanged`,
-and `isConstructionStatusChanged` for narrowing mixed raw `IMessage` arrays or
-streams to the corresponding existing concrete message classes. Optional
+`isConstructionStatusChanged` and `isTreeStructureChanged` for narrowing mixed
+raw `IMessage` arrays or streams to the corresponding existing concrete message
+classes. `isTreeStructureChanged` classifies by class, then by shape, so a tree
+message from a second copy of the package still matches. Optional
 constraint objects select the existing sender/source and family-specific fields;
 the unary forms can be passed directly to `Array.filter` or RxJS `filter`.
 Generic sender narrowing requires a supplied sender that is checked by identity;
@@ -357,7 +359,8 @@ semantics, delivery, ordering, lifecycle, or payloads. They are TypeScript-only
 type ergonomics under ADR-0006, add no conformance ID, and create no API
 requirement for the other flavors. Existing §7.1 and §7.2 helpers remain the
 higher-level choices when the hub, sender, and property are already known. See
-ADR-0094 for the exact matching and overload decisions.
+ADR-0094 for the exact matching and overload decisions, and ADR-0163 for the
+tree predicate.
 
 ### 7.4 `subscribeValue` — imperative selected-state bridge
 

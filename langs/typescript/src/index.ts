@@ -33,6 +33,7 @@ export {
   isCollectionChanged,
   isConstructionStatusChanged,
   isPropertyChanged,
+  isTreeStructureChanged,
 } from "./messages/predicates.js";
 export { TreeStructureChangedMessage } from "./messages/treeStructureChanged.js";
 export type { TreeStructureChange } from "./messages/treeStructureChanged.js";

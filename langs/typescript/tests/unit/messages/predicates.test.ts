@@ -10,10 +10,16 @@ import {
   isCollectionChanged,
   isConstructionStatusChanged,
   isPropertyChanged,
+  isTreeStructureChanged,
   PropertyChangedMessage,
   ServicedObservableCollection,
+  TreeStructureChangedMessage,
+  type TreeStructureChange,
 } from "../../../src/index.js";
-import { isPropertyChanged as isPropertyChangedFromMessages } from "../../../src/messages/index.js";
+import {
+  isPropertyChanged as isPropertyChangedFromMessages,
+  isTreeStructureChanged as isTreeStructureChangedFromMessages,
+} from "../../../src/messages/index.js";
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
 
@@ -323,5 +329,122 @@ describe("raw message predicates", () => {
     expectExactType<
       IsExact<typeof constructed, Observable<ConstructionStatusChangedMessage>>
     >(constructed);
+  });
+});
+
+/**
+ * Stands in for TreeStructureChangedMessage from a second installed copy of
+ * the package: the same shape, but a different class.
+ */
+class ForeignTreeStructureChangedMessage implements IMessage {
+  constructor(
+    readonly sender: unknown,
+    readonly senderName: string,
+    readonly change: TreeStructureChange,
+    readonly affected: unknown,
+    readonly index: number,
+  ) {}
+}
+
+describe("isTreeStructureChanged", () => {
+  const root = { name: "root" };
+  const otherRoot = { name: "root" };
+  const child = { name: "child" };
+  const added = new TreeStructureChangedMessage(root, "root", "added", child, 0);
+  const reparented = new TreeStructureChangedMessage(
+    root,
+    "root",
+    "reparented",
+    child,
+    -1,
+  );
+  const elsewhere = new TreeStructureChangedMessage(
+    otherRoot,
+    "root",
+    "removed",
+    child,
+    0,
+  );
+  const treeMessages: IMessage[] = [property, added, collection, reparented, status, elsewhere];
+
+  it("classifies tree-structure changes and is exported from both entry points", () => {
+    expect(isTreeStructureChangedFromMessages).toBe(isTreeStructureChanged);
+    expect(treeMessages.filter(isTreeStructureChanged)).toEqual([added, reparented, elsewhere]);
+    for (const message of [property, collection, movedCollection, status]) {
+      expect(isTreeStructureChanged(message)).toBe(false);
+    }
+
+    const allTree = treeMessages.filter(isTreeStructureChanged);
+    expectExactType<
+      IsExact<typeof allTree, TreeStructureChangedMessage<unknown, unknown>[]>
+    >(allTree);
+    const treeStream = from(treeMessages).pipe(filter(isTreeStructureChanged));
+    const streamed: IMessage[] = [];
+    treeStream.subscribe((message) => streamed.push(message));
+    expect(streamed).toEqual([added, reparented, elsewhere]);
+    expectExactType<
+      IsExact<typeof treeStream, Observable<TreeStructureChangedMessage<unknown, unknown>>>
+    >(treeStream);
+  });
+
+  it("filters by sender identity and narrows the sender type", () => {
+    const fromRoot = treeMessages.filter((message) =>
+      isTreeStructureChanged(message, { sender: root }),
+    );
+    expect(fromRoot).toEqual([added, reparented]);
+
+    const message: IMessage = added;
+    if (isTreeStructureChanged(message, { sender: root })) {
+      expectExactType<
+        IsExact<typeof message, TreeStructureChangedMessage<typeof root, unknown>>
+      >(message);
+      expect(message.sender.name).toBe("root");
+    }
+    expect(isTreeStructureChanged(added, { sender: otherRoot })).toBe(false);
+    expect(isTreeStructureChanged(added, { sender: undefined })).toBe(false);
+  });
+
+  it("filters by change and combines change with sender", () => {
+    expect(
+      treeMessages.filter((message) => isTreeStructureChanged(message, { change: "reparented" })),
+    ).toEqual([reparented]);
+    expect(
+      treeMessages.filter((message) =>
+        isTreeStructureChanged(message, { sender: root, change: "added" }),
+      ),
+    ).toEqual([added]);
+    expect(isTreeStructureChanged(elsewhere, { sender: root, change: "removed" })).toBe(false);
+    expect(isTreeStructureChanged(added, { change: undefined })).toBe(false);
+    expect(isTreeStructureChanged(added, {})).toBe(true);
+  });
+
+  it("matches a tree-structure message from a second package copy", () => {
+    const foreign = new ForeignTreeStructureChangedMessage(root, "root", "reparented", child, 2);
+    expect(foreign instanceof TreeStructureChangedMessage).toBe(false);
+    expect(isTreeStructureChanged(foreign)).toBe(true);
+    expect(isTreeStructureChanged(foreign, { sender: root, change: "reparented" })).toBe(true);
+    expect(isTreeStructureChanged(foreign, { change: "added" })).toBe(false);
+  });
+
+  it("rejects look-alike messages that lack the tree-structure shape", () => {
+    const base = { sender: root, senderName: "root", change: "added", affected: child, index: 0 };
+    const lookAlikes: IMessage[] = [
+      { ...base, change: "moved" } as IMessage,
+      { ...base, senderName: 1 } as unknown as IMessage,
+      { ...base, index: 1.5 } as IMessage,
+      { ...base, index: "0" } as unknown as IMessage,
+      { sender: root, senderName: "root", change: "added", index: 0 } as IMessage,
+      { senderName: "root", change: "added", affected: child, index: 0 } as unknown as IMessage,
+    ];
+    for (const lookAlike of lookAlikes) {
+      expect(isTreeStructureChanged(lookAlike)).toBe(false);
+    }
+    expect(isTreeStructureChanged(base as IMessage)).toBe(true);
+  });
+
+  it("returns false for null and undefined from untyped callers", () => {
+    expect(isTreeStructureChanged(null as unknown as IMessage)).toBe(false);
+    expect(isTreeStructureChanged(undefined as unknown as IMessage)).toBe(false);
+    expect(isPropertyChanged(null as unknown as IMessage)).toBe(false);
   });
 });

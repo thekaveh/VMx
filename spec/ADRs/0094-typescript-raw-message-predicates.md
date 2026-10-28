@@ -1,6 +1,6 @@
 # ADR 0094 — Add TypeScript raw-message predicates
 
-**Status:** Accepted (2026-07-11)
+**Status:** Accepted (2026-07-11; the predicate scope is amended by ADR-0163)
 **Spec version:** introduced in 3.14.0
 **Related:** ADR-0006, ADR-0032, ADR-0050, issue #88
 
@@ -78,3 +78,10 @@ filter overloads; it is not missing language-neutral message behavior.
 - **Cross-flavor predicate parity:** nominal/runtime type checks are already
   idiomatic in the other languages. Adding artificial public APIs there would
   mistake TypeScript type ergonomics for a shared behavioral contract.
+
+## 5. Amendments
+
+- **ADR-0163** (2026-10-27, spec v3.30.0) adds a fourth predicate,
+  `isTreeStructureChanged`. It classifies `TreeStructureChangedMessage` by
+  shape as well as by class, so a message from a second package copy matches.
+  The three predicates above keep their `instanceof` classification.

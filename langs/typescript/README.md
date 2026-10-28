@@ -192,7 +192,7 @@ Key exports:
 | Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands |
 | `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots |
 | `whenPropertyChanged`           | Hub helper yielding matching property-change messages for one name or an array of names |
-| `isPropertyChanged` / `isCollectionChanged` / `isConstructionStatusChanged` | Filter-safe predicates for mixed raw messages |
+| `isPropertyChanged` / `isCollectionChanged` / `isConstructionStatusChanged` / `isTreeStructureChanged` | Filter-safe predicates for mixed raw messages |
 | `subscribeValue`                | Fixed-VM selected-state bridge returning an RxJS `Subscription` |
 
 ### 4.1 Serviced collections
@@ -209,10 +209,11 @@ remain caller-owned. Use `ObservableList<T>` for list-local batching and the
 
 ### 4.2 Raw message predicates
 
-`isPropertyChanged`, `isCollectionChanged`, and `isConstructionStatusChanged`
-narrow a mixed `IMessage` array or stream without a cast. Each works directly
-with `Array.filter` or RxJS `filter`. They are TypeScript-only type ergonomics
-(ADR-0094). See
+`isPropertyChanged`, `isCollectionChanged`, `isConstructionStatusChanged`, and
+`isTreeStructureChanged` narrow a mixed `IMessage` array or stream without a
+cast. Each works directly with `Array.filter` or RxJS `filter`.
+`isTreeStructureChanged` also matches a tree message from a second package
+copy. They are TypeScript-only type ergonomics (ADR-0094, ADR-0163). See
 [TypeScript raw message predicates](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/typescript.md#745-raw-message-predicates).
 
 ### 4.3 Imperative engine bridge
