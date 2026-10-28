@@ -805,8 +805,14 @@ impl MessageHub {
         inner.pending.push_back(message);
     }
 
+    /// Identity of this hub's shared state. It stays unique while any handle
+    /// or subscription keeps that state allocated.
+    pub(crate) fn identity(&self) -> usize {
+        Arc::as_ptr(&self.inner) as usize
+    }
+
     pub(crate) fn is_delivering_from(&self, sender_id: usize) -> bool {
-        let hub_id = Arc::as_ptr(&self.inner) as usize;
+        let hub_id = self.identity();
         MESSAGE_HUB_DELIVERY_SENDERS.with(|senders| senders.borrow().contains(&(hub_id, sender_id)))
     }
 

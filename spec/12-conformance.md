@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 436 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 444 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -3440,6 +3440,79 @@ children or the subtree
 **Then** the complete hydration attempt is rejected before topology, cache,
 path, or message mutation
 **And** a later access retries the factory and can succeed
+
+### HIER-033 — `TreeSelection` selects a member and publishes each change once
+
+**Given** a root with a materialized child `A`, a materialized grandchild
+`AA`, a `TreeSelection` on the root, and a `CurrentChanged` subscriber
+**When** `Select(AA)` is called, then `Select(AA)` again, then `Clear()` twice
+**Then** `CanSelect` is true for the root, `A` and `AA` before the calls
+**And** `Current` is `AA` after the first call and null after the first clear
+**And** the subscriber receives exactly `AA`, then null
+**And** the repeated select and the repeated clear publish nothing
+**And** when a first subscriber calls `Select(A)` while it receives `AA`, a
+second subscriber receives `AA` before `A`, and `Current` is `A`
+
+### HIER-034 — `TreeSelection` rejects a node outside the materialized tree
+
+**Given** a `TreeSelection` on a root whose `Current` is the member `A`
+**And** a detached node, a node of another tree, and a disposed member
+**When** `Select` is called with each of them
+**Then** `CanSelect` is false for each of them
+**And** each call raises the flavor's invalid-operation error (Swift
+`TreeSelectionError.notInTree`, Rust `VmxError::InvalidArgument`)
+**And** `Current` is still `A`, and `CurrentChanged` publishes nothing
+**And** `CanSelect` and `Select` never invoke a children factory
+
+### HIER-035 — Removing the current node or an ancestor clears the selection
+
+**Given** a `TreeSelection` whose `Current` is the grandchild `AA` under `A`
+**When** `RemoveChild(A)` is called on the root
+**Then** `Current` is null and `CurrentChanged` publishes null once
+**And** the same holds when the current node itself is removed from its parent
+
+### HIER-036 — A transfer out clears the selection; a move inside keeps it
+
+**Given** a `TreeSelection` whose `Current` is the grandchild `AA` under `A`
+**And** a second tree whose root publishes on a different hub
+**When** `A` moves under the root's other child `B`
+**Then** `Current` is still `AA` and `CurrentChanged` publishes nothing
+**When** the second tree's root then adds `A`
+**Then** `Current` is null and `CurrentChanged` publishes null once
+
+### HIER-037 — Invalidating an ancestor clears the selection
+
+**Given** a `TreeSelection` whose `Current` is the grandchild `AA` under `A`
+**When** `InvalidateChildren` is called on `A`
+**Then** `Current` is null and `CurrentChanged` publishes null once
+**And** `AA` stays live with a null parent, and `CanSelect(AA)` is false
+
+### HIER-038 — Disposing the current node or an ancestor clears the selection
+
+**Given** a `TreeSelection` whose `Current` is the grandchild `AA` under `A`
+**When** `A` is disposed
+**Then** `Current` is null and `CurrentChanged` publishes null once
+**And** `CanSelect(AA)` is false while `A` stays in the tree
+**And** the same holds when the current node itself is disposed
+
+### HIER-039 — Selection does not navigate
+
+**Given** a lazy root whose materialized child `A` has never materialized its
+own children, a hub subscriber, and a `TreeSelection` on the root
+**When** `Select(A)` is called
+**Then** `A`'s children factory is not invoked
+**And** the status, parent and `IsCurrent` of every node are unchanged
+**And** the hub receives no message from the selection
+
+### HIER-040 — A disposed `TreeSelection` is inert
+
+**Given** a `TreeSelection` whose `Current` is the member `AA`, with a
+`CurrentChanged` subscriber
+**When** the selection is disposed
+**Then** `CurrentChanged` completes without publishing a value
+**And** `Current` is null and `CanSelect` is false for every node
+**And** later `Select`, `Clear` and tree changes do nothing and do not raise
+**And** a second `Dispose` does nothing
 
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 

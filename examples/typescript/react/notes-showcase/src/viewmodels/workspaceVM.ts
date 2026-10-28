@@ -264,11 +264,15 @@ export class WorkspaceVM {
   /**
    * Selects *nb* as the current notebook: updates the tree selection,
    * focus, the readonly mirror the capability bar gates on, and rebinds
-   * the notes view. The single entry the tree view calls — the readonly
+   * the notes view. A notebook that is no longer in the tree is ignored.
+   * The single entry the tree view calls — the readonly
    * mirror was previously set only at construct time, so capability
    * gating otherwise goes stale on every selection change.
    */
   selectNotebook(nb: NotebookVM): void {
+    // A view that has not re-rendered since `populateAsync` can still hold a
+    // dropped node; a UI handler must not throw for it, so ignore it.
+    if (!this.#notebooks.canSelectNotebook(nb)) return;
     this.#notebooks.current = nb;
     // Set the readonly mirror before setFocus fires the command trigger, so
     // the re-evaluated predicates see the new notebook (as in C# and Swift).

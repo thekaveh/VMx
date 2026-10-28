@@ -29,7 +29,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (441 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (449 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 - `14-capabilities.md` — 22 opt-in capability micro-interfaces.
 - `15-derived-properties.md` — `DerivedProperty<TValue>` N-source computed values.
@@ -37,8 +37,8 @@ before any flavor releases a stable version.
   `NotificationVM` / `ConfirmationVM` render-side VMs.
 - `17-localization.md` — `ILocalizer` hook + `NullLocalizer` default.
 - `18-hierarchical-vm.md` — `HierarchicalVM<TModel, TVM>`: recursive tree VM
-  with lazy/eager children, depth-first construction, materialized path, and
-  `TreeStructureChangedMessage`.
+  with lazy/eager children, depth-first construction, materialized path,
+  `TreeStructureChangedMessage`, and the opt-in `TreeSelection` helper.
 - `19-dialogs.md` — `IDialogService`: host-side contract for modal
   interactions (file pick, confirm prompt, severity-tagged notify) and
   `NullDialogService`.
@@ -56,7 +56,7 @@ before any flavor releases a stable version.
 - `VERSION` — current spec SemVer (`3.30.0`).
 - `HISTORY.md` — the changes of each spec release.
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0163); see
+- `ADRs/` — Architecture Decision Records (0001-0164); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

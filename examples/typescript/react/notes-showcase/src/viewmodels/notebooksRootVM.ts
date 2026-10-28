@@ -1,27 +1,28 @@
 /**
  * NotebooksRootVM — root of the notebooks tree.
  *
- * VMx-API adaptation (parity with C# / Python flavors): the plan asked for
- * `HierarchicalVM<NotebookModel, NotebookVM>`, but VMx TS's
- * `HierarchicalVM` sources each node's children from a per-node factory
- * (materialized lazily on first access, not eagerly at construct time) and
- * lacks the "current selection" / "walk" surface the showcase needs.
- * We own a flat collection and expose roots / children-of / walk over it.
- * `addNotebookAsync` persists via the repo and publishes a
- * `TreeStructureChangedMessage` so subscribers observe structural changes
- * the same way they would on a `HierarchicalVM`.
+ * The notebooks form a `HierarchicalVM<NotebookModel, NotebookVM>` tree under
+ * a hidden root node, whose children are the top-level notebooks. Each
+ * node's children factory reads the repository models by `parentId`. A
+ * `TreeSelection` on the hidden root holds the current notebook (spec/18
+ * §10): it rejects a notebook outside the tree and clears itself when the
+ * current notebook leaves it. `addNotebookAsync` persists via the repo,
+ * attaches the node with `addChild`, and also publishes a root-level
+ * `TreeStructureChangedMessage`.
  */
 import {
   AsyncRelayCommand,
   ComponentVMBase,
   ConstructionStatus,
   declareCapabilities,
+  TreeSelection,
   TreeStructureChangedMessage,
   ViewModelType,
   type ICommand,
   type IDispatcher,
   type IMessageHub,
 } from "@thekaveh/vmx";
+import type { Subscription } from "rxjs";
 import {
   type INotificationHub,
   Notification,
@@ -43,9 +44,13 @@ function newNotebookId(): string {
 export class NotebooksRootVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
   readonly #notificationHub: INotificationHub | null;
-  readonly #all: NotebookVM[] = [];
   readonly #addNotebookCommand: AsyncRelayCommand;
-  #current: NotebookVM | null = null;
+  /** Repository models; the children factory reads them by `parentId`. */
+  #models: readonly NotebookModel[] = [];
+  /** Hidden root node; its children are the top-level notebooks. */
+  readonly #tree: NotebookVM;
+  readonly #selection: TreeSelection<NotebookVM>;
+  readonly #currentForwarding: Subscription;
 
   constructor(opts: {
     name: string;
@@ -65,6 +70,14 @@ export class NotebooksRootVM extends ComponentVMBase {
     this.#notificationHub = opts.notificationHub ?? null;
     declareCapabilities(this, "INewCreatable", "IReconstructable");
 
+    this.#tree = this.#buildNode({ id: "", name: "", parentId: null });
+    this.#selection = new TreeSelection<NotebookVM>(this.#tree);
+    // The helper publishes nothing to the hub; this VM forwards its changes
+    // (spec/14 rule 6).
+    this.#currentForwarding = this.#selection.currentChanged.subscribe(() => {
+      this._notifyPropertyChanged("current");
+    });
+
     this.#addNotebookCommand = AsyncRelayCommand.builder()
       .predicate(() => this.canCreateNew())
       .task(async () => { await this.addNotebookAsync(null, "New Notebook"); })
@@ -79,35 +92,69 @@ export class NotebooksRootVM extends ComponentVMBase {
     return this._hub;
   }
 
-  /** All notebooks (flat, ordered). */
+  /**
+   * All notebooks, depth first (parents before children). `populateAsync`
+   * already loads every level, and a node caches its children, so a later
+   * call walks cached lists; only a node added since then runs its children
+   * factory, once.
+   */
   get all(): readonly NotebookVM[] {
-    return this.#all;
+    const nodes: NotebookVM[] = [];
+    const visit = (parent: NotebookVM): void => {
+      for (const child of parent.children) {
+        nodes.push(child);
+        visit(child);
+      }
+    };
+    visit(this.#tree);
+    return nodes;
   }
 
-  /** Root notebooks (no parent). */
+  /** Root notebooks (children of the hidden root node). */
   get roots(): NotebookVM[] {
-    return this.#all.filter((nb) => nb.model.parentId === null);
+    return [...this.#tree.children];
   }
 
-  /** Iterates every notebook in repository order. */
+  /** Iterates every notebook, depth first. */
   walk(): Iterable<NotebookVM> {
-    return this.#all.slice();
+    return this.all;
   }
 
-  /** Returns the children of the given notebook (matched by parentId). */
+  /** Returns the children of the given notebook. */
   childrenOf(parent: NotebookVM): NotebookVM[] {
-    return this.#all.filter((nb) => nb.model.parentId === parent.model.id);
+    return [...parent.children];
   }
 
-  /** Currently selected notebook (two-way bindable). */
+  /**
+   * Currently selected notebook (two-way bindable). Setting a notebook that
+   * is not in the tree throws, and the value becomes null by itself when the
+   * current notebook leaves the tree.
+   */
   get current(): NotebookVM | null {
-    return this.#current;
+    return this.#selection.current;
   }
 
   set current(value: NotebookVM | null) {
-    if (this.#current === value) return;
-    this.#current = value;
-    this._notifyPropertyChanged("current");
+    if (value === null) {
+      this.#selection.clear();
+      return;
+    }
+    if (value === this.#tree) throw new Error("The hidden tree root is not a notebook");
+    this.#selection.select(value);
+  }
+
+  /**
+   * True when `nb` is a notebook of the current tree: not the hidden root, not
+   * a node dropped by `populateAsync`, and not disposed.
+   */
+  canSelectNotebook(nb: NotebookVM): boolean {
+    return nb !== this.#tree && this.#selection.canSelect(nb);
+  }
+
+  /** True when `nb` is a strict ancestor of the current notebook. */
+  isAncestorOfCurrent(nb: NotebookVM): boolean {
+    const current = this.#selection.current;
+    return current !== null && current !== nb && current.path.includes(nb);
   }
 
   // ── INewCreatable ─────────────────────────────────────────────────────────
@@ -131,13 +178,16 @@ export class NotebooksRootVM extends ComponentVMBase {
   async addNotebookAsync(parentId: string | null, name: string): Promise<void> {
     const model: NotebookModel = { id: newNotebookId(), name, parentId };
     await this.#repo.addNotebook(model);
-    const vm = NotebookVM.builder()
-      .name(`nb:${model.id}`)
-      .model(model)
-      .services(this._hub, this._dispatcher)
-      .build();
+    const parent = parentId === null
+      ? this.#tree
+      : this.all.find((nb) => nb.model.id === parentId);
+    if (parent === undefined) throw new Error(`Unknown parent notebook '${parentId ?? ""}'`);
+    const vm = this.#buildNode(model);
     vm.construct();
-    this.#all.push(vm);
+    // Attach before recording the model: `addChild` materializes the parent's
+    // children from `#models` first, which must not yet contain this model.
+    parent.addChild(vm);
+    this.#models = [...this.#models, model];
     // Live-binding invariant: useVm re-renders only on
     // PropertyChangedMessage — TreeStructureChangedMessage alone left the
     // new notebook invisible until the next unrelated re-render.
@@ -148,7 +198,7 @@ export class NotebooksRootVM extends ComponentVMBase {
         this._name,
         "added",
         vm,
-        this.#all.length - 1,
+        parent.children.length - 1,
       ),
     );
     // Spec §6.2: publish a "Notebook added" notification (cross-flavor parity
@@ -167,19 +217,12 @@ export class NotebooksRootVM extends ComponentVMBase {
    */
   async populateAsync(): Promise<void> {
     const { notebooks } = await this.#repo.loadAll();
-    for (const prev of this.#all) prev.dispose();
-    this.#all.length = 0;
-    this.#current = null;
-
-    for (const nb of notebooks) {
-      const vm = NotebookVM.builder()
-        .name(`nb:${nb.id}`)
-        .model(nb)
-        .services(this._hub, this._dispatcher)
-        .build();
-      vm.construct();
-      this.#all.push(vm);
-    }
+    const previous = this.all;
+    this.#models = notebooks;
+    // Dropping the cache detaches the old nodes, so the selection clears.
+    this.#tree.invalidateChildren();
+    for (const prev of previous) prev.dispose();
+    for (const nb of this.all) nb.construct();
 
     this._hub.send(
       new TreeStructureChangedMessage(this, this._name, "added", this, -1),
@@ -187,14 +230,29 @@ export class NotebooksRootVM extends ComponentVMBase {
   }
 
   protected override _onDestruct(): void {
-    for (const nb of this.#all) nb.destruct();
+    for (const nb of this.all) nb.destruct();
     super._onDestruct();
   }
 
   protected override _onDispose(): void {
-    for (const nb of this.#all) nb.dispose();
+    this.#currentForwarding.unsubscribe();
+    this.#selection.dispose();
+    // Node disposal does not cascade (spec/18 §3), so dispose every node.
+    for (const nb of this.all) nb.dispose();
+    this.#tree.dispose();
     this.#addNotebookCommand.dispose();
     super._onDispose();
+  }
+
+  #buildNode(model: NotebookModel): NotebookVM {
+    return NotebookVM.builder()
+      .name(model.id === "" ? "nb:root" : `nb:${model.id}`)
+      .model(model)
+      .services(this._hub, this._dispatcher)
+      .childrenFactory((parent) => this.#models
+        .filter((nb) => nb.parentId === (parent === this.#tree ? null : parent.model.id))
+        .map((nb) => this.#buildNode(nb)))
+      .build();
   }
 
   static builder(): NotebooksRootVMBuilder {

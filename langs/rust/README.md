@@ -4,7 +4,7 @@ Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framewo
 
 ## 1. Status
 
-**v0.36.0** implements `spec-v3.30.0`. Behavioral Rust tests cover all 436
+**v0.36.0** implements `spec-v3.30.0`. Behavioral Rust tests cover all 444
 library conformance IDs. Rust has no UI scenario suite for the five THEME IDs.
 
 The public surface and some behaviors are not fully aligned with the other
@@ -122,6 +122,8 @@ The crate uses idiomatic Rust naming and error handling:
   after validation and approve-command state settle.
 - `HierarchicalVm::attach_many(...)` resolves out-of-order tree windows with
   consumer keys, non-replacing dedupe, and a park/reject orphan policy.
+- `TreeSelection<M>` keeps one current node for the tree under a root
+  `HierarchicalVm` and clears it when the node leaves that tree.
 - `ObservableList::replace_all(...)` emits one reset with a
   cardinality-correct `Count` notification.
 - `VmCollection<T>` unifies groups and composites. `SelectableVmCollection<T>`

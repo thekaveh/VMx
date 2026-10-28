@@ -52,6 +52,7 @@ mod conformance {
     mod subscribe_value;
     mod threading;
     mod token_refresh_cursor;
+    mod tree_selection;
     mod tree_utils;
     mod user_equality_reentry;
     mod value_stream;

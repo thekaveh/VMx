@@ -178,14 +178,15 @@ lifecycle-bearing search-result ownership obligation.
   complete strict-concurrency diagnostics promoted to errors; post-await
   observable mutations return through the injected foreground dispatcher.
 
-[^hier]: The four UI-backed examples do not subclass
-    `HierarchicalVM<TModel, TVM>` directly. Each uses an equivalent pattern: a
-    flat collection with parent-id navigation. The canonical class gets the
-    children of each node from a per-node factory. By default, it materializes
-    them lazily on first access. This design does not fit a flat `parent_id`
-    collection that changes freely. All four examples keep the same observable
-    contract: they send `TreeStructureChangedMessage` on add and remove, keep a
-    `current` selection, and provide `walk()` and `childrenOf()` accessors.
+[^hier]: The TypeScript React example builds its notebooks tree from
+    `HierarchicalVM<NotebookModel, NotebookVM>` nodes under a hidden root, and
+    a `TreeSelection` (spec 18 §10, ADR-0164) holds its `current` notebook.
+    The C#, Python and Swift examples do not subclass
+    `HierarchicalVM<TModel, TVM>` directly. They use an equivalent pattern: a
+    flat collection with parent-id navigation. All four examples keep the same
+    observable contract: they send `TreeStructureChangedMessage` on add and
+    remove, keep a `current` selection, and provide `walk()` and `childrenOf()`
+    accessors.
     Thus capability dispatch and spec-level tree messages behave as they do
     with a canonical `HierarchicalVM`. Per-flavor source notes:
     `examples/csharp/avalonia/NotesShowcase/ViewModels/NotebooksRootVM.cs`,

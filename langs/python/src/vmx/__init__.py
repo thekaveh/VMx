@@ -125,6 +125,7 @@ from vmx.hierarchical import (
     HierarchicalVM,
     HierarchicalVMBuilder,
     MissingParentPolicy,
+    TreeSelection,
 )
 from vmx.lifecycle import ConstructionStatus, StatusTransitionError
 from vmx.localization import NULL_LOCALIZER, ILocalizer, NullLocalizer
@@ -303,6 +304,7 @@ __all__ = [
     "StatusTransitionError",
     "TokenPagedComposition",
     "TransactionalMessageHubProto",
+    "TreeSelection",
     "TreeStructureChange",
     "TreeStructureChangedMessage",
     "TypedMessage",
