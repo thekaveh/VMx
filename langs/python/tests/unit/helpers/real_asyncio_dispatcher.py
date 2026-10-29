@@ -10,13 +10,14 @@ from collections.abc import Callable
 from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.scheduler import ThreadPoolScheduler
 
+from tests.liveness import HANG_GUARD
 from vmx.services.dispatcher import RxDispatcher
 
 
 class RunningAsyncioDispatcher:
     """Own a debug asyncio loop thread and its independent RxPY worker pool."""
 
-    timeout = 5.0
+    timeout = HANG_GUARD
 
     def __init__(self) -> None:
         self.loop = asyncio.new_event_loop()

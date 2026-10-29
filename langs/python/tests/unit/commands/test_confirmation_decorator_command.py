@@ -20,6 +20,7 @@ import pytest
 from reactivex import Observable
 from reactivex.subject import Subject
 
+from tests.liveness import HANG_GUARD
 from vmx.commands import ConfirmationDecoratorCommand, RelayCommand
 
 
@@ -119,14 +120,14 @@ def test_execute_without_running_loop_returns_while_confirmation_is_pending() ->
     caller.start()
 
     try:
-        assert started.wait(1), "the confirmation starts on a background event loop"
-        returned_before_release = returned.wait(0.1)
+        assert started.wait(HANG_GUARD), "the confirmation starts on a background event loop"
+        returned_before_release = returned.wait(HANG_GUARD)
     finally:
         release.set()
-        caller.join(timeout=1)
+        caller.join(timeout=HANG_GUARD)
 
     assert returned_before_release, "fire-and-forget execute must not await confirmation inline"
-    assert invoked.wait(1)
+    assert invoked.wait(HANG_GUARD)
     command.dispose()
 
 
@@ -165,12 +166,12 @@ async def test_execute_async_awaits_any_inner_offering_an_awaitable_execute_asyn
     command = ConfirmationDecoratorCommand(inner, confirm=_confirm_yes)
 
     awaiter = asyncio.ensure_future(command.execute_async("p"))
-    await asyncio.wait_for(inner.called.wait(), 1)
+    await asyncio.wait_for(inner.called.wait(), HANG_GUARD)
 
     assert inner.calls == ["execute_async:p"]
     assert not awaiter.done(), "the awaited call waits for the structural async inner"
     inner.release.set_result(None)
-    await asyncio.wait_for(awaiter, 1)
+    await asyncio.wait_for(awaiter, HANG_GUARD)
     assert inner.calls == ["execute_async:p"]
 
 
@@ -179,6 +180,6 @@ async def test_execute_starts_an_async_inner_through_its_own_execute() -> None:
     command = ConfirmationDecoratorCommand(inner, confirm=_confirm_yes)
 
     command.execute("p")
-    await asyncio.wait_for(inner.called.wait(), 1)
+    await asyncio.wait_for(inner.called.wait(), HANG_GUARD)
 
     assert inner.calls == ["execute:p"], "fire-and-forget uses the inner's own execute()"

@@ -12,6 +12,7 @@ from threading import Barrier, Thread
 import pytest
 from reactivex.testing import TestScheduler
 
+from tests.liveness import HANG_GUARD
 from vmx.notifications import (
     ConfirmationVM,
     Notification,
@@ -423,8 +424,8 @@ async def test_resolve_is_thread_safe() -> None:
     t = threading.Thread(target=worker, daemon=True)
     t.start()
 
-    result = await future
-    t.join(timeout=1.0)
+    result = await asyncio.wait_for(future, HANG_GUARD)
+    t.join(timeout=HANG_GUARD)
     assert result == NotificationReaction.APPROVE
 
 
@@ -442,12 +443,12 @@ def test_opposing_notification_hub_callbacks_do_not_deadlock() -> None:
 
     def on_first(snapshot: list[Notification]) -> None:
         if first_notification in snapshot:
-            callbacks_ready.wait(timeout=1)
+            callbacks_ready.wait(timeout=HANG_GUARD)
             second.resolve(second_notification, NotificationReaction.APPROVE)
 
     def on_second(snapshot: list[Notification]) -> None:
         if second_notification in snapshot:
-            callbacks_ready.wait(timeout=1)
+            callbacks_ready.wait(timeout=HANG_GUARD)
             first.resolve(first_notification, NotificationReaction.APPROVE)
 
     first.pending.subscribe(on_first)
@@ -459,7 +460,7 @@ def test_opposing_notification_hub_callbacks_do_not_deadlock() -> None:
     for sender in senders:
         sender.start()
     for sender in senders:
-        sender.join(timeout=1)
+        sender.join(timeout=2 * HANG_GUARD)
 
     assert all(not sender.is_alive() for sender in senders)
 

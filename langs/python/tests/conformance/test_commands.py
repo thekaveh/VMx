@@ -23,6 +23,7 @@ import pytest
 from reactivex.subject import Subject
 
 from tests.conformance.fixtures.loader import load
+from tests.liveness import HANG_GUARD
 from vmx.commands.async_relay_command import AsyncRelayCommand
 from vmx.commands.relay_command import RelayCommand, RelayCommandOf
 
@@ -241,7 +242,7 @@ async def test_CMD_019_async_imperative_raise_while_inflight_is_additive() -> No
     cmd.can_execute_changed.subscribe(lambda _: fired.append(1))
 
     run = asyncio.create_task(cmd.execute_async())
-    await started.wait()
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
     assert fired == [1]
     cmd.raise_can_execute_changed()
     assert fired == [1, 1]
@@ -326,7 +327,7 @@ async def test_CMD_012_cancel_cancels_inflight_async_task_nonthrowing() -> None:
     assert cmd.can_execute() is True, "executable before it starts"
 
     run = asyncio.ensure_future(cmd.execute_async())
-    await started.wait()  # the task is now in flight
+    await asyncio.wait_for(started.wait(), HANG_GUARD)  # the task is now in flight
 
     assert cmd.is_executing is True, "executing while the task runs"
     assert cmd.can_execute() is False, "an in-flight async command must not be re-executable"
@@ -353,7 +354,7 @@ async def test_CMD_012_throw_on_cancel_reraises() -> None:
 
     cmd = AsyncRelayCommand.builder().throw_on_cancel().task(_task).build()
     run = asyncio.ensure_future(cmd.execute_async())
-    await started.wait()
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
     cmd.cancel()
 
     with pytest.raises(asyncio.CancelledError):

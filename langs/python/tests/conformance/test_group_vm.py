@@ -15,6 +15,7 @@ from threading import Event, Thread
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.collections import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -289,7 +290,7 @@ def test_LIFE_015_child_cascade_waits_for_admitted_group_hook() -> None:
     def block_construct() -> None:
         log.append("hook-enter")
         hook_entered.set()
-        assert release_hook.wait(5)
+        assert release_hook.wait(HANG_GUARD)
         log.append("hook-exit")
 
     grp: GroupVM[ComponentVM] = (
@@ -327,7 +328,7 @@ def test_LIFE_015_child_cascade_waits_for_admitted_group_hook() -> None:
 
     constructor = Thread(target=construct, daemon=True)
     constructor.start()
-    assert hook_entered.wait(5)
+    assert hook_entered.wait(HANG_GUARD)
     disposer = Thread(target=dispose, daemon=True)
     disposer.start()
     disposer.join(0.1)
@@ -336,8 +337,8 @@ def test_LIFE_015_child_cascade_waits_for_admitted_group_hook() -> None:
     )
 
     release_hook.set()
-    constructor.join(5)
-    disposer.join(5)
+    constructor.join(HANG_GUARD)
+    disposer.join(HANG_GUARD)
     assert not constructor.is_alive()
     assert not disposer.is_alive()
     grp.dispose()

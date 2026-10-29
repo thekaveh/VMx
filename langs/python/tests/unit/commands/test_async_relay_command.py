@@ -10,6 +10,7 @@ from threading import Barrier, Event, Lock, Thread
 import pytest
 from reactivex.subject import Subject
 
+from tests.liveness import HANG_GUARD
 from vmx.commands import AsyncRelayCommand
 
 
@@ -29,7 +30,7 @@ async def test_predicate_cannot_reentrantly_admit_a_second_execution() -> None:
             reentered = True
             nested = Thread(target=lambda: asyncio.run(command.execute_async()))
             nested.start()
-            nested.join(timeout=1)
+            nested.join(timeout=HANG_GUARD)
             assert not nested.is_alive()
         return True
 
@@ -108,7 +109,7 @@ async def test_fire_and_forget_routes_body_failure_before_completion_observer() 
     command.errors.subscribe(on_error)
 
     command.execute()
-    await asyncio.wait_for(observed.wait(), timeout=1)
+    await asyncio.wait_for(observed.wait(), timeout=HANG_GUARD)
 
     assert len(errors) == 1
     assert isinstance(errors[0], ValueError)
@@ -125,7 +126,7 @@ async def test_external_cancellation_remains_throwing_when_command_cancel_follow
 
     command = AsyncRelayCommand.builder().task(task).build()
     run = asyncio.create_task(command.execute_async())
-    await started.wait()
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
 
     run.cancel()
     command.cancel()
@@ -144,7 +145,7 @@ async def test_command_cancellation_remains_nonthrowing_when_external_cancel_fol
 
     command = AsyncRelayCommand.builder().task(task).build()
     run = asyncio.create_task(command.execute_async())
-    await started.wait()
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
 
     command.cancel()
     run.cancel()
@@ -169,14 +170,14 @@ def test_execute_without_running_loop_returns_before_async_work_finishes() -> No
     caller.start()
 
     try:
-        assert started.wait(1), "the async command starts on a background event loop"
-        returned_before_release = returned.wait(0.1)
+        assert started.wait(HANG_GUARD), "the async command starts on a background event loop"
+        returned_before_release = returned.wait(HANG_GUARD)
     finally:
         release.set()
-        caller.join(timeout=1)
+        caller.join(timeout=HANG_GUARD)
 
     assert returned_before_release, "fire-and-forget execute must not run the coroutine inline"
-    assert finished.wait(1)
+    assert finished.wait(HANG_GUARD)
     command.dispose()
 
 
@@ -187,7 +188,7 @@ def test_execute_async_admission_is_atomic_across_threads() -> None:
     invocations = 0
 
     def predicate() -> bool:
-        predicate_barrier.wait(timeout=10)
+        predicate_barrier.wait(timeout=HANG_GUARD)
         return True
 
     async def task() -> None:
@@ -208,7 +209,7 @@ def test_execute_async_admission_is_atomic_across_threads() -> None:
         # BEFORE releasing: releasing first lets the winner finish, after which
         # a descheduled straggler is legally re-admitted as a sequential second
         # execution (re-executable command), which is not an atomicity failure.
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + HANG_GUARD
         while all(caller.is_alive() for caller in callers) and time.monotonic() < deadline:
             time.sleep(0.01)
         rejected = sum(1 for caller in callers if not caller.is_alive())
@@ -216,7 +217,7 @@ def test_execute_async_admission_is_atomic_across_threads() -> None:
     finally:
         release.set()
         for caller in callers:
-            caller.join(timeout=5)
+            caller.join(timeout=HANG_GUARD)
 
     assert invocations == 1
     assert all(not caller.is_alive() for caller in callers)
@@ -269,7 +270,7 @@ def test_concurrent_dispose_returns_but_defers_terminal_for_active_subject_emiss
     class BlockingSubject(Subject[object]):
         def on_next(self, item: object) -> None:
             emission_started.set()
-            assert release_emission.wait(1)
+            assert release_emission.wait(HANG_GUARD)
             super().on_next(item)
 
     command = AsyncRelayCommand.builder().build()
@@ -288,7 +289,7 @@ def test_concurrent_dispose_returns_but_defers_terminal_for_active_subject_emiss
 
     emitter = Thread(target=publish, daemon=True)
     emitter.start()
-    assert emission_started.wait(1)
+    assert emission_started.wait(HANG_GUARD)
 
     def dispose() -> None:
         dispose_started.set()
@@ -297,13 +298,13 @@ def test_concurrent_dispose_returns_but_defers_terminal_for_active_subject_emiss
 
     disposer = Thread(target=dispose, daemon=True)
     disposer.start()
-    assert dispose_started.wait(1)
-    disposed_during_emission = dispose_finished.wait(0.1)
+    assert dispose_started.wait(HANG_GUARD)
+    disposed_during_emission = dispose_finished.wait(HANG_GUARD)
     assert completions == []
     release_emission.set()
 
-    emitter.join(timeout=1)
-    disposer.join(timeout=1)
+    emitter.join(timeout=HANG_GUARD)
+    disposer.join(timeout=HANG_GUARD)
 
     assert not emitter.is_alive()
     assert not disposer.is_alive()
@@ -343,7 +344,7 @@ def test_observer_can_wait_for_foreign_disposer_without_deadlock(
         )
         disposer_threads.append(disposer)
         disposer.start()
-        assert dispose_finished.wait(1), "dispose must not wait on observer-held progress"
+        assert dispose_finished.wait(HANG_GUARD), "dispose must not wait on observer-held progress"
 
     observable.subscribe(
         observe,
@@ -352,7 +353,7 @@ def test_observer_can_wait_for_foreign_disposer_without_deadlock(
 
     emit(command, value)
     for disposer in disposer_threads:
-        disposer.join(timeout=1)
+        disposer.join(timeout=HANG_GUARD)
 
     assert all(not disposer.is_alive() for disposer in disposer_threads)
     assert events == [("next", value), ("complete", None)]
@@ -395,13 +396,15 @@ def test_observer_can_wait_for_other_channel_emission_without_deadlock(
         )
         target_threads.append(target)
         target.start()
-        assert target_finished.wait(1), "independent channels must not share delivery progress"
+        assert target_finished.wait(HANG_GUARD), (
+            "independent channels must not share delivery progress"
+        )
 
     getattr(command, source_channel).subscribe(observe)
 
     source_emit(command, source_value)
     for target in target_threads:
-        target.join(timeout=1)
+        target.join(timeout=HANG_GUARD)
 
     assert all(not target.is_alive() for target in target_threads)
 
@@ -461,7 +464,7 @@ async def test_same_loop_cancel_remains_deferred_until_next_loop_turn(
 
     command = AsyncRelayCommand.builder().task(task).build()
     waiter = asyncio.create_task(command.execute_async())
-    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=HANG_GUARD)
     inner = command._current_task
     assert inner is not None
     owner = asyncio.get_running_loop()
@@ -475,7 +478,7 @@ async def test_same_loop_cancel_remains_deferred_until_next_loop_turn(
     monkeypatch.setattr(inner, "cancel", record_cancel)
     command.cancel()
     assert cancellation_loops == []
-    await asyncio.wait_for(waiter, timeout=1)
+    await asyncio.wait_for(waiter, timeout=HANG_GUARD)
     assert cancellation_loops == [owner]
     assert inner.cancelled()
     command.dispose()
@@ -523,9 +526,8 @@ async def test_execute_raises_the_start_notification_before_returning() -> None:
     command.execute()
 
     assert events == [True]
-    for _ in range(200):
-        if len(events) == 2:
-            break
+    deadline = time.monotonic() + HANG_GUARD
+    while len(events) < 2 and time.monotonic() < deadline:
         await asyncio.sleep(0.01)
     assert events == [True, False]
     command.dispose()
@@ -611,7 +613,7 @@ async def test_execute_task_cancelled_after_it_started_notifies_completion_once(
 
     command.execute()
     (scheduled,) = asyncio.all_tasks() - before
-    await asyncio.wait_for(started.wait(), 1)
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
     scheduled.cancel()
     for _ in range(10):
         await asyncio.sleep(0)
