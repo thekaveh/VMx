@@ -20,6 +20,27 @@ def find_reports(paths: list[Path]) -> list[Path]:
     return sorted(reports)
 
 
+def _source_path(root: ET.Element, filename: str) -> str:
+    """Join a report-relative class filename to the report's source root.
+
+    Each report states paths relative to its own ``<sources>`` root, so one
+    source file can appear as ``src/VMx/A.cs`` in one report and ``A.cs`` in
+    another. Joining the root first gives every report the same path.
+    """
+    filename = filename.replace("\\", "/")
+    if filename.startswith("/") or re.match(r"^[A-Za-z]:/", filename):
+        return filename
+    sources = [
+        source.text.replace("\\", "/").rstrip("/")
+        for source in root.findall("./sources/source")
+        if source.text
+    ]
+    if not sources:
+        return filename
+    candidates = [f"{source}/{filename}" for source in sources]
+    return next((path for path in candidates if Path(path).exists()), candidates[0])
+
+
 def check_coverage(
     reports: list[Path],
     minimum_line: float,
@@ -50,7 +71,7 @@ def check_coverage(
                 filename = class_element.attrib.get("filename")
                 if not filename:
                     raise ValueError("Cobertura class lacks a source filename")
-                filename = filename.replace("\\", "/")
+                filename = _source_path(root, filename)
                 package_marker = f"{package_name}/"
                 marker_index = filename.rfind(package_marker)
                 if marker_index >= 0:
