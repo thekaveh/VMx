@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from reactivex.subject import Subject
 
+from tests.liveness import HANG_GUARD
 from vmx.forms import FormVM
 from vmx.messages import FormRevertedMessage, PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
@@ -330,7 +331,7 @@ def test_admitted_deny_finishes_before_concurrent_dispose() -> None:
     def snapshotter(model: Model) -> Model:
         if pause_snapshot:
             snapshot_started.set()
-            assert release_snapshot.wait(1)
+            assert release_snapshot.wait(HANG_GUARD)
         return model
 
     sut = FormVM(Model("A", 1), _noop, snapshotter=snapshotter)
@@ -339,7 +340,7 @@ def test_admitted_deny_finishes_before_concurrent_dispose() -> None:
 
     denier = Thread(target=sut.deny_command.execute, daemon=True)
     denier.start()
-    assert snapshot_started.wait(1)
+    assert snapshot_started.wait(HANG_GUARD)
 
     disposer = Thread(
         target=lambda: (sut.dispose(), dispose_finished.set()),
@@ -349,8 +350,8 @@ def test_admitted_deny_finishes_before_concurrent_dispose() -> None:
     disposed_during_snapshot = dispose_finished.wait(0.1)
     release_snapshot.set()
 
-    denier.join(timeout=1)
-    disposer.join(timeout=1)
+    denier.join(timeout=HANG_GUARD)
+    disposer.join(timeout=HANG_GUARD)
 
     assert not denier.is_alive()
     assert not disposer.is_alive()
@@ -382,7 +383,7 @@ def test_approve_error_emission_finishes_before_concurrent_dispose() -> None:
     class BlockingSubject(Subject[BaseException]):
         def on_next(self, value: BaseException) -> None:
             emission_started.set()
-            assert release_emission.wait(1)
+            assert release_emission.wait(HANG_GUARD)
             super().on_next(value)
 
     sut = _make()
@@ -401,7 +402,7 @@ def test_approve_error_emission_finishes_before_concurrent_dispose() -> None:
 
     emitter = Thread(target=emit, daemon=True)
     emitter.start()
-    assert emission_started.wait(1)
+    assert emission_started.wait(HANG_GUARD)
 
     disposer = Thread(
         target=lambda: (sut.dispose(), dispose_finished.set()),
@@ -411,8 +412,8 @@ def test_approve_error_emission_finishes_before_concurrent_dispose() -> None:
     disposed_during_emission = dispose_finished.wait(0.1)
     release_emission.set()
 
-    emitter.join(timeout=1)
-    disposer.join(timeout=1)
+    emitter.join(timeout=HANG_GUARD)
+    disposer.join(timeout=HANG_GUARD)
 
     assert not emitter.is_alive()
     assert not disposer.is_alive()
@@ -516,14 +517,14 @@ def test_approve_command_without_running_loop_returns_while_persist_is_pending()
     caller.start()
 
     try:
-        assert started.wait(1), "the persister starts on a background event loop"
-        returned_before_release = returned.wait(0.1)
+        assert started.wait(HANG_GUARD), "the persister starts on a background event loop"
+        returned_before_release = returned.wait(HANG_GUARD)
     finally:
         release.set()
-        caller.join(timeout=1)
+        caller.join(timeout=HANG_GUARD)
 
     assert returned_before_release, "fire-and-forget approval must not await persistence inline"
-    assert finished.wait(1)
+    assert finished.wait(HANG_GUARD)
     sut.dispose()
 
 
@@ -548,13 +549,13 @@ async def test_approve_command_task_refuses_when_admission_races_past_can_execut
 
     sut: FormVM[Model] = FormVM(Model("A", 1), persister)
     approval = asyncio.create_task(sut.approve_async())
-    await asyncio.wait_for(entered.wait(), 1)
+    await asyncio.wait_for(entered.wait(), HANG_GUARD)
 
     sut._approve_fire_and_forget()  # the task body RelayCommand.execute would run
 
     assert asyncio.all_tasks() == {asyncio.current_task(), approval}
     gate.set_result(None)
-    await asyncio.wait_for(approval, 1)
+    await asyncio.wait_for(approval, HANG_GUARD)
     assert persisted == [Model("A", 1)]
 
 
@@ -576,7 +577,7 @@ def test_approval_notifications_are_delivered_without_the_state_lock(notificatio
             return
         reader = Thread(target=lambda: (sut.model, sut.is_dirty, sut.errors), daemon=True)
         reader.start()
-        reader.join(1)
+        reader.join(HANG_GUARD)
         reads.append(not reader.is_alive())
 
     notifications = 0
@@ -597,7 +598,7 @@ def test_approval_notifications_are_delivered_without_the_state_lock(notificatio
         done = Event()
         sut.approve_errors.subscribe(lambda _: done.set())
         sut.approve_command.execute()  # no running loop: background event loop
-        assert done.wait(1)
+        assert done.wait(HANG_GUARD)
     else:
         asyncio.run(sut.approve_async())
 
@@ -673,7 +674,7 @@ async def test_approve_task_cancelled_mid_persist_settles_once() -> None:
 
     sut.approve_command.execute()
     (scheduled,) = asyncio.all_tasks() - before
-    await asyncio.wait_for(entered.wait(), 1)
+    await asyncio.wait_for(entered.wait(), HANG_GUARD)
     scheduled.cancel()
     for _ in range(10):
         await asyncio.sleep(0)

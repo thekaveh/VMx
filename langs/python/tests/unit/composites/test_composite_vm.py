@@ -16,6 +16,7 @@ from threading import Event, Thread
 import pytest
 from reactivex.scheduler import ImmediateScheduler, ThreadPoolScheduler
 
+from tests.liveness import HANG_GUARD
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites import composite_vm as composite_module
@@ -169,7 +170,7 @@ def test_concurrent_admission_cannot_escape_disposal_snapshot(
 
     def blocked_transfer(child: ComponentVM, parent: object) -> object:
         entered.set()
-        assert release.wait(timeout=2)
+        assert release.wait(timeout=HANG_GUARD)
         return original(child, parent)  # type: ignore[arg-type]
 
     monkeypatch.setattr(composite_module, "_begin_parent_transfer", blocked_transfer)
@@ -186,13 +187,13 @@ def test_concurrent_admission_cannot_escape_disposal_snapshot(
 
     worker = Thread(target=admit)
     worker.start()
-    assert entered.wait(timeout=2)
+    assert entered.wait(timeout=HANG_GUARD)
     disposer = Thread(target=dispose)
     disposer.start()
     assert not disposal_done.wait(timeout=0.05)
     release.set()
-    worker.join(timeout=2)
-    disposer.join(timeout=2)
+    worker.join(timeout=HANG_GUARD)
+    disposer.join(timeout=HANG_GUARD)
 
     assert not worker.is_alive()
     assert not disposer.is_alive()
@@ -236,18 +237,18 @@ def test_concurrent_current_assignments_leave_one_current_flag() -> None:
     def block_first_publication(property_name: str) -> None:
         if property_name == "is_current" and not first.is_current:
             entered.set()
-            assert release.wait(timeout=2)
+            assert release.wait(timeout=2 * HANG_GUARD)
 
     subscription = first.property_changed.subscribe(block_first_publication)
     first_thread = Thread(target=lambda: setattr(composite, "current", second))
     second_thread = Thread(target=lambda: setattr(composite, "current", third))
     first_thread.start()
-    assert entered.wait(timeout=2)
+    assert entered.wait(timeout=HANG_GUARD)
     second_thread.start()
-    second_thread.join(timeout=2)
+    second_thread.join(timeout=HANG_GUARD)
     assert not second_thread.is_alive()
     release.set()
-    first_thread.join(timeout=2)
+    first_thread.join(timeout=HANG_GUARD)
     subscription.dispose()
 
     assert composite.current is third
@@ -580,7 +581,7 @@ def test_construct_remains_in_progress_until_background_child_is_constructed() -
 
     def on_construct() -> None:
         started.set()
-        release.wait()
+        assert release.wait(HANG_GUARD)
 
     child = (
         ComponentVMBuilder()
@@ -608,11 +609,11 @@ def test_construct_remains_in_progress_until_background_child_is_constructed() -
     )
 
     comp.construct()
-    assert started.wait(1)
+    assert started.wait(HANG_GUARD)
     status_while_child_runs = comp.status
     release.set()
 
-    assert parent_settled.wait(1)
+    assert parent_settled.wait(HANG_GUARD)
     assert status_while_child_runs == ConstructionStatus.CONSTRUCTING
     assert child.status == ConstructionStatus.CONSTRUCTED
     sub.dispose()
@@ -742,7 +743,7 @@ def test_destruct_remains_in_progress_until_background_child_is_destructed() -> 
 
     def on_destruct() -> None:
         started.set()
-        release.wait()
+        assert release.wait(HANG_GUARD)
 
     child = (
         ComponentVMBuilder()
@@ -775,15 +776,15 @@ def test_destruct_remains_in_progress_until_background_child_is_destructed() -> 
 
     sub = hub.messages.subscribe(observe_parent)
     comp.construct()
-    assert parent_constructed.wait(1)
-    assert child_constructed.wait(1)
+    assert parent_constructed.wait(HANG_GUARD)
+    assert child_constructed.wait(HANG_GUARD)
 
     comp.destruct()
-    assert started.wait(1)
+    assert started.wait(HANG_GUARD)
     status_while_child_runs = comp.status
     release.set()
 
-    assert parent_destructed.wait(1)
+    assert parent_destructed.wait(HANG_GUARD)
     assert status_while_child_runs == ConstructionStatus.DESTRUCTING
     assert child.status == ConstructionStatus.DESTRUCTED
     sub.dispose()
@@ -805,11 +806,11 @@ def test_reconstruct_waits_for_background_child_destruct_then_construct() -> Non
         construct_calls += 1
         if construct_calls == 2:
             reconstruct_started.set()
-            reconstruct_release.wait()
+            assert reconstruct_release.wait(HANG_GUARD)
 
     def on_destruct() -> None:
         destruct_started.set()
-        destruct_release.wait()
+        assert destruct_release.wait(HANG_GUARD)
 
     child = (
         ComponentVMBuilder()
@@ -839,17 +840,17 @@ def test_reconstruct_waits_for_background_child_destruct_then_construct() -> Non
 
     sub = hub.messages.subscribe(observe_parent)
     comp.construct()
-    assert initial_constructed.wait(1)
+    assert initial_constructed.wait(HANG_GUARD)
 
     try:
         comp.reconstruct()
-        assert destruct_started.wait(1)
+        assert destruct_started.wait(HANG_GUARD)
         assert comp.status == ConstructionStatus.DESTRUCTING
         destruct_release.set()
-        assert reconstruct_started.wait(1)
+        assert reconstruct_started.wait(HANG_GUARD)
         assert comp.status == ConstructionStatus.CONSTRUCTING
         reconstruct_release.set()
-        assert parent_reconstructed.wait(1)
+        assert parent_reconstructed.wait(HANG_GUARD)
     finally:
         destruct_release.set()
         reconstruct_release.set()

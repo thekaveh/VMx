@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.forms import FormVM
 from vmx.messages import FormRevertedMessage, PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
@@ -149,7 +150,7 @@ def test_admitted_set_model_finishes_before_concurrent_dispose() -> None:
     def validate(model: _Model) -> str | None:
         if model.value == "accepted":
             validation_started.set()
-            assert release_validation.wait(1)
+            assert release_validation.wait(HANG_GUARD)
         return None
 
     form = FormVM(
@@ -161,7 +162,7 @@ def test_admitted_set_model_finishes_before_concurrent_dispose() -> None:
 
     setter = Thread(target=lambda: form.set_model(_Model("accepted")), daemon=True)
     setter.start()
-    assert validation_started.wait(1)
+    assert validation_started.wait(HANG_GUARD)
 
     disposer = Thread(
         target=lambda: (form.dispose(), dispose_finished.set()),
@@ -171,8 +172,8 @@ def test_admitted_set_model_finishes_before_concurrent_dispose() -> None:
     disposed_during_validation = dispose_finished.wait(0.1)
     release_validation.set()
 
-    setter.join(timeout=1)
-    disposer.join(timeout=1)
+    setter.join(timeout=HANG_GUARD)
+    disposer.join(timeout=HANG_GUARD)
 
     assert not setter.is_alive()
     assert not disposer.is_alive()
@@ -274,7 +275,7 @@ def test_form_mutation_does_not_hold_gate_while_waiting_for_hub_delivery(
         if not (isinstance(message, FormRevertedMessage) and message.sender is blocker_sender):
             return
         blocker_entered.set()
-        assert release_blocker.wait(5)
+        assert release_blocker.wait(HANG_GUARD)
         form.set_model(_Model("nested"))
         reentry_finished.set()
 
@@ -286,24 +287,24 @@ def test_form_mutation_does_not_hold_gate_while_waiting_for_hub_delivery(
         daemon=True,
     )
     blocker.start()
-    assert blocker_entered.wait(5)
+    assert blocker_entered.wait(HANG_GUARD)
 
     mutator = Thread(
         target=(form.deny_command.execute if deny else lambda: form.set_model(_Model("outer"))),
         daemon=True,
     )
     mutator.start()
-    assert form_send_started.wait(5)
+    assert form_send_started.wait(HANG_GUARD)
     release_blocker.set()
 
     # Await the deterministic reentry signal directly: a real gate-held-across-
     # hub-delivery regression would hang reentry_finished forever, so a finite
     # ceiling still distinguishes bug from no-bug without conflating latency.
-    reentered_without_deadlock = reentry_finished.wait(5.0)
+    reentered_without_deadlock = reentry_finished.wait(HANG_GUARD)
     if not reentered_without_deadlock:
         inner_hub.dispose()
-    mutator.join(timeout=5)
-    blocker.join(timeout=5)
+    mutator.join(timeout=HANG_GUARD)
+    blocker.join(timeout=HANG_GUARD)
     if reentered_without_deadlock:
         inner_hub.dispose()
     subscription.dispose()

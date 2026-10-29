@@ -13,6 +13,7 @@ from threading import Event, Thread, get_ident
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub, MessageHubProto
 
@@ -116,7 +117,7 @@ def test_concurrent_producer_waits_for_batch_and_delivers_on_own_thread() -> Non
     def hold_batch() -> None:
         with hub.batch():
             batch_entered.set()
-            release_batch.wait()
+            assert release_batch.wait(HANG_GUARD)
 
     def send() -> None:
         producer_thread.append(get_ident())
@@ -126,16 +127,16 @@ def test_concurrent_producer_waits_for_batch_and_delivers_on_own_thread() -> Non
 
     batch_worker = Thread(target=hold_batch)
     batch_worker.start()
-    assert batch_entered.wait(1)
+    assert batch_entered.wait(HANG_GUARD)
     send_worker = Thread(target=send)
     send_worker.start()
-    assert send_started.wait(1)
+    assert send_started.wait(HANG_GUARD)
     try:
         assert not send_finished.wait(0.05)
     finally:
         release_batch.set()
-        batch_worker.join(1)
-        send_worker.join(1)
+        batch_worker.join(HANG_GUARD)
+        send_worker.join(HANG_GUARD)
 
     assert send_finished.is_set()
     assert delivery_thread == producer_thread
@@ -153,14 +154,14 @@ def test_concurrent_producer_waits_for_active_drain_and_delivers_on_own_thread()
     def observe(message: PropertyChangedMessage[object]) -> None:
         if message.property_name == "blocker":
             drain_entered.set()
-            assert release_drain.wait(1)
+            assert release_drain.wait(HANG_GUARD)
         elif message.property_name == "concurrent":
             delivery_thread.append(get_ident())
 
     hub.messages.subscribe(observe)
     drainer = Thread(target=lambda: hub.send(_make_msg("blocker")))
     drainer.start()
-    assert drain_entered.wait(1)
+    assert drain_entered.wait(HANG_GUARD)
 
     def send() -> None:
         producer_thread.append(get_ident())
@@ -170,13 +171,13 @@ def test_concurrent_producer_waits_for_active_drain_and_delivers_on_own_thread()
 
     producer = Thread(target=send)
     producer.start()
-    assert send_started.wait(1)
+    assert send_started.wait(HANG_GUARD)
     try:
         assert not send_finished.wait(0.05)
     finally:
         release_drain.set()
-        drainer.join(1)
-        producer.join(1)
+        drainer.join(HANG_GUARD)
+        producer.join(HANG_GUARD)
 
     assert send_finished.is_set()
     assert delivery_thread == producer_thread
@@ -193,13 +194,13 @@ def test_concurrent_dispose_waits_for_active_delivery_before_completion() -> Non
     def receive(_: object) -> None:
         trace.append("message:start")
         delivery_entered.set()
-        assert release_delivery.wait(1)
+        assert release_delivery.wait(HANG_GUARD)
         trace.append("message:end")
 
     hub.messages.subscribe(receive, on_completed=lambda: trace.append("completed"))
     sender = Thread(target=lambda: hub.send(_make_msg("blocking")))
     sender.start()
-    assert delivery_entered.wait(1)
+    assert delivery_entered.wait(HANG_GUARD)
 
     def dispose() -> None:
         dispose_started.set()
@@ -208,14 +209,14 @@ def test_concurrent_dispose_waits_for_active_delivery_before_completion() -> Non
 
     disposer = Thread(target=dispose)
     disposer.start()
-    assert dispose_started.wait(1)
+    assert dispose_started.wait(HANG_GUARD)
     try:
         assert not dispose_finished.wait(0.05)
         assert trace == ["message:start"]
     finally:
         release_delivery.set()
-        sender.join(1)
-        disposer.join(1)
+        sender.join(HANG_GUARD)
+        disposer.join(HANG_GUARD)
 
     assert not sender.is_alive()
     assert not disposer.is_alive()
