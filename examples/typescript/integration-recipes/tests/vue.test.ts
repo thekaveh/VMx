@@ -52,7 +52,7 @@ const ValueView = defineComponent({
   },
 });
 
-describe("Vue recipe (vue 3.5.43)", () => {
+describe("Vue recipe (vue 3.5.44)", () => {
   it("renders an in-place mutation announced by republishModel once, without replacement", async () => {
     const hub = countingHub();
     const note: Note = { title: "draft" };

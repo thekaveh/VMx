@@ -9,11 +9,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 C_SHARP = ROOT / "langs" / "csharp"
 EXPECTED_CENTRAL_VERSIONS = {
-    "Microsoft.SourceLink.GitHub": "10.0.402",
-    "Microsoft.Bcl.AsyncInterfaces": "10.0.13",
-    "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.13",
+    "Microsoft.SourceLink.GitHub": "10.0.403",
+    "Microsoft.Bcl.AsyncInterfaces": "10.0.14",
+    "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.14",
     "Microsoft.Extensions.DependencyInjection": "8.0.1",
-    "System.Text.Json": "10.0.13",
+    "System.Text.Json": "10.0.14",
 }
 LOCK_TARGETS = {
     "src/VMx/packages.lock.json": {".NETStandard,Version=v2.0", "net8.0"},
@@ -26,19 +26,19 @@ LOCK_TARGETS = {
     "tests/VMx.Conformance.Tests/packages.lock.json": {"net8.0", "net9.0", "net10.0"},
 }
 LEDGER_CONTRACT = (
-    "`Microsoft.SourceLink.GitHub` is `10.0.402`; "
+    "`Microsoft.SourceLink.GitHub` is `10.0.403`; "
     "`Microsoft.Extensions.DependencyInjection.Abstractions` and "
-    "`Microsoft.Bcl.AsyncInterfaces` are `10.0.13`; "
+    "`Microsoft.Bcl.AsyncInterfaces` are `10.0.14`; "
     "`Microsoft.Extensions.DependencyInjection` remains `8.0.1`; "
-    "`System.Text.Json` is `10.0.13`"
+    "`System.Text.Json` is `10.0.14`"
 )
 SYSTEM_TEXT_JSON_DEPENDENCIES = {
-    "Microsoft.Bcl.AsyncInterfaces": "10.0.13",
+    "Microsoft.Bcl.AsyncInterfaces": "10.0.14",
     "System.Buffers": "4.6.1",
-    "System.IO.Pipelines": "10.0.13",
+    "System.IO.Pipelines": "10.0.14",
     "System.Memory": "4.6.3",
     "System.Runtime.CompilerServices.Unsafe": "6.1.2",
-    "System.Text.Encodings.Web": "10.0.13",
+    "System.Text.Encodings.Web": "10.0.14",
     "System.Threading.Tasks.Extensions": "4.6.3",
 }
 
@@ -57,7 +57,7 @@ def test_csharp_runtime_pins_and_lockfiles_cover_every_project_target() -> None:
         dependencies = json.loads(lockfile.read_text(encoding="utf-8"))["dependencies"]
         assert set(dependencies) == expected_targets, lockfile
         for target, packages in dependencies.items():
-            assert packages["Microsoft.SourceLink.GitHub"]["resolved"] == "10.0.402", (
+            assert packages["Microsoft.SourceLink.GitHub"]["resolved"] == "10.0.403", (
                 lockfile,
                 target,
             )
@@ -69,10 +69,10 @@ def test_csharp_runtime_pins_and_lockfiles_cover_every_project_target() -> None:
     )["dependencies"]
     for target, packages in di_lock.items():
         abstraction = packages["Microsoft.Extensions.DependencyInjection.Abstractions"]
-        assert abstraction["resolved"] == "10.0.13", (target,)
+        assert abstraction["resolved"] == "10.0.14", (target,)
     assert (
         di_lock[".NETStandard,Version=v2.0"]["Microsoft.Bcl.AsyncInterfaces"]["resolved"]
-        == "10.0.13"
+        == "10.0.14"
     )
     system_text_json_locks = {
         "src/VMx/packages.lock.json": "Direct",
@@ -85,8 +85,8 @@ def test_csharp_runtime_pins_and_lockfiles_cover_every_project_target() -> None:
         netstandard = dependencies[".NETStandard,Version=v2.0"]
         system_text_json = netstandard["System.Text.Json"]
         assert system_text_json["type"] == expected_type, relative_path
-        assert system_text_json["requested"] == "[10.0.13, )", relative_path
-        assert system_text_json["resolved"] == "10.0.13", relative_path
+        assert system_text_json["requested"] == "[10.0.14, )", relative_path
+        assert system_text_json["resolved"] == "10.0.14", relative_path
         assert system_text_json["dependencies"] == SYSTEM_TEXT_JSON_DEPENDENCIES, relative_path
         for dependency, version in SYSTEM_TEXT_JSON_DEPENDENCIES.items():
             assert netstandard[dependency]["resolved"] == version, (relative_path, dependency)
