@@ -45,7 +45,9 @@ src/runtime.rs
 src/searchable_state.rs
 src/specialized_vms.rs
 src/token_paging.rs
+src/tree_selection.rs
 src/value_stream.rs
+tests/child_transitions.rs
 tests/conformance.rs
 tests/conformance/aggregate_change_stream.rs
 tests/conformance/aggregate_vm.rs
@@ -56,6 +58,8 @@ tests/conformance/auto_construct_during_constructing.rs
 tests/conformance/background_child_settle.rs
 tests/conformance/builders.rs
 tests/conformance/capabilities.rs
+tests/conformance/child_transition_helper.rs
+tests/conformance/collection_lookup_clones.rs
 tests/conformance/collections.rs
 tests/conformance/command_decorators.rs
 tests/conformance/command_ext.rs
@@ -74,6 +78,7 @@ tests/conformance/form_approval_admission.rs
 tests/conformance/form_model_hub_publication.rs
 tests/conformance/form_approval_subscription.rs
 tests/conformance/form_failure_atomic_updates.rs
+tests/conformance/form_reader_consistency.rs
 tests/conformance/forms.rs
 tests/conformance/forwarding.rs
 tests/conformance/group_vm.rs
@@ -91,10 +96,13 @@ tests/conformance/observable_list_replace_all.rs
 tests/conformance/owned_resources.rs
 tests/conformance/post_dispose_modeled_assignment.rs
 tests/conformance/property_change.rs
+tests/conformance/reconstruct_command_parity.rs
+tests/conformance/reverse_destruct_order.rs
 tests/conformance/search_filter.rs
 tests/conformance/subscribe_value.rs
 tests/conformance/threading.rs
 tests/conformance/token_refresh_cursor.rs
+tests/conformance/tree_selection.rs
 tests/conformance/tree_utils.rs
 tests/conformance/user_equality_reentry.rs
 tests/conformance/value_stream.rs

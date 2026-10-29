@@ -86,3 +86,29 @@ def test_union_merges_duplicate_source_lines_across_reports(tmp_path: Path) -> N
         reports.append(report)
 
     assert module.check_coverage(reports, 100.0, 50.0, {"VMx"}) == (100.0, 50.0)
+
+
+def test_merges_one_file_reported_against_different_source_roots(tmp_path: Path) -> None:
+    module = _load_module()
+    reports = []
+    # Three test projects report one VMx file against three different roots.
+    for index, (root, filename, hits) in enumerate(
+        (
+            ("/repo/langs/csharp/", "src/VMx/Tree/Tree.cs", 1),
+            ("/repo/langs/csharp/src/", "VMx/Tree/Tree.cs", 0),
+            ("/repo/langs/csharp/src/VMx/", "Tree/Tree.cs", 0),
+        )
+    ):
+        report = tmp_path / f"coverage-{index}.xml"
+        report.write_text(
+            f"""<coverage><sources><source>{root}</source></sources>
+            <packages><package name="VMx"><classes>
+            <class filename="{filename}"><lines>
+              <line number="10" hits="{hits}" branch="True"
+                    condition-coverage="50% (1/2)"/>
+            </lines></class></classes></package></packages></coverage>""",
+            encoding="utf-8",
+        )
+        reports.append(report)
+
+    assert module.check_coverage(reports, 100.0, 50.0, {"VMx"}) == (100.0, 50.0)
