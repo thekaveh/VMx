@@ -33,8 +33,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     private readonly List<VM> _children = new();
 
     // ── Batch-update state (spec v1.1) ────────────────────────────────────────
-    private int _batchDepth;
-    private bool _batchDirty;
+    private readonly ContainerBatch _batch;
 
     // Collects the children population started constructing (see OnConstruct).
     private HashSet<IComponentVM>? _populationJoined;
@@ -107,6 +106,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
+        _batch = new ContainerBatch(DeliverCollectionChanged);
         _autoConstructOnAdd = autoConstructOnAdd;
         _destructOrder = destructOrder;
     }
@@ -488,32 +488,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <see cref="CollectionChangedMessage{T}"/> Reset, iff any mutation
     /// occurred during the batch.
     /// </summary>
-    public IDisposable BatchUpdate()
-    {
-        _batchDepth++;
-        return new CollectionBatch(this);
-    }
+    public IDisposable BatchUpdate() => _batch.Enter();
 
-    private void ExitBatch()
-    {
-        _batchDepth--;
-        if (_batchDepth == 0 && _batchDirty)
-        {
-            _batchDirty = false;
-            DeliverCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Reset));
-        }
-    }
-
-    private void RaiseCollectionChanged(NotifyCollectionChangedEventArgs args)
-    {
-        if (_batchDepth > 0)
-        {
-            _batchDirty = true;
-            return;
-        }
-        DeliverCollectionChanged(args);
-    }
+    private void RaiseCollectionChanged(NotifyCollectionChangedEventArgs args) => _batch.Raise(args);
 
     /// <summary>
     /// Raises the local event, then publishes one equivalent
@@ -528,37 +505,11 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             static group => Volatile.Read(ref group._disposeRequested) == 0
                 && !group.IsDisposed());
 
-    /// <summary>
-    /// Called under the gate as an add attaches <paramref name="item"/>: an
-    /// add that will auto-start the child while this container is
-    /// Constructing registers a start record the construct walk waits on.
-    /// </summary>
     private LateChildStarts.Record? AttachLateStartLocked(VM item)
-        => _lateStarts.AttachLocked(
-            item, _autoConstructOnAdd && Status == ConstructionStatus.Constructing);
+        => ContainerMembership.AttachLateStartLocked(this, _lateStarts, _autoConstructOnAdd, item);
 
-    /// <summary>The add's auto-construct of a child it attached with <paramref name="record"/>.</summary>
     private void AutoConstructAttached(VM item, LateChildStarts.Record? record)
-    {
-        if (record is null)
-        {
-            MaybeAutoConstruct(item);
-            return;
-        }
-        // The construct walk never starts a late child; it waits for this
-        // attempt, then joins the child (spec/06 §5.1). The record is done
-        // before this add publishes or ends its transaction.
-        try
-        {
-            _lateStarts.Probe(item, LateChildStage.Attached);
-            if (item.Status == ConstructionStatus.Destructed) item.Construct();
-        }
-        finally
-        {
-            record.MarkDone();
-            if (Status != ConstructionStatus.Constructing) _lateStarts.Remove(item, record);
-        }
-    }
+        => ContainerMembership.AutoConstructAttached(this, _lateStarts, _autoConstructOnAdd, item, record);
 
     private void MaybeAutoConstruct(VM item)
         => ContainerMembership.MaybeAutoConstruct(this, _autoConstructOnAdd, item);
@@ -568,26 +519,6 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         if (index < 0 || index >= _children.Count)
             throw new ArgumentOutOfRangeException(parameterName, index,
                 $"Move index must be in [0, {_children.Count}).");
-    }
-
-    /// <summary>
-    /// Disposable batch handle returned by <see cref="BatchUpdate"/>.
-    /// Decrement the group's batch depth on dispose.
-    /// </summary>
-    private sealed class CollectionBatch : IDisposable
-    {
-        private readonly GroupVMBase<VM> _owner;
-        private bool _disposed;
-
-        internal CollectionBatch(GroupVMBase<VM> owner) => _owner = owner;
-
-        /// <summary>Closes the batch and emits a Reset event if mutations occurred.</summary>
-        public void Dispose()
-        {
-            if (_disposed) return;
-            _disposed = true;
-            _owner.ExitBatch();
-        }
     }
 
     // ── IList<VM>: query ──────────────────────────────────────────────────────
@@ -652,23 +583,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         CompleteLifecycleHookAfter(walk);
     }
 
-    /// <summary>
-    /// The commit step of this container's construct walk (spec/06 §5.1):
-    /// joins a child an add started after the last scan, or commits Constructed
-    /// and ends the walk's scope.
-    /// </summary>
     private IComponentVM? SealOrNextLate(
         ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk)
-    {
-        IComponentVM? late;
-        lock (_membershipGate)
-        {
-            late = ContainerConstructWalk.SealOrNextLateLocked(
-                _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
-        }
-        if (late is null) lateWalk.End();
-        return late;
-    }
+        => ContainerConstructWalk.SealOrNextLate(
+            _membershipGate, _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
 
     /// <summary>
     /// Called once per Construct() to populate the children collection from
