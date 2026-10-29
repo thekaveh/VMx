@@ -1,5 +1,5 @@
 mkdocs>=1.6,<2
-mkdocs-material>=9.5,<10
+mkdocs-material>=9.8.0,<10
 markdown-it-py==4.2.0
 pillow>=13,<14
 pip-audit==2.10.1
