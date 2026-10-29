@@ -7,6 +7,7 @@ import threading
 from concurrent.futures import Future
 
 import pytest
+from tests.liveness import HANG_GUARD
 
 import vmx.commands.async_relay_command as commands
 from vmx import (
@@ -17,8 +18,6 @@ from vmx import (
     MessageHub,
 )
 from vmx._asyncio_runner import _BACKGROUND_EVENT_LOOP
-
-TIMEOUT = 3
 
 
 @pytest.fixture(autouse=True)
@@ -48,9 +47,9 @@ async def turns():
 
 def on_loop(loop, coroutine):
     async def bounded():
-        return await asyncio.wait_for(coroutine, TIMEOUT)
+        return await asyncio.wait_for(coroutine, HANG_GUARD)
 
-    return asyncio.run_coroutine_threadsafe(bounded(), loop).result(TIMEOUT + 1)
+    return asyncio.run_coroutine_threadsafe(bounded(), loop).result(2 * HANG_GUARD)
 
 
 class NativeCalls:
@@ -133,13 +132,13 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
     operation = None
     try:
         vm.load_command.execute()
-        assert started.wait(TIMEOUT)
+        assert started.wait(HANG_GUARD)
         operation = vm._operation
         inner = vm.load_command._current_task
         assert operation is not None
         getattr(vm, action)()
-        submitted[0].result(TIMEOUT)
-        assert observed.wait(TIMEOUT)
+        submitted[0].result(HANG_GUARD)
+        assert observed.wait(HANG_GUARD)
         recorder.assert_owned(operation.task, operation.cancelled, inner)
         assert any(c[0] is operation.cancelled and c[1] == "set_result" for c in recorder.calls)
         assert any(c[0] is operation.task and c[1] == "add_done_callback" for c in recorder.calls)
@@ -155,7 +154,7 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
                 vm.load_command.cancel()
                 if operation is not None:
                     try:
-                        await asyncio.wait_for(operation.task, TIMEOUT)
+                        await asyncio.wait_for(operation.task, HANG_GUARD)
                     except asyncio.CancelledError:
                         pass
                 await turns()
@@ -165,7 +164,7 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
 
         on_loop(loop, recover())
         if submitted:
-            submitted[0].result(TIMEOUT)
+            submitted[0].result(HANG_GUARD)
 
 
 @pytest.mark.asyncio
@@ -187,10 +186,10 @@ async def test_same_loop_repeated_cancel_signals_loader_once():
 
     vm = resource(loader, cleaned.append)
     waiter = asyncio.create_task(vm.load())
-    await asyncio.wait_for(started.wait(), TIMEOUT)
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
     operation = vm._operation
     vm.cancel()
-    await asyncio.wait_for(waiter, TIMEOUT)
+    await asyncio.wait_for(waiter, HANG_GUARD)
     vm.cancel()
     vm._cancel_operation(operation)
     vm._register_late_cleanup(operation)
@@ -213,7 +212,7 @@ async def test_loading_observer_cancels_before_loader_body():
     vm.property_changed.subscribe(
         lambda _: vm.cancel() if vm.state.status is AsyncResourceStatus.LOADING else None
     )
-    await asyncio.wait_for(vm.load(), TIMEOUT)
+    await asyncio.wait_for(vm.load(), HANG_GUARD)
     assert calls == []
     assert vm.state.status is AsyncResourceStatus.IDLE
     vm.dispose()
@@ -236,8 +235,8 @@ async def test_disposal_during_replacement_cleanup_cannot_republish_ready():
     vm.property_changed.subscribe(
         lambda name: changes.append(vm.state) if name == "state" else None
     )
-    await asyncio.wait_for(vm.load(), TIMEOUT)
-    await asyncio.wait_for(vm.reload(), TIMEOUT)
+    await asyncio.wait_for(vm.load(), HANG_GUARD)
+    await asyncio.wait_for(vm.reload(), HANG_GUARD)
     assert cleaned == [1, 2]
     assert vm._stable_state.status is AsyncResourceStatus.IDLE
     assert len(changes) == 3
@@ -258,7 +257,7 @@ def test_true_completion_invalidation_race_claims_returned_value(action, monkeyp
         current = original_current(operation)
         if current and operation.task.done():
             at_check.set()
-            assert release_check.wait(TIMEOUT)
+            assert release_check.wait(HANG_GUARD)
         return current
 
     def disposing():
@@ -267,8 +266,8 @@ def test_true_completion_invalidation_race_claims_returned_value(action, monkeyp
 
     monkeypatch.setattr(vm, "_is_operation_current", checked)
     monkeypatch.setattr(vm, "_on_dispose" if action == "dispose" else "cancel", disposing)
-    waiter = asyncio.run_coroutine_threadsafe(asyncio.wait_for(vm.load(), TIMEOUT), loop)
-    assert at_check.wait(TIMEOUT)
+    waiter = asyncio.run_coroutine_threadsafe(asyncio.wait_for(vm.load(), HANG_GUARD), loop)
+    assert at_check.wait(HANG_GUARD)
     errors = []
 
     def dispose():
@@ -280,12 +279,12 @@ def test_true_completion_invalidation_race_claims_returned_value(action, monkeyp
     thread = threading.Thread(target=dispose)
     thread.start()
     try:
-        assert disposal_entered.wait(TIMEOUT)
+        assert disposal_entered.wait(HANG_GUARD)
     finally:
         release_check.set()
-        thread.join(TIMEOUT)
+        thread.join(HANG_GUARD)
     assert not thread.is_alive()
-    waiter.result(TIMEOUT)
+    waiter.result(HANG_GUARD)
     on_loop(loop, turns())
     assert errors == []
     if action == "cancel":
@@ -313,7 +312,7 @@ def test_stopped_open_loop_queues_resource_and_linked_command(action):
     vm = resource(loader, cleaned.append)
     waiter = loop.create_task(vm.load_command.execute_async())
     try:
-        loop.run_until_complete(asyncio.wait_for(started.wait(), TIMEOUT))
+        loop.run_until_complete(asyncio.wait_for(started.wait(), HANG_GUARD))
         operation = vm._operation
         inner = vm.load_command._current_task
         assert operation is not None
@@ -321,7 +320,7 @@ def test_stopped_open_loop_queues_resource_and_linked_command(action):
         getattr(vm, action)()
         assert recorder.calls == []
         assert not operation.cancelled.done()
-        loop.run_until_complete(asyncio.wait_for(waiter, TIMEOUT))
+        loop.run_until_complete(asyncio.wait_for(waiter, HANG_GUARD))
         loop.run_until_complete(turns())
         recorder.assert_owned(operation.task, operation.cancelled, inner)
         assert cleaned == [3]
@@ -337,7 +336,7 @@ def test_stopped_open_loop_queues_resource_and_linked_command(action):
                     task.cancel()
             await turns()
 
-        loop.run_until_complete(asyncio.wait_for(finish(), TIMEOUT))
+        loop.run_until_complete(asyncio.wait_for(finish(), HANG_GUARD))
         recorder.restore()
         loop.close()
 
@@ -359,7 +358,7 @@ def test_terminal_result_consumed_once_across_deferred_registration(close):
     waiter = loop.create_task(vm.load())
     operation = None
     try:
-        loop.run_until_complete(asyncio.wait_for(started.wait(), TIMEOUT))
+        loop.run_until_complete(asyncio.wait_for(started.wait(), HANG_GUARD))
         operation = vm._operation
         assert operation is not None
         # Stop after the loader finishes but before the public waiter consumes it.
@@ -376,7 +375,7 @@ def test_terminal_result_consumed_once_across_deferred_registration(close):
         vm._cancel_operation(operation)
         assert recorder.calls == []
         if not close:
-            loop.run_until_complete(asyncio.wait_for(waiter, TIMEOUT))
+            loop.run_until_complete(asyncio.wait_for(waiter, HANG_GUARD))
             loop.run_until_complete(turns())
             recorder.assert_owned(operation.task, operation.cancelled)
         assert cleaned == [13]
@@ -388,7 +387,7 @@ def test_terminal_result_consumed_once_across_deferred_registration(close):
             waiter.get_coro().close()
             waiter._log_destroy_pending = False
         else:
-            loop.run_until_complete(asyncio.wait_for(waiter, TIMEOUT))
+            loop.run_until_complete(asyncio.wait_for(waiter, HANG_GUARD))
             recorder.restore()
             loop.close()
 
@@ -406,7 +405,7 @@ def test_closed_pending_loop_preserves_invalidation_without_native_mutation():
 
     vm = resource(loader)
     waiter = loop.create_task(vm.load_command.execute_async())
-    loop.run_until_complete(asyncio.wait_for(started.wait(), TIMEOUT))
+    loop.run_until_complete(asyncio.wait_for(started.wait(), HANG_GUARD))
     operation = vm._operation
     inner = vm.load_command._current_task
     assert operation is not None and inner is not None
@@ -464,7 +463,7 @@ async def test_task_factory_can_wait_for_foreign_disposal_without_resource_gate(
         thread = threading.Thread(target=vm.dispose)
         threads.append(thread)
         thread.start()
-        thread.join(TIMEOUT)
+        thread.join(HANG_GUARD)
         blocked.append(thread.is_alive())
         return asyncio.Task(coroutine, loop=loop, **kwargs)
 
@@ -475,9 +474,9 @@ async def test_task_factory_can_wait_for_foreign_disposal_without_resource_gate(
         finally:
             loop.set_task_factory(original)
 
-    await asyncio.wait_for(load(), TIMEOUT + 1)
+    await asyncio.wait_for(load(), 2 * HANG_GUARD)
     for thread in threads:
-        thread.join(TIMEOUT)
+        thread.join(HANG_GUARD)
     await turns()
     assert blocked == [False]
     assert vm._operation is None
@@ -515,10 +514,10 @@ async def test_cancel_rolls_back_before_observer_new_intent_without_cancelling_i
 
     vm.property_changed.subscribe(observe)
     first = asyncio.create_task(vm.load())
-    await asyncio.wait_for(started.wait(), TIMEOUT)
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
     vm.cancel()
-    await asyncio.wait_for(first, TIMEOUT)
-    await asyncio.wait_for(newer[0], TIMEOUT)
+    await asyncio.wait_for(first, HANG_GUARD)
+    await asyncio.wait_for(newer[0], HANG_GUARD)
     assert command_cancel_states == [0]
     assert vm.state.value == 19
     vm.dispose()
@@ -547,12 +546,12 @@ async def test_retained_and_late_identical_values_each_clean_once_during_recursi
         vm.dispose()
 
     vm = resource(loader, cleanup, AsyncResourceRetention.RETAIN_PREVIOUS)
-    await asyncio.wait_for(vm.load(), TIMEOUT)
+    await asyncio.wait_for(vm.load(), HANG_GUARD)
     waiter = asyncio.create_task(vm.reload())
-    await asyncio.wait_for(started.wait(), TIMEOUT)
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
     vm.dispose()
     assert cleaned == [7]
-    await asyncio.wait_for(waiter, TIMEOUT)
+    await asyncio.wait_for(waiter, HANG_GUARD)
     release.set()
     await turns()
     assert cleaned == [7, 7]
@@ -575,9 +574,9 @@ async def test_disposal_preserves_unrelated_enqueue_error_and_releases_accepted_
         return 5
 
     vm = resource(loader, cleaned.append, AsyncResourceRetention.RETAIN_PREVIOUS)
-    await asyncio.wait_for(vm.load(), TIMEOUT)
+    await asyncio.wait_for(vm.load(), HANG_GUARD)
     waiter = asyncio.create_task(vm.reload())
-    await asyncio.wait_for(started.wait(), TIMEOUT)
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
     operation = vm._operation
     assert operation is not None
     errors = []
@@ -595,7 +594,7 @@ async def test_disposal_preserves_unrelated_enqueue_error_and_releases_accepted_
         patch.setattr(resources, "post_to_loop", fail_enqueue)
         thread = threading.Thread(target=dispose)
         thread.start()
-        thread.join(TIMEOUT)
+        thread.join(HANG_GUARD)
         assert not thread.is_alive()
     assert len(errors) == 1
     assert str(errors[0]) == "unrelated enqueue failure"
@@ -604,5 +603,5 @@ async def test_disposal_preserves_unrelated_enqueue_error_and_releases_accepted_
     assert not vm.reload_command.can_execute()
     # The injected unrelated failure prevented enqueue. Restore and drain explicitly.
     vm._cancel_operation(operation)
-    await asyncio.wait_for(waiter, TIMEOUT)
+    await asyncio.wait_for(waiter, HANG_GUARD)
     await turns()

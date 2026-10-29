@@ -15,15 +15,14 @@ import pytest
 from reactivex import Observable
 from reactivex.subject import Subject
 
+from tests.liveness import HANG_GUARD
 from vmx.commands import AsyncRelayCommand, ConfirmationDecoratorCommand
 
 T = TypeVar("T")
 
-_TIMEOUT = 2.0
-
 
 async def _wait(awaitable: Awaitable[T]) -> T:
-    return await asyncio.wait_for(awaitable, _TIMEOUT)
+    return await asyncio.wait_for(awaitable, HANG_GUARD)
 
 
 async def _drain_other_tasks() -> None:

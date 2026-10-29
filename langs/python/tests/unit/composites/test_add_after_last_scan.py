@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.components._late_child_starts import _LateChildStage
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -29,7 +30,6 @@ from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
 
 S = ConstructionStatus
-_BOUND = 5.0
 
 
 class _Queue:
@@ -138,7 +138,7 @@ def _add_late(harness: _Harness, *, other_thread: bool) -> ConstructionStatus:
     if other_thread:
         adder = threading.Thread(target=add, daemon=True)
         adder.start()
-        adder.join(_BOUND)
+        adder.join(HANG_GUARD)
         assert not adder.is_alive(), "the add completes"
     else:
         add()

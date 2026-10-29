@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.aggregates.aggregate_vm import AggregateVM1, AggregateVM2
 from vmx.aggregates.builders import (
     AggregateVM1Builder,
@@ -70,7 +71,7 @@ class _BlockingDisposeComponent(ComponentVM):
 
     def _on_dispose(self) -> None:
         self._entered.set()
-        if not self._release.wait(timeout=2):
+        if not self._release.wait(timeout=HANG_GUARD):
             raise TimeoutError("test did not release blocked slot disposal")
 
 
@@ -124,7 +125,7 @@ class _StatusReadBarrierAggregate(AggregateVM1[ComponentVM]):
         if self._pause_status_read:
             self._pause_status_read = False
             self._status_read.set()
-            if not self._disposal_attempted.wait(timeout=2):
+            if not self._disposal_attempted.wait(timeout=HANG_GUARD):
                 raise TimeoutError("test did not attempt aggregate disposal")
         return captured
 
@@ -185,7 +186,7 @@ def test_concurrent_aggregate_reconstruction_reserves_shared_candidate() -> None
                     entered=disposal_entered,
                     release=release_disposal,
                 )
-            factories_ready.wait(timeout=2)
+            factories_ready.wait(timeout=HANG_GUARD)
             return candidate
 
         vm: AggregateVM1[ComponentVM] = (
@@ -198,12 +199,12 @@ def test_concurrent_aggregate_reconstruction_reserves_shared_candidate() -> None
     second = aggregate("second")
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(vm.reconstruct) for vm in (first, second)]
-        assert disposal_entered.wait(timeout=2)
+        assert disposal_entered.wait(timeout=HANG_GUARD)
         release_disposal.set()
         outcomes = []
         for future in futures:
             try:
-                future.result(timeout=2)
+                future.result(timeout=2 * HANG_GUARD)
                 outcomes.append("success")
             except ValueError:
                 outcomes.append("rejected")
@@ -619,15 +620,15 @@ def test_aggregate_dispose_cannot_race_fixed_slot_commit(reconstruct: bool) -> N
     operation = aggregate.reconstruct if reconstruct else aggregate.construct
     with ThreadPoolExecutor(max_workers=2) as pool:
         operation_result = pool.submit(operation)
-        assert status_read.wait(timeout=2)
+        assert status_read.wait(timeout=HANG_GUARD)
 
         def dispose() -> None:
             disposal_attempted.set()
             aggregate.dispose()
 
         disposal_result = pool.submit(dispose)
-        operation_result.result(timeout=2)
-        disposal_result.result(timeout=2)
+        operation_result.result(timeout=HANG_GUARD)
+        disposal_result.result(timeout=HANG_GUARD)
 
     candidate = created[-1]
     assert aggregate.status is ConstructionStatus.DISPOSED

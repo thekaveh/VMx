@@ -17,6 +17,7 @@ from typing import Any, Protocol
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
+from tests.liveness import HANG_GUARD
 from vmx.components._late_child_starts import _LateChildStage, _LateChildStarts
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -197,9 +198,6 @@ def test_without_auto_construct_late_child_is_left_alone(kind: str) -> None:
     assert late.status is S.DESTRUCTED
 
 
-_BOUND = 5.0
-
-
 class _Pause:
     """A bounded one-shot pause of the adder thread, driven by the test."""
 
@@ -209,7 +207,7 @@ class _Pause:
 
     def hold(self) -> None:
         self.paused.set()
-        self.resume.wait(_BOUND)
+        self.resume.wait(HANG_GUARD)
 
 
 def _pause_add_after_attach(root: _Container, late: ComponentVM, pause: _Pause) -> None:
@@ -250,12 +248,12 @@ def _add_while_walk_pulls(
     adder = threading.Thread(target=add, daemon=True)
     adder.start()
     try:
-        assert pause.paused.wait(_BOUND), "the add pauses before the late child settles"
+        assert pause.paused.wait(HANG_GUARD), "the add pauses before the late child settles"
         bg.run_first()  # the original child settles; the walk pulls ``late``
         while_paused()
     finally:
         pause.resume.set()
-        adder.join(_BOUND)
+        adder.join(HANG_GUARD)
     assert not adder.is_alive(), "the paused add resumes and completes"
     bg.run_all()
     return errors

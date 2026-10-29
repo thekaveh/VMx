@@ -33,6 +33,7 @@ import pytest
 import reactivex.disposable as rx_disposable
 from reactivex.scheduler import ImmediateScheduler
 
+from tests.liveness import HANG_GUARD
 from vmx.components import base as component_base
 from vmx.components.builders import ComponentVMOfBuilder
 from vmx.lifecycle.status import ConstructionStatus
@@ -86,7 +87,7 @@ class _RealThreadBackgroundScheduler:
         def run() -> None:
             try:
                 if gate is not None:
-                    gate.wait()
+                    gate.wait(HANG_GUARD)
                 action(self, state)
             except Exception as exc:  # record worker error instead of crashing the pool
                 self.errors.append(exc)
@@ -176,11 +177,11 @@ def test_background_construct_racing_dispose_is_atomic() -> None:
             background.gate = barrier
 
             vm.construct()  # schedules _bg_construct, parked on the barrier
-            barrier.wait()  # release the worker; race its completion vs dispose()
+            barrier.wait(HANG_GUARD)  # release the worker; race its completion vs dispose()
             vm.dispose()
 
             for future in background.futures:
-                future.result()  # surface any unexpected worker crash
+                future.result(HANG_GUARD)  # surface any unexpected worker crash
             sub.dispose()
 
             if vm.status is ConstructionStatus.CONSTRUCTED:
@@ -248,16 +249,16 @@ def test_construct_does_not_run_hook_after_dispose_wins_before_constructing() ->
             disposer.start()
             dispose_won_before_constructing = dispose_done.wait(timeout=0.2)
             release_constructing.set()
-            disposer.join(timeout=1)
+            disposer.join(timeout=HANG_GUARD)
         return original_set_status(status)
 
     vm._set_status = types.MethodType(instrumented_set_status, vm)  # type: ignore[method-assign]
 
     vm.construct()
-    release_constructing.wait(timeout=1)
+    release_constructing.wait(timeout=HANG_GUARD)
 
     assert dispose_won_before_constructing is False or not hook_called.is_set()
-    assert dispose_done.wait(timeout=1)
+    assert dispose_done.wait(timeout=HANG_GUARD)
     assert vm.status is ConstructionStatus.DISPOSED
 
 
@@ -309,7 +310,7 @@ def test_foreign_dispose_waits_for_ordinary_lifecycle_publication(
             return
         if message.status is ConstructionStatus.CONSTRUCTING:
             entered.set()
-            if not release.wait(timeout=10):
+            if not release.wait(timeout=HANG_GUARD):
                 # MessageHub isolates subscriber exceptions, so retain this
                 # failure explicitly and report it after joining the workers.
                 observer_failures.append(
@@ -328,10 +329,12 @@ def test_foreign_dispose_waits_for_ordinary_lifecycle_publication(
     with ThreadPoolExecutor(max_workers=2) as executor:
         try:
             workers.append(executor.submit(vm.construct))
-            assert entered.wait(timeout=5), "ordinary publication was not entered"
+            assert entered.wait(timeout=HANG_GUARD), "ordinary publication was not entered"
             disposer = executor.submit(dispose)
             workers.append(disposer)
-            assert wait_entered.wait(timeout=5), "Dispose never entered publication.completed.wait"
+            assert wait_entered.wait(timeout=HANG_GUARD), (
+                "Dispose never entered publication.completed.wait"
+            )
             assert not disposed_seen.is_set()
             assert not disposer.done()
         except BaseException as error:
@@ -343,7 +346,7 @@ def test_foreign_dispose_waits_for_ordinary_lifecycle_publication(
             # contain implementation mutants that deadlock despite release.
             for worker in workers:
                 try:
-                    worker.result()
+                    worker.result(HANG_GUARD)
                 except BaseException as error:
                     failures.append(error)
             subscription.dispose()
@@ -380,7 +383,7 @@ def test_opposing_lifecycle_observers_do_not_deadlock() -> None:
                 return
             histories[index].append(message.status)
             if message.status is ConstructionStatus.CONSTRUCTING:
-                barrier.wait(timeout=2)
+                barrier.wait(timeout=HANG_GUARD)
                 vms[1 - index].dispose()
 
         hubs[index].messages.subscribe(observe)
@@ -391,7 +394,7 @@ def test_opposing_lifecycle_observers_do_not_deadlock() -> None:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=3)
+        thread.join(timeout=2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads)
     assert [vm.status for vm in vms] == [
@@ -407,7 +410,7 @@ def test_opposing_active_lifecycle_hooks_cross_dispose_without_deadlock() -> Non
     vms: list[Any] = []
 
     def hook(index: int) -> None:
-        barrier.wait(timeout=2)
+        barrier.wait(timeout=HANG_GUARD)
         vms[1 - index].dispose()
 
     vms.extend(
@@ -423,7 +426,7 @@ def test_opposing_active_lifecycle_hooks_cross_dispose_without_deadlock() -> Non
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=3)
+        thread.join(timeout=2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads)
     assert all(vm.status is ConstructionStatus.DISPOSED for vm in vms)
@@ -436,7 +439,7 @@ def test_cycle_broken_deferred_cleanup_does_not_replace_first_failure() -> None:
     failures: list[BaseException] = []
 
     def hook(index: int) -> None:
-        barrier.wait(timeout=2)
+        barrier.wait(timeout=HANG_GUARD)
         vms[1 - index].dispose()
 
     def failing_dispose(self: object, name: str) -> None:
@@ -467,7 +470,7 @@ def test_cycle_broken_deferred_cleanup_does_not_replace_first_failure() -> None:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=3)
+        thread.join(timeout=2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads)
     assert sorted(cleanup_order) == ["first", "second"]
