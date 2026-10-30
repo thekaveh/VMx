@@ -613,9 +613,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     raise
 
     def _on_dispose(self) -> None:
-        if not self._collection_changed_subject.is_disposed:
-            self._collection_changed_subject.on_completed()
-            self._collection_changed_subject.dispose()
+        subject = self._collection_changed_subject
+        if not subject.is_disposed:
+            # A raising completion observer must not skip the dispose (#1072).
+            _run_every_step(subject.on_completed, subject.dispose)
 
     def _join_if_pending(self, child: VM) -> None:
         join_if_pending(self, child)

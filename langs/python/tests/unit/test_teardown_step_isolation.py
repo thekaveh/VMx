@@ -5,7 +5,9 @@
 ``DiscriminatorVM``, and ``PagedComposition`` (#768) follow the shared
 ``_run_disposal_steps`` convention already used by ``FormVM`` and the component
 base: every owned teardown step runs, the first failure is re-raised, and a
-second ``dispose()`` is a no-op. Flavor-local repair; no new conformance ID.
+second ``dispose()`` is a no-op. ``CompositeVM``, ``CompositeVMOf`` and
+``GroupVM`` (#1072) dispose their collection-changed subject the same way.
+Flavor-local repair; no new conformance ID.
 """
 
 from __future__ import annotations
@@ -26,8 +28,11 @@ from vmx.capabilities.searchable_state import SearchableState
 from vmx.collections.paged_composition import PagedComposition
 from vmx.collections.token_paged_composition import TokenPagedComposition
 from vmx.components.component_vm import ComponentVM
+from vmx.composites.builders import CompositeVMOfBuilder
 from vmx.composites.composite_vm import CompositeVM
 from vmx.composites.filtered_composite_vm import FilteredCompositeVM
+from vmx.groups.builders import GroupVMBuilder
+from vmx.groups.group_vm import GroupVM
 from vmx.notifications import (
     ConfirmationVM,
     Notification,
@@ -238,10 +243,54 @@ class _Observed(NamedTuple):
     stream: Callable[[Any], rx.Observable[Any]]
 
 
+def _constructed(container: Any) -> Any:
+    container.construct()
+    return container
+
+
+def _composite_vm() -> CompositeVM[ComponentVM]:
+    return _constructed(
+        CompositeVM.builder()
+        .name("composite")
+        .services(NULL_MESSAGE_HUB, NULL_DISPATCHER)
+        .children(lambda: [])
+        .build()
+    )
+
+
+def _group_vm() -> GroupVM[ComponentVM]:
+    return _constructed(
+        GroupVMBuilder()
+        .name("group")
+        .services(NULL_MESSAGE_HUB, NULL_DISPATCHER)
+        .children(lambda: [])
+        .build()
+    )
+
+
+def _composite_vm_of() -> Any:
+    return _constructed(
+        CompositeVMOfBuilder()
+        .name("composite-of")
+        .services(NULL_MESSAGE_HUB, NULL_DISPATCHER)
+        .children_models(lambda: ["a"])
+        .child_model_to_child_view_model(
+            lambda name: (
+                ComponentVM.builder().name(name).services(NULL_MESSAGE_HUB, NULL_DISPATCHER).build()
+            )
+        )
+        .build()
+    )
+
+
 _OBSERVED: tuple[_Observed, ...] = (
     _Observed("ExpandableState", ExpandableState, lambda sut: sut.is_expanded_changed),
     _Observed("DiscriminatorVM", lambda: DiscriminatorVM("a"), lambda sut: sut.active_changed),
     _Observed("PagedComposition", _paged_composition, lambda sut: sut.on_property_changed),
+    # #1072: the containers complete and dispose their collection-changed subject.
+    _Observed("CompositeVM", _composite_vm, lambda sut: sut.on_collection_changed),
+    _Observed("GroupVM", _group_vm, lambda sut: sut.on_collection_changed),
+    _Observed("CompositeVMOf", _composite_vm_of, lambda sut: sut.on_collection_changed),
 )
 
 
@@ -253,7 +302,7 @@ def _raise(error: BaseException) -> None:
 def test_throwing_completion_observer_does_not_skip_the_subject_dispose(
     case: _Observed,
 ) -> None:
-    """#768 — a completion observer that raises still lets dispose finish."""
+    """#768, #1072 — a completion observer that raises still lets dispose finish."""
     sut = case.build()
     boom = RuntimeError(f"{case.name} completion observer failed")
     case.stream(sut).subscribe(on_completed=lambda: _raise(boom))
