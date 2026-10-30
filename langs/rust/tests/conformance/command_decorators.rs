@@ -673,12 +673,64 @@ fn disposed_confirmation_decorator_is_inert_including_pending_confirmations() {
     }
 }
 
+/// CMDD-012 — Disposal while an awaited confirmation is pending starts no inner work
+///
+/// `execute_async()` re-checks disposal after the confirmation resolves,
+/// separately from the fire-and-forget `execute()` path above (#1077).
+#[test]
+fn disposal_during_a_pending_awaited_confirmation_runs_no_inner_command() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    // `None` drives the faulted confirmation, as in the test above.
+    for outcome in [Some(true), Some(false), None] {
+        let inner = recording_command(log.clone(), "inner", true);
+        let gate = AsyncValue::<()>::pending();
+        let decision: AsyncValue<bool> = gate.map(move |()| match outcome {
+            Some(confirmed) => confirmed,
+            None => panic!("confirm faulted"),
+        });
+        let pending = decision.clone();
+        let confirming = ConfirmationDecoratorCommand::new(inner.clone(), move || pending.clone());
+        let deliveries = Arc::new(AtomicUsize::new(0));
+        let deliveries_inner = deliveries.clone();
+        let _subscription = confirming.error_stream().subscribe(move |_| {
+            deliveries_inner.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let execution = confirming.execute_async();
+        assert!(!execution.is_finished(), "outcome = {outcome:?}");
+        confirming.clone().dispose();
+        // Resolve on another thread after dispose() has returned.
+        std::thread::spawn(move || {
+            gate.resolve(());
+        })
+        .join()
+        .unwrap();
+
+        let result = execution.join();
+        match outcome {
+            Some(_) => assert!(result.is_ok(), "outcome = {outcome:?}"),
+            // The awaiter receives the confirmation's panic (ADR-0138).
+            None => assert!(result.is_err(), "the faulted case settled as panicked"),
+        }
+        assert!(log.lock().unwrap().is_empty(), "outcome = {outcome:?}");
+        assert_eq!(
+            deliveries.load(Ordering::SeqCst),
+            0,
+            "outcome = {outcome:?}"
+        );
+        // The inner command was not disposed.
+        assert!(inner.can_execute(), "outcome = {outcome:?}");
+    }
+}
+
 /// CMDD-012 — A confirmation resolving on another thread while the decorator is
 /// being disposed runs the inner command at most once.
 ///
 /// Stress coverage only: it passes without the post-confirmation disposal
-/// re-check. `disposed_confirmation_decorator_is_inert_including_pending_confirmations`
-/// guards that re-check.
+/// re-checks. `disposed_confirmation_decorator_is_inert_including_pending_confirmations`
+/// guards the `execute()` re-check, and
+/// `disposal_during_a_pending_awaited_confirmation_runs_no_inner_command`
+/// guards the `execute_async()` re-check.
 #[test]
 fn confirmation_resolving_while_disposing_runs_the_inner_command_at_most_once() {
     for _ in 0..200 {
