@@ -364,10 +364,11 @@ fn async_resource_retains_previous_through_cancel_and_failure() {
     let (send1, receive1) = channel();
     let (send2, receive2) = channel();
     let (send3, receive3) = channel();
+    let cleaned = Arc::new(Mutex::new(Vec::new()));
     let (vm, starts) = controlled_vm(
         vec![receive1, receive2, receive3],
         AsyncResourceRetention::RetainPrevious,
-        None,
+        Some(cleaned.clone()),
     );
     let first = vm.load_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 1);
@@ -376,22 +377,30 @@ fn async_resource_retains_previous_through_cancel_and_failure() {
 
     let cancelled = vm.reload_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 2);
+    assert_eq!(
+        vm.state(),
+        AsyncResourceState::Loading { previous: Some(3) }
+    );
     assert_eq!(vm.value(), Some(3));
     vm.cancel();
     cancelled.join().unwrap().unwrap();
     assert_eq!(vm.state(), AsyncResourceState::Ready { value: 3 });
+    assert!(
+        cleaned.lock().unwrap().is_empty(),
+        "cancellation restores the retained value without cleaning it"
+    );
 
     let failed = vm.reload_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 3);
     send3.send(Err(VmxError::Other("refresh".into()))).unwrap();
     failed.join().unwrap().unwrap();
-    assert!(matches!(
+    assert_eq!(
         vm.state(),
         AsyncResourceState::Error {
             previous: Some(3),
-            ..
+            error: VmxError::Other("refresh".into()),
         }
-    ));
+    );
     drop(send2);
 }
 
@@ -414,6 +423,7 @@ fn async_resource_discard_cleans_at_reload_start() {
     let reload = vm.reload_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 2);
     assert_eq!(*cleaned.lock().unwrap(), vec![5]);
+    assert_eq!(vm.state(), AsyncResourceState::Loading { previous: None });
     assert_eq!(vm.value(), None);
     vm.cancel();
     reload.join().unwrap().unwrap();
@@ -422,7 +432,12 @@ fn async_resource_discard_cleans_at_reload_start() {
     wait_until(|| starts.load(Ordering::SeqCst) == 3);
     send3.send(Err(VmxError::Other("offline".into()))).unwrap();
     failed.join().unwrap().unwrap();
+    assert!(matches!(
+        vm.state(),
+        AsyncResourceState::Error { previous: None, .. }
+    ));
     assert_eq!(vm.value(), None);
+    assert_eq!(*cleaned.lock().unwrap(), vec![5]);
 }
 
 #[test]
