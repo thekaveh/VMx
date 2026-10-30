@@ -7,6 +7,7 @@ use super::{
     Cell, Condvar, Deserialize, HashMap, HashSet, Mutex, MutexGuard, OnceLock, Ordering, Serialize,
     ThreadId, VecDeque, Weak,
 };
+use crate::wait_for_graph::waits;
 use crate::{ValueStream, ValueSubscription};
 use std::sync::mpsc;
 
@@ -286,11 +287,18 @@ impl MembershipTransactionControl {
         }
     }
 
+    /// Identifies this control in the wait-for graph.
+    pub(crate) fn resource(&self) -> usize {
+        self as *const Self as usize
+    }
+
     fn begin(&self) {
         let mut state = lock(&self.state);
         debug_assert!(state.owner.is_none());
         debug_assert!(state.finishing_owner.is_none());
-        state.owner = Some(thread::current().id());
+        let current = thread::current().id();
+        state.owner = Some(current);
+        waits().acquire(self.resource(), current);
     }
 
     pub(crate) fn dispose_disposition(&self) -> MembershipDisposeDisposition {
@@ -316,11 +324,32 @@ impl MembershipTransactionControl {
         lock(&self.state).deferred_dispose.is_some()
     }
 
-    pub(crate) fn wait_until_inactive(&self) {
+    /// Waits until no membership transaction is active (ADR-0122), unless the
+    /// wait would close a wait-for cycle (ADR-0153).
+    ///
+    /// Returns `action` once the transaction has ended, so the caller retries.
+    /// Returns `None` when the wait would close a cycle: the transaction owner
+    /// then runs `action` when its transaction ends. An owner that is already
+    /// finishing is running this container's deferred disposal, so nothing
+    /// more is recorded.
+    pub(crate) fn wait_until_inactive_or_defer<F>(&self, action: F) -> Option<F>
+    where
+        F: FnOnce() -> VmxResult<()> + Send + 'static,
+    {
+        let current = thread::current().id();
+        let graph = waits();
         let mut state = lock(&self.state);
         while state.owner.is_some() || state.finishing_owner.is_some() {
+            if !graph.try_begin_wait(self.resource(), current) {
+                if state.owner.is_some() && state.deferred_dispose.is_none() {
+                    state.deferred_dispose = Some(Box::new(action));
+                }
+                return None;
+            }
             state = wait(&self.ready, state);
+            graph.end_wait(current);
         }
+        Some(action)
     }
 
     fn finish(&self, active: &AtomicBool) -> VmxResult<()> {
@@ -329,12 +358,17 @@ impl MembershipTransactionControl {
             let mut state = lock(&self.state);
             state.owner = None;
             state.finishing_owner = Some(current);
+            // The finishing thread holds the transaction until it clears.
+            waits().acquire(self.resource(), current);
             state.deferred_dispose.take()
         };
         let outcome = action.map(|action| catch_unwind(AssertUnwindSafe(action)));
-        active.store(false, Ordering::Release);
         let mut state = lock(&self.state);
         state.finishing_owner = None;
+        waits().release(self.resource());
+        // Only now may a new transaction begin, so its owner record cannot be
+        // released above.
+        active.store(false, Ordering::Release);
         self.ready.notify_all();
         drop(state);
         match outcome {
@@ -342,6 +376,14 @@ impl MembershipTransactionControl {
             Some(Err(payload)) => resume_unwind(payload),
             None => Ok(()),
         }
+    }
+}
+
+impl Drop for MembershipTransactionControl {
+    fn drop(&mut self) {
+        // A transaction that never finished must not leave its owner behind
+        // for a later control at the same address.
+        waits().release(self.resource());
     }
 }
 
