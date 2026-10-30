@@ -130,3 +130,74 @@ def test_transfer_commit_error_reraises_after_every_publication_step() -> None:
 
     assert local == ["remove", "add"]
     assert remote == ["remove", "add"]
+
+
+def _composite(hub: MessageHub[Any], name: str, *children: ComponentVM) -> Any:
+    return (
+        CompositeVMBuilder()
+        .name(name)
+        .services(hub, _DISPATCHER)
+        .children(lambda: children)
+        .build()
+    )
+
+
+_CONTAINERS: list[tuple[str, Callable[..., Any]]] = [
+    ("GroupVM", _group),
+    ("CompositeVM", _composite),
+]
+
+
+def _add_into(destination: Any, child: ComponentVM, operation: str) -> None:
+    if operation == "insert":
+        destination.insert(0, child)
+    elif isinstance(destination, GroupVM):
+        destination.add(child)
+    else:
+        destination.append(child)
+
+
+@pytest.mark.parametrize("operation", ["add", "insert"])
+@pytest.mark.parametrize(("kind", "build"), _CONTAINERS, ids=[kind for kind, _ in _CONTAINERS])
+def test_add_and_insert_reraise_the_transfer_commit_error_first(
+    kind: str, build: Callable[..., Any], operation: str
+) -> None:
+    # #1054: the commit error wins over a raising destination subscriber, as
+    # in the indexer and population paths (#727).
+    hub: MessageHub[Any] = MessageHub()
+    moving = _child(hub, "moving")
+    old_parent = _group(hub, "old", moving)
+    old_parent.construct()
+    destination = build(hub, "destination", _child(hub, "kept"))
+    destination.construct()
+    _record(hub, old_parent, raising=True)  # its removal publication fails the commit
+    local, remote = _record(hub, destination, raising=True)
+
+    with pytest.raises(_SubscriberError, match="old subscriber"):
+        _add_into(destination, moving, operation)
+
+    assert local == ["add"], kind
+    assert remote == ["add"], kind
+    assert moving in destination
+
+
+@pytest.mark.parametrize("operation", ["add", "insert"])
+@pytest.mark.parametrize(("kind", "build"), _CONTAINERS, ids=[kind for kind, _ in _CONTAINERS])
+def test_add_and_insert_raise_the_destination_error_when_the_commit_succeeds(
+    kind: str, build: Callable[..., Any], operation: str
+) -> None:
+    hub: MessageHub[Any] = MessageHub()
+    moving = _child(hub, "moving")
+    old_parent = _group(hub, "old", moving)
+    old_parent.construct()
+    destination = build(hub, "destination", _child(hub, "kept"))
+    destination.construct()
+    local, remote = _record(hub, destination, raising=True)
+
+    with pytest.raises(_SubscriberError, match="destination subscriber"):
+        _add_into(destination, moving, operation)
+
+    assert local == ["add"], kind
+    assert remote == ["add"], kind
+    assert moving in destination
+    assert moving not in old_parent
