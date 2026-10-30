@@ -251,6 +251,9 @@ fn disposal_clears_parked_items() -> VmxResult<()> {
     assert_eq!(root.parked_attach_count(), 1);
     root.dispose()?;
     assert_eq!(root.parked_attach_count(), 0);
+    // Repeated disposal stays safe (general disposal invariant).
+    assert_eq!(root.dispose(), Ok(()));
+    assert_eq!(root.parked_attach_count(), 0);
     Ok(())
 }
 

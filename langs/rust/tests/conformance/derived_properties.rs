@@ -200,8 +200,9 @@ fn value_changed_emits_on_recompute() {
         .subscribe(move |value| seen.lock().unwrap().push(value));
 
     source.send(2);
+    source.send(3);
 
-    assert_eq!(*values.lock().unwrap(), vec![2]);
+    assert_eq!(*values.lock().unwrap(), vec![2, 3]);
 }
 
 /// DPROP-010 — ValueChanged does not emit when transform output is unchanged
