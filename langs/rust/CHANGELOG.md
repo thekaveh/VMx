@@ -100,6 +100,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm::add`, `CompositeVm::insert`, `GroupVm::add` and `GroupVm::insert`
+  no longer deadlock when admission fails and a subscriber disposes the
+  container (#1066). The rollback destructed the child while it held the
+  membership gate. A subscriber that disposed the container from the child's
+  destruct messages then waited for that gate on the same thread. The rollback
+  now releases the gate first, as `replace` already did. The call returns
+  `VmxError::Disposed`, and the container ends `Disposed`.
 - A cross-thread `dispose()` of a `CompositeVm`, `GroupVm` or fixed aggregate
   no longer hangs when its wait would close a wait-for cycle (ADR-0153,
   ADR-0167, #1058). Before, two threads that each held one container's
