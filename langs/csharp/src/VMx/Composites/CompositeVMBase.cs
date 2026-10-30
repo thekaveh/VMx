@@ -519,6 +519,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         get { lock (_membershipGate) return _children[index]; }
         set
         {
+            ThrowHelper.ThrowIfNull(value, nameof(value));
             BeginMembershipTransaction();
             ParentTransferToken? transfer = null;
             VM? old = null;
@@ -797,6 +798,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void Add(VM item)
     {
+        ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
@@ -906,6 +908,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void Insert(int index, VM item)
     {
+        ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
