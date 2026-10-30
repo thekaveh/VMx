@@ -863,10 +863,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     raise
 
     def _on_dispose(self) -> None:
-        """Complete the collection_changed subject."""
-        if not self._collection_changed_subject.is_disposed:
-            self._collection_changed_subject.on_completed()
-            self._collection_changed_subject.dispose()
+        """Complete and dispose the collection_changed subject."""
+        subject = self._collection_changed_subject
+        if not subject.is_disposed:
+            # A raising completion observer must not skip the dispose (#1072).
+            _run_every_step(subject.on_completed, subject.dispose)
 
     # ── Factory hook (overridden by subclasses) ───────────────────────────────
 
