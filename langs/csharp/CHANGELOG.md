@@ -73,6 +73,16 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: `MessageHub` waits and container membership waits now share one
+  wait-for graph (#1055). A hub drainer can add to or dispose a container
+  from a subscriber. The container's transaction owner can send on that hub
+  at the same time. These two threads no longer deadlock. The wait that would
+  close the cycle takes its escape instead. The active drain delivers the
+  send, or an `Add` throws `InvalidOperationException`. A `Dispose()` defers
+  to the transaction owner, and the owner's pending `Add` then throws
+  `ObjectDisposedException`. A `Send`, `Batch` or `Dispose()` inside a
+  borrowed batch body on the same hub no longer waits for that hub's drainer.
+  It enqueues, nests or records the intent, as spec/03 states.
 - Fixed: a wait for a child that another thread is transferring now joins the
   membership wait-for graph (#1047). A wait that would close a wait-for cycle
   throws `InvalidOperationException` instead of deadlocking. The cycle can run

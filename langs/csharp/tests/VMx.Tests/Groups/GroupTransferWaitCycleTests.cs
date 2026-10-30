@@ -1,6 +1,7 @@
 using FluentAssertions;
 using VMx.Components;
 using VMx.Groups;
+using VMx.Internal;
 using VMx.Services;
 using Xunit;
 using static VMx.Tests.Helpers.Liveness;
@@ -321,7 +322,7 @@ public class GroupTransferWaitCycleTests
             hookEntered.Set();
             SpinWait.SpinUntil(
                 () => Volatile.Read(ref firstThread) != 0 &&
-                    MembershipTransactionWaitGraph.Shared.IsWaitingForTesting(Volatile.Read(ref firstThread)),
+                    WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref firstThread)),
                 HangGuard).Should().BeTrue("the first thread waits for g2's transaction");
             g3.Add(b);
         });
@@ -379,7 +380,7 @@ public class GroupTransferWaitCycleTests
             bbEntered.Set();
             aaEntered.Wait(HangGuard).Should().BeTrue();
             SpinWait.SpinUntil(
-                () => MembershipTransactionWaitGraph.Shared.IsWaitingForTesting(Volatile.Read(ref firstThread)),
+                () => WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref firstThread)),
                 HangGuard).Should().BeTrue("the first thread waits for bb");
             g4.Add(aa);
         });
@@ -399,7 +400,7 @@ public class GroupTransferWaitCycleTests
     [Fact]
     public void Wait_Graph_Refuses_Only_The_Edge_That_Closes_A_Cycle()
     {
-        var graph = new MembershipTransactionWaitGraph();
+        var graph = new WaitForGraph();
         object g1 = new(), g2 = new(), g3 = new();
         const int a = 1, b = 2, c = 3;
         graph.Acquire(g1, a);
@@ -420,7 +421,7 @@ public class GroupTransferWaitCycleTests
     {
         // #736: a waiter that was woken but has not yet removed its edge must
         // not make the thread that ended the transaction see a cycle.
-        var graph = new MembershipTransactionWaitGraph();
+        var graph = new WaitForGraph();
         object g1 = new(), g2 = new();
         const int a = 1, b = 2;
         graph.Acquire(g1, a);
@@ -433,5 +434,66 @@ public class GroupTransferWaitCycleTests
         graph.EndWait(b);
         graph.Acquire(g2, a);
         graph.TryBeginWait(g1, b).Should().BeTrue("a now owns g2, so b -> a closes no cycle");
+    }
+
+    [Fact]
+    public void Wait_Graph_Sees_A_Cycle_That_Crosses_A_Hub_Wait()
+    {
+        // #1055: a hub wait names its owner thread; a membership wait names its
+        // container. One graph sees a cycle that uses both kinds of edge.
+        var graph = new WaitForGraph();
+        object container = new(), hub = new();
+        const int owner = 1, drainer = 2;
+        graph.Acquire(container, owner);
+
+        graph.TryBeginWait(hub, drainer, owner).Should().BeTrue("the owner waits to send on the hub");
+        graph.TryBeginWait(container, drainer).Should().BeFalse("drainer -> owner -> drainer");
+    }
+
+    [Fact]
+    public void Wait_Graph_Sees_A_Hub_Wait_That_Closes_A_Cycle_Through_A_Container()
+    {
+        // The reverse order: the drainer waits for the container first, then
+        // the container's owner tries to wait for the drainer's hub.
+        var graph = new WaitForGraph();
+        object container = new(), hub = new();
+        const int owner = 1, drainer = 2;
+        graph.Acquire(container, owner);
+
+        graph.TryBeginWait(container, drainer).Should().BeTrue("the drainer waits for the transaction");
+        graph.TryBeginWait(hub, drainer, owner).Should().BeFalse("owner -> drainer -> container(owner)");
+    }
+
+    [Fact]
+    public void Wait_Graph_Release_Waiters_Keeps_Waits_On_A_Current_Owner()
+    {
+        var graph = new WaitForGraph();
+        object hub = new();
+        const int a = 1, b = 2, drainer = 3, former = 4;
+        graph.TryBeginWait(hub, drainer, a).Should().BeTrue();
+        graph.TryBeginWait(hub, former, b).Should().BeTrue();
+
+        graph.ReleaseWaiters(hub, drainer);
+
+        graph.IsWaitingForTesting(a).Should().BeTrue("its owner still drains the hub");
+        graph.IsWaitingForTesting(b).Should().BeFalse("its owner no longer owns the hub");
+    }
+
+    [Fact]
+    public void Wait_Graph_Release_Waiters_Drops_Only_Hub_Waits_On_That_Hub()
+    {
+        var graph = new WaitForGraph();
+        object container = new(), hub = new(), otherHub = new();
+        const int a = 1, b = 2, c = 3, d = 4;
+        graph.Acquire(container, d);
+        graph.TryBeginWait(hub, d, a).Should().BeTrue();
+        graph.TryBeginWait(otherHub, d, b).Should().BeTrue();
+        graph.TryBeginWait(container, c).Should().BeTrue();
+
+        graph.ReleaseWaiters(hub);
+
+        graph.IsWaitingForTesting(a).Should().BeFalse("its hub woke it");
+        graph.IsWaitingForTesting(b).Should().BeTrue("another hub");
+        graph.IsWaitingForTesting(c).Should().BeTrue("a membership wait is released through its owner");
     }
 }
