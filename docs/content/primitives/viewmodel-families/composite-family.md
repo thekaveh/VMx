@@ -73,7 +73,8 @@ The composite owns both child lifecycle and selection messaging:
 - `Current` changes publish the parent `Current` property and the affected
   children's `IsCurrent`
 - disposal requested by a current-changed callback is deferred until the
-  selection notification finishes and does not deadlock the callback
+  selection notification finishes and does not deadlock the callback. ADR-0165
+  §3 lists the open gaps for the construct walk's selection in Swift and Rust.
 - `AsyncSelection(true)` routes selection work through the foreground
   dispatcher
 - a non-batched move emits one move event with both indices; a batched move is
@@ -85,7 +86,8 @@ The composite owns both child lifecycle and selection messaging:
 Rust background-child settling follows the shared container rule in
 [ViewModel Families](index.md#6213-lifecycle-and-messaging).
 
-Rust has one open selection gap. `CompositeVm` keeps its ownership transaction
+Rust has open selection gaps. The construct walk's selection gaps are listed in
+spec/06 §3.2 and ADR-0165 §3. Also, `CompositeVm` keeps its ownership transaction
 open while it publishes `CollectionChanged`, the children's `is_current`
 changes, and `current`, and while it runs the current-changed callback. A
 selection started from one of these observers, or concurrently, returns
@@ -121,6 +123,12 @@ const tabs = CompositeVM.builder<ComponentVM>()
 - **A removed child is not restored.** If the composite no longer contains the
   recorded child, the selector's result is a silent no-op, and `Current` stays
   `null`.
+- **Only committed children are selected.** Another thread's membership
+  transaction never makes the assignment raise or wait. A child that another
+  add has attached but not yet admitted is not contained yet. The assignment
+  is also a no-op while the composite is disposing (spec/06 §3.2, ADR-0165).
+  C# and Python implement these rules; ADR-0165 §3 lists the open gaps in the
+  other flavors.
 
 ## 6.2.5.4. Cross-Language Surface
 
