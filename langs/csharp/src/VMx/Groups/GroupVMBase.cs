@@ -4,6 +4,7 @@ using System.Reactive.Disposables;
 using VMx.Collections;
 using VMx.Components;
 using VMx.Composites;
+using VMx.Internal;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
@@ -207,6 +208,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         get { lock (_membershipGate) return _children[index]; }
         set
         {
+            ThrowHelper.ThrowIfNull(value, nameof(value));
             BeginMembershipTransaction();
             ParentTransferToken? transfer = null;
             VM? old = null;
@@ -285,6 +287,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <inheritdoc/>
     public void Add(VM item)
     {
+        ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
@@ -370,6 +373,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <inheritdoc/>
     public void Insert(int index, VM item)
     {
+        ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;

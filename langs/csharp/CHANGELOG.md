@@ -73,6 +73,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: `CompositeVM` and `GroupVM` `Add`, `Insert` and the indexer setter
+  throw `ArgumentNullException` for a null child and leave the children
+  unchanged. Before, they threw `NullReferenceException` after they opened
+  the membership transaction and never closed it. Every later membership
+  change then failed or blocked, and a `Dispose()` from another thread did
+  not return (#1048).
 - Fixed: `ObservableDictionary`: an entry added from a `Keys1` subscriber no
   longer puts `Keys2` out of first-appearance order. `Keys2` now updates
   first, so a `Keys1` subscriber already sees the new Key2. When a `Keys2`
