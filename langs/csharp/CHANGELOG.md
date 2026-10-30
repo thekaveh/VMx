@@ -73,6 +73,13 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: a wait for a child that another thread is transferring now joins the
+  membership wait-for graph (#1047). A wait that would close a wait-for cycle
+  throws `InvalidOperationException` instead of deadlocking. The cycle can run
+  through group or composite transactions, through other children's
+  transfers, or both. A transfer that holds a child and waits for a group's
+  transaction no longer deadlocks when that transaction's owner adds the same
+  child elsewhere. The child keeps one parent.
 - Fixed: the construct walk of `CompositeVM` and `CompositeVMOfM<M, VM>`
   assigns the `Current(selector)` result without a membership transaction
   (spec/06 §3.2, ADR-0165, #1064). Before, the assignment threw while another

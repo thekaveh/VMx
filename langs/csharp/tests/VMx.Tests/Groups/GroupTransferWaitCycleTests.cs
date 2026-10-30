@@ -11,7 +11,8 @@ namespace VMx.Tests.Groups;
 /// Cross-thread membership transactions on <see cref="GroupVM{VM}"/> (#718).
 /// A group waits for another thread's transaction, unless that wait would
 /// close a wait-for cycle: then the add is refused with
-/// <see cref="InvalidOperationException"/> and changes nothing.
+/// <see cref="InvalidOperationException"/> and changes nothing. A wait for a
+/// child's ownership gate joins the same graph (#1047).
 /// </summary>
 public class GroupTransferWaitCycleTests
 {
@@ -297,6 +298,102 @@ public class GroupTransferWaitCycleTests
             ShouldBeOwnedBy(f, g1, g2);
             ShouldBeOwnedBy(y, g2, g1);
         }
+    }
+
+    // #1047: T1 holds b's ownership gate and waits for g2's transaction; T2
+    // owns that transaction and waits for b's ownership gate. The gate wait
+    // joins the wait graph, so the wait that closes the cycle is refused.
+    [Fact]
+    public async Task Ownership_Gate_Wait_That_Closes_A_Cycle_With_A_Group_Transaction_Is_Refused()
+    {
+        var b = Child("b");
+        var g1 = Group("g1", autoConstructOnAdd: true);
+        var g3 = Group("g3", autoConstructOnAdd: true);
+        var g2 = Group("g2", autoConstructOnAdd: true, b);
+        g1.Construct();
+        g3.Construct();
+        g2.Construct();
+        using var hookEntered = new ManualResetEventSlim(false);
+        var firstThread = 0;
+        var y = Child("y", onConstruct: () =>
+        {
+            // The hook runs inside g2's transaction on the second thread.
+            hookEntered.Set();
+            SpinWait.SpinUntil(
+                () => Volatile.Read(ref firstThread) != 0 &&
+                    MembershipTransactionWaitGraph.Shared.IsWaitingForTesting(Volatile.Read(ref firstThread)),
+                HangGuard).Should().BeTrue("the first thread waits for g2's transaction");
+            g3.Add(b);
+        });
+
+        var second = Task.Run(() => Attempt(() => g2.Add(y)));
+        hookEntered.Wait(HangGuard).Should().BeTrue();
+        var first = Task.Run(() =>
+        {
+            Volatile.Write(ref firstThread, Environment.CurrentManagedThreadId);
+            return Attempt(() => g1.Add(b));
+        });
+        var (firstError, secondError) = await CompleteWithinHangGuard(
+            first, second, "the gate wait and the group transaction must not deadlock");
+
+        new[] { firstError, secondError }.Should().Contain(error => error is InvalidOperationException);
+        foreach (var error in new[] { firstError, secondError })
+            if (error is not null) error.Should().BeOfType<InvalidOperationException>();
+        var owner = ((IComponentVMInternals)b).Parent;
+        owner.Should().BeOneOf(g1, g2, g3);
+        foreach (var group in new[] { g1, g2, g3 })
+            group.Snapshot().Count(item => ReferenceEquals(item, b))
+                .Should().Be(ReferenceEquals(owner, group) ? 1 : 0, $"b has exactly one parent ({group.Name})");
+    }
+
+    // #1047: a cycle through two children's ownership gates only. T1 holds aa
+    // and waits for bb; T2 holds bb and then waits for aa, which is refused.
+    [Fact]
+    public async Task Ownership_Gate_Wait_That_Closes_A_Cycle_Of_Gates_Is_Refused()
+    {
+        var g1 = Group("g1", autoConstructOnAdd: true);
+        var g2 = Group("g2", autoConstructOnAdd: true);
+        var g3 = Group("g3", autoConstructOnAdd: true);
+        var g4 = Group("g4", autoConstructOnAdd: true);
+        foreach (var group in new[] { g1, g2, g3, g4 }) group.Construct();
+        using var aaEntered = new ManualResetEventSlim(false);
+        using var bbEntered = new ManualResetEventSlim(false);
+        var firstThread = 0;
+        var aaRuns = 0;
+        var bbRuns = 0;
+        ComponentVM<string>? bb = null;
+        var aa = Child("aa", onConstruct: () =>
+        {
+            // Runs on the first thread, which holds aa's ownership gate.
+            if (Interlocked.Increment(ref aaRuns) != 1) return;
+            Volatile.Write(ref firstThread, Environment.CurrentManagedThreadId);
+            aaEntered.Set();
+            bbEntered.Wait(HangGuard).Should().BeTrue();
+            g3.Add(bb!);
+        });
+        bb = Child("bb", onConstruct: () =>
+        {
+            // Runs on the second thread, which holds bb's ownership gate. After
+            // the refusal it runs again on the first thread, as g3 adds bb.
+            if (Interlocked.Increment(ref bbRuns) != 1) return;
+            bbEntered.Set();
+            aaEntered.Wait(HangGuard).Should().BeTrue();
+            SpinWait.SpinUntil(
+                () => MembershipTransactionWaitGraph.Shared.IsWaitingForTesting(Volatile.Read(ref firstThread)),
+                HangGuard).Should().BeTrue("the first thread waits for bb");
+            g4.Add(aa);
+        });
+
+        var first = Task.Run(() => Attempt(() => g1.Add(aa)));
+        var second = Task.Run(() => Attempt(() => g2.Add(bb)));
+        var (firstError, secondError) = await CompleteWithinHangGuard(
+            first, second, "two gate holders must not deadlock");
+
+        firstError.Should().BeNull();
+        secondError.Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Contain("ownership transaction");
+        ShouldBeOwnedBy(aa, g1, g2, g4);
+        ShouldBeOwnedBy(bb!, g3, g1, g2, g4);
     }
 
     [Fact]
