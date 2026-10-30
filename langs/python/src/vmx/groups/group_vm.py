@@ -24,6 +24,7 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx._indexes import _reject_bool_index
+from vmx._wait_for_graph import WAITS
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
     attach_late_start_locked,
@@ -562,13 +563,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         with self._membership_condition:
             if self._dispose_requested:
                 return
-            while (
-                self._membership_transaction_active
-                and self._membership_transaction_owner != get_ident()
-            ):
-                self._membership_condition.wait()
-                if self._dispose_requested:
-                    return
+            if not self._wait_for_foreign_transaction_locked():
+                return
             if self._membership_transaction_active:
                 self._dispose_deferred = True
                 return
@@ -589,6 +585,34 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._require_child_admission()
         self._membership_transaction_active = True
         self._membership_transaction_owner = get_ident()
+        WAITS.acquire(self._membership_gate, get_ident())
+
+    def _release_membership_transaction_locked(self) -> None:
+        self._membership_transaction_active = False
+        self._membership_transaction_owner = None
+        WAITS.release(self._membership_gate)
+        self._membership_condition.notify_all()
+
+    def _wait_for_foreign_transaction_locked(self) -> bool:
+        """Wait while another thread owns the membership transaction (ADR-0122).
+
+        A wait that would close a wait-for cycle records the disposal for the
+        transaction owner instead, which disposes this container when its
+        transaction ends (ADR-0153). Return False when the caller has nothing
+        left to do.
+        """
+        caller = get_ident()
+        while self._membership_transaction_active and self._membership_transaction_owner != caller:
+            if not WAITS.try_begin_wait(self._membership_gate, caller):
+                self._dispose_deferred = True
+                return False
+            try:
+                self._membership_condition.wait()
+            finally:
+                WAITS.end_wait(caller)
+            if self._dispose_requested:
+                return False
+        return True
 
     def _require_transaction_can_continue_locked(self) -> None:
         if self._dispose_requested or self._dispose_deferred:
@@ -600,11 +624,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
 
     def _end_membership_transaction(self, *, propagate_dispose_failure: bool = True) -> None:
         with self._membership_condition:
-            self._membership_transaction_active = False
-            self._membership_transaction_owner = None
+            self._release_membership_transaction_locked()
             dispose = self._dispose_deferred
             self._dispose_deferred = False
-            self._membership_condition.notify_all()
         if dispose:
             try:
                 self.dispose()
@@ -824,9 +846,7 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
             self._group._begin_membership_transaction_locked()
             index = next((i for i, child in enumerate(self._group._children) if child is vm), -1)
             if index < 0:
-                self._group._membership_transaction_active = False
-                self._group._membership_transaction_owner = None
-                self._group._membership_condition.notify_all()
+                self._group._release_membership_transaction_locked()
                 raise RuntimeError("recorded parent does not contain child identity")
             child = self._group._children.pop(index)
 

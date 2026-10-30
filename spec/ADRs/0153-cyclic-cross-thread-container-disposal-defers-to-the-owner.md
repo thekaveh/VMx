@@ -1,6 +1,6 @@
 # ADR 0153 — A cross-thread container disposal that would close a wait cycle defers to the owner
 
-- **Status:** Accepted
+- **Status:** Accepted (2026-10-25; the Python gap in §3 is closed by ADR-0166)
 - **Date:** 2026-10-25
 - **Spec version:** 3.30.0 (clarification)
 - **Clarifies:** [ADR-0122](0122-defer-container-disposal-through-membership-transactions.md)

@@ -60,6 +60,14 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- A cross-thread `dispose()` of a `CompositeVM` or `GroupVM` no longer hangs
+  when its wait would close a wait-for cycle (ADR-0153, ADR-0166, #1059).
+  Before, two threads that each held one container's membership transaction
+  and disposed the other's container waited for each other forever. Membership
+  transaction owners and disposal waits are now recorded in one process-wide
+  wait-for graph. The disposal that would close a cycle records the intent and
+  returns. The transaction owner disposes the container when its transaction
+  ends. A disposal that closes no cycle still waits for the transaction.
 - The construct walk of `CompositeVM` and `CompositeVMOf` assigns the
   `current(selector)` result without a membership transaction (spec/06 §3.2,
   ADR-0165, #1064). Before, the assignment raised `RuntimeError` while another
