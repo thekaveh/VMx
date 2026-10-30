@@ -847,7 +847,14 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
                 MembershipDisposeDisposition::Foreign => {
                     drop(_gate);
-                    self.membership_transaction_control.wait_until_inactive();
+                    let deferred = self.clone();
+                    if self
+                        .membership_transaction_control
+                        .wait_until_inactive_or_defer(move || deferred.dispose())
+                        .is_none()
+                    {
+                        return Ok(());
+                    }
                     continue;
                 }
                 MembershipDisposeDisposition::Inactive => {

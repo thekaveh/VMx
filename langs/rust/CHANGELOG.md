@@ -100,6 +100,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A cross-thread `dispose()` of a `CompositeVm`, `GroupVm` or fixed aggregate
+  no longer hangs when its wait would close a wait-for cycle (ADR-0153,
+  ADR-0167, #1058). Before, two threads that each held one container's
+  membership transaction and disposed the other's container waited for each
+  other forever. Transaction owners and disposal waits are now recorded in one
+  process-wide wait-for graph. The disposal that would close a cycle records
+  the intent and returns, and the transaction owner disposes the container
+  when its transaction ends. If that owner's `add` has not admitted its child
+  yet, the `add` returns `VmxError::Disposed` and rolls the child back. A
+  disposal that closes no cycle still waits for the transaction.
 - The summary line of `ModalVm::open()` now says that the call has no effect
   and does not reopen a dismissed modal. Before, it said that the call marks
   the modal as open (#799).

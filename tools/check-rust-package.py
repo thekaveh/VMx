@@ -47,6 +47,7 @@ src/specialized_vms.rs
 src/token_paging.rs
 src/tree_selection.rs
 src/value_stream.rs
+src/wait_for_graph.rs
 tests/child_transitions.rs
 tests/conformance.rs
 tests/conformance/aggregate_change_stream.rs
@@ -67,6 +68,7 @@ tests/conformance/commands.rs
 tests/conformance/component_vm.rs
 tests/conformance/composite_vm.rs
 tests/conformance/confirmation_async_inner.rs
+tests/conformance/container_disposal_wait_cycle.rs
 tests/conformance/derived_properties.rs
 tests/conformance/dialogs.rs
 tests/conformance/discriminator.rs
