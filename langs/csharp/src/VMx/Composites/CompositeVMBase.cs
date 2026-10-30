@@ -32,7 +32,7 @@ internal static class ContainerConstructWalk
     /// attempt, then joins it, so one whose own construction failed rolls the
     /// container back. A late child without a record was not started by an
     /// add, so the walk skips it. The scope stays open after the last scan:
-    /// <see cref="SealOrNextLateLocked"/> joins a child added after it, and
+    /// <see cref="SealOrNextLate"/> joins a child added after it, and
     /// commits the Constructed state under the membership gate.
     /// </summary>
     internal static IEnumerable<IComponentVM> Enumerate<VM>(
@@ -59,14 +59,16 @@ internal static class ContainerConstructWalk
     }
 
     /// <summary>
-    /// The construct walk's commit step; call it under the membership gate.
-    /// Returns the next unvisited member that an add started (it has a start
-    /// record in <paramref name="walk"/>), which the walk then joins. Without
-    /// one, it commits the Constructed state through <paramref name="commit"/>
-    /// in the same gated section and returns null, so an add reads either
-    /// Constructing (and is joined) or Constructed (spec/02 §6, spec/06 §5.1).
+    /// The construct walk's commit step. Under <paramref name="gate"/>, the
+    /// membership gate, it returns the next unvisited member that an add
+    /// started (it has a start record in <paramref name="walk"/>), which the
+    /// walk then joins. Without one, it commits the Constructed state through
+    /// <paramref name="commit"/> in the same gated section, so an add reads
+    /// either Constructing (and is joined) or Constructed, then ends the walk's
+    /// scope and returns null (spec/02 §6, spec/06 §5.1).
     /// </summary>
-    internal static IComponentVM? SealOrNextLateLocked<VM>(
+    internal static IComponentVM? SealOrNextLate<VM>(
+        object gate,
         IEnumerable<VM> members,
         ISet<IComponentVM> joined,
         ISet<IComponentVM> visited,
@@ -74,22 +76,27 @@ internal static class ContainerConstructWalk
         Action commit)
         where VM : class, IComponentVM
     {
-        foreach (var child in members)
+        lock (gate)
         {
-            if (!visited.Add(child)) continue;
-            if (!walk.Take(child)) continue;
-            joined.Add(child);
-            return child;
+            foreach (var child in members)
+            {
+                if (!visited.Add(child)) continue;
+                if (!walk.Take(child)) continue;
+                joined.Add(child);
+                return child;
+            }
+            commit();
         }
-        commit();
+        walk.End();
         return null;
     }
 }
 
 /// <summary>
-/// The collection-change delivery and auto-construct-on-add steps shared by
-/// composites and groups (spec/01 §1.4, spec/06 §5.1). Each container member
-/// only forwards here with its own event, flags, and disposal check.
+/// The collection-change delivery, auto-construct-on-add, and late-child start
+/// steps shared by composites and groups (spec/01 §1.4, spec/06 §5.1). Each
+/// container member only forwards here with its own event, flags, start
+/// records, and disposal check.
 /// </summary>
 internal static class ContainerMembership
 {
@@ -140,6 +147,110 @@ internal static class ContainerMembership
         if (status != ConstructionStatus.Constructed) return;
         if (item.Status == ConstructionStatus.Constructed) return;
         item.Construct();
+    }
+
+    /// <summary>
+    /// Called under the gate as an add attaches <paramref name="item"/>: an
+    /// add that will auto-start the child while the
+    /// <paramref name="container"/> is Constructing registers a start record
+    /// the construct walk waits on.
+    /// </summary>
+    internal static LateChildStarts.Record? AttachLateStartLocked<VM>(
+        ComponentVMBase container,
+        LateChildStarts lateStarts,
+        bool autoConstructOnAdd,
+        VM item)
+        where VM : class, IComponentVM
+        => lateStarts.AttachLocked(
+            item, autoConstructOnAdd && container.Status == ConstructionStatus.Constructing);
+
+    /// <summary>The add's auto-construct of a child it attached with <paramref name="record"/>.</summary>
+    internal static void AutoConstructAttached<VM>(
+        ComponentVMBase container,
+        LateChildStarts lateStarts,
+        bool autoConstructOnAdd,
+        VM item,
+        LateChildStarts.Record? record)
+        where VM : class, IComponentVM
+    {
+        if (record is null)
+        {
+            MaybeAutoConstruct(container, autoConstructOnAdd, item);
+            return;
+        }
+        // The construct walk never starts a late child; it waits for this
+        // attempt, then joins the child (spec/06 §5.1). The record is done
+        // before this add publishes or ends its transaction.
+        try
+        {
+            lateStarts.Probe(item, LateChildStage.Attached);
+            if (item.Status == ConstructionStatus.Destructed) item.Construct();
+        }
+        finally
+        {
+            record.MarkDone();
+            if (container.Status != ConstructionStatus.Constructing) lateStarts.Remove(item, record);
+        }
+    }
+}
+
+/// <summary>
+/// The ref-counted collection-change batch shared by composites and groups
+/// (spec v1.1). A change inside an open batch only marks it dirty; the
+/// outermost close delivers one <c>Reset</c> if any change occurred.
+/// </summary>
+internal sealed class ContainerBatch
+{
+    private readonly Action<NotifyCollectionChangedEventArgs> _deliver;
+    private int _depth;
+    private bool _dirty;
+
+    /// <param name="deliver">The container's local-event and hub delivery.</param>
+    internal ContainerBatch(Action<NotifyCollectionChangedEventArgs> deliver) => _deliver = deliver;
+
+    /// <summary>Opens one batch level; disposing the handle closes it once.</summary>
+    internal IDisposable Enter()
+    {
+        _depth++;
+        return new Handle(this);
+    }
+
+    /// <summary>Delivers <paramref name="args"/> now, or marks an open batch dirty.</summary>
+    internal void Raise(NotifyCollectionChangedEventArgs args)
+    {
+        if (_depth > 0)
+        {
+            _dirty = true;
+            return;
+        }
+        _deliver(args);
+    }
+
+    private void Exit()
+    {
+        _depth--;
+        if (_depth == 0 && _dirty)
+        {
+            _dirty = false;
+            _deliver(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
+    }
+
+    /// <summary>The handle <see cref="Enter"/> returns.</summary>
+    private sealed class Handle : IDisposable
+    {
+        private readonly ContainerBatch _owner;
+        private bool _disposed;
+
+        internal Handle(ContainerBatch owner) => _owner = owner;
+
+        /// <summary>Closes the batch and emits a Reset event if mutations occurred.</summary>
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _owner.Exit();
+        }
     }
 }
 
@@ -341,8 +452,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private VM? _current;
 
     // ── Batch-update state (spec v1.1) ────────────────────────────────────────
-    private int _batchDepth;
-    private bool _batchDirty;
+    private readonly ContainerBatch _batch;
 
     // Collects the children population started constructing (see OnConstruct).
     private HashSet<IComponentVM>? _populationJoined;
@@ -525,6 +635,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
+        _batch = new ContainerBatch(DeliverCollectionChanged);
         _asyncSelection = asyncSelection;
         _autoConstructOnAdd = autoConstructOnAdd;
         _destructOrder = destructOrder;
@@ -969,32 +1080,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <see cref="CollectionChangedMessage{T}"/> Reset, iff any mutation
     /// occurred during the batch.
     /// </summary>
-    public IDisposable BatchUpdate()
-    {
-        _batchDepth++;
-        return new CollectionBatch(this);
-    }
+    public IDisposable BatchUpdate() => _batch.Enter();
 
-    private void ExitBatch()
-    {
-        _batchDepth--;
-        if (_batchDepth == 0 && _batchDirty)
-        {
-            _batchDirty = false;
-            DeliverCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Reset));
-        }
-    }
-
-    private void RaiseCollectionChanged(NotifyCollectionChangedEventArgs args)
-    {
-        if (_batchDepth > 0)
-        {
-            _batchDirty = true;
-            return;
-        }
-        DeliverCollectionChanged(args);
-    }
+    private void RaiseCollectionChanged(NotifyCollectionChangedEventArgs args) => _batch.Raise(args);
 
     /// <summary>
     /// Raises the local event, then publishes one equivalent
@@ -1009,37 +1097,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             static composite => Volatile.Read(ref composite._disposeRequested) == 0
                 && !composite.IsDisposed());
 
-    /// <summary>
-    /// Called under the gate as an add attaches <paramref name="item"/>: an
-    /// add that will auto-start the child while this container is
-    /// Constructing registers a start record the construct walk waits on.
-    /// </summary>
     private LateChildStarts.Record? AttachLateStartLocked(VM item)
-        => _lateStarts.AttachLocked(
-            item, _autoConstructOnAdd && Status == ConstructionStatus.Constructing);
+        => ContainerMembership.AttachLateStartLocked(this, _lateStarts, _autoConstructOnAdd, item);
 
-    /// <summary>The add's auto-construct of a child it attached with <paramref name="record"/>.</summary>
     private void AutoConstructAttached(VM item, LateChildStarts.Record? record)
-    {
-        if (record is null)
-        {
-            MaybeAutoConstruct(item);
-            return;
-        }
-        // The construct walk never starts a late child; it waits for this
-        // attempt, then joins the child (spec/06 §5.1). The record is done
-        // before this add publishes or ends its transaction.
-        try
-        {
-            _lateStarts.Probe(item, LateChildStage.Attached);
-            if (item.Status == ConstructionStatus.Destructed) item.Construct();
-        }
-        finally
-        {
-            record.MarkDone();
-            if (Status != ConstructionStatus.Constructing) _lateStarts.Remove(item, record);
-        }
-    }
+        => ContainerMembership.AutoConstructAttached(this, _lateStarts, _autoConstructOnAdd, item, record);
 
     private void MaybeAutoConstruct(VM item)
         => ContainerMembership.MaybeAutoConstruct(this, _autoConstructOnAdd, item);
@@ -1049,26 +1111,6 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         if (index < 0 || index >= _children.Count)
             throw new ArgumentOutOfRangeException(parameterName, index,
                 $"Move index must be in [0, {_children.Count}).");
-    }
-
-    /// <summary>
-    /// Disposable batch handle returned by <see cref="BatchUpdate"/>.
-    /// Decrement the composite's batch depth on dispose.
-    /// </summary>
-    private sealed class CollectionBatch : IDisposable
-    {
-        private readonly CompositeVMBase<VM> _owner;
-        private bool _disposed;
-
-        internal CollectionBatch(CompositeVMBase<VM> owner) => _owner = owner;
-
-        /// <summary>Closes the batch and emits a Reset event if mutations occurred.</summary>
-        public void Dispose()
-        {
-            if (_disposed) return;
-            _disposed = true;
-            _owner.ExitBatch();
-        }
     }
 
     // ── IList<VM>: query ──────────────────────────────────────────────────────
@@ -1136,23 +1178,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         CompleteLifecycleHookAfter(walk);
     }
 
-    /// <summary>
-    /// The commit step of this container's construct walk (spec/06 §5.1):
-    /// joins a child an add started after the last scan, or commits Constructed
-    /// and ends the walk's scope.
-    /// </summary>
     private IComponentVM? SealOrNextLate(
         ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk)
-    {
-        IComponentVM? late;
-        lock (_membershipGate)
-        {
-            late = ContainerConstructWalk.SealOrNextLateLocked(
-                _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
-        }
-        if (late is null) lateWalk.End();
-        return late;
-    }
+        => ContainerConstructWalk.SealOrNextLate(
+            _membershipGate, _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
 
     /// <summary>Constructs all current children sequentially.</summary>
     protected void ConstructChildren()

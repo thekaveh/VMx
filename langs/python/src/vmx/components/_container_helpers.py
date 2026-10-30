@@ -1,25 +1,29 @@
 """Internal: collection publication and construct walk shared by containers.
 
 ``CompositeVM`` and ``GroupVM`` keep the same collection-change delivery,
-auto-construct-on-add, population-join and construct-walk rules. Each rule has
-its one implementation here; the containers' members of the same names only
-forward to it (spec ch. 01 §1.4, spec/02 §6, spec/06 §5.1, spec/07).
+batch, auto-construct-on-add, late-child start, population-join and
+construct-walk rules. Each rule has its one implementation here; the
+containers' members of the same names only forward to it (spec ch. 01 §1.4,
+spec/02 §6, spec/06 §5.1, spec/07).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from vmx.collections._vm_collection_hub_message import collection_changed_message_for
+from vmx.collections.batch import BatchUpdateHandle
+from vmx.collections.collection_changed import CollectionChangedEvent
+from vmx.components._late_child_starts import _LateChildStage
 from vmx.components.base import _ComponentVMBase
 from vmx.lifecycle.status import ConstructionStatus
 
 if TYPE_CHECKING:
     from reactivex.subject import Subject
 
-    from vmx.collections.collection_changed import CollectionChangedEvent
-    from vmx.components._late_child_starts import _LateWalk
+    from vmx.components._late_child_starts import _LateChildStarts, _LateWalk, _StartRecord
     from vmx.messages.protocols import Message
     from vmx.services.message_hub import MessageHubProto
 
@@ -36,10 +40,21 @@ class ChildContainer(Protocol[VM]):
     _batch_depth: int
     _batch_dirty: bool
     _population_joined: list[VM] | None
+    _children: list[VM]
+    _late_starts: _LateChildStarts
+
+    @property
+    def _membership_gate(self) -> AbstractContextManager[object]: ...
 
     def snapshot(self) -> tuple[VM, ...]: ...
 
     def _deliver_collection_changed(self, event: CollectionChangedEvent) -> None: ...
+
+    def _exit_batch(self) -> None: ...
+
+    def _maybe_auto_construct(self, child: VM) -> None: ...
+
+    def _mark_constructed_before_publication(self) -> None: ...
 
 
 def emit_collection_changed(container: ChildContainer[VM], event: CollectionChangedEvent) -> None:
@@ -84,6 +99,24 @@ def deliver_collection_changed(
         raise first_error
 
 
+def enter_batch(container: ChildContainer[VM]) -> BatchUpdateHandle:
+    """Open one batch level; disposing the handle closes it once."""
+    container._batch_depth += 1
+    return BatchUpdateHandle(container)
+
+
+def exit_batch(container: ChildContainer[VM]) -> None:
+    """Close one batch level; the outermost close of a dirty batch emits one reset."""
+    container._batch_depth -= 1
+    if (
+        container._batch_depth == 0
+        and container._batch_dirty
+        and not container._collection_changed_subject.is_disposed
+    ):
+        container._batch_dirty = False
+        container._deliver_collection_changed(CollectionChangedEvent(action="reset"))
+
+
 def maybe_auto_construct(container: ChildContainer[VM], child: VM) -> None:
     """Construct an added *child* when auto-construct-on-add applies."""
     if not container._auto_construct_on_add:
@@ -95,6 +128,39 @@ def maybe_auto_construct(container: ChildContainer[VM], child: VM) -> None:
     if child.status == ConstructionStatus.CONSTRUCTED:
         return
     child.construct()
+
+
+def attach_late_start_locked(container: ChildContainer[VM], child: VM) -> _StartRecord | None:
+    """Called under the gate as an add attaches *child*.
+
+    An add that will auto-start the child while the container is
+    Constructing registers a start record the construct walk waits on.
+    """
+    return container._late_starts.attach_locked(
+        child,
+        will_start=container._auto_construct_on_add
+        and container._status is ConstructionStatus.CONSTRUCTING,
+    )
+
+
+def auto_construct_attached(
+    container: ChildContainer[VM], child: VM, record: _StartRecord | None
+) -> None:
+    """The add's auto-construct of a child it attached with *record*."""
+    if record is None:
+        container._maybe_auto_construct(child)
+        return
+    # The construct walk never starts a late child; it waits for this
+    # attempt, then joins the child (spec/06 §5.1). The record is done
+    # before this add publishes or ends its transaction.
+    try:
+        container._late_starts.probe(child, _LateChildStage.ATTACHED)
+        if child.status is ConstructionStatus.DESTRUCTED:
+            child.construct()
+    finally:
+        record.mark_done()
+        if container._status is not ConstructionStatus.CONSTRUCTING:
+            container._late_starts.remove(child, record)
 
 
 def join_if_pending(container: ChildContainer[VM], child: VM) -> None:
@@ -142,3 +208,30 @@ def construct_walk(
         if walk.take(late):
             joined.append(late)
             yield late
+
+
+def seal_or_next_late(
+    container: ChildContainer[VM],
+    joined: list[VM],
+    visited: dict[int, VM],
+    walk: _LateWalk,
+) -> VM | None:
+    """The construct walk's commit step (spec/02 §6, spec/06 §5.1).
+
+    Under the membership gate, return the next unvisited member that an
+    add started (it has a start record in this walk's scope), which the
+    walk then joins. Without one, commit the Constructed state in the same
+    gated section, so an add reads either Constructing (and is joined) or
+    Constructed, then end the walk's scope.
+    """
+    with container._membership_gate:
+        for child in container._children:
+            if visited.get(id(child)) is child:
+                continue
+            visited[id(child)] = child
+            if walk.take(child):
+                joined.append(child)
+                return child
+        container._mark_constructed_before_publication()
+    walk.end()
+    return None
