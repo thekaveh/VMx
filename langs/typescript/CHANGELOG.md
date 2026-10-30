@@ -83,6 +83,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM` and `GroupVM` `add`, `insert` and `setAt` throw
+  `Error("child must not be null")` for a `null` or `undefined` child and
+  leave the children unchanged. Before, they threw `TypeError` after they
+  opened the membership transaction and never closed it. Every later
+  membership change then threw, and `dispose()` returned without disposing
+  the container (#1048).
+
 - `ObservableDictionary`: an entry added from a `keys1` subscriber no longer
   puts `keys2` out of first-appearance order. `keys2` now updates first, so a
   `keys1` subscriber already sees the new key2. When a `keys2` subscriber

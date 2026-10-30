@@ -60,6 +60,13 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `CompositeVM.append`/`add`/`insert`/`__setitem__` and `GroupVM.add`/
+  `insert`/`__setitem__` raise `ValueError` for a `None` child and leave the
+  children unchanged. Before, they raised `AttributeError` after they opened
+  the membership transaction and never closed it. Every later membership
+  change then raised `RuntimeError`, and a `dispose()` from another thread did
+  not return. Another value without a `status`, such as a slice assignment,
+  now also fails without leaving the transaction open (#1048).
 - The `AsyncRelayCommand.execute` docstring now says that `execute()` admits
   the run before it returns and schedules it on the running event loop, or on
   the VMx background loop when none runs, without calling `execute_async`.

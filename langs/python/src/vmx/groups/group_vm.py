@@ -189,12 +189,15 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert/remove_at and ObservableList).
         parent = self._as_parent()
+        if value is None:
+            raise ValueError("child must not be None")
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         old: VM | None = None
-        original_status = value.status
+        original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
         try:
+            original_status = value.status
             transfer = _begin_parent_transfer(value, parent)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
@@ -274,12 +277,15 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         """
         _reject_bool_index(index)
         parent = self._as_parent()
+        if item is None:
+            raise ValueError("child must not be None")
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
-        original_status = item.status
+        original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
         try:
+            original_status = item.status
             transfer = _begin_parent_transfer(item, parent)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
@@ -327,12 +333,15 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     def add(self, item: VM) -> None:
         """Append *item* to the end of the children list."""
         parent = self._as_parent()
+        if item is None:
+            raise ValueError("child must not be None")
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
-        original_status = item.status
+        original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
         try:
+            original_status = item.status
             transfer = _begin_parent_transfer(item, parent)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
