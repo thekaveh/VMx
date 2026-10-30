@@ -707,6 +707,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 item.set_parent_handle(None);
             }
+            // Destruct after releasing the gate: its messages can reach a
+            // subscriber that disposes this container (#1066).
+            drop(_gate);
             let compensation_error = if original_status == ConstructionStatus::Destructed
                 && item.status() == ConstructionStatus::Constructed
             {
@@ -889,6 +892,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 item.set_parent_handle(None);
             }
+            // Destruct after releasing the gate: its messages can reach a
+            // subscriber that disposes this container (#1066).
+            drop(_gate);
             let compensation_error = if original_status == ConstructionStatus::Destructed
                 && item.status() == ConstructionStatus::Constructed
             {
