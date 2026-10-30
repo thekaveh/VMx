@@ -60,6 +60,11 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `CompositeVM.append`/`add`/`insert` and `GroupVM.add`/`insert` re-raise a
+  failed parent-transfer commit before a raising destination subscriber's
+  error, as the indexer and population paths do (#727). Before, the
+  destination error propagated and the commit error was lost. The add still
+  publishes one local event and one hub message (#1054).
 - `CompositeVM.append`/`add`/`insert`/`__setitem__` and `GroupVM.add`/
   `insert`/`__setitem__` raise `ValueError` for a `None` child and leave the
   children unchanged. Before, they raised `AttributeError` after they opened
