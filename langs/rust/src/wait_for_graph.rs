@@ -194,7 +194,7 @@ mod tests {
                             // leaves it active; fail instead of spinning.
                             let since = *stalled_since.get_or_insert_with(Instant::now);
                             assert!(since.elapsed() < STALL_BOUND, "no transaction can begin");
-                            std::hint::spin_loop();
+                            thread::yield_now();
                             continue;
                         };
                         stalled_since = None;
