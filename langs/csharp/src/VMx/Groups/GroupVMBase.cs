@@ -775,7 +775,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     private bool WaitForForeignTransactionLocked()
     {
         var caller = Environment.CurrentManagedThreadId;
-        var waits = MembershipTransactionWaitGraph.Shared;
+        var waits = WaitForGraph.Shared;
         while (_membershipTransactionActive && _membershipTransactionOwnerThreadId != caller)
         {
             if (!waits.TryBeginWait(_membershipGate, caller))
@@ -799,7 +799,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         // A wait that would close a wait-for cycle is refused instead, so
         // opposing transfers fail before they mutate rather than deadlock (#718).
         var caller = Environment.CurrentManagedThreadId;
-        var waits = MembershipTransactionWaitGraph.Shared;
+        var waits = WaitForGraph.Shared;
         while (_membershipTransactionActive && _membershipTransactionOwnerThreadId != caller)
         {
             if (!waits.TryBeginWait(_membershipGate, caller))
@@ -819,7 +819,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     {
         _membershipTransactionActive = false;
         _membershipTransactionOwnerThreadId = 0;
-        MembershipTransactionWaitGraph.Shared.Release(_membershipGate);
+        WaitForGraph.Shared.Release(_membershipGate);
         Monitor.PulseAll(_membershipGate);
     }
 

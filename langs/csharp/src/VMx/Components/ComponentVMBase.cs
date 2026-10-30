@@ -6,7 +6,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 using VMx.Commands;
-using VMx.Groups;
 using VMx.Internal;
 using VMx.Lifecycle;
 using VMx.Messages;
@@ -184,13 +183,13 @@ internal static class ComponentOwnership
     private static void Hold(OwnershipState state)
     {
         if (state.HoldCount++ == 0)
-            MembershipTransactionWaitGraph.Shared.Acquire(state.Gate, Environment.CurrentManagedThreadId);
+            WaitForGraph.Shared.Acquire(state.Gate, Environment.CurrentManagedThreadId);
     }
 
     // Leaves the gate; the last exit removes the holder from the wait graph.
     private static void Exit(OwnershipState state)
     {
-        if (--state.HoldCount == 0) MembershipTransactionWaitGraph.Shared.Release(state.Gate);
+        if (--state.HoldCount == 0) WaitForGraph.Shared.Release(state.Gate);
         Monitor.Exit(state.Gate);
     }
 
@@ -201,7 +200,7 @@ internal static class ComponentOwnership
     private static void WaitForRelease(OwnershipState blocked)
     {
         var caller = Environment.CurrentManagedThreadId;
-        var waits = MembershipTransactionWaitGraph.Shared;
+        var waits = WaitForGraph.Shared;
         if (!waits.TryBeginWait(blocked.Gate, caller))
             throw new InvalidOperationException(
                 "A component ownership transaction is in progress on a thread that " +
