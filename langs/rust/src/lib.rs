@@ -23,6 +23,7 @@ mod aggregate_change_stream;
 mod async_resource_vm;
 mod async_value;
 mod value_stream;
+mod wait_for_graph;
 pub use aggregate_change_stream::{
     AggregateChange, AggregateChangeObservable, AggregateChangeReason, AggregateChangeStream,
     AggregateChangeSubscription, AggregateObserveOptions, ObservableMembershipSource,
@@ -33,6 +34,8 @@ pub use async_resource_vm::{
 };
 pub use async_value::{AsyncValue, AsyncValuePanic};
 pub use value_stream::{ValueStream, ValueSubscription};
+#[doc(hidden)]
+pub use wait_for_graph::container_wait_registered_for_testing;
 
 /// Version of the compiled Rust package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

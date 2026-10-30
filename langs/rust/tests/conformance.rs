@@ -17,6 +17,7 @@ mod conformance {
     mod component_vm;
     mod composite_vm;
     mod confirmation_async_inner;
+    mod container_disposal_wait_cycle;
     mod derived_properties;
     mod dialogs;
     mod discriminator;

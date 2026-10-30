@@ -204,7 +204,14 @@ impl FixedAggregateOwnership {
                 }
                 MembershipDisposeDisposition::Foreign => {
                     drop(gate);
-                    self.transaction_control.wait_until_inactive();
+                    let action = deferred.take().expect("deferred disposal is available");
+                    match self
+                        .transaction_control
+                        .wait_until_inactive_or_defer(action)
+                    {
+                        Some(action) => deferred = Some(action),
+                        None => return false,
+                    }
                 }
                 MembershipDisposeDisposition::Inactive => {
                     return !self.dispose_requested.swap(true, Ordering::AcqRel);
