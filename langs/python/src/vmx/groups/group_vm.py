@@ -322,11 +322,20 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
+
+            def raise_commit_error() -> None:
+                if commit_error is not None:
+                    raise commit_error
+
+            # The add is committed: it publishes even when the transfer commit
+            # failed, and the commit error re-raises first, as in the indexer
+            # and population paths (#727, #1054).
+            _run_every_step(
+                raise_commit_error,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
+                ),
             )
-            if commit_error is not None:
-                raise commit_error
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
@@ -375,11 +384,20 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
+
+            def raise_commit_error() -> None:
+                if commit_error is not None:
+                    raise commit_error
+
+            # The add is committed: it publishes even when the transfer commit
+            # failed, and the commit error re-raises first, as in the indexer
+            # and population paths (#727, #1054).
+            _run_every_step(
+                raise_commit_error,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
+                ),
             )
-            if commit_error is not None:
-                raise commit_error
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
