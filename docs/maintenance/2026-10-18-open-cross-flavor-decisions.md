@@ -121,6 +121,9 @@ With auto-construct on, a child added while a container is `Constructing` is
 joined by the construct walk (chapter 06 §5.1). C#, Python and TypeScript pass
 the live membership to the `Current(selector)` callback. Swift passes the
 membership taken before the walk, so the selector does not see a late child.
+The live membership can contain a child that an add has attached but not yet
+admitted. C# and Python treat that child as not contained, so selecting it is
+a no-op (ADR-0165).
 
 ### 2.8. Removing a child during the construct walk
 

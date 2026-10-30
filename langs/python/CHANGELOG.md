@@ -60,6 +60,22 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- The construct walk of `CompositeVM` and `CompositeVMOf` assigns the
+  `current(selector)` result without a membership transaction (spec/06 §3.2,
+  ADR-0165, #1064). Before, the assignment raised `RuntimeError` while another
+  thread held the composite's membership transaction. That happens, for
+  example, inside an `append` `on_collection_changed` handler, and the
+  composite then rolled back to `DESTRUCTED`. The selected child is now
+  current before `CONSTRUCTED`, even when that other thread waits for the
+  walk. The assignment is a silent no-op while the composite is disposing. It
+  is also a no-op for a child that another `append`, `insert` or index
+  assignment has attached but not yet admitted. A `dispose()` from any
+  current-change callback returns at once. The disposal starts after that
+  publication and any open membership transaction end. An `append`, `insert`
+  or index assignment on another thread that has not admitted its child when
+  `dispose()` is called fails with `RuntimeError` and rolls back. Before, the
+  disposal waited for it. A transfer that detached the current child no longer
+  clears a selection made after the detach.
 - `CompositeVM`, `CompositeVMOf` and `GroupVM` `dispose()` now dispose the
   `on_collection_changed` subject when a completion observer raises, then
   re-raise that error. Before, a later subscriber received completion instead

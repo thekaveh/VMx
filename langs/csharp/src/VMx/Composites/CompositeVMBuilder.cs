@@ -99,10 +99,13 @@ public sealed class CompositeVMBuilder<VM>
     /// <summary>
     /// Sets an optional selector that picks the initial <c>Current</c> child during
     /// construct. The selector runs after all children reach <c>Constructed</c> and
-    /// before the composite itself transitions to <c>Constructed</c>. If it returns
-    /// <see langword="null"/> or a value not in the composite, <c>Current</c> is
-    /// left at its prior value (initially <see langword="null"/>) and no
-    /// notification fires. See ADR-0042 and spec/06 §3.2 (COMP-025).
+    /// before the composite itself transitions to <c>Constructed</c>. Another
+    /// thread's membership transaction never makes the assignment throw or wait.
+    /// A <see langword="null"/> result or a value that is not a committed child
+    /// leaves <c>Current</c> at its prior value (initially <see langword="null"/>).
+    /// No notification fires. The same holds while the composite is being
+    /// disposed. A child that another add has attached but not yet admitted is
+    /// not committed yet. See ADR-0042, ADR-0165 and spec/06 §3.2 (COMP-025).
     /// </summary>
     public CompositeVMBuilder<VM> Current(Func<IEnumerable<VM>, VM?> selector)
         => With(currentSelector: selector);
@@ -279,10 +282,13 @@ public sealed class CompositeVMOfMBuilder<M, VM>
     /// <summary>
     /// Sets an optional selector that picks the initial <c>Current</c> child during
     /// construct. The selector runs after all children reach <c>Constructed</c> and
-    /// before the composite itself transitions to <c>Constructed</c>. If it returns
-    /// <see langword="null"/> or a value not in the composite, <c>Current</c> is
-    /// left at its prior value (initially <see langword="null"/>) and no
-    /// notification fires. See ADR-0042 and spec/06 §3.2 (COMP-025).
+    /// before the composite itself transitions to <c>Constructed</c>. Another
+    /// thread's membership transaction never makes the assignment throw or wait.
+    /// A <see langword="null"/> result or a value that is not a committed child
+    /// leaves <c>Current</c> at its prior value (initially <see langword="null"/>).
+    /// No notification fires. The same holds while the composite is being
+    /// disposed. A child that another add has attached but not yet admitted is
+    /// not committed yet. See ADR-0042, ADR-0165 and spec/06 §3.2 (COMP-025).
     /// </summary>
     public CompositeVMOfMBuilder<M, VM> Current(Func<IEnumerable<VM>, VM?> selector)
         => With(currentSelector: selector);

@@ -73,6 +73,22 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: the construct walk of `CompositeVM` and `CompositeVMOfM<M, VM>`
+  assigns the `Current(selector)` result without a membership transaction
+  (spec/06 §3.2, ADR-0165, #1064). Before, the assignment threw while another
+  thread held the composite's membership transaction. That happens, for
+  example, inside an `Add` `CollectionChanged` handler, and the composite then
+  rolled back to `Destructed`. The selected child is now current before
+  `Constructed`, even when that other thread waits for the walk. The
+  assignment is a silent no-op while the composite is disposing. It is also a
+  no-op for a child that another `Add`, `Insert` or replacement has attached
+  but not yet admitted. A `Dispose()` from any current-change callback returns
+  at once. The disposal starts after that publication and any open membership
+  transaction end. An `Add`, `Insert` or replacement on another thread that
+  has not admitted its child when `Dispose()` is called fails with
+  `ObjectDisposedException` and rolls back. Before, the disposal waited for
+  it. A transfer that detached the current child no longer clears a selection
+  made after the detach.
 - Fixed: `CompositeVM` and `GroupVM` `Add`, `Insert` and the indexer setter
   throw `ArgumentNullException` for a null child and leave the children
   unchanged. Before, they threw `NullReferenceException` after they opened
