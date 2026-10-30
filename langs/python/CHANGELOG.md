@@ -60,6 +60,10 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `CompositeVM`, `CompositeVMOf` and `GroupVM` `dispose()` now dispose the
+  `on_collection_changed` subject when a completion observer raises, then
+  re-raise that error. Before, a later subscriber received completion instead
+  of `DisposedException` (#1072).
 - `CompositeVM.append`/`add`/`insert` and `GroupVM.add`/`insert` re-raise a
   failed parent-transfer commit before a raising destination subscriber's
   error, as the indexer and population paths do (#727). Before, the
