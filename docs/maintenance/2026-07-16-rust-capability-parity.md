@@ -238,6 +238,10 @@ synchronous `with_confirm_delete`, which takes no `current_changed` trigger
 membership transaction across `CollectionChanged` and current-change
 publication, so a selection from those callbacks or a concurrent selection
 fails with `OwnershipTransactionInProgress` (two `COMP-026` tests are ignored).
+The construct walk's `Current(selector)` assignment can select an unadmitted
+child and can assign while disposing. It does not defer a disposal from its
+callbacks, and a transfer commit always clears `current` (spec/06 §3.2,
+ADR-0165 §3).
 
 ### 12.4.8. Hot-Stream Completion And Notification Replay
 

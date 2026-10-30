@@ -107,7 +107,37 @@ holds and delegates to.
 `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
 
 - `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked during every construct phase of the composite, including the construct phase of `reconstruct()`, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. Destruct first sets `Current` to `null` (§5), which reports `null` to `OnCurrentChanged`, so each construct selects again. To restore the previous selection, record only the non-null values that `OnCurrentChanged` receives and return the last one from the selector; if that child is no longer contained, the assignment is the no-op described below (ADR-0158). The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
-- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the active membership transaction and completes after publication without deadlocking selection. The shared cross-composite coordinator protects validation and the committed state update only; hub publication and consumer callbacks execute after it is released.
+- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the active membership transaction or current-publication lease and completes after publication without deadlocking selection. The shared cross-composite coordinator protects validation and the committed state update only; hub publication and consumer callbacks execute after it is released.
+
+The construct walk's assignment uses committed membership and never waits
+(ADR-0165):
+
+- It opens no membership transaction. Another thread's open transaction
+  neither fails it nor makes it wait. The composite reaches `Constructed` with
+  the selected child current, also when that thread waits for the walk.
+- A child that an `Add`, `Insert` or index replacement has attached but not yet
+  admitted is not contained yet. Its rollback could still remove it.
+- While disposal of the composite is requested or deferred, the assignment is a
+  silent no-op.
+- A disposal requested from the assignment's own `OnCurrentChanged` or
+  current-flag callbacks returns at once. The disposal starts after the
+  publication and any open membership transaction end. The request does not
+  wait for another thread's transaction.
+- A transaction that detached the current child clears `Current` only while
+  that child is still current. It never clears a selection made after the
+  detach.
+
+Open gaps (ADR-0165 §3):
+
+- TypeScript raises when the walk resumes on the same thread inside an open
+  transaction or while disposal is deferred.
+- Swift waits for a foreign transaction, and `dispose()` waits for one before
+  it checks the publication lease. On the owner thread, the assignment skips
+  the admission and disposal checks, and a transfer's detach commit clears
+  `Current` even after a later selection.
+- Rust can select an unadmitted child and can assign while disposing. It does
+  not defer a disposal from the selection's callbacks, and its transfer commit
+  always clears `Current`.
 
 Open Rust gap: Rust `CompositeVm` keeps its membership transaction open while
 it publishes `CollectionChanged` from `add` and while it publishes the

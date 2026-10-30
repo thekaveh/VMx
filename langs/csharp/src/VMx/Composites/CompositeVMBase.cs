@@ -459,8 +459,15 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private int _disposeRequested;
     private bool _disposeDeferred;
     private int _activeCurrentPublications;
+    // The threads that publish a current change under the lease above. A
+    // Dispose from one of them defers to the lease: waiting there for another
+    // thread's transaction could deadlock the selection (spec/06 §3.2, #1064).
+    private readonly List<int> _currentPublicationThreads = new();
     private bool _membershipTransactionActive;
     private int _membershipTransactionOwnerThreadId;
+    // The child an in-flight Add, Insert or replacement attached and has not
+    // admitted yet; its rollback may still remove it (#1064).
+    private VM? _pendingAdmission;
     private readonly object _membershipGate = new();
     // Start records of the children an auto-construct add attaches while
     // Constructing; the construct walk waits on them (spec/06 §5.1).
@@ -537,20 +544,21 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     _children[index] = value;
                     old.SetParent(null);
                     value.SetParent(this);
+                    _pendingAdmission = value;
                     record = AttachLateStartLocked(value);
                 }
                 AutoConstructAttached(value, record);
-                lock (_membershipGate) EnsureTransactionCanContinueLocked();
+                lock (_membershipGate)
+                {
+                    EnsureTransactionCanContinueLocked();
+                    _pendingAdmission = null;
+                }
                 admissionComplete = true;
                 ComponentOwnership.CommitThenPublish(transfer, () =>
                 {
-                    var wasCurrent = ReferenceEquals(Current, old);
                     PublishEvery(
-                        () =>
-                        {
-                            if (wasCurrent)
-                                ApplyCurrentChange(null, internalTransaction: true);
-                        },
+                        // Clears Current only while it is still the replaced child.
+                        () => ApplyCurrentChange(null, internalTransaction: true, onlyReplacing: old),
                         () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                             NotifyCollectionChangedAction.Remove, old, index)),
                         () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
@@ -571,6 +579,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                         old.SetParent(this);
                         value.SetParent(null);
                     }
+                    _pendingAdmission = null;
                     _lateStarts.Remove(value, record);
                 }
                 if (originalStatus == ConstructionStatus.Destructed &&
@@ -725,7 +734,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 try
                 {
                     if (wasCurrent)
-                        ApplyCurrentChange(null, internalTransaction: true);
+                        ApplyCurrentChange(null, internalTransaction: true, onlyReplacing: child);
                 }
                 catch (Exception error)
                 {
@@ -815,10 +824,15 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 item.SetParent(this);
                 idx = _children.Count - 1;
                 attached = true;
+                _pendingAdmission = item;
                 record = AttachLateStartLocked(item);
             }
             AutoConstructAttached(item, record);
-            lock (_membershipGate) EnsureTransactionCanContinueLocked();
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                _pendingAdmission = null;
+            }
         }
         catch (Exception originalError)
         {
@@ -833,6 +847,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     _children.RemoveAt(attachedIndex);
                     item.SetParent(null);
                 }
+                _pendingAdmission = null;
                 _lateStarts.Remove(item, record);
             }
             if (originalStatus == ConstructionStatus.Destructed &&
@@ -925,10 +940,15 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 _children.Insert(index, item);
                 item.SetParent(this);
                 attached = true;
+                _pendingAdmission = item;
                 record = AttachLateStartLocked(item);
             }
             AutoConstructAttached(item, record);
-            lock (_membershipGate) EnsureTransactionCanContinueLocked();
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                _pendingAdmission = null;
+            }
         }
         catch (Exception originalError)
         {
@@ -943,6 +963,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     _children.RemoveAt(attachedIndex);
                     item.SetParent(null);
                 }
+                _pendingAdmission = null;
                 _lateStarts.Remove(item, record);
             }
             if (originalStatus == ConstructionStatus.Destructed &&
@@ -1166,8 +1187,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 // The selector runs only after every child settles Constructed.
                 if (_currentSelector is null) return;
                 var initial = _currentSelector(this);
-                if (initial is not null && IndexOfIdentity(initial) >= 0)
-                    SetCurrent(initial, async: false);
+                if (initial is not null) ApplySelectorResult(initial);
             },
             joined: joined,
             join: lateWalk.Join,
@@ -1338,6 +1358,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         lock (_membershipGate)
         {
             if (_disposeRequested != 0) return;
+            if (_currentPublicationThreads.Contains(Environment.CurrentManagedThreadId))
+            {
+                _disposeDeferred = true;
+                return;
+            }
             if (!WaitForForeignTransactionLocked()) return;
             if (_membershipTransactionActive || _activeCurrentPublications > 0)
             {
@@ -1424,8 +1449,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             _membershipTransactionActive = false;
             _membershipTransactionOwnerThreadId = 0;
             MembershipTransactionWaitGraph.Shared.Release(_membershipGate);
+            // The deferral stays set until Dispose admits it, so no transaction
+            // or selection starts between this release and Dispose (#1064).
             dispose = _disposeDeferred && _activeCurrentPublications == 0;
-            if (dispose) _disposeDeferred = false;
             Monitor.PulseAll(_membershipGate);
         }
         if (dispose)
@@ -1441,9 +1467,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         lock (_membershipGate)
         {
             _activeCurrentPublications--;
+            _currentPublicationThreads.Remove(Environment.CurrentManagedThreadId);
+            // The deferral stays set until Dispose admits it (#1064).
             dispose = _activeCurrentPublications == 0 &&
                 !_membershipTransactionActive && _disposeDeferred;
-            if (dispose) _disposeDeferred = false;
             Monitor.PulseAll(_membershipGate);
         }
         if (dispose)
@@ -1479,10 +1506,17 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         }
     }
 
+    /// <summary>
+    /// Synchronously updates <c>Current</c> and publishes the change. With
+    /// <paramref name="onlyReplacing"/>, the change applies only while that child
+    /// is still current: a transaction clears the child it detached, never a
+    /// selection made after the detach (#1064).
+    /// </summary>
     private void ApplyCurrentChange(
         VM? value,
         bool internalTransaction = false,
-        bool strict = true)
+        bool strict = true,
+        VM? onlyReplacing = null)
     {
         // Async TOCTOU guard: with AsyncSelection the child may have been removed
         // between SetCurrent's membership check and this deferred foreground
@@ -1521,7 +1555,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                             throw new InvalidOperationException(
                                 $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
                     }
-                    else if (!ReferenceEquals(_current, value))
+                    else if (!ReferenceEquals(_current, value) &&
+                        (onlyReplacing is null || ReferenceEquals(_current, onlyReplacing)))
                     {
                         previous = _current;
                         _current = value;
@@ -1531,6 +1566,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                         if (ownsTransaction)
                         {
                             _activeCurrentPublications++;
+                            _currentPublicationThreads.Add(Environment.CurrentManagedThreadId);
                             publicationActive = true;
                         }
                     }
@@ -1554,6 +1590,51 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             throw;
         }
         if (publicationActive) EndCurrentPublication(propagateDisposeFailure: true);
+    }
+
+    /// <summary>
+    /// Assigns the <c>Current(selector)</c> result of a construct walk: the
+    /// non-raising validated assignment of spec/06 §3.2 (ADR-0165, #1064). It
+    /// opens no membership transaction, so another thread's open transaction
+    /// neither fails nor blocks it. Validation and the state commit run under
+    /// the coordination lane and the membership gate (spec/06 §4.2). The
+    /// assignment is a silent no-op while this composite is disposing. It is
+    /// also a no-op when <paramref name="value"/> is not a committed member:
+    /// not contained, or attached by an add whose rollback could still remove
+    /// it. A publication lease defers a disposal until the callbacks return.
+    /// </summary>
+    private void ApplySelectorResult(VM value)
+    {
+        VM? previous;
+        bool previousFlagChanged;
+        bool valueFlagChanged;
+        lock (CompositeCurrentChangeCoordinator.Gate)
+        {
+            lock (_membershipGate)
+            {
+                previous = _current;
+                if (ReferenceEquals(previous, value) ||
+                    Volatile.Read(ref _disposeRequested) != 0 || _disposeDeferred ||
+                    ReferenceEquals(value, _pendingAdmission) ||
+                    !_children.Any(child => ReferenceEquals(child, value)))
+                    return;
+                _current = value;
+                previousFlagChanged = previous?.CommitIsCurrent(false) ?? false;
+                valueFlagChanged = value.CommitIsCurrent(true);
+                _activeCurrentPublications++;
+                _currentPublicationThreads.Add(Environment.CurrentManagedThreadId);
+            }
+        }
+        try
+        {
+            FinishCurrentChange(previous, value, previousFlagChanged, valueFlagChanged);
+        }
+        catch
+        {
+            EndCurrentPublication(propagateDisposeFailure: false);
+            throw;
+        }
+        EndCurrentPublication(propagateDisposeFailure: true);
     }
 
     private void FinishCurrentChange(
