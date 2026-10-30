@@ -4,7 +4,6 @@ using System.Reactive.Disposables;
 using System.Runtime.ExceptionServices;
 using VMx.Collections;
 using VMx.Components;
-using VMx.Groups;
 using VMx.Internal;
 using VMx.Lifecycle;
 using VMx.Messages;
@@ -719,7 +718,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             {
                 _membershipTransactionActive = false;
                 _membershipTransactionOwnerThreadId = 0;
-                MembershipTransactionWaitGraph.Shared.Release(_membershipGate);
+                WaitForGraph.Shared.Release(_membershipGate);
                 Monitor.PulseAll(_membershipGate);
                 throw new InvalidOperationException("The recorded parent does not contain the child identity.");
             }
@@ -1404,7 +1403,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private bool WaitForForeignTransactionLocked()
     {
         var caller = Environment.CurrentManagedThreadId;
-        var waits = MembershipTransactionWaitGraph.Shared;
+        var waits = WaitForGraph.Shared;
         while (_membershipTransactionActive && _membershipTransactionOwnerThreadId != caller)
         {
             if (!waits.TryBeginWait(_membershipGate, caller))
@@ -1426,7 +1425,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         _membershipTransactionOwnerThreadId = Environment.CurrentManagedThreadId;
         // Recorded so a group transfer or a disposal that waits for this
         // transaction can see a wait-for cycle (#717).
-        MembershipTransactionWaitGraph.Shared.Acquire(_membershipGate, _membershipTransactionOwnerThreadId);
+        WaitForGraph.Shared.Acquire(_membershipGate, _membershipTransactionOwnerThreadId);
     }
 
     private void BeginMembershipTransaction()
@@ -1448,7 +1447,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         {
             _membershipTransactionActive = false;
             _membershipTransactionOwnerThreadId = 0;
-            MembershipTransactionWaitGraph.Shared.Release(_membershipGate);
+            WaitForGraph.Shared.Release(_membershipGate);
             // The deferral stays set until Dispose admits it, so no transaction
             // or selection starts between this release and Dispose (#1064).
             dispose = _disposeDeferred && _activeCurrentPublications == 0;
