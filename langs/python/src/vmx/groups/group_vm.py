@@ -26,14 +26,18 @@ from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx._indexes import _reject_bool_index
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
+    attach_late_start_locked,
+    auto_construct_attached,
     construct_walk,
     deliver_collection_changed,
     emit_collection_changed,
+    enter_batch,
+    exit_batch,
     join_if_pending,
     maybe_auto_construct,
+    seal_or_next_late,
 )
 from vmx.components._late_child_starts import (
-    _LateChildStage,
     _LateChildStarts,
     _LateWalk,
     _StartRecord,
@@ -448,18 +452,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         disposed, a single ``CollectionChangedEvent(action='reset')`` is emitted
         iff at least one mutation occurred while any batch was open.
         """
-        self._batch_depth += 1
-        return BatchUpdateHandle(self)
+        return enter_batch(self)
 
     def _exit_batch(self) -> None:
-        self._batch_depth -= 1
-        if (
-            self._batch_depth == 0
-            and self._batch_dirty
-            and not self._collection_changed_subject.is_disposed
-        ):
-            self._batch_dirty = False
-            self._deliver_collection_changed(CollectionChangedEvent(action="reset"))
+        exit_batch(self)
 
     def _emit_collection_changed(self, event: CollectionChangedEvent) -> None:
         emit_collection_changed(self, event)
@@ -468,33 +464,10 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         deliver_collection_changed(self, event)
 
     def _attach_late_start_locked(self, child: VM) -> _StartRecord | None:
-        """Called under the gate as an add attaches *child*.
-
-        An add that will auto-start the child while this container is
-        Constructing registers a start record the construct walk waits on.
-        """
-        return self._late_starts.attach_locked(
-            child,
-            will_start=self._auto_construct_on_add
-            and self._status is ConstructionStatus.CONSTRUCTING,
-        )
+        return attach_late_start_locked(self, child)
 
     def _auto_construct_attached(self, child: VM, record: _StartRecord | None) -> None:
-        """The add's auto-construct of a child it attached with *record*."""
-        if record is None:
-            self._maybe_auto_construct(child)
-            return
-        # The construct walk never starts a late child; it waits for this
-        # attempt, then joins the child (spec/06 §5.1). The record is done
-        # before this add publishes or ends its transaction.
-        try:
-            self._late_starts.probe(child, _LateChildStage.ATTACHED)
-            if child.status is ConstructionStatus.DESTRUCTED:
-                child.construct()
-        finally:
-            record.mark_done()
-            if self._status is not ConstructionStatus.CONSTRUCTING:
-                self._late_starts.remove(child, record)
+        auto_construct_attached(self, child, record)
 
     def _maybe_auto_construct(self, child: VM) -> None:
         maybe_auto_construct(self, child)
@@ -507,25 +480,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     def _seal_or_next_late(
         self, joined: list[VM], visited: dict[int, VM], walk: _LateWalk
     ) -> VM | None:
-        """The construct walk's commit step (spec/02 §6, spec/06 §5.1).
-
-        Under the membership gate, return the next unvisited member that an
-        add started (it has a start record in this walk's scope), which the
-        walk then joins. Without one, commit the Constructed state in the same
-        gated section, so an add reads either Constructing (and is joined) or
-        Constructed, then end the walk's scope.
-        """
-        with self._membership_gate:
-            for child in self._children:
-                if visited.get(id(child)) is child:
-                    continue
-                visited[id(child)] = child
-                if walk.take(child):
-                    joined.append(child)
-                    return child
-            self._mark_constructed_before_publication()
-        walk.end()
-        return None
+        return seal_or_next_late(self, joined, visited, walk)
 
     def _validate_move_index(self, index: int) -> None:
         _reject_bool_index(index)
