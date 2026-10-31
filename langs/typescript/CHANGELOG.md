@@ -83,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The locked ESLint dependency graph now uses `minimatch` 11.0.3 through an
+  `overrides` entry. This removes the glob-pattern denial-of-service advisory
+  GHSA-g3hv-75wg-m249. ESLint and typescript-eslint still declare `minimatch`
+  `^10`, and no 10.x release has the fix.
 - `CompositeVM` and `GroupVM` `add`, `insert` and `setAt` throw
   `Error("child must not be null")` for a `null` or `undefined` child and
   leave the children unchanged. Before, they threw `TypeError` after they

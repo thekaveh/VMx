@@ -114,7 +114,8 @@
     }
   },
   "overrides": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "minimatch": "11.0.3"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
