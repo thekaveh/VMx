@@ -7,6 +7,10 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The locked development dependency graph now uses `minimatch` 11.0.3 through
+  an `overrides` entry. This removes the glob-pattern denial-of-service
+  advisory GHSA-g3hv-75wg-m249. The published package does not depend on
+  `minimatch`.
 - A `useCommand` binding to a disposed `DecoratorCommand`, `CompositeCommand`
   or `ConfirmationDecoratorCommand` now renders as disabled. The adapter code
   is unchanged; this needs the next `@thekaveh/vmx` release, where those
