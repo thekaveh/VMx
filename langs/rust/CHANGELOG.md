@@ -100,6 +100,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVm` approval started from an approval subscriber no longer applies
+  the outer approval's deferred edits early (#1061). Before, the outer
+  approval's later subscribers saw the edited, dirty model instead of the
+  settled one. Only a thread's outermost settlement now applies the deferred
+  edits, after its own subscribers have run, as C# does for nesting on one
+  thread. An edit that a subscriber of the outermost approval makes still
+  applies at once.
 - `ServicedObservableCollection` and `KeyedServicedObservableCollection` no
   longer deliver a stale message after user code panics under a mutation
   (#1065). User code runs under a mutation: `PartialEq` in `remove`, and the

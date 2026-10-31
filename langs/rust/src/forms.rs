@@ -128,6 +128,12 @@ struct ApprovalPublication<M> {
     /// not a flag: an approval admitted by one of their observers settles
     /// inside the outer publication and must not end it (ADR-0143).
     pre_publishing: usize,
+    /// Per thread, the number of settlements still publishing, `OnApproved`
+    /// included. Only a thread's outermost settlement replays the deferred
+    /// edits (#1061). A nested approval started by an approval subscriber
+    /// leaves them until the outer subscribers have run. The depth is per
+    /// thread: another thread's settlement still replays when it ends.
+    publishing: Vec<(ThreadId, usize)>,
     deferred_models: Vec<M>,
 }
 
@@ -135,7 +141,78 @@ impl<M> ApprovalPublication<M> {
     fn new() -> Self {
         Self {
             pre_publishing: 0,
+            publishing: Vec::new(),
             deferred_models: Vec::new(),
+        }
+    }
+
+    fn enter(&mut self, thread: ThreadId) {
+        match self
+            .publishing
+            .iter_mut()
+            .find(|(owner, _)| *owner == thread)
+        {
+            Some((_, depth)) => *depth += 1,
+            None => self.publishing.push((thread, 1)),
+        }
+    }
+
+    /// Ends one settlement on `thread`. Returns whether it was the thread's
+    /// outermost one.
+    fn leave(&mut self, thread: ThreadId) -> bool {
+        let Some(index) = self
+            .publishing
+            .iter()
+            .position(|(owner, _)| *owner == thread)
+        else {
+            return true;
+        };
+        self.publishing[index].1 -= 1;
+        if self.publishing[index].1 > 0 {
+            return false;
+        }
+        self.publishing.swap_remove(index);
+        true
+    }
+}
+
+/// Counts one settlement in [`ApprovalPublication::publishing`] until it
+/// finishes, even when a notification observer panics.
+struct ApprovalPublishingGuard<M> {
+    publication: Arc<Mutex<ApprovalPublication<M>>>,
+    thread: ThreadId,
+    finished: bool,
+}
+
+impl<M> ApprovalPublishingGuard<M> {
+    fn new(publication: Arc<Mutex<ApprovalPublication<M>>>) -> Self {
+        let thread = thread::current().id();
+        lock(&publication).enter(thread);
+        Self {
+            publication,
+            thread,
+            finished: false,
+        }
+    }
+
+    /// Ends this settlement's publication. Returns the deferred edits when it
+    /// is this thread's outermost settlement and no settlement is publishing
+    /// its notifications; returns none otherwise.
+    fn finish(mut self) -> Vec<M> {
+        self.finished = true;
+        let mut publication = lock(&self.publication);
+        if publication.leave(self.thread) && publication.pre_publishing == 0 {
+            std::mem::take(&mut publication.deferred_models)
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+impl<M> Drop for ApprovalPublishingGuard<M> {
+    fn drop(&mut self) {
+        if !self.finished {
+            lock(&self.publication).leave(self.thread);
         }
     }
 }
@@ -754,6 +831,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// Settlement steps 2 to 4 of a committed approval. The in-flight mark is
     /// already clear.
     fn settle_approved(&self, model: M, errors_changed: bool) {
+        let publishing = ApprovalPublishingGuard::new(Arc::clone(&self.approval_publication));
         {
             // Model edits made by these observers wait until the approval
             // subscribers have seen the committed state.
@@ -789,16 +867,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 }
             }
         }));
-        let deferred_models = {
-            let mut publication = lock(&self.approval_publication);
-            // An enclosing settlement still publishing keeps the edits until
-            // its own subscribers have run.
-            if publication.pre_publishing > 0 {
-                Vec::new()
-            } else {
-                std::mem::take(&mut publication.deferred_models)
-            }
-        };
+        // An enclosing settlement on this thread, in its notifications or its
+        // subscribers, keeps the edits until its own subscribers have run.
+        let deferred_models = publishing.finish();
         for deferred_model in deferred_models {
             self.set_model(deferred_model);
         }
