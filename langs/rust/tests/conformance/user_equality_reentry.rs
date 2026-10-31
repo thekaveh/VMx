@@ -1027,3 +1027,110 @@ fn keyed_serviced_collection_remove_without_a_match_delivers_the_eq_change() {
     );
     *probe.lock().unwrap() = None;
 }
+
+/// Collection changes recorded as `(action, new_index)`.
+type RecordedChanges = Arc<Mutex<Vec<(String, Option<usize>)>>>;
+
+/// Records each collection change as `(action, new_index)`.
+fn recorded_changes(hub: &MessageHub) -> RecordedChanges {
+    let changes = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&changes);
+    let subscription = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            let action = format!("{:?}", change.action);
+            sink.lock().unwrap().push((action, change.new_index));
+        }
+    });
+    std::mem::forget(subscription);
+    changes
+}
+
+/// #1065 — a panic in user code under a serviced collection's admission
+/// discards the messages that its nested mutations queued, as a subscriber
+/// panic does. Nothing is delivered while the panic unwinds, another thread
+/// can mutate the collection next, and its change is the only one delivered.
+#[test]
+fn serviced_collection_remove_panic_discards_the_queued_messages() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let collection = ServicedObservableCollection::new(1);
+    collection.push(Probing::new(1, &probe));
+    collection.push(Probing::new(2, &probe));
+    let changes = recorded_changes(&collection.collection_changed());
+    let nested = collection.clone();
+    *probe.lock().unwrap() = Some(first_call(move || {
+        let _ = nested.remove_at(0);
+        panic!("user eq panicked");
+    }));
+
+    let target = Probing::new(2, &probe);
+    let outcome =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| collection.remove(&target)));
+    *probe.lock().unwrap() = None;
+
+    assert!(outcome.is_err());
+    assert!(changes.lock().unwrap().is_empty());
+    assert_eq!(collection.len(), 1);
+    within_timeout("ServicedObservableCollection::push after a panic", {
+        let (collection, probe) = (collection.clone(), Arc::clone(&probe));
+        move || collection.push(Probing::new(3, &probe))
+    });
+    assert_eq!(*changes.lock().unwrap(), vec![("Add".to_string(), Some(1))]);
+}
+
+#[test]
+fn keyed_collection_remove_panic_discards_the_queued_messages() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let collection = KeyedServicedObservableCollection::new(1, |item: &Probing| Ok(item.id));
+    collection.push(Probing::new(1, &probe)).unwrap();
+    collection.push(Probing::new(2, &probe)).unwrap();
+    let changes = recorded_changes(&collection.collection_changed());
+    let nested = collection.clone();
+    *probe.lock().unwrap() = Some(first_call(move || {
+        let _ = nested.remove_at(0);
+        panic!("user eq panicked");
+    }));
+
+    let target = Probing::new(2, &probe);
+    let outcome =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| collection.remove(&target)));
+    *probe.lock().unwrap() = None;
+
+    assert!(outcome.is_err());
+    assert!(changes.lock().unwrap().is_empty());
+    assert_eq!(collection.len(), 1);
+    within_timeout("KeyedServicedObservableCollection::push after a panic", {
+        let (collection, probe) = (collection.clone(), Arc::clone(&probe));
+        move || collection.push(Probing::new(3, &probe)).unwrap()
+    });
+    assert_eq!(*changes.lock().unwrap(), vec![("Add".to_string(), Some(1))]);
+}
+
+/// #1065 — the same when an item's `Drop`, run by `clear()`, pushes and then
+/// panics. The panicked `clear()` publishes nothing for its own change.
+#[test]
+fn serviced_collection_clear_drop_panic_discards_the_queued_messages() {
+    let hook: Probe = Arc::new(Mutex::new(None));
+    let quiet: Probe = Arc::new(Mutex::new(None));
+    let collection = ServicedObservableCollection::new(1);
+    collection.push(DropProbing::new(1, &hook));
+    collection.push(DropProbing::new(2, &hook));
+    let changes = recorded_changes(&collection.collection_changed());
+    let nested = collection.clone();
+    let pushed = Arc::clone(&quiet);
+    *hook.lock().unwrap() = Some(first_call(move || {
+        nested.push(DropProbing::new(9, &pushed));
+        panic!("user drop panicked");
+    }));
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| collection.clear()));
+    *hook.lock().unwrap() = None;
+
+    assert!(outcome.is_err());
+    assert!(changes.lock().unwrap().is_empty());
+    assert_eq!(collection.len(), 1);
+    within_timeout("ServicedObservableCollection::push after a panic", {
+        let (collection, quiet) = (collection.clone(), Arc::clone(&quiet));
+        move || collection.push(DropProbing::new(10, &quiet))
+    });
+    assert_eq!(*changes.lock().unwrap(), vec![("Add".to_string(), Some(1))]);
+}

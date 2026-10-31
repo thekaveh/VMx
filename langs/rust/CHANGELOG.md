@@ -100,6 +100,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ServicedObservableCollection` and `KeyedServicedObservableCollection` no
+  longer deliver a stale message after user code panics under a mutation
+  (#1065). User code runs under a mutation: `PartialEq` in `remove`, and the
+  `Drop` of an item or key that the mutation removes, replaces or clears. When
+  that code mutated the collection and then panicked, the nested change stayed
+  queued. The next mutation delivered it before its own change. The queued
+  messages are now discarded, as they already were when a subscriber panics.
 - `CompositeVm::add`, `CompositeVm::insert`, `GroupVm::add` and `GroupVm::insert`
   no longer deadlock when admission fails and a subscriber disposes the
   container (#1066). The rollback destructed the child while it held the
