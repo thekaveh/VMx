@@ -594,6 +594,125 @@ def test_keys1_keeps_its_order_when_a_keys2_handler_moves_a_key1_later() -> None
     assert list(d.keys2) == [2, 1, 4]
 
 
+@pytest.mark.parametrize("view", ["keys1", "keys2"])
+def test_key_views_match_the_entries_after_a_key_view_reset_handler_adds_during_clear(
+    view: str,
+) -> None:
+    # #1075: an entry added from a key-view reset handler during clear keeps
+    # both views equal to the keys of the remaining entries.
+    d: ObservableDictionary[str, str, str] = ObservableDictionary()
+    d.add("a", "a", "outer")
+    done: list[bool] = []
+
+    def add_nested(_: object) -> None:
+        if not done:
+            done.append(True)
+            d.add("b", "b", "nested")
+
+    getattr(d, view).on_reset.subscribe(add_nested)
+    d.clear()
+
+    assert list(d) == [("b", "b", "nested")]
+    assert list(d.keys1) == ["b"]
+    assert list(d.keys2) == ["b"]
+
+    d.remove("b", "b")
+
+    assert list(d) == []
+    assert list(d.keys1) == []
+    assert list(d.keys2) == []
+
+
+@pytest.mark.parametrize(
+    ("view", "nested", "keys1", "keys2"),
+    [
+        ("keys1", "add", ["b", "c", "a"], ["y", "z", "x"]),
+        ("keys1", "remove", ["c"], ["z"]),
+        ("keys2", "add", ["b", "c", "a"], ["y", "z", "x"]),
+        ("keys2", "remove", ["c"], ["z"]),
+    ],
+)
+def test_key_views_match_the_entries_after_a_key_view_handler_changes_them_during_remove(
+    view: str, nested: str, keys1: list[str], keys2: list[str]
+) -> None:
+    # #1075: an entry added or removed from a key-view item-removed handler
+    # during remove keeps both views equal to the distinct keys of the entries.
+    # keys1 never lists a key twice, also while a subscriber runs.
+    d: ObservableDictionary[str, str, str] = ObservableDictionary()
+    d.add("a", "x", "outer")
+    d.add("b", "y", "kept")
+    d.add("c", "z", "kept")
+    done: list[bool] = []
+
+    def change_nested(_: object) -> None:
+        if done:
+            return
+        done.append(True)
+        if nested == "add":
+            d.add("a", "x", "nested")
+        else:
+            d.remove("b", "y")
+
+    getattr(d, view).on_item_removed.subscribe(change_nested)
+    snapshots: list[list[str]] = []
+    d.keys1.on_item_added.subscribe(lambda _: snapshots.append(list(d.keys1)))
+    d.remove("a", "x")
+
+    entries = [(k1, k2) for k1, k2, _ in d]
+    assert list(dict.fromkeys(k1 for k1, _ in entries)) == keys1
+    assert list(dict.fromkeys(k2 for _, k2 in entries)) == keys2
+    assert list(d.keys1) == keys1
+    assert list(d.keys2) == keys2
+    assert all(len(set(keys)) == len(keys) for keys in snapshots)
+
+
+def test_keys2_is_updated_when_keys1_notifies_a_remove_or_a_clear() -> None:
+    # #1075: remove and clear update keys2 first, as add does, so a keys1
+    # subscriber already reads the updated keys2.
+    d: ObservableDictionary[str, str, str] = ObservableDictionary()
+    d.add("a", "a", "first")
+    d.add("b", "b", "second")
+    seen: list[list[str]] = []
+    d.keys1.on_item_removed.subscribe(lambda _: seen.append(list(d.keys2)))
+    d.keys1.on_reset.subscribe(lambda _: seen.append(list(d.keys2)))
+
+    d.remove("a", "a")
+    d.clear()
+
+    assert seen == [["b"], []]
+
+
+@pytest.mark.parametrize("operation", ["remove", "clear"])
+def test_key_views_stay_in_step_when_a_keys2_subscriber_raises(operation: str) -> None:
+    # #1075: keys1 is updated even when a keys2 subscriber raises during the
+    # keys2 notification, so a later add does not list a key twice.
+    d: ObservableDictionary[str, str, str] = ObservableDictionary()
+    d.add("a", "x", "first")
+    failing = [True]
+
+    def fail(_: object) -> None:
+        if failing[0]:
+            raise RuntimeError("keys2 subscriber failed")
+
+    d.keys2.on_item_removed.subscribe(fail)
+    d.keys2.on_reset.subscribe(fail)
+
+    with pytest.raises(RuntimeError, match="keys2 subscriber failed"):
+        if operation == "remove":
+            d.remove("a", "x")
+        else:
+            d.clear()
+    failing[0] = False
+
+    assert list(d.keys1) == []
+    d.add("a", "y", "again")
+    assert list(d.keys1) == ["a"]
+    d.remove("a", "y")
+    assert list(d.keys1) == []
+    assert list(d.keys2) == []
+    assert len(d) == 0
+
+
 def test_nan_key_is_one_axis_key_like_a_dict_key() -> None:
     sut: ObservableDictionary[float, str, int] = ObservableDictionary()
     nan = float("nan")

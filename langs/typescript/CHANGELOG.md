@@ -83,6 +83,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ObservableDictionary`: `delete` and `clear` now update `keys2` before
+  `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
+  `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
+  missing from `keys2`. A later add with the same key2 did not list it either.
+  If a `keys2` subscriber changes the entries, `keys1` then lists only the keys
+  that the entries use.
 - The locked ESLint dependency graph now uses `minimatch` 11.0.3 through an
   `overrides` entry. This removes the glob-pattern denial-of-service advisory
   GHSA-g3hv-75wg-m249. ESLint and typescript-eslint still declare `minimatch`

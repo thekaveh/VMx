@@ -127,6 +127,10 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     // key-view subscriber changed the entries during its notification.
     private int _version;
 
+    // Counts the removes and clears that notify Keys2 now. Keys1 can then still
+    // list a key that no entry uses, so an add checks Keys1 first (#1075).
+    private int _removalsNotifyingKeys2;
+
     /// <summary>
     /// Initializes a new instance, optionally wiring it to <paramref name="hub"/>.
     /// </summary>
@@ -230,32 +234,22 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         _keyOrder.Remove((key1, key2));
         _version++;
 
-        // Update key-axis views: drop a key only when its last entry is gone
-        // (O(1) via refcounts, no scan over _data).
-        if (_key1Counts.TryGetValue(key1, out int c1))
-        {
-            if (c1 <= 1)
-            {
-                _key1Counts.Remove(key1);
-                _keys1.Remove(key1);
-            }
-            else
-            {
-                _key1Counts[key1] = c1 - 1;
-            }
-        }
+        // Count both axes before either key view notifies: drop a key only
+        // when its last entry is gone (O(1) via refcounts, no scan over _data).
+        var dropKey1 = Release(_key1Counts, key1);
+        var dropKey2 = Release(_key2Counts, key2);
 
-        if (_key2Counts.TryGetValue(key2, out int c2))
+        // Keys2 first, so a Keys1 subscriber sees the updated Keys2, as on add (#1075).
+        // Keys1 is updated even when a Keys2 subscriber throws.
+        try
         {
-            if (c2 <= 1)
-            {
-                _key2Counts.Remove(key2);
-                _keys2.Remove(key2);
-            }
-            else
-            {
-                _key2Counts[key2] = c2 - 1;
-            }
+            if (dropKey2)
+                NotifyKeys2(() => _keys2.Remove(key2));
+        }
+        finally
+        {
+            if (dropKey1)
+                RemoveKey1(key1);
         }
 
         OnRemoved(key1, key2, value);
@@ -287,10 +281,20 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         _data.Clear();
         _keyOrder.Clear();
         _version++;
-        _keys1.Clear();
-        _keys2.Clear();
+        // Clear the counts before a key view notifies, so a subscriber's add is counted.
         _key1Counts.Clear();
         _key2Counts.Clear();
+
+        // Keys2 first, so a Keys1 subscriber sees the cleared Keys2, as on add (#1075).
+        // Keys1 is updated even when a Keys2 subscriber throws.
+        try
+        {
+            NotifyKeys2(_keys2.Clear);
+        }
+        finally
+        {
+            ClearKeys1();
+        }
         OnReset();
     }
 
@@ -331,19 +335,79 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         OnAdded(key1, key2, value, index);
     }
 
-    // Appends key1 unless a Keys2 subscriber changed the entries. Then key1 is
-    // listed only while an entry still uses it, after every listed key that has
-    // an entry before key1's first entry.
+    // Appends key1 unless a Keys2 subscriber changed the entries, or a remove
+    // or clear notifies Keys2 now. Then ListKey1 decides.
     private void AddKey1(TKey1 key1, int version)
     {
-        if (version == _version)
+        if (version == _version && _removalsNotifyingKeys2 == 0)
         {
             _keys1.Add(key1);
             return;
         }
+        ListKey1(key1);
+    }
+
+    // Lists key1 only while an entry still uses it and Keys1 does not list it
+    // yet, at Key1Position.
+    private void ListKey1(TKey1 key1)
+    {
         if (!_key1Counts.ContainsKey(key1) || _keys1.Contains(key1))
             return;
+        _keys1.Insert(Key1Position(key1), key1);
+    }
 
+    // Unlists key1 when no entry uses it. If a Keys2 subscriber added an entry
+    // with key1, key1 stays listed and moves to Key1Position (#1075).
+    private void RemoveKey1(TKey1 key1)
+    {
+        if (!_key1Counts.ContainsKey(key1))
+        {
+            _keys1.Remove(key1);
+            return;
+        }
+        var comparer = EqualityComparer<TKey1>.Default;
+        var listed = -1;
+        for (var i = 0; i < _keys1.Count; i++)
+        {
+            if (comparer.Equals(_keys1[i], key1))
+            {
+                listed = i;
+                break;
+            }
+        }
+        if (listed == Key1Position(key1))
+            return;
+        if (listed >= 0)
+            _keys1.RemoveAt(listed);
+        // The removal notifies Keys1, and a subscriber can change the entries.
+        ListKey1(key1);
+    }
+
+    // Empties Keys1 unless a Keys2 subscriber added entries. Then Keys1 lists
+    // their Key1 values in first-appearance order, with at most one Reset
+    // (#1075).
+    private void ClearKeys1()
+    {
+        if (_keyOrder.Count == 0)
+        {
+            _keys1.Clear();
+            return;
+        }
+        var keys = new List<TKey1>();
+        var seen = new HashSet<TKey1>(EqualityComparer<TKey1>.Default);
+        foreach (var (k1, _) in _keyOrder)
+        {
+            if (seen.Add(k1))
+                keys.Add(k1);
+        }
+        if (!_keys1.SequenceEqual(keys))
+            _keys1.ReplaceAll(keys);
+    }
+
+    // The Keys1 index for key1, counted without key1: after every listed key
+    // that has an entry before key1's first entry.
+    private int Key1Position(TKey1 key1)
+    {
         var comparer = EqualityComparer<TKey1>.Default;
         var earlier = new HashSet<TKey1>(comparer);
         foreach (var (k1, _) in _keyOrder)
@@ -353,12 +417,46 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             earlier.Add(k1);
         }
         var position = 0;
-        for (var i = 0; i < _keys1.Count; i++)
+        var index = 0;
+        foreach (var listed in _keys1)
         {
-            if (earlier.Contains(_keys1[i]))
-                position = i + 1;
+            if (comparer.Equals(listed, key1))
+                continue;
+            index++;
+            if (earlier.Contains(listed))
+                position = index;
         }
-        _keys1.Insert(position, key1);
+        return position;
+    }
+
+    // Runs a Keys2 change of a remove or clear. Keys1 can lag behind it.
+    private void NotifyKeys2(Action change)
+    {
+        _removalsNotifyingKeys2++;
+        try
+        {
+            change();
+        }
+        finally
+        {
+            _removalsNotifyingKeys2--;
+        }
+    }
+
+    // Decrements the count of key and drops key when no entry uses it.
+    // Returns true when key was dropped.
+    private static bool Release<TKey>(Dictionary<TKey, int> counts, TKey key)
+        where TKey : notnull
+    {
+        if (!counts.TryGetValue(key, out int count))
+            return false;
+        if (count > 1)
+        {
+            counts[key] = count - 1;
+            return false;
+        }
+        counts.Remove(key);
+        return true;
     }
 
     private void OnAdded(TKey1 key1, TKey2 key2, TValue value, int index)

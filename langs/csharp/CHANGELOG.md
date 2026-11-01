@@ -73,6 +73,14 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: `ObservableDictionary`: `Remove` and `Clear` now update `Keys2`
+  before `Keys1`, as `Add` does (#1075). A `Keys1` subscriber now sees the
+  updated `Keys2`. Before, an entry that a `Keys1` subscriber added during
+  `Clear` was missing from `Keys2`. `Clear` now empties the per-axis counts
+  before a key view notifies. Before, a `Remove` of an entry that a subscriber
+  added during `Clear` left its keys listed. If a `Keys2` subscriber changes
+  the entries, `Keys1` then lists only the keys that the entries use. `Keys1`
+  is also updated when a `Keys2` subscriber throws.
 - Fixed: `MessageHub` waits and container membership waits now share one
   wait-for graph (#1055). A hub drainer can add to or dispose a container
   from a subscriber. The container's transaction owner can send on that hub

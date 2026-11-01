@@ -60,6 +60,12 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `ObservableDictionary`: `remove` and `clear` now update `keys2` before
+  `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
+  `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
+  missing from `keys2`. If a `keys2` subscriber changes the entries, `keys1`
+  then lists only the keys that the entries use. `keys1` is also updated when
+  a `keys2` subscriber raises.
 - `AggregateVM1`…`AggregateVM6` no longer dispose their slots while their
   admitted construct or destruct hook runs on another thread (#1063, LIFE-015).
   Before, a foreign `dispose()` during a construct hook also deadlocked. It held

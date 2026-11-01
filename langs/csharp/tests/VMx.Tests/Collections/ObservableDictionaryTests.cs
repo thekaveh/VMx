@@ -291,6 +291,128 @@ public class ObservableDictionaryTests
         seen.Should().Equal(1);
     }
 
+    // #1075: an entry added from a key-view Reset handler during Clear keeps
+    // both views equal to the keys of the remaining entries.
+    [Theory]
+    [InlineData("Keys1")]
+    [InlineData("Keys2")]
+    public void Key_Views_Match_The_Entries_After_A_Key_View_Reset_Handler_Adds_During_Clear(string view)
+    {
+        var sut = new ObservableDictionary<string, string, string>();
+        sut.Add("a", "a", "outer");
+        var done = false;
+        void AddNested(object? sender, EventArgs e)
+        {
+            if (done) return;
+            done = true;
+            sut.Add("b", "b", "nested");
+        }
+        if (view == "Keys1") sut.Keys1.Reset += AddNested;
+        else sut.Keys2.Reset += AddNested;
+
+        sut.Clear();
+
+        sut.Select(e => e.Key).Should().Equal(("b", "b"));
+        sut.Keys1.Should().Equal("b");
+        sut.Keys2.Should().Equal("b");
+
+        sut.Remove("b", "b");
+
+        sut.Count.Should().Be(0);
+        sut.Keys1.Should().BeEmpty();
+        sut.Keys2.Should().BeEmpty();
+    }
+
+    // #1075: an entry added or removed from a key-view ItemRemoved handler
+    // during Remove keeps both views equal to the distinct keys of the entries.
+    // Keys1 never lists a key twice, also while a handler runs.
+    [Theory]
+    [InlineData("Keys1", "Add", "b,c,a", "y,z,x")]
+    [InlineData("Keys1", "Remove", "c", "z")]
+    [InlineData("Keys2", "Add", "b,c,a", "y,z,x")]
+    [InlineData("Keys2", "Remove", "c", "z")]
+    public void Key_Views_Match_The_Entries_After_A_Key_View_Handler_Changes_Them_During_Remove(
+        string view, string nested, string keys1, string keys2)
+    {
+        var sut = new ObservableDictionary<string, string, string>();
+        sut.Add("a", "x", "outer");
+        sut.Add("b", "y", "kept");
+        sut.Add("c", "z", "kept");
+        var done = false;
+        void ChangeNested(object? sender, ItemRemovedEventArgs<string> e)
+        {
+            if (done) return;
+            done = true;
+            if (nested == "Add") sut.Add("a", "x", "nested");
+            else sut.Remove("b", "y");
+        }
+        if (view == "Keys1") sut.Keys1.ItemRemoved += ChangeNested;
+        else sut.Keys2.ItemRemoved += ChangeNested;
+        var snapshots = new List<string[]>();
+        sut.Keys1.ItemAdded += (_, _) => snapshots.Add([.. sut.Keys1]);
+
+        sut.Remove("a", "x");
+
+        var entries = sut.Select(e => e.Key).ToList();
+        entries.Select(k => k.Item1).Distinct().Should().Equal(keys1.Split(','));
+        entries.Select(k => k.Item2).Distinct().Should().Equal(keys2.Split(','));
+        sut.Keys1.Should().Equal(keys1.Split(','));
+        sut.Keys2.Should().Equal(keys2.Split(','));
+        snapshots.Should().NotContain(keys => keys.Distinct().Count() != keys.Length);
+    }
+
+    // #1075: Remove and Clear update Keys2 first, as Add does, so a Keys1
+    // handler already reads the updated Keys2.
+    [Fact]
+    public void Keys2_Is_Updated_When_Keys1_Notifies_A_Remove_Or_A_Clear()
+    {
+        var sut = new ObservableDictionary<string, string, string>();
+        sut.Add("a", "a", "first");
+        sut.Add("b", "b", "second");
+        var seen = new List<string[]>();
+        sut.Keys1.ItemRemoved += (_, _) => seen.Add([.. sut.Keys2]);
+        sut.Keys1.Reset += (_, _) => seen.Add([.. sut.Keys2]);
+
+        sut.Remove("a", "a");
+        sut.Clear();
+
+        seen.Should().HaveCount(2);
+        seen[0].Should().Equal("b");
+        seen[1].Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Remove")]
+    [InlineData("Clear")]
+    public void Key_Views_Stay_In_Step_When_A_Keys2_Handler_Throws(string operation)
+    {
+        // #1075: Keys1 is updated even when a Keys2 handler throws during the
+        // Keys2 notification, so a later add does not list a key twice.
+        var sut = new ObservableDictionary<string, string, string>();
+        sut.Add("a", "x", "first");
+        var failing = true;
+        sut.Keys2.ItemRemoved += (_, _) =>
+        {
+            if (failing) throw new InvalidOperationException("keys2 handler failed");
+        };
+        sut.Keys2.Reset += (_, _) =>
+        {
+            if (failing) throw new InvalidOperationException("keys2 handler failed");
+        };
+
+        var act = operation == "Remove" ? (Action)(() => sut.Remove("a", "x")) : sut.Clear;
+        act.Should().Throw<InvalidOperationException>().WithMessage("keys2 handler failed");
+        failing = false;
+
+        sut.Keys1.Should().BeEmpty();
+        sut.Add("a", "y", "again");
+        sut.Keys1.Should().Equal("a");
+        sut.Remove("a", "y");
+        sut.Keys1.Should().BeEmpty();
+        sut.Keys2.Should().BeEmpty();
+        sut.Count.Should().Be(0);
+    }
+
     [Fact]
     public void Hub_Injection_PublishesRemoveMessageOnRemove()
     {
