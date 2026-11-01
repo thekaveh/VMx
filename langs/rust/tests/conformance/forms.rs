@@ -1253,3 +1253,260 @@ fn whole_model_validator_after_dispose_is_inactive() {
     assert!(form.is_valid());
     assert!(form.errors().is_empty());
 }
+
+/// #1046 — builds a form whose reset validation blocks once on the reset model
+/// `-1`. It approves on one thread and runs `register` on another while that
+/// validation waits, then returns the form after both threads finish.
+fn reset_approval_with_concurrent_registration(
+    register: impl FnOnce(FormVm<i32>) + Send + 'static,
+) -> FormVm<i32> {
+    let (entered, entered_rx) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let gate = Mutex::new(Some((entered, release_rx)));
+    let form = FormVm::builder()
+        .initial(5)
+        .persister(|_: &i32| Ok(()))
+        .reset_on_approved(|_| Ok(-1))
+        // A model validator runs after the validation has read both validator
+        // lists, so a registration while it waits is not in this run.
+        .clearing_model_validator(move |model| {
+            if *model == -1 {
+                let taken = gate.lock().unwrap().take();
+                if let Some((entered, release)) = taken {
+                    entered.send(()).unwrap();
+                    let _ = release.recv_timeout(Duration::from_secs(10));
+                }
+            }
+            BTreeMap::new()
+        })
+        .build()
+        .unwrap();
+
+    let approver = std::thread::spawn({
+        let form = form.clone();
+        move || form.approve()
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let registrar = std::thread::spawn({
+        let form = form.clone();
+        move || register(form)
+    });
+    // Before the fix the registration finished at once, while the reset
+    // validation still waited. Give it that chance, then release the gate. The
+    // fixed form ends correct in either order.
+    let deadline = std::time::Instant::now() + Duration::from_millis(200);
+    while !registrar.is_finished() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    release.send(()).unwrap();
+    approver.join().unwrap().unwrap();
+    registrar.join().unwrap();
+    form
+}
+
+#[test]
+fn reset_approval_applies_a_field_validator_registered_meanwhile() {
+    let form = reset_approval_with_concurrent_registration(|form| {
+        form.with_field_validator("neg", |model| (*model < 0).then(|| "negative".to_string()));
+    });
+
+    assert_eq!(form.model(), -1);
+    assert_eq!(form.field_error("neg").as_deref(), Some("negative"));
+    assert!(!form.is_valid());
+}
+
+#[test]
+fn reset_approval_applies_a_model_validator_registered_meanwhile() {
+    let form = reset_approval_with_concurrent_registration(|form| {
+        let _ = form.with_validator(|model| {
+            if *model < 0 {
+                vec!["negative".to_string()]
+            } else {
+                Vec::new()
+            }
+        });
+    });
+
+    assert_eq!(form.model(), -1);
+    assert_eq!(form.errors(), vec!["negative".to_string()]);
+    assert!(!form.is_valid());
+}
+
+#[test]
+fn reset_approval_applies_a_clearing_model_validator_registered_meanwhile() {
+    let form = reset_approval_with_concurrent_registration(|form| {
+        form.with_clearing_model_validator(|model| {
+            BTreeMap::from([(
+                "neg".to_string(),
+                (*model < 0).then(|| "negative".to_string()),
+            )])
+        });
+    });
+
+    assert_eq!(form.model(), -1);
+    assert_eq!(form.field_error("neg").as_deref(), Some("negative"));
+    assert!(!form.is_valid());
+}
+
+/// #1046 — stress: reset approvals race validator registrations from another
+/// thread. After each round, the committed errors are those of every
+/// registered validator applied to the committed model.
+#[test]
+fn reset_approvals_racing_validator_registrations_commit_complete_errors() {
+    const ROUNDS: i32 = 1_000;
+    let form = FormVm::builder()
+        .initial(1)
+        .persister(|_: &i32| Ok(()))
+        .reset_on_approved(|model| Ok(-*model))
+        .build()
+        .unwrap();
+    let mut expected = BTreeMap::new();
+    for round in 0..ROUNDS {
+        form.set_model(round + 1);
+        let start = Arc::new(Barrier::new(2));
+        let approver = std::thread::spawn({
+            let (form, start) = (form.clone(), Arc::clone(&start));
+            move || {
+                start.wait();
+                form.approve()
+            }
+        });
+        let field = format!("neg{round:04}");
+        let registrar = std::thread::spawn({
+            let (form, start, field) = (form.clone(), Arc::clone(&start), field.clone());
+            move || {
+                start.wait();
+                form.with_field_validator(field, |model| {
+                    (*model < 0).then(|| "negative".to_string())
+                });
+            }
+        });
+        approver.join().unwrap().unwrap();
+        registrar.join().unwrap();
+        expected.insert(field, "negative".to_string());
+
+        assert_eq!(form.model(), -(round + 1), "round {round}");
+        assert_eq!(form.error_map(), expected, "round {round}");
+    }
+}
+
+/// #1046 — a validator that registers another validator on the same thread
+/// while the reset model validates: the committed errors include it.
+#[test]
+fn reset_approval_applies_a_validator_registered_reentrantly_during_its_validation() {
+    let holder: Arc<Mutex<Option<FormVm<i32>>>> = Arc::new(Mutex::new(None));
+    let armed = Arc::new(AtomicBool::new(true));
+    let form = FormVm::builder()
+        .initial(5)
+        .persister(|_: &i32| Ok(()))
+        .reset_on_approved(|_| Ok(-1))
+        .clearing_model_validator({
+            let (holder, armed) = (Arc::clone(&holder), Arc::clone(&armed));
+            move |model| {
+                if *model == -1 && armed.swap(false, Ordering::SeqCst) {
+                    let form = holder.lock().unwrap().clone().unwrap();
+                    form.with_field_validator("neg", |model| {
+                        (*model < 0).then(|| "negative".to_string())
+                    });
+                }
+                BTreeMap::new()
+            }
+        })
+        .build()
+        .unwrap();
+    *holder.lock().unwrap() = Some(form.clone());
+
+    form.approve().unwrap();
+
+    assert!(!armed.load(Ordering::SeqCst), "the registration ran");
+    assert_eq!(form.model(), -1);
+    assert_eq!(form.field_error("neg").as_deref(), Some("negative"));
+    assert!(!form.is_valid());
+    holder.lock().unwrap().take();
+}
+
+/// #1046 review — a chain of re-entrant registrations during the reset
+/// validation: every validator in the chain applies to the committed model.
+#[test]
+fn reset_approval_applies_a_chain_of_validators_registered_reentrantly() {
+    let holder: Arc<Mutex<Option<FormVm<i32>>>> = Arc::new(Mutex::new(None));
+    let first_armed = Arc::new(AtomicBool::new(true));
+    let second_armed = Arc::new(AtomicBool::new(true));
+    let negative = |model: &i32| (*model < 0).then(|| "negative".to_string());
+    let form = FormVm::builder()
+        .initial(5)
+        .persister(|_: &i32| Ok(()))
+        .reset_on_approved(|_| Ok(-1))
+        .clearing_model_validator({
+            let holder = Arc::clone(&holder);
+            let (first_armed, second_armed) = (Arc::clone(&first_armed), Arc::clone(&second_armed));
+            move |model| {
+                if *model == -1 && first_armed.swap(false, Ordering::SeqCst) {
+                    let form = holder.lock().unwrap().clone().unwrap();
+                    let (holder, second_armed) = (Arc::clone(&holder), Arc::clone(&second_armed));
+                    form.with_field_validator("x", move |model| {
+                        if *model == -1 && second_armed.swap(false, Ordering::SeqCst) {
+                            let form = holder.lock().unwrap().clone().unwrap();
+                            form.with_field_validator("y", negative);
+                        }
+                        negative(model)
+                    });
+                }
+                BTreeMap::new()
+            }
+        })
+        .build()
+        .unwrap();
+    *holder.lock().unwrap() = Some(form.clone());
+
+    form.approve().unwrap();
+    holder.lock().unwrap().take();
+
+    assert!(!first_armed.load(Ordering::SeqCst) && !second_armed.load(Ordering::SeqCst));
+    assert_eq!(form.model(), -1);
+    assert_eq!(
+        form.error_map(),
+        BTreeMap::from([
+            ("x".to_string(), "negative".to_string()),
+            ("y".to_string(), "negative".to_string()),
+        ])
+    );
+}
+
+/// #1046 review — a reset validator that disposes the form: the approval
+/// commits nothing and publishes no approval (spec/20 §5.3).
+#[test]
+fn reset_approval_commits_nothing_when_its_validation_disposes_the_form() {
+    let holder: Arc<Mutex<Option<FormVm<i32>>>> = Arc::new(Mutex::new(None));
+    let approved = Arc::new(AtomicUsize::new(0));
+    let form = FormVm::builder()
+        .initial(5)
+        .persister(|_: &i32| Ok(()))
+        .reset_on_approved(|_| Ok(-1))
+        .validator("dispose", {
+            let holder = Arc::clone(&holder);
+            move |model: &i32| {
+                if *model == -1 {
+                    holder.lock().unwrap().clone().unwrap().dispose();
+                }
+                None
+            }
+        })
+        .build()
+        .unwrap();
+    *holder.lock().unwrap() = Some(form.clone());
+    let _subscriber = form.subscribe_approved({
+        let approved = Arc::clone(&approved);
+        move |_| {
+            approved.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+
+    form.set_model(6);
+    form.approve().unwrap();
+    holder.lock().unwrap().take();
+
+    assert_eq!(form.model(), 6);
+    assert_eq!(form.snapshot(), 5);
+    assert_eq!(approved.load(Ordering::SeqCst), 0);
+}

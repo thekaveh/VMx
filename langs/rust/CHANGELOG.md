@@ -100,6 +100,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVm` approval with `reset_on_approved` now validates the reset model
+  under the update lock, before it commits (#1046). Before, a validator
+  registered on another thread during that validation was left out. The
+  approval then committed stale errors, so an invalid reset model read as
+  valid. A validator registered meanwhile now revalidates the committed model.
+  A re-entrant registration during the validation makes it run again, until a
+  run registers no validator.
 - A `FormVm` approval started from an approval subscriber no longer applies
   the outer approval's deferred edits early (#1061). Before, the outer
   approval's later subscribers saw the edited, dirty model instead of the
