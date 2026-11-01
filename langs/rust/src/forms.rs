@@ -390,6 +390,10 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     /// under the update lock. Only a callback re-entering from the preparing
     /// thread can advance it during a preparation, which is then stale.
     commit_generation: Arc<AtomicU64>,
+    /// Counts the revalidations that validator registrations start, each under
+    /// the update lock. While an approval validates its reset model, only a
+    /// registration re-entering from that thread can advance it (#1046).
+    revalidations: Arc<AtomicU64>,
     disposed: Arc<Mutex<bool>>,
     hub: MessageHub,
 }
@@ -438,6 +442,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             approval_in_flight: Arc::new(AtomicBool::new(false)),
             update_lock: Arc::new(UpdateLock::new()),
             commit_generation: Arc::new(AtomicU64::new(0)),
+            revalidations: Arc::new(AtomicU64::new(0)),
             disposed: Arc::new(Mutex::new(false)),
             hub,
         };
@@ -780,12 +785,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         let committed = if let Some(reset_on_approved) = &self.reset_on_approved {
             // Prepare the complete transition before mutating local state. The
             // callback or either snapshot operation may fail/panic without a
-            // partial assignment.
+            // partial assignment. The commit validates the reset model.
             let reset = reset_on_approved(model)?;
             let next_model = (self.snapshotter)(&reset);
             let next_snapshot = (self.snapshotter)(&reset);
-            let next_errors = self.validation_errors_for(&next_model);
-            self.commit_approval(next_snapshot, Some((next_model, next_errors)))
+            self.commit_approval(next_snapshot, Some(next_model))
         } else {
             self.commit_approval((self.snapshotter)(model), None)
         };
@@ -793,7 +797,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Commits the post-persist state: the advanced snapshot, or a prepared
-    /// reset with its model and errors.
+    /// reset model, which it validates first.
     ///
     /// The commit is authoritative over edits made during the approval
     /// (spec/20 §5.1) and yields only to disposal. Admission and this step
@@ -803,12 +807,24 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// synchronous observers cannot see a reset model paired with the previous
     /// snapshot or errors. Returns whether the effective errors changed, or
     /// `None` when disposal suppressed the commit.
-    fn commit_approval(
-        &self,
-        snapshot: M,
-        reset: Option<(M, BTreeMap<String, String>)>,
-    ) -> Option<bool> {
+    fn commit_approval(&self, snapshot: M, reset: Option<M>) -> Option<bool> {
         let serialized = self.update_lock.acquire();
+        if *lock(&self.disposed) {
+            drop(serialized);
+            return None;
+        }
+        // The reset model is validated under the update lock, before any field
+        // changes (#1046). A validator registered on another thread meanwhile
+        // revalidates after this commit. A validator registered re-entrantly
+        // during a run makes the validation run again, until a run registers
+        // none. A re-entrant update needs no rerun: the reset is authoritative.
+        let reset = reset.map(|model| loop {
+            let revalidations = self.revalidations.load(Ordering::SeqCst);
+            let errors = self.validation_errors_for(&model);
+            if self.revalidations.load(Ordering::SeqCst) == revalidations {
+                break (model, errors);
+            }
+        });
         if *lock(&self.disposed) {
             drop(serialized);
             return None;
@@ -1133,6 +1149,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// commits supersedes it.
     fn revalidate(&self) {
         let serialized = self.update_lock.acquire();
+        self.revalidations.fetch_add(1, Ordering::SeqCst);
         let generation = self.commit_generation.load(Ordering::SeqCst);
         let errors = self.validation_errors_for(&self.model());
         if self.commit_generation.load(Ordering::SeqCst) != generation {
@@ -1484,6 +1501,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             approval_in_flight: Arc::new(AtomicBool::new(false)),
             update_lock: Arc::new(UpdateLock::new()),
             commit_generation: Arc::new(AtomicU64::new(0)),
+            revalidations: Arc::new(AtomicU64::new(0)),
             disposed: Arc::new(Mutex::new(false)),
             hub: self.hub,
         };
