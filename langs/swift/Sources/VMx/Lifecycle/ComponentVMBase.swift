@@ -1919,6 +1919,18 @@ open class ComponentVMBase {
         return succeeded
     }
 
+    /// Test-only seam (#1056): commits `status` for the transition in flight,
+    /// on the calling thread, as a foreground completion does. Two threads
+    /// that call it while a third drains this VM queue two foreign waiters,
+    /// which the in-flight guard keeps the public API from doing.
+    @discardableResult
+    func commitInFlightStatusForTesting(_ status: ConstructionStatus) -> Bool {
+        lifecycleLock.lock()
+        let generation = transitionGeneration
+        lifecycleLock.unlock()
+        return _commitStatus(status, generation: generation)
+    }
+
     /// Mutate status and enqueue its immutable publication record while
     /// `lifecycleLock` is held. Callbacks are drained only after unlocking.
     private func _enqueueStatusLocked(
@@ -1994,7 +2006,12 @@ open class ComponentVMBase {
             plan.publication.ready.wait()
             // The edge ends before this thread drains or delivers.
             ThreadWaitGraph.shared.endWait(caller: caller)
-            _drainLifecyclePublications()
+            lifecycleLock.lock()
+            let adopted = plan.publication.mayBeAdopted
+            lifecycleLock.unlock()
+            // A hand-off that adopted this publication woke this thread
+            // without the turn; the drainer delivers it.
+            if !adopted { _drainLifecyclePublications() }
         }
     }
 
@@ -2035,9 +2052,34 @@ open class ComponentVMBase {
             if next.waitRegistered {
                 ThreadWaitGraph.shared.release(resource: ObjectIdentifier(next))
             }
+            _redirectQueuedWaitsLocked(to: next.ownerThread)
             next.ready.signal()
             lifecycleLock.unlock()
             return
+        }
+    }
+
+    /// Points the wait edge of each publication queued behind the handed-over
+    /// turn at the new drainer (#1056). After that, no edge names a thread
+    /// that no longer drains this VM. A waiter whose new edge would close a
+    /// cycle is woken without the turn. Its publication becomes adoptable,
+    /// and the drainer that reaches it delivers it in FIFO order. A wait
+    /// refused at registration works the same way. Called under
+    /// `lifecycleLock`.
+    private func _redirectQueuedWaitsLocked(to drainer: UInt64) {
+        var index = lifecyclePublicationHead + 1
+        while index < lifecyclePublications.count {
+            let queued = lifecyclePublications[index]
+            index += 1
+            guard queued.waitRegistered else { continue }
+            if ThreadWaitGraph.shared.redirectWait(
+                caller: queued.ownerThread,
+                resource: ObjectIdentifier(queued),
+                to: drainer
+            ) { continue }
+            queued.waitRegistered = false
+            queued.mayBeAdopted = true
+            queued.ready.signal()
         }
     }
 
