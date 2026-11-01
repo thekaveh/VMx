@@ -4,7 +4,7 @@
 
 use super::{
     lock, next_id, Arc, AsyncRelayCommand, CollectionChangeAction, CollectionChangedMessage,
-    Message, MessageHub, Mutex, PropertyChangedMessage, VmNode,
+    Message, MessageHub, Mutex, MutexGuard, PropertyChangedMessage, VmNode,
 };
 use std::{
     sync::{
@@ -200,36 +200,89 @@ impl RefreshPlan {
         }
     }
 
-    /// Commits the plan and returns the displaced items and token, which
-    /// callers drop only after releasing the commit.
-    fn apply<T, Token>(
-        &self,
-        items: &Mutex<Vec<T>>,
-        token: &Mutex<Option<Token>>,
-        has_more: &Mutex<bool>,
-        page: Vec<T>,
-        next: Option<Token>,
-    ) -> (Vec<T>, Option<Token>) {
-        let displaced_items = if self.replace_items {
-            std::mem::replace(&mut *lock(items), page)
+    /// Commits the plan's items through the held items lock and returns the
+    /// displaced items, which callers drop only after releasing the commit.
+    fn apply_items<T>(&self, items: &mut Vec<T>, page: Vec<T>) -> Vec<T> {
+        if self.replace_items {
+            std::mem::replace(items, page)
         } else {
             page
-        };
-        let displaced_token = if self.adopt_token {
+        }
+    }
+
+    /// Commits the plan's cursor and returns the displaced token, which
+    /// callers drop only after releasing the commit.
+    fn apply_token<Token>(
+        &self,
+        token: &Mutex<Option<Token>>,
+        has_more: &Mutex<bool>,
+        next: Option<Token>,
+    ) -> Option<Token> {
+        if self.adopt_token {
             let more = next.is_some();
             let previous = std::mem::replace(&mut *lock(token), next);
             *lock(has_more) = more;
             previous
         } else {
             next
-        };
-        (displaced_items, displaced_token)
+        }
     }
 }
 
 /// Starts a load or refresh; a later start makes every earlier one stale.
-fn begin_operation(generation: &AtomicUsize) -> usize {
+///
+/// The start takes `gate`, which a commit holds from its final check until it
+/// has written the items and the cursor. A start therefore lands before that
+/// check, which makes the commit stale, or after the writes (#1045). No user
+/// code runs under `gate`, but a commit holds it while it waits for the cursor
+/// lock. A `Token::clone` in [`TokenPagedComposition::current_token`] must
+/// therefore not wait for an operation of the same pager to start.
+fn begin_operation(gate: &Mutex<()>, generation: &AtomicUsize) -> usize {
+    let _start = lock(gate);
     generation.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+/// The locks a current commit writes under: the items, and the operation gate,
+/// which keeps every start out until the cursor is written too.
+struct CurrentCommit<'a, T> {
+    items: MutexGuard<'a, Vec<T>>,
+    gate: MutexGuard<'a, ()>,
+}
+
+impl<T> CurrentCommit<'_, T> {
+    /// Runs `write_items` on the held items, releases them, then runs
+    /// `write_cursor`, and releases the gate only after both writes. Returns
+    /// both results, which hold the displaced values.
+    fn write<I, C>(
+        self,
+        write_items: impl FnOnce(&mut Vec<T>) -> I,
+        write_cursor: impl FnOnce() -> C,
+    ) -> (I, C) {
+        let Self { mut items, gate } = self;
+        let displaced_items = write_items(&mut items);
+        drop(items);
+        let displaced_cursor = write_cursor();
+        #[cfg(test)]
+        operation_start_tests::pause_before_gate_release();
+        drop(gate);
+        (displaced_items, displaced_cursor)
+    }
+}
+
+/// Takes the items lock, then `gate`, and returns both when `operation` is
+/// still current and `commit` is allowed (spec 21 §6.2, #1045). The items lock
+/// comes first, so a start does not wait while this commit waits for it.
+fn lock_current<'a, T>(
+    items: &'a Mutex<Vec<T>>,
+    gate: &'a Mutex<()>,
+    generation: &AtomicUsize,
+    operation: usize,
+    commit: &TokenPagerCommit,
+) -> Option<CurrentCommit<'a, T>> {
+    let items = lock(items);
+    let gate = lock(gate);
+    (commit.is_allowed() && is_current_operation(generation, operation))
+        .then_some(CurrentCommit { items, gate })
 }
 
 fn is_current_operation(generation: &AtomicUsize, operation: usize) -> bool {
@@ -286,6 +339,7 @@ pub struct TokenPagedComposition<
     refresh_command: AsyncRelayCommand,
     lifecycle: Arc<TokenPagerLifecycle>,
     operation_generation: Arc<AtomicUsize>,
+    operation_gate: Arc<Mutex<()>>,
 }
 
 impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
@@ -331,6 +385,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         let lifecycle = Arc::new(TokenPagerLifecycle::new(id, hub.clone()));
         let command_change_trigger = MessageHub::new();
         let operation_generation = Arc::new(AtomicUsize::new(0));
+        let operation_gate = Arc::new(Mutex::new(()));
 
         let load_more_items = items.clone();
         let load_more_token = next_token.clone();
@@ -340,12 +395,13 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         let load_more_lifecycle = lifecycle.clone();
         let load_more_trigger = command_change_trigger.clone();
         let load_more_generation = operation_generation.clone();
+        let load_more_gate = operation_gate.clone();
         let load_more_command = AsyncRelayCommand::builder()
             .task(move |_cancellation| {
                 if load_more_lifecycle.is_terminal() {
                     return Ok(());
                 }
-                let operation = begin_operation(&load_more_generation);
+                let operation = begin_operation(&load_more_gate, &load_more_generation);
                 let token = lock(&load_more_token).clone();
                 if load_more_lifecycle.is_terminal() {
                     return Ok(());
@@ -354,17 +410,25 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 let Some(commit) = load_more_lifecycle.begin_commit() else {
                     return Ok(());
                 };
-                if !commit.is_allowed() || !is_current_operation(&load_more_generation, operation) {
+                let Some(current) = lock_current(
+                    &load_more_items,
+                    &load_more_gate,
+                    &load_more_generation,
+                    operation,
+                    &commit,
+                ) else {
                     return Ok(());
-                }
-                let mut changed = false;
-                if !page.is_empty() {
-                    lock(&load_more_items).extend(page);
-                    changed = true;
-                }
-                let has_more = next.is_some();
-                let previous_token = std::mem::replace(&mut *lock(&load_more_token), next);
-                *lock(&load_more_has_more) = has_more;
+                };
+                let changed = !page.is_empty();
+                let ((), previous_token) = current.write(
+                    |items| items.extend(page),
+                    || {
+                        let has_more = next.is_some();
+                        let previous = std::mem::replace(&mut *lock(&load_more_token), next);
+                        *lock(&load_more_has_more) = has_more;
+                        previous
+                    },
+                );
                 publish_pager_changes(&load_more_hub, id, changed, &commit);
                 let publish_command = commit.is_allowed();
                 drop(commit);
@@ -389,12 +453,13 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         let refresh_lifecycle = lifecycle.clone();
         let refresh_trigger = command_change_trigger.clone();
         let refresh_generation = operation_generation.clone();
+        let refresh_gate = operation_gate.clone();
         let refresh_command = AsyncRelayCommand::builder()
             .task(move |_cancellation| {
                 if refresh_lifecycle.is_terminal() {
                     return Ok(());
                 }
-                let operation = begin_operation(&refresh_generation);
+                let operation = begin_operation(&refresh_gate, &refresh_generation);
                 let (page, next) = refresh_loader(None);
                 let Some(commit) = refresh_lifecycle.begin_commit() else {
                     return Ok(());
@@ -409,15 +474,18 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 let current = lock(&refresh_items).clone();
                 let plan = RefreshPlan::new(&current, &page, next.is_some());
                 drop(current);
-                if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
-                    return Ok(());
-                }
-                let displaced = plan.apply(
+                let Some(current) = lock_current(
                     &refresh_items,
-                    &refresh_next_token,
-                    &refresh_has_more,
-                    page,
-                    next,
+                    &refresh_gate,
+                    &refresh_generation,
+                    operation,
+                    &commit,
+                ) else {
+                    return Ok(());
+                };
+                let displaced = current.write(
+                    |items| plan.apply_items(items, page),
+                    || plan.apply_token(&refresh_next_token, &refresh_has_more, next),
                 );
                 publish_pager_changes(&refresh_hub, id, plan.replace_items, &commit);
                 let publish_command = commit.is_allowed();
@@ -442,6 +510,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
             refresh_command,
             lifecycle,
             operation_generation,
+            operation_gate,
         }
     }
 
@@ -505,25 +574,34 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         if self.lifecycle.is_terminal() {
             return;
         }
-        let operation = begin_operation(&self.operation_generation);
+        let operation = begin_operation(&self.operation_gate, &self.operation_generation);
         let token = lock(&self.next_token).clone();
         if self.lifecycle.is_terminal() {
             return;
         }
-        let (items, next_token) = loader(token);
+        let (page, next_token) = loader(token);
         let Some(commit) = self.lifecycle.begin_commit() else {
             return;
         };
-        if !commit.is_allowed() || !is_current_operation(&self.operation_generation, operation) {
+        let Some(current) = lock_current(
+            &self.items,
+            &self.operation_gate,
+            &self.operation_generation,
+            operation,
+            &commit,
+        ) else {
             return;
-        }
-        let changed = !items.is_empty();
-        if changed {
-            lock(&self.items).extend(items);
-        }
-        let has_more = next_token.is_some();
-        let previous_token = std::mem::replace(&mut *lock(&self.next_token), next_token);
-        *lock(&self.has_more) = has_more;
+        };
+        let changed = !page.is_empty();
+        let ((), previous_token) = current.write(
+            |items| items.extend(page),
+            || {
+                let has_more = next_token.is_some();
+                let previous = std::mem::replace(&mut *lock(&self.next_token), next_token);
+                *lock(&self.has_more) = has_more;
+                previous
+            },
+        );
         publish_pager_changes(&self.hub, self.id, changed, &commit);
         let publish_command = commit.is_allowed();
         drop(commit);
@@ -571,6 +649,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
         let lifecycle = Arc::new(TokenPagerLifecycle::new(id, hub.clone()));
         let command_change_trigger = MessageHub::new();
         let operation_generation = Arc::new(AtomicUsize::new(0));
+        let operation_gate = Arc::new(Mutex::new(()));
 
         let load_items = items.clone();
         let load_token = next_token.clone();
@@ -580,12 +659,13 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
         let load_lifecycle = lifecycle.clone();
         let load_trigger = command_change_trigger.clone();
         let load_generation = operation_generation.clone();
+        let load_gate = operation_gate.clone();
         let load_more_command = AsyncRelayCommand::builder()
             .task(move |_cancellation| {
                 if load_lifecycle.is_terminal() {
                     return Ok(());
                 }
-                let operation = begin_operation(&load_generation);
+                let operation = begin_operation(&load_gate, &load_generation);
                 let token = lock(&load_token).clone();
                 if load_lifecycle.is_terminal() {
                     return Ok(());
@@ -597,13 +677,25 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 if !construct_while_current(&page, &load_generation, operation, &commit) {
                     return Ok(());
                 }
+                let Some(current) = lock_current(
+                    &load_items,
+                    &load_gate,
+                    &load_generation,
+                    operation,
+                    &commit,
+                ) else {
+                    return Ok(());
+                };
                 let changed = !page.is_empty();
-                if changed {
-                    lock(&load_items).extend(page);
-                }
-                let has_more = next.is_some();
-                let previous_token = std::mem::replace(&mut *lock(&load_token), next);
-                *lock(&load_has_more) = has_more;
+                let ((), previous_token) = current.write(
+                    |items| items.extend(page),
+                    || {
+                        let has_more = next.is_some();
+                        let previous = std::mem::replace(&mut *lock(&load_token), next);
+                        *lock(&load_has_more) = has_more;
+                        previous
+                    },
+                );
                 publish_pager_changes(&load_hub, id, changed, &commit);
                 let publish_command = commit.is_allowed();
                 drop(commit);
@@ -628,12 +720,13 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
         let refresh_lifecycle = lifecycle.clone();
         let refresh_trigger = command_change_trigger.clone();
         let refresh_generation = operation_generation.clone();
+        let refresh_gate = operation_gate.clone();
         let refresh_command = AsyncRelayCommand::builder()
             .task(move |_cancellation| {
                 if refresh_lifecycle.is_terminal() {
                     return Ok(());
                 }
-                let operation = begin_operation(&refresh_generation);
+                let operation = begin_operation(&refresh_gate, &refresh_generation);
                 let (page, next) = refresh_loader(None);
                 let Some(commit) = refresh_lifecycle.begin_commit() else {
                     return Ok(());
@@ -656,12 +749,18 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 {
                     return Ok(());
                 }
-                let displaced = plan.apply(
+                let Some(current) = lock_current(
                     &refresh_items,
-                    &refresh_next_token,
-                    &refresh_has_more,
-                    page,
-                    next,
+                    &refresh_gate,
+                    &refresh_generation,
+                    operation,
+                    &commit,
+                ) else {
+                    return Ok(());
+                };
+                let displaced = current.write(
+                    |items| plan.apply_items(items, page),
+                    || plan.apply_token(&refresh_next_token, &refresh_has_more, next),
                 );
                 publish_pager_changes(&refresh_hub, id, plan.replace_items, &commit);
                 let publish_command = commit.is_allowed();
@@ -686,6 +785,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
             refresh_command,
             lifecycle,
             operation_generation,
+            operation_gate,
         }
     }
 }
@@ -998,5 +1098,300 @@ mod controlled_interleaving_tests {
         );
         assert_eq!(pages.items(), vec![2]);
         assert!(!pages.load_more_command().can_execute());
+    }
+}
+
+/// #1045 — an operation that starts while an earlier one commits either makes
+/// that commit stale or starts after it. A refresh or ad hoc load that passed
+/// its checks waits for the items lock here, and a load starts meanwhile. The
+/// earlier operation then commits nothing, and the load appends to the prefix
+/// it fetched for.
+#[cfg(test)]
+mod operation_start_tests {
+    use super::TokenPagedComposition;
+    use crate::{ConstructionStatus, VmNode, VmxResult};
+    use std::{
+        sync::{mpsc, Arc, Condvar, Mutex},
+        thread,
+        time::Duration,
+    };
+
+    const BOUND: Duration = Duration::from_secs(5);
+
+    thread_local! {
+        /// A pause that a commit on this thread runs while it holds the
+        /// operation gate. It runs after the cursor write, just before the
+        /// gate is released.
+        static BEFORE_GATE_RELEASE: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    pub(super) fn pause_before_gate_release() {
+        let pause = BEFORE_GATE_RELEASE.with(|hook| hook.borrow_mut().take());
+        if let Some(mut pause) = pause {
+            pause();
+        }
+    }
+
+    /// Pauses the first comparison after it is armed: it reports `reached`
+    /// and waits for `release`. A dropped sender also releases it.
+    #[derive(Default)]
+    struct EqGate {
+        armed: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
+    }
+
+    impl EqGate {
+        fn arm(&self) -> (mpsc::Receiver<()>, mpsc::Sender<()>) {
+            let (reached, reached_rx) = mpsc::channel();
+            let (release, release_rx) = mpsc::channel();
+            *self.armed.lock().unwrap() = Some((reached, release_rx));
+            (reached_rx, release)
+        }
+
+        fn pass(&self) {
+            let armed = self.armed.lock().unwrap().take();
+            if let Some((reached, release)) = armed {
+                reached.send(()).unwrap();
+                let _ = release.recv_timeout(BOUND);
+            }
+        }
+    }
+
+    /// A page item whose `PartialEq` passes the shared [`EqGate`].
+    #[derive(Clone)]
+    struct Item {
+        value: i32,
+        gate: Arc<EqGate>,
+    }
+
+    impl PartialEq for Item {
+        fn eq(&self, other: &Self) -> bool {
+            self.gate.pass();
+            self.value == other.value
+        }
+    }
+
+    impl VmNode for Item {
+        fn id(&self) -> usize {
+            self.value as usize
+        }
+        fn construct(&self) -> VmxResult<()> {
+            Ok(())
+        }
+        fn destruct(&self) -> VmxResult<()> {
+            Ok(())
+        }
+        fn dispose(&self) -> VmxResult<()> {
+            Ok(())
+        }
+        fn status(&self) -> ConstructionStatus {
+            ConstructionStatus::Constructed
+        }
+        fn set_parent_id(&self, _parent_id: Option<usize>) {}
+        fn parent_id(&self) -> Option<usize> {
+            None
+        }
+    }
+
+    type Pager = TokenPagedComposition<Item, u32>;
+
+    /// A pager over `None -> first`, `1 -> [101]`, `2 -> [102]`,
+    /// `3 -> [103]`, loaded to `[1, 101]` with token `2`. Every loader call is
+    /// counted.
+    struct Rig {
+        pages: Pager,
+        first_page: Arc<Mutex<Vec<i32>>>,
+        gate: Arc<EqGate>,
+        fetches: Arc<(Mutex<usize>, Condvar)>,
+    }
+
+    impl Rig {
+        fn new(auto_construct: bool) -> Self {
+            let first_page = Arc::new(Mutex::new(vec![1]));
+            let gate = Arc::new(EqGate::default());
+            let fetches = Arc::new((Mutex::new(0usize), Condvar::new()));
+            let loader = {
+                let (first_page, gate, fetches) =
+                    (first_page.clone(), gate.clone(), fetches.clone());
+                move |token: Option<u32>| {
+                    let (values, next) = match token {
+                        None => (first_page.lock().unwrap().clone(), Some(1)),
+                        Some(1) => (vec![101], Some(2)),
+                        Some(2) => (vec![102], Some(3)),
+                        Some(3) => (vec![103], Some(4)),
+                        Some(other) => panic!("unexpected token {other}"),
+                    };
+                    let (count, fetched) = &*fetches;
+                    *count.lock().unwrap() += 1;
+                    fetched.notify_all();
+                    let page = values
+                        .into_iter()
+                        .map(|value| Item {
+                            value,
+                            gate: gate.clone(),
+                        })
+                        .collect();
+                    (page, next)
+                }
+            };
+            let pages = if auto_construct {
+                TokenPagedComposition::with_auto_construct_loader(None, loader)
+            } else {
+                TokenPagedComposition::with_loader(None, loader)
+            };
+            pages.load_next();
+            pages.load_next();
+            let rig = Self {
+                pages,
+                first_page,
+                gate,
+                fetches,
+            };
+            assert_eq!(rig.values(), vec![1, 101]);
+            assert_eq!(rig.pages.current_token(), Some(2));
+            rig
+        }
+
+        fn values(&self) -> Vec<i32> {
+            self.pages.items().iter().map(|item| item.value).collect()
+        }
+
+        fn fetch_count(&self) -> usize {
+            *self.fetches.0.lock().unwrap()
+        }
+
+        /// Starts `load_next` on another thread and waits, with a bound, until
+        /// it has fetched its page.
+        fn start_load_and_wait_for_its_fetch(&self) -> thread::JoinHandle<()> {
+            let before = self.fetch_count();
+            let load = thread::spawn({
+                let pages = self.pages.clone();
+                move || pages.load_next()
+            });
+            let (count, fetched) = &*self.fetches;
+            let (_count, timeout) = fetched
+                .wait_timeout_while(count.lock().unwrap(), BOUND, |count| *count == before)
+                .unwrap();
+            assert!(!timeout.timed_out(), "the load never fetched");
+            load
+        }
+    }
+
+    /// The refresh replaces the first page with `[900]`. It pauses in its
+    /// plan comparison while the test takes the items lock, then waits for
+    /// that lock to commit. A load starts and fetches for token `2`.
+    fn refresh_waiting_for_the_items_lock_is_superseded(auto_construct: bool) {
+        let rig = Rig::new(auto_construct);
+        *rig.first_page.lock().unwrap() = vec![900];
+        let (reached, release) = rig.gate.arm();
+        let refresh = thread::spawn({
+            let pages = rig.pages.clone();
+            move || pages.refresh()
+        });
+        reached
+            .recv_timeout(BOUND)
+            .expect("the refresh compared its page");
+        let items = rig.pages.items.lock().unwrap();
+        release.send(()).unwrap();
+        // Let the refresh pass its checks and reach the items lock.
+        thread::sleep(Duration::from_millis(100));
+        let load = rig.start_load_and_wait_for_its_fetch();
+        drop(items);
+        refresh.join().unwrap();
+        load.join().unwrap();
+
+        assert_eq!(rig.values(), vec![1, 101, 102]);
+        assert_eq!(rig.pages.current_token(), Some(3));
+    }
+
+    #[test]
+    fn a_refresh_superseded_while_it_commits_commits_nothing() {
+        refresh_waiting_for_the_items_lock_is_superseded(false);
+    }
+
+    #[test]
+    fn an_auto_construct_refresh_superseded_while_it_commits_commits_nothing() {
+        refresh_waiting_for_the_items_lock_is_superseded(true);
+    }
+
+    /// The same with an ad hoc `load_more` in place of the refresh. It pauses
+    /// in its loader while the test takes the items lock.
+    #[test]
+    fn an_ad_hoc_load_superseded_while_it_commits_commits_nothing() {
+        let rig = Rig::new(false);
+        let (reached, reached_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        let ad_hoc = thread::spawn({
+            let (pages, gate) = (rig.pages.clone(), rig.gate.clone());
+            move || {
+                pages.load_more(move |token| {
+                    assert_eq!(token, Some(2));
+                    reached.send(()).unwrap();
+                    let _ = release_rx.recv_timeout(BOUND);
+                    (vec![Item { value: 555, gate }], Some(9))
+                });
+            }
+        });
+        reached_rx
+            .recv_timeout(BOUND)
+            .expect("the ad hoc load fetched");
+        let items = rig.pages.items.lock().unwrap();
+        release.send(()).unwrap();
+        // Let the ad hoc load pass its checks and reach the items lock.
+        thread::sleep(Duration::from_millis(100));
+        let load = rig.start_load_and_wait_for_its_fetch();
+        drop(items);
+        ad_hoc.join().unwrap();
+        load.join().unwrap();
+
+        assert_eq!(rig.values(), vec![1, 101, 102]);
+        assert_eq!(rig.pages.current_token(), Some(3));
+    }
+
+    /// A load that starts while a commit holds the operation gate waits for
+    /// the commit to write its cursor, then fetches from that cursor. Here an
+    /// ad hoc load pauses inside its commit, after it wrote the cursor and
+    /// before it releases the gate.
+    #[test]
+    fn a_load_started_inside_a_commit_waits_for_its_cursor() {
+        let rig = Rig::new(false);
+        let (inside, inside_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        let ad_hoc = thread::spawn({
+            let (pages, gate) = (rig.pages.clone(), rig.gate.clone());
+            move || {
+                BEFORE_GATE_RELEASE.with(|hook| {
+                    *hook.borrow_mut() = Some(Box::new(move || {
+                        inside.send(()).unwrap();
+                        let _ = release_rx.recv_timeout(BOUND);
+                    }));
+                });
+                pages.load_more(move |token| {
+                    assert_eq!(token, Some(2));
+                    (vec![Item { value: 555, gate }], Some(3))
+                });
+            }
+        });
+        inside_rx
+            .recv_timeout(BOUND)
+            .expect("the ad hoc load is inside its commit");
+        let fetches_before = rig.fetch_count();
+        let load = thread::spawn({
+            let pages = rig.pages.clone();
+            move || pages.load_next()
+        });
+        // Give a start that ignored the gate the time to fetch for token 2.
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            rig.fetch_count(),
+            fetches_before,
+            "the load started inside the commit"
+        );
+        release.send(()).unwrap();
+        ad_hoc.join().unwrap();
+        load.join().unwrap();
+
+        assert_eq!(rig.values(), vec![1, 101, 555, 103]);
+        assert_eq!(rig.pages.current_token(), Some(4));
     }
 }
