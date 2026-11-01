@@ -789,24 +789,46 @@ zero-clamping behavior (ADR-0114).
 
 ### 5.2 Decorator semantics
 
-`PagedComposition<TVM>` **decorates** any iterable composition source. It does
-not hold the items itself; it computes a slice of the source on demand. The
-source is never mutated.
+`PagedComposition<TVM>` **decorates** an iterable composition source. The
+pager never changes the caller's repeatable source. Enumerating a one-shot
+source consumes it (see below). How the pager reads the source depends on the
+flavor.
 
-When the source changes (items added or removed), `PageCount` is recomputed and
-`CurrentPageIndex` is clamped to `[0, max(0, PageCount-1)]` if the prior index is
-now out of range. The `max(0, …)` term covers the empty-source case
-(`PageCount == 0`), where the index clamps to `0` rather than to `-1` (§5.4).
+C#, Python and TypeScript do not hold the items. They compute each slice on
+demand from the live source. Swift and Rust page a stored copy that they take
+at construction. Swift copies the `[TVM]` array value. Rust takes the `Vec<T>`
+by value. A later change to the caller's array or `Vec` does not reach the
+stored copy.
 
-A source that can be enumerated only once is the one exception to "computes a
-slice on demand". The flavors that admit such a source materialize it once at
-construction, and later reads page that snapshot: a direct iterator such as a
-generator object in TypeScript, and any `Iterator` in Python. Swift and Rust
-take a repeatable collection, so the case does not arise there. C# accepts any
-`IEnumerable<TVM>` and enumerates it again on each read. Materialize a one-shot
-C# source, such as a consuming or reader-backed iterator, first, for example
-with `ToList()`. The pager then pages that copy. Repeatable
-sources and factories stay live, because each read enumerates them again:
+To change the Swift copy, call `setSource(_:)` (ADR-0060 §2.5). To change the
+Rust copy, call `set_source`, `push` or `remove_at`. These Rust calls change
+only the stored copy. Swift `init(sourceComposite:)` follows the composite
+through `collectionChanged`. Each emission replaces the stored copy with the
+current children of the composite.
+
+`PageCount` and `Items` always read the current source: the live source in C#,
+Python and TypeScript, and the stored copy in Swift and Rust. An observed source
+stream (§5.5) delivers a source change. In Swift and Rust, the update calls
+above also deliver a source change. After a delivered change, the pager clamps
+an out-of-range `CurrentPageIndex` to `[0, max(0, PageCount-1)]`. The
+`max(0, …)` term covers the empty-source case (`PageCount == 0`). There, the
+index clamps to `0` rather than to `-1` (§5.4).
+
+In C#, Python and TypeScript, a change to a live source that the pager does not
+observe shows on the next read. The pager does not clamp `CurrentPageIndex`
+until a delivered change, the next `CurrentPageIndex` assignment, or a
+`PageSize` assignment that changes the page size.
+
+In Python and TypeScript, a source that can be enumerated only once is the one
+exception to on-demand slices. In TypeScript, a one-shot source is a direct
+iterator such as a generator object. In Python, it is any `Iterator`. These
+flavors materialize a one-shot source once at construction. Later reads page
+that snapshot. Swift takes an array or a `CompositeVM`, and Rust takes a `Vec`,
+so a one-shot source cannot occur there. C# does not materialize a one-shot
+source. Materialize a one-shot C# source, such as a consuming or reader-backed
+iterator, first, for example with `ToList()`. The pager then pages that copy.
+Python and TypeScript also take a factory, which each read calls again. The
+TypeScript sample shows both cases:
 
 ```ts
 function* notes() {
@@ -855,10 +877,13 @@ them. Observable-list split streams (`ItemAdded` / `ItemRemoved` /
 `ItemReplaced` / `Reset`, with per-flavor casing) and composite-style
 `CollectionChanged` streams are both valid source shapes.
 
-Open Rust gap: Rust `PagedComposition` takes a `Vec` snapshot source and does
-not observe it, so `COL-031` (observing a composite source) does not apply to
-Rust; a caller updates the source through the composition's own `Vec`
-mutators or replaces it to recompute pages.
+Swift observes only a `CompositeVM` source, through `init(sourceComposite:)`.
+It does not observe `ObservableList` split streams. A caller updates a Swift
+array source through the call that §5.2 names.
+
+Open Rust gap: Rust `PagedComposition` takes the `Vec` by value and does not
+observe it. `COL-031` (observing a composite source) does not apply to Rust. A
+caller updates the stored copy through the calls that §5.2 names.
 
 ### 5.6 Conformance
 
@@ -981,10 +1006,10 @@ pattern.
 ### 7.2 Batch interaction
 
 When a `BatchUpdate()` scope is active, `ObservableList<T>` suppresses granular
-events and emits a single `Reset` on completion (per §3.5). A
-`PagedComposition<TVM>` wrapping that list observes the `Reset` and recomputes
-its page slice. The recomputation happens once after the batch, not once per
-item.
+events and emits a single `Reset` on completion (per §3.5). In C#, Python and
+TypeScript, a `PagedComposition<TVM>` wrapping that list observes the `Reset`
+once. It clamps `CurrentPageIndex` and publishes its `PageCount` and `Items`
+notifications once after the batch, not once per item.
 
 ### 7.3 Serviced collections with composition helpers
 

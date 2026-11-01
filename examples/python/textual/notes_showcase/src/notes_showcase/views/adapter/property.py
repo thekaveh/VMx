@@ -20,6 +20,7 @@ values (Phase 5.b binding gap #3). ``DerivedProperty`` does **not** publish
 from __future__ import annotations
 
 import inspect
+import weakref
 from collections.abc import Callable
 from typing import Any
 
@@ -154,7 +155,9 @@ def bind_property_two_way(
     forward-bind that fires on every VM update doesn't cause a ping-pong.
 
     Two-way binding only makes sense for widget attributes backed by Textual's
-    ``reactive`` descriptor (otherwise no ``watch_*`` hook is called).
+    ``reactive`` descriptor (otherwise no ``watch_*`` hook is called). For
+    ``TextArea.text``, use :func:`bind_text_area` and
+    :func:`push_text_area_text`.
     """
     disposable = bind_property(widget, widget_attr, vm, vm_property)
 
@@ -173,6 +176,97 @@ def bind_property_two_way(
 
     setattr(widget, f"watch_{widget_attr}", _watcher)
     return disposable
+
+
+# For each editor, a VM value and the editor text that stands for it.
+# ``bind_text_area`` records the pair after each load. ``TextArea`` rebuilds the
+# text with one newline style, so the two can differ. When the editor already
+# shows a new VM value, the pair holds that value twice.
+_loaded_text: weakref.WeakKeyDictionary[Any, tuple[str, str]] = weakref.WeakKeyDictionary()
+
+
+def bind_text_area(
+    text_area: Any,
+    vm: Any,
+    vm_property: str,
+    *,
+    identity: Callable[[], object] | None = None,
+) -> DisposableBase:
+    """Bind ``vm.<vm_property>`` → ``text_area.text`` for a Textual ``TextArea``.
+
+    ``TextArea.text`` is a plain property, not a ``reactive``, so Textual
+    never calls the ``watch_text`` hook of :func:`bind_property_two_way`.
+    This function is the VM→widget half of the binding. For the widget→VM
+    half, the view calls :func:`push_text_area_text` from its
+    ``on_text_area_changed`` handler.
+
+    Each ``text`` assignment calls ``TextArea.load_text``. That call moves
+    the cursor to the start and clears the undo history. So the bridge keeps
+    the last VM value that it saw. It loads the text only when the VM value
+    is different from that value. A typed key can be in the widget while its
+    ``Changed`` message is still queued. A broadcast of an unchanged VM value
+    then does not drop that key.
+
+    ``identity`` returns a key for the record that the editor shows, for
+    example a note id. When the key changes, the bridge loads the text even
+    if it is equal. This clears the undo history of the previous record.
+    """
+    synced: str | None = None
+    synced_identity: object = None
+
+    def _load(text: str, *, force: bool) -> None:
+        loaded = _loaded_text.get(text_area)
+        if force:
+            text_area.load_text(text)
+        elif text_area.text == text:
+            if loaded is not None and loaded[1] == text:
+                # Another writer set the rendition itself. A later push must
+                # keep that text, not map it to an older loaded value.
+                _loaded_text[text_area] = (text, text)
+            return
+        elif loaded == (text, text_area.text):
+            # The editor already shows its rendition of this value, for
+            # example after an undo. A reload would move the cursor.
+            return
+        else:
+            text_area.text = text
+        _loaded_text[text_area] = (text, text_area.text)
+
+    def _sync(_name: str | None) -> None:
+        nonlocal synced, synced_identity
+        text = str(getattr(vm, vm_property))
+        current = identity() if identity is not None else None
+        if synced is not None and current != synced_identity:
+            synced, synced_identity = text, current
+            _load(text, force=True)
+            return
+        if text == synced:
+            return
+        synced, synced_identity = text, current
+        _load(text, force=False)
+
+    return on_vm_property_change(vm, vm_property, _sync)
+
+
+def push_text_area_text(text_area: Any, vm: Any, vm_property: str) -> None:
+    """Write ``text_area.text`` to ``vm.<vm_property>`` when they are different.
+
+    Call this from the view's ``on_text_area_changed`` handler. The function
+    reads the text when the message arrives, not when Textual sent it. For
+    this reason, the ``Changed`` message of an earlier VM value cannot write
+    that value back over a later one.
+
+    The editor can show its own rendition of the VM value that
+    :func:`bind_text_area` recorded, for example with other line endings. That
+    rendition is not an edit. When the editor shows it, after the load or after
+    an undo, the function writes the recorded value instead.
+    """
+    text = text_area.text
+    loaded = _loaded_text.get(text_area)
+    if loaded is not None and text == loaded[1]:
+        text = loaded[0]
+    if getattr(vm, vm_property) != text:
+        setattr(vm, vm_property, text)
 
 
 def bind_derived_property(

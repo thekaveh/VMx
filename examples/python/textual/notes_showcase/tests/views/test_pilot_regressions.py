@@ -8,6 +8,7 @@ view-model wiring regresses even if VM-only suites stay green.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from textual.widgets import Button, Input, ListItem, Static, TextArea
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
 from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.notebook_model import NotebookModel
 from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.dialog_service import NullDialogService
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
@@ -23,9 +25,11 @@ from notes_showcase.views.app import NotesShowcaseApp
 from notes_showcase.views.modals import ConfirmModal, SaveFileModal
 
 
-def _workspace(**delays: float) -> tuple[WorkspaceVM, InMemoryNoteRepository]:
+def _workspace(
+    seed: tuple[list[NotebookModel], list[NoteModel]] | None = None, **delays: float
+) -> tuple[WorkspaceVM, InMemoryNoteRepository]:
     options = {"load_all_delay": 0.0, "load_notes_delay": 0.0, **delays}
-    repo = InMemoryNoteRepository(build_seed(), **options)
+    repo = InMemoryNoteRepository(seed if seed is not None else build_seed(), **options)
     workspace = WorkspaceVM.builder().repository(repo).dialog_service(NullDialogService()).build()
     return workspace, repo
 
@@ -384,4 +388,183 @@ async def test_title_error_and_dirty_marker_render_text_not_reprs() -> None:
         assert _rendered(app.query_one("#form_title_error", Static)) == "Title is required."
         assert _rendered(app.query_one("#form_status", Static)) == "Unsaved changes"
         assert app.query_one("#form_save", Button).disabled
+    workspace.dispose()
+
+
+# ── 5. The body editor writes typed edits back ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_typing_in_the_body_editor_updates_the_form_and_saves() -> None:
+    # TextArea.text is not reactive, so the edit must come back through
+    # TextArea.Changed (#1069).
+    workspace, repo = _workspace(save_note_delay=0.0)
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        await _select_row(pilot, app, 0)
+        saved_id = workspace.notes_view.current.model.id  # type: ignore[union-attr]
+        assert workspace.note_form.is_dirty.value is False
+
+        await pilot.click("#form_body")
+        await pilot.press("end", "X", "Y")
+        await _settle(pilot)
+        assert app.query_one("#form_body", TextArea).text.endswith("XY")
+        assert workspace.note_form.body.endswith("XY")
+        assert workspace.note_form.is_dirty.value is True
+        assert not app.query_one("#form_save", Button).disabled
+
+        app.query_one("#form_save", Button).press()
+        await pilot.pause(0.1)
+        await _settle(pilot)
+        _notebooks, notes = await repo.load_all()
+        stored = next(n for n in notes if n.id == saved_id)
+        assert stored.body.endswith("XY")
+        assert workspace.note_form.is_dirty.value is False
+    workspace.dispose()
+
+
+@pytest.mark.asyncio
+async def test_setting_the_body_on_the_form_updates_the_editor_and_stays() -> None:
+    workspace, _repo = _workspace()
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        await _select_row(pilot, app, 0)
+        editor = app.query_one("#form_body", TextArea)
+
+        # Two sets before a settle: the Changed message of the first set must
+        # not write its old text back.
+        workspace.note_form.body = "First body"
+        workspace.note_form.body = "Second body"
+        await _settle(pilot)
+        assert editor.text == "Second body"
+        assert workspace.note_form.body == "Second body"
+
+        # A title edit must not reload the body editor or move its cursor.
+        await pilot.click("#form_body")
+        await pilot.press("end")
+        await _settle(pilot)
+        workspace.note_form.title = "Retitled"
+        await _settle(pilot)
+        await pilot.press("Z")
+        await _settle(pilot)
+        assert workspace.note_form.body == "Second bodyZ"
+        assert editor.text == "Second bodyZ"
+    workspace.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_body_broadcast_keeps_a_typed_key_whose_change_is_queued() -> None:
+    workspace, _repo = _workspace()
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        await _select_row(pilot, app, 0)
+        editor = app.query_one("#form_body", TextArea)
+        original = workspace.note_form.body
+
+        # The edit is in the editor, and its Changed message is still queued.
+        # The starred change broadcasts the unchanged body before it arrives.
+        editor.insert("Q", (0, 0))
+        workspace.note_form.starred = not workspace.note_form.starred
+        await _settle(pilot)
+
+        assert editor.text == "Q" + original
+        assert workspace.note_form.body == "Q" + original
+    workspace.dispose()
+
+
+@pytest.mark.asyncio
+async def test_switching_to_a_note_with_the_same_body_clears_the_undo_history() -> None:
+    notebooks, notes = build_seed()
+    same_body = [dataclasses.replace(note, body=notes[0].body) for note in notes]
+    workspace, _repo = _workspace(seed=(notebooks, same_body))
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        await _select_row(pilot, app, 0)
+        await pilot.click("#form_body")
+        await pilot.press("end", "X", "backspace")
+        await _settle(pilot)
+
+        await _select_row(pilot, app, 1)
+        await pilot.click("#form_body")
+        await pilot.press("ctrl+z")
+        await _settle(pilot)
+
+        assert workspace.note_form.body == notes[0].body
+        assert workspace.note_form.is_dirty.value is False
+    workspace.dispose()
+
+
+@pytest.mark.asyncio
+async def test_reverting_a_typed_body_edit_restores_the_editor() -> None:
+    workspace, _repo = _workspace()
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        await _select_row(pilot, app, 0)
+        original = workspace.note_form.body
+        await pilot.click("#form_body")
+        await pilot.press("end", "X")
+        await _settle(pilot)
+        assert workspace.note_form.is_dirty.value is True
+
+        await pilot.click("#form_revert")
+        await _settle(pilot)
+
+        assert app.query_one("#form_body", TextArea).text == original
+        assert workspace.note_form.body == original
+        assert workspace.note_form.is_dirty.value is False
+    workspace.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_body_with_mixed_line_endings_stays_clean() -> None:
+    notebooks, notes = build_seed()
+    mixed = "one\r\ntwo\nthree"
+    workspace, _repo = _workspace(
+        seed=(notebooks, [dataclasses.replace(note, body=mixed) for note in notes])
+    )
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        await _select_row(pilot, app, 0)
+
+        # The editor shows the text with one newline style. That is not an edit.
+        assert workspace.note_form.body == mixed
+        assert workspace.note_form.is_dirty.value is False
+        assert app.query_one("#form_save", Button).disabled
+
+        await pilot.click("#form_body")
+        await pilot.press("end", "X")
+        await _settle(pilot)
+        await pilot.click("#form_revert")
+        await _settle(pilot)
+        assert workspace.note_form.body == mixed
+        assert workspace.note_form.is_dirty.value is False
+
+        # Undo back to the loaded text is not an edit either, and it does not
+        # reload the editor or move its cursor.
+        editor = app.query_one("#form_body", TextArea)
+        await pilot.click("#form_body")
+        await pilot.press("end")
+        await _settle(pilot)
+        cursor = editor.cursor_location
+        await pilot.press("X", "ctrl+z")
+        await _settle(pilot)
+        assert workspace.note_form.body == mixed
+        assert workspace.note_form.is_dirty.value is False
+        assert editor.cursor_location == cursor
+
+        workspace.note_form.body = "a\r\nb\nc"
+        await _settle(pilot)
+        assert workspace.note_form.body == "a\r\nb\nc"
     workspace.dispose()
