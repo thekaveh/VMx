@@ -65,6 +65,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A lifecycle publication that waits behind another thread's drain now waits on
+  the thread that holds the turn (#1056). Before, a hand-off released only the
+  next waiter's wait edge. Later waiters kept an edge to the old drainer, so the
+  shared wait-for graph could miss a real cycle. A waiter that delivered through
+  `hub.send` could then wait for a hub drain whose subscriber waited for that
+  waiter's hand-off. Both threads would then stop. This was a latent defect: the
+  public API does not queue two foreign waiters on one VM today. The hand-off
+  now points every queued wait at the new drainer, under the lifecycle lock. A
+  redirected wait that would close a cycle wakes its waiter, and the drainer
+  delivers that publication in FIFO order.
 - `AggregateVM1`…`AggregateVM6` no longer dispose their components while their
   admitted `_onConstruct()` or `_onDestruct()` hook runs on another thread
   (#1063, LIFE-015). Before, a foreign `dispose()` during a construct hook also
