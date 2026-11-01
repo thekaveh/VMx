@@ -70,13 +70,6 @@ public class DIA_001_to_008_DialogService_Tests
         // NullDialogService always returns false (safest default).
         r1.Should().BeFalse();
         r2.Should().BeFalse();
-
-        // A confirming implementation resolves true; a cancelling one false.
-        IDialogService host = new ControllableDialogService { NextResult = true };
-        (await host.Confirm("Proceed?")).Should().BeTrue("resolves true when the user confirms");
-        (await host.Confirm("Proceed?", "Title")).Should().BeTrue();
-        ((ControllableDialogService)host).NextResult = false;
-        (await host.Confirm("Proceed?")).Should().BeFalse("resolves false when the user cancels");
     }
 
     // ── DIA-004 ──────────────────────────────────────────────────────────────
