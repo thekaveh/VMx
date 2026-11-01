@@ -1,9 +1,10 @@
 //
-// ContainerHookDisposalTests.swift — #1062 regression tests.
+// ContainerHookDisposalTests.swift — #1062 and #1063 regression tests.
 //
 // A container's child cascade runs at the same admitted-hook boundary as its
-// own `dispose()` (LIFE-015). A `dispose()` from another thread disposes no
-// child while the container's admitted construct hook runs. With no hook
+// own `dispose()` (LIFE-015). This covers composites, groups and fixed
+// aggregates. A `dispose()` from another thread disposes no child while the
+// container's admitted construct or destruct hook runs. With no hook
 // running, the children are still disposed before the container publishes
 // `.disposed` (LIFE-013). Every wait is bounded, so a regression fails instead
 // of hanging the suite.
@@ -315,5 +316,337 @@ final class ContainerHookDisposalTests: XCTestCase {
         XCTAssertGreaterThan(log.index("cleanup:member") ?? -1, log.index("hook-exit") ?? Int.max)
         XCTAssertEqual(member.cleanups, 1)
         XCTAssertEqual(parent.status, .disposed)
+    }
+}
+
+// ── Fixed aggregates (#1063) ────────────────────────────────────────────
+
+/// Blocks one phase of a fixed aggregate's lifecycle hook until released.
+private final class AggregateHookGate: @unchecked Sendable {
+    let log: EventLog
+    let phase: String
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var isBlocking = false
+
+    init(log: EventLog, phase: String) {
+        self.log = log
+        self.phase = phase
+    }
+
+    func startBlocking() { lock.withLock { isBlocking = true } }
+
+    /// Runs the base hook `body`; in the blocking phase, waits before it and
+    /// logs `hook-returned` after it.
+    func run(_ phase: String, _ body: () throws -> Void) rethrows {
+        let blocks = lock.withLock { isBlocking } && phase == self.phase
+        if blocks {
+            log.add("hook-enter")
+            entered.signal()
+            _ = release.wait(timeout: .now() + hookTimeout)
+            log.add("hook-exit")
+        }
+        try body()
+        if blocks { log.add("hook-returned") }
+    }
+}
+
+/// Runs a base hook through `gate`, or directly when there is no gate.
+private func runGated(
+    _ gate: AggregateHookGate?, _ phase: String, _ body: () throws -> Void
+) rethrows {
+    if let gate { try gate.run(phase, body) } else { try body() }
+}
+
+/// Creates the slots: `c<N>` first, then `c<N>-candidate` on a later construct.
+private final class AggregateSlotFactory: @unchecked Sendable {
+    private let hub: MessageHubProtocol
+    private let log: EventLog
+    private let lock = NSLock()
+    private var made: [CleanupProbe] = []
+    var created: [CleanupProbe] { lock.withLock { made } }
+
+    init(hub: MessageHubProtocol, log: EventLog) {
+        self.hub = hub
+        self.log = log
+    }
+
+    func slot(_ index: Int) -> () -> CleanupProbe {
+        { [self] in
+            lock.withLock {
+                let first = !made.contains { $0.name.hasPrefix("c\(index)") }
+                let probe = CleanupProbe(
+                    first ? "c\(index)" : "c\(index)-candidate", hub: hub, log: log)
+                made.append(probe)
+                return probe
+            }
+        }
+    }
+}
+
+private final class GatedAggregateVM1: AggregateVM1<CleanupProbe> {
+    var gate: AggregateHookGate?
+    override func _onConstruct() throws { try runGated(gate, "construct") { try super._onConstruct() } }
+    override func _onDestruct() throws { try runGated(gate, "destruct") { try super._onDestruct() } }
+}
+
+private final class GatedAggregateVM2: AggregateVM2<CleanupProbe, CleanupProbe> {
+    var gate: AggregateHookGate?
+    override func _onConstruct() throws { try runGated(gate, "construct") { try super._onConstruct() } }
+    override func _onDestruct() throws { try runGated(gate, "destruct") { try super._onDestruct() } }
+}
+
+private final class GatedAggregateVM3: AggregateVM3<CleanupProbe, CleanupProbe, CleanupProbe> {
+    var gate: AggregateHookGate?
+    override func _onConstruct() throws { try runGated(gate, "construct") { try super._onConstruct() } }
+    override func _onDestruct() throws { try runGated(gate, "destruct") { try super._onDestruct() } }
+}
+
+private final class GatedAggregateVM4: AggregateVM4<
+    CleanupProbe, CleanupProbe, CleanupProbe, CleanupProbe
+> {
+    var gate: AggregateHookGate?
+    override func _onConstruct() throws { try runGated(gate, "construct") { try super._onConstruct() } }
+    override func _onDestruct() throws { try runGated(gate, "destruct") { try super._onDestruct() } }
+}
+
+private final class GatedAggregateVM5: AggregateVM5<
+    CleanupProbe, CleanupProbe, CleanupProbe, CleanupProbe, CleanupProbe
+> {
+    var gate: AggregateHookGate?
+    override func _onConstruct() throws { try runGated(gate, "construct") { try super._onConstruct() } }
+    override func _onDestruct() throws { try runGated(gate, "destruct") { try super._onDestruct() } }
+}
+
+private final class GatedAggregateVM6: AggregateVM6<
+    CleanupProbe, CleanupProbe, CleanupProbe, CleanupProbe, CleanupProbe, CleanupProbe
+> {
+    var gate: AggregateHookGate?
+    override func _onConstruct() throws { try runGated(gate, "construct") { try super._onConstruct() } }
+    override func _onDestruct() throws { try runGated(gate, "destruct") { try super._onDestruct() } }
+}
+
+/// The aggregate under test and its current slots, in slot order.
+private struct GatedAggregate {
+    let vm: ComponentVMBase
+    let slots: () -> [ComponentVMBase]
+
+    static func make(
+        arity: Int, hub: MessageHubProtocol, gate: AggregateHookGate?,
+        factory: AggregateSlotFactory
+    ) -> GatedAggregate {
+        let d = NullDispatcher.INSTANCE
+        let f = factory.slot
+        switch arity {
+        case 1:
+            let vm = GatedAggregateVM1(name: "agg1", hub: hub, dispatcher: d, factory1: f(1))
+            vm.gate = gate
+            return GatedAggregate(vm: vm, slots: { vm.childComponents })
+        case 2:
+            let vm = GatedAggregateVM2(
+                name: "agg2", hub: hub, dispatcher: d, factory1: f(1), factory2: f(2))
+            vm.gate = gate
+            return GatedAggregate(vm: vm, slots: { vm.childComponents })
+        case 3:
+            let vm = GatedAggregateVM3(
+                name: "agg3", hub: hub, dispatcher: d,
+                factory1: f(1), factory2: f(2), factory3: f(3))
+            vm.gate = gate
+            return GatedAggregate(vm: vm, slots: { vm.childComponents })
+        case 4:
+            let vm = GatedAggregateVM4(
+                name: "agg4", hub: hub, dispatcher: d,
+                factory1: f(1), factory2: f(2), factory3: f(3), factory4: f(4))
+            vm.gate = gate
+            return GatedAggregate(vm: vm, slots: { vm.childComponents })
+        case 5:
+            let vm = GatedAggregateVM5(
+                name: "agg5", hub: hub, dispatcher: d,
+                factory1: f(1), factory2: f(2), factory3: f(3), factory4: f(4), factory5: f(5))
+            vm.gate = gate
+            return GatedAggregate(vm: vm, slots: { vm.childComponents })
+        default:
+            let vm = GatedAggregateVM6(
+                name: "agg6", hub: hub, dispatcher: d,
+                factory1: f(1), factory2: f(2), factory3: f(3),
+                factory4: f(4), factory5: f(5), factory6: f(6))
+            vm.gate = gate
+            return GatedAggregate(vm: vm, slots: { vm.childComponents })
+        }
+    }
+}
+
+final class AggregateHookDisposalTests: XCTestCase {
+    /// A `dispose()` on another thread while the aggregate's construct or
+    /// destruct hook blocks: no slot is disposed until the hook returns.
+    private func assertSlotCascadeWaitsForTheHook(arity: Int, phase: String) {
+        let label = "AggregateVM\(arity) \(phase)"
+        let hub = MessageHub()
+        let log = EventLog()
+        let gate = AggregateHookGate(log: log, phase: phase)
+        let factory = AggregateSlotFactory(hub: hub, log: log)
+        let aggregate = GatedAggregate.make(arity: arity, hub: hub, gate: gate, factory: factory)
+        XCTAssertNoThrow(try aggregate.vm.construct(), label)
+        if phase == "construct" { XCTAssertNoThrow(try aggregate.vm.destruct(), label) }
+        let slots = aggregate.slots().compactMap { $0 as? CleanupProbe }
+        XCTAssertEqual(slots.count, arity, label)
+        gate.startBlocking()
+
+        let errors = EventLog()
+        let operated = DispatchSemaphore(value: 0)
+        let disposed = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            do {
+                if phase == "construct" {
+                    try aggregate.vm.construct()
+                } else {
+                    try aggregate.vm.destruct()
+                }
+            } catch {
+                errors.add("\(error)")
+            }
+            operated.signal()
+        }
+        XCTAssertEqual(gate.entered.wait(timeout: .now() + hookTimeout), .success, label)
+        DispatchQueue.global().async {
+            aggregate.vm.dispose()
+            disposed.signal()
+        }
+        XCTAssertEqual(
+            disposed.wait(timeout: .now() + 0.2), .timedOut,
+            "\(label): the dispose waits for the admitted hook")
+        XCTAssertFalse(log.all.contains { $0.hasPrefix("cleanup:") }, label)
+        for slot in slots { XCTAssertNotEqual(slot.status, .disposed, label) }
+
+        gate.release.signal()
+        XCTAssertEqual(
+            operated.wait(timeout: .now() + hookTimeout), .success, "\(label): no deadlock")
+        XCTAssertEqual(
+            disposed.wait(timeout: .now() + hookTimeout), .success, "\(label): no deadlock")
+
+        XCTAssertEqual(errors.all, [], label)
+        let hookReturned = log.index("hook-returned") ?? Int.max
+        for slot in slots {
+            XCTAssertGreaterThan(log.index("cleanup:\(slot.name)") ?? -1, hookReturned, label)
+            XCTAssertEqual(slot.cleanups, 1, "\(label): \(slot.name)")
+            XCTAssertEqual(slot.status, .disposed, label)
+        }
+        // A construct after the dispose request disposes its candidates at
+        // once and commits none (spec/08 §4).
+        for probe in factory.created {
+            XCTAssertEqual(probe.cleanups, 1, "\(label): \(probe.name)")
+        }
+        XCTAssertEqual(
+            aggregate.slots().map(ObjectIdentifier.init), slots.map(ObjectIdentifier.init), label)
+        XCTAssertEqual(aggregate.vm.status, .disposed, label)
+    }
+
+    /// LIFE-015 — a foreign `dispose()` of an `AggregateVM1` waits for the
+    /// admitted construct hook before its slot cascade, and neither thread
+    /// deadlocks (#1063).
+    func testForeignDisposeWaitsForAdmittedAggregateVM1ConstructHook() {
+        assertSlotCascadeWaitsForTheHook(arity: 1, phase: "construct")
+    }
+
+    /// LIFE-015 — the same for `AggregateVM2`…`AggregateVM6` (#1063).
+    func testForeignDisposeWaitsForAdmittedAggregateConstructHookAtEveryArity() {
+        for arity in 2...6 { assertSlotCascadeWaitsForTheHook(arity: arity, phase: "construct") }
+    }
+
+    /// LIFE-015 — a foreign `dispose()` waits for the admitted destruct hook
+    /// before the slot cascade, at every arity (#1063).
+    func testForeignDisposeWaitsForAdmittedAggregateDestructHookAtEveryArity() {
+        for arity in 1...6 { assertSlotCascadeWaitsForTheHook(arity: arity, phase: "destruct") }
+    }
+
+    /// LIFE-015 — no hook of the aggregate is admitted while its slot cascade
+    /// runs. A `construct()` from a slot's `_onDispose()` creates no slot, and
+    /// the aggregate ends `.disposed`.
+    func testNoAggregateHookIsAdmittedDuringItsSlotCascade() {
+        for arity in 1...6 {
+            let label = "AggregateVM\(arity)"
+            let hub = MessageHub()
+            let log = EventLog()
+            let factory = AggregateSlotFactory(hub: hub, log: log)
+            let aggregate = GatedAggregate.make(arity: arity, hub: hub, gate: nil, factory: factory)
+            XCTAssertNoThrow(try aggregate.vm.construct(), label)
+            XCTAssertNoThrow(try aggregate.vm.destruct(), label)
+            let slots = aggregate.slots().compactMap { $0 as? CleanupProbe }
+            weak var owner = aggregate.vm
+            slots[0].onCleanup = { try? owner?.construct() }
+
+            aggregate.vm.dispose()
+
+            XCTAssertEqual(factory.created.count, arity, "\(label): no candidate is created")
+            XCTAssertEqual(aggregate.vm.status, .disposed, label)
+            for slot in slots { XCTAssertEqual(slot.cleanups, 1, label) }
+            slots[0].onCleanup = nil
+        }
+    }
+
+    /// LIFE-013 — with no hook running, every slot is disposed in slot order
+    /// before the aggregate publishes `.disposed`.
+    func testSlotsAreDisposedInSlotOrderBeforeTheAggregate() {
+        for arity in 1...6 {
+            let label = "AggregateVM\(arity)"
+            let hub = MessageHub()
+            let log = EventLog()
+            let disposedSenders = EventLog()
+            let subscription = hub.messages
+                .compactMap { $0 as? ConstructionStatusChangedMessage }
+                .filter { $0.status == .disposed }
+                .sink { disposedSenders.add($0.senderName) }
+            defer { subscription.cancel() }
+            let factory = AggregateSlotFactory(hub: hub, log: log)
+            let aggregate = GatedAggregate.make(arity: arity, hub: hub, gate: nil, factory: factory)
+            XCTAssertNoThrow(try aggregate.vm.construct(), label)
+
+            aggregate.vm.dispose()
+
+            XCTAssertEqual(
+                disposedSenders.all, (1...arity).map { "c\($0)" } + ["agg\(arity)"], label)
+        }
+    }
+
+    /// LIFE-015 — two aggregates whose slot factories each dispose the other
+    /// aggregate, from inside their admitted construct hooks, both finish.
+    /// Each ends `.disposed`, and every slot is disposed (#1063).
+    func testOpposingAggregateFactoriesDisposeEachOtherWithoutDeadlock() {
+        let hub = MessageHub()
+        let log = EventLog()
+        let rendezvous = DispatchGroup()
+        rendezvous.enter()
+        rendezvous.enter()
+        let createdLock = NSLock()
+        var created: [CleanupProbe] = []
+        var aggregates: [AggregateVM1<CleanupProbe>] = []
+        for index in 0..<2 {
+            aggregates.append(AggregateVM1<CleanupProbe>(
+                name: "agg\(index)", hub: hub, dispatcher: NullDispatcher.INSTANCE,
+                factory1: {
+                    rendezvous.leave()
+                    _ = rendezvous.wait(timeout: .now() + hookTimeout)
+                    aggregates[1 - index].dispose()
+                    let slot = CleanupProbe("slot\(index)", hub: hub, log: log)
+                    createdLock.withLock { created.append(slot) }
+                    return slot
+                }))
+        }
+        let done = DispatchGroup()
+        for aggregate in aggregates {
+            done.enter()
+            DispatchQueue.global().async {
+                try? aggregate.construct()
+                done.leave()
+            }
+        }
+
+        XCTAssertEqual(done.wait(timeout: .now() + hookTimeout), .success, "no deadlock")
+        for aggregate in aggregates { XCTAssertEqual(aggregate.status, .disposed) }
+        let slots = createdLock.withLock { created }
+        XCTAssertEqual(slots.count, 2)
+        for slot in slots { XCTAssertEqual(slot.status, .disposed, slot.name) }
+        aggregates.removeAll()
     }
 }

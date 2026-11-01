@@ -1024,6 +1024,17 @@ class _ComponentVMBase(ABC):
         snapshot = tuple(children)
         self._dispose_at_hook_boundary(lambda: _dispose_children(snapshot))
 
+    def _dispose_with_children_from(
+        self, children: Callable[[], Iterable[_Disposable | None]]
+    ) -> None:
+        """Like :meth:`_dispose_with_children`, but read the children only
+        when the cascade starts.
+
+        A fixed aggregate reads its slots under its own lock at that point. The
+        cascade then disposes the slots that an admitted hook committed.
+        """
+        self._dispose_at_hook_boundary(lambda: _dispose_children(tuple(children())))
+
     def _dispose_at_hook_boundary(
         self,
         cascade: Callable[[], BaseException | None] | None,
@@ -1529,15 +1540,6 @@ class _ComponentVMBase(ABC):
         if dispose_now:
             self._dispose_owned_resource(resource)
         return resource
-
-    def _close_member_registration(self) -> None:
-        """Dispose any later member at registration (spec/02 §7.1).
-
-        A container whose own child cascade runs before the base dispose
-        calls this at its dispose entry.
-        """
-        with self._lifecycle_lock:
-            self._members_released = True
 
     def _own_member(self, member: _MemberT) -> _MemberT:
         """Register a member VM that :meth:`dispose` disposes depth-first.
