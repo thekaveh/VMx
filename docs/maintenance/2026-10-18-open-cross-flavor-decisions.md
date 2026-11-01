@@ -62,6 +62,29 @@ add or insert attach rollback:
 On the ordinary construct path no flavor rolls back siblings that already
 constructed. The spec does not say whether it should.
 
+### 1.4. Notifications of an update nested in a form callback
+
+A validator, snapshotter or equality callback of `SetModel` or deny can call
+`SetModel`, deny or approve on the same form (spec 20 §5.4, FORM-037). Spec 20
+§5.2 and §5.3 describe the notifications as steps of one synchronous call.
+`SetModel` sends `ErrorsChanged`, `CanExecuteChanged` and the model message
+(§5.2). An admitted approval raises `CanExecuteChanged` and only then calls the
+persister (§5.3, ADR-0143). The spec does not say when a call nested in a
+preparation callback (§5.4) sends its notifications.
+
+| Flavor | Result                                                                                                                                                                                                                                                                                                    |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C#     | Sends the notifications before the nested `SetModel` returns, inside the outer call's lock ([`FormVM.cs`](../../langs/csharp/src/VMx/Forms/FormVM.cs), `SetModel`)                                                                                                                                        |
+| Python | The same as C# ([`form_vm.py`](../../langs/python/src/vmx/forms/form_vm.py), `set_model`)                                                                                                                                                                                                                 |
+| Swift  | Queues them. The outermost call sends them after it releases the state lock: error maps first, in commit order, then the other notifications in queue order. A nested approve starts its persister at that time ([`FormVM.swift`](../../langs/swift/Sources/VMx/Forms/FormVM.swift), `takeNoticesLocked`) |
+
+In Swift, the nested call returns before these steps run. A nested approve
+followed by a `dispose()` in the same callback therefore never calls the
+persister. Swift queues the notifications because a Combine sink on another
+thread can wait for the state lock while it holds the subject's delivery lock
+(#1057). An update made from an `errorsChanged` sink of `setModel` or deny is
+queued in the same way. TypeScript and Rust are not recorded here.
+
 ## 2. Small spec gaps
 
 ### 2.1. Notification opacity after resolution
