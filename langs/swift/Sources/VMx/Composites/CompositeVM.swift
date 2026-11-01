@@ -974,14 +974,10 @@ open class CompositeVM<Child: ComponentVMBase>:
                 continue
             }
             guard let snapshot else { return }
-            // Disposal started: `ownMember` now disposes a new member at once,
-            // including one registered during the child cascade (spec/02 §7.1).
-            _ = _enterDispose()
-            // A disposed child must not roll back a pending transition.
-            _abandonChildTransition()
-            // LIFE-013: depth-first dispose children in `destructOrder`, then self.
-            for child in destructOrder.arrange(snapshot) { child.dispose() }
-            super.dispose()
+            // LIFE-013 at the base's admitted-hook boundary (LIFE-015): the
+            // children are disposed in `destructOrder`, and a foreign disposal
+            // disposes none while this container's hook runs. No lock is held.
+            _disposeWithChildren(destructOrder.arrange(snapshot))
             return
         }
     }

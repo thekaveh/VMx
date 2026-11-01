@@ -100,6 +100,23 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm`, `GroupVm` and `AggregateVm1`…`AggregateVm6` no longer dispose
+  their children while their admitted construct or destruct hook runs on another
+  thread (#1062, LIFE-015). The child cascade now runs at the hook boundary of
+  the container's own disposal. A foreign `dispose()` publishes `Disposed`,
+  waits for the hook, and then disposes the children. On a wait-for cycle, the
+  hook's thread disposes them when the hook returns. That thread's `construct()`
+  or `destruct()` then returns the first child failure, unless the call failed
+  already. With no foreign hook, the children are still disposed before the
+  container publishes `Disposed` (LIFE-013). A `construct()` or `destruct()` of
+  the container during that cascade returns `VmxError::Disposed` and publishes
+  nothing. A child walk of a disposed container starts no further child and does
+  not run its selector. A `ComponentVm` child walk also stops: once the
+  component is disposed, `ChildTransitions::transition` starts no member, `then`
+  does not run, and both return `Ok(())`. A second `dispose()` of a
+  `CompositeVm` or `GroupVm` returns `Ok(())` at once. So a child that disposes
+  its parent no longer makes the parent publish `Disposed` before the remaining
+  children.
 - `TokenPagedComposition` no longer commits a refresh or load that a later load
   superseded (#1045). An operation started with no lock, so a load could start
   between a commit's last staleness check and its writes. The load then
