@@ -100,6 +100,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVm::is_dirty` on another thread no longer pairs a model and a
+  snapshot that never coexisted (#1073). A reset approval replaces both in two
+  steps, so a clean reset could read as dirty. An approval that advanced the
+  snapshot after an edit could also read as clean. `is_dirty` now reads the
+  pair again when an approval commit overlapped its reads. It still holds no
+  lock while `PartialEq` runs.
 - A `FormVm` approval with `reset_on_approved` now validates the reset model
   under the update lock, before it commits (#1046). Before, a validator
   registered on another thread during that validation was left out. The

@@ -394,6 +394,10 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     /// the update lock. While an approval validates its reset model, only a
     /// registration re-entering from that thread can advance it (#1046).
     revalidations: Arc<AtomicU64>,
+    /// Odd while an approval commit replaces the snapshot, and for a reset
+    /// also the model, under separate mutexes. `is_dirty` reads a pair that no
+    /// such commit overlapped (#1073). No user code runs while it is odd.
+    pair_version: Arc<AtomicU64>,
     disposed: Arc<Mutex<bool>>,
     hub: MessageHub,
 }
@@ -443,6 +447,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             update_lock: Arc::new(UpdateLock::new()),
             commit_generation: Arc::new(AtomicU64::new(0)),
             revalidations: Arc::new(AtomicU64::new(0)),
+            pair_version: Arc::new(AtomicU64::new(0)),
             disposed: Arc::new(Mutex::new(false)),
             hub,
         };
@@ -624,9 +629,22 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
 
     /// Reports whether the current model differs from the snapshot.
     pub fn is_dirty(&self) -> bool {
-        // Compare copies, so no lock is held while `PartialEq` runs.
-        let model = self.model();
-        model != self.snapshot()
+        // Compare copies, so no lock is held while `PartialEq` runs. The model
+        // is read first, so only a snapshot write between the two reads can
+        // pair values that never coexisted. Read the pair again when an
+        // approval commit, the only snapshot writer, overlapped them (#1073).
+        loop {
+            let version = self.pair_version.load(Ordering::SeqCst);
+            if version % 2 == 1 {
+                thread::yield_now();
+                continue;
+            }
+            let model = self.model();
+            let snapshot = self.snapshot();
+            if self.pair_version.load(Ordering::SeqCst) == version {
+                return model != snapshot;
+            }
+        }
     }
 
     /// Returns the current validation messages in field-key order.
@@ -830,6 +848,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             return None;
         }
         self.commit_generation.fetch_add(1, Ordering::SeqCst);
+        // The odd pair version marks the snapshot write, and a reset's model
+        // install, for `is_dirty` (#1073); no user code runs inside it.
+        self.pair_version.fetch_add(1, Ordering::SeqCst);
         let replaced_snapshot = std::mem::replace(&mut *lock(&self.snapshot), snapshot);
         let (errors_changed, replaced_model) = match reset {
             Some((model, errors)) => {
@@ -838,6 +859,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             }
             None => (false, None),
         };
+        self.pair_version.fetch_add(1, Ordering::SeqCst);
         drop(serialized);
         // Replaced values are dropped after the update lock is released.
         drop((replaced_snapshot, replaced_model));
@@ -1502,6 +1524,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             update_lock: Arc::new(UpdateLock::new()),
             commit_generation: Arc::new(AtomicU64::new(0)),
             revalidations: Arc::new(AtomicU64::new(0)),
+            pair_version: Arc::new(AtomicU64::new(0)),
             disposed: Arc::new(Mutex::new(false)),
             hub: self.hub,
         };
