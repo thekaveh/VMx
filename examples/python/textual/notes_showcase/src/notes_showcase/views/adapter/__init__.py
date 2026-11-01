@@ -7,6 +7,8 @@ delegate to these bridges; they never touch the hub directly.
 Public surface (plan §4.b, scenario §7.3):
 
 * :func:`bind_property` / :func:`bind_property_two_way` — PropertyBridge.
+* :func:`bind_text_area` / :func:`push_text_area_text` — the two halves of a
+  ``TextArea.text`` binding. ``TextArea.text`` is not a ``reactive``.
 * :func:`bind_command` — CommandBridge.
 * :func:`bind_collection` — CollectionBridge.
 * :func:`bind_data_table` — DataTableBridge: a projection's rows by key, with
@@ -33,8 +35,10 @@ from notes_showcase.views.adapter.property import (
     bind_derived_property,
     bind_property,
     bind_property_two_way,
+    bind_text_area,
     on_derived_change,
     on_vm_property_change,
+    push_text_area_text,
 )
 
 __all__ = [
@@ -47,7 +51,9 @@ __all__ = [
     "bind_observable_list",
     "bind_property",
     "bind_property_two_way",
+    "bind_text_area",
     "on_derived_change",
     "on_tree_structure_changed",
     "on_vm_property_change",
+    "push_text_area_text",
 ]
