@@ -69,6 +69,7 @@ tests/conformance/component_vm.rs
 tests/conformance/composite_vm.rs
 tests/conformance/confirmation_async_inner.rs
 tests/conformance/container_disposal_wait_cycle.rs
+tests/conformance/container_hook_disposal.rs
 tests/conformance/derived_properties.rs
 tests/conformance/dialogs.rs
 tests/conformance/discriminator.rs
