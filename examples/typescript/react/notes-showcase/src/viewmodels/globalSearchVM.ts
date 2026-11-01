@@ -1,9 +1,9 @@
 import {
+  AsyncRelayCommand,
   ComponentVMBase,
   SearchableState,
   TokenPagedComposition,
   ViewModelType,
-  type AsyncRelayCommand,
   type IDispatcher,
   type IMessageHub,
 } from "@thekaveh/vmx";
@@ -13,13 +13,22 @@ import { NoteVM } from "./noteVM.js";
 
 const SENTINEL = Symbol("not-set");
 
+/** The cursor for the next page. It keeps the term of the loaded pages. */
+interface SearchCursor {
+  readonly term: string;
+  readonly offset: string;
+}
+
 /** Token-paged search and lifetime owner for every result VM it creates. */
 export class GlobalSearchVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
   readonly #pageSize: number;
   readonly #search: SearchableState<string>;
-  readonly #paged: TokenPagedComposition<NoteVM, string>;
+  readonly #paged: TokenPagedComposition<NoteVM, SearchCursor>;
+  readonly #loadMoreCommand: AsyncRelayCommand;
   readonly #ownedResults = new Set<NoteVM>();
+  /** The search term that fetched each result. */
+  readonly #resultTerms = new WeakMap<NoteVM, string>();
   #ownedResultsDisposed = false;
   /** A search asked for while a refresh was in flight; see `search()`. */
   #searchPending = false;
@@ -47,9 +56,12 @@ export class GlobalSearchVM extends ComponentVMBase {
       debounceMs: opts.searchDebounceMs,
       scheduler: opts.dispatcher.foreground,
     });
-    this.#paged = new TokenPagedComposition<NoteVM, string>(
-      async (token) => {
-        const page = await this.#repo.searchNotes(this.searchTerm, token, this.#pageSize);
+    this.#paged = new TokenPagedComposition<NoteVM, SearchCursor>(
+      async (cursor) => {
+        // The first page uses the current term. A later page uses the term in
+        // the cursor, so "Load more" continues the term of the loaded pages.
+        const term = cursor?.term ?? this.searchTerm;
+        const page = await this.#repo.searchNotes(term, cursor?.offset ?? null, this.#pageSize);
         return {
           items: page.items.map((model) =>
             this.#ownResult(
@@ -58,18 +70,38 @@ export class GlobalSearchVM extends ComponentVMBase {
                 .services(this._hub, this._dispatcher)
                 .model(model)
                 .build(),
+              term,
             ),
           ),
-          nextToken: page.nextToken,
+          nextToken: page.nextToken === null ? null : { term, offset: page.nextToken },
         };
       },
       {
         autoConstructOnAdd: true,
+        // Pages for different terms are never equal, so a refresh for a new
+        // term replaces the loaded pages and their cursor.
         pagesEqual: (left, right) =>
           left.length === right.length
-          && left.every((item, idx) => item.model.id === right[idx]?.model.id),
+          && left.every((item, idx) => {
+            const other = right[idx];
+            return other !== undefined
+              && item.model.id === other.model.id
+              && this.#resultTerms.get(item) === this.#resultTerms.get(other);
+          }),
       },
     );
+    // A refresh replaces the loaded pages, so "Load more" is not available
+    // until the refresh is complete. A call made during a refresh does
+    // nothing. A load that starts during a refresh makes the composition
+    // discard that refresh (spec 21 §6.2).
+    this.#loadMoreCommand = AsyncRelayCommand.builder()
+      .predicate(
+        () => this.#paged.loadMoreCommand.canExecute() && !this.#paged.refreshCommand.isExecuting,
+      )
+      .triggers(this.#paged.loadMoreCommand.canExecuteChanged)
+      .triggers(this.#paged.refreshCommand.canExecuteChanged)
+      .task(() => this.#paged.loadMoreCommand.executeAsync())
+      .build();
     // Re-run a search that arrived while the previous refresh was busy, once
     // the command goes idle (it announces that through canExecuteChanged).
     this.#paged.refreshCommand.canExecuteChanged.subscribe(() => {
@@ -138,14 +170,15 @@ export class GlobalSearchVM extends ComponentVMBase {
   }
 
   get loadMoreCommand(): AsyncRelayCommand {
-    return this.#paged.loadMoreCommand;
+    return this.#loadMoreCommand;
   }
 
-  #ownResult(result: NoteVM): NoteVM {
+  #ownResult(result: NoteVM, term: string): NoteVM {
     if (this.#ownedResultsDisposed) {
       result.dispose();
     } else {
       this.#ownedResults.add(result);
+      this.#resultTerms.set(result, term);
     }
     return result;
   }
@@ -155,6 +188,7 @@ export class GlobalSearchVM extends ComponentVMBase {
     for (const result of this.#ownedResults) result.dispose();
     this.#ownedResults.clear();
     this.#search.dispose();
+    this.#loadMoreCommand.dispose();
     this.#paged.dispose();
     super._onDispose();
   }
