@@ -763,10 +763,10 @@ open class ComponentVMBase {
     private var ownedCleanups: [() throws -> Void] = []
     /// Member VMs registered through `ownMember`, in registration order.
     private var ownedMembers: [ComponentVMBase] = []
-    /// Set under `lifecycleLock` when disposal starts: at the entry of this
-    /// base `dispose()` or `_disposeWithChildren(_:)`, or at a fixed
-    /// aggregate's `_enterDispose()`, before its child cascade. From then on
-    /// `ownMember` disposes a new member at once (spec/02 §7.1).
+    /// Set under `lifecycleLock` when disposal starts, at the entry of
+    /// `_disposeAtHookBoundary(children:)`, before the child cascade. Every
+    /// `dispose()` path reaches it. From then on `ownMember` disposes a new
+    /// member at once (spec/02 §7.1).
     private var disposeEntered = false
     /// Set when this base `dispose()` body starts, before the member
     /// cascade, so a re-entrant or concurrent `dispose()` returns at once.
@@ -824,7 +824,7 @@ open class ComponentVMBase {
     private var hookAdmissionClosed = false
     /// The child and member cascade of a disposal that found a foreign hook
     /// admitted; `_finishDisposalNow` runs it after the lease (LIFE-015).
-    private var deferredDisposalCascade: [ComponentVMBase] = []
+    private var deferredDisposalCascade: (() -> [ComponentVMBase])?
 
     // ── Deferred child transitions (spec/02 §6, LIFE-014) ───────────────
 
@@ -1571,21 +1571,6 @@ open class ComponentVMBase {
         return deferral
     }
 
-    /// A fixed aggregate's `dispose()` override calls this at entry, before
-    /// its child cascade, under `lifecycleLock`. It marks disposal as started,
-    /// so `ownMember` disposes a new member at once. It returns `false` when
-    /// disposal already started. The caller is then a re-entrant or
-    /// concurrent call, which returns at once without waiting (spec/02 §7.1).
-    func _enterDispose() -> Bool {
-        lifecycleLock.lock()
-        defer { lifecycleLock.unlock() }
-        guard !disposeEntered, !disposalRequested, _status != .disposed else {
-            return false
-        }
-        disposeEntered = true
-        return true
-    }
-
     /// Idempotent terminal transition. From any non-Disposed state,
     /// transitions to `.disposed` and invokes `_onDispose()`. Subclasses
     /// override `_onDispose()` (and may override `dispose()` itself to
@@ -1599,14 +1584,21 @@ open class ComponentVMBase {
     /// destruct hook of this VM runs on another thread, this VM publishes
     /// `.disposed` first. It disposes no child or member until that hook
     /// returns (LIFE-015).
-    open func dispose() { _disposeAtHookBoundary(children: []) }
+    open func dispose() { _disposeAtHookBoundary(children: nil) }
 
     /// A container's `dispose()` calls this, holding no lock, instead of
     /// disposing `children` and then calling `super.dispose()` (LIFE-013).
     /// The cascade runs at the same admitted-hook boundary as `dispose()`
     /// (LIFE-015).
     final func _disposeWithChildren(_ children: [ComponentVMBase]) {
-        _disposeAtHookBoundary(children: children)
+        _disposeAtHookBoundary(children: children.isEmpty ? nil : { children })
+    }
+
+    /// Like `_disposeWithChildren(_:)`, but `snapshot` is read only when the
+    /// cascade starts. A fixed aggregate reads its slots under its own lock
+    /// then, so the cascade disposes the slots an admitted hook committed.
+    final func _disposeWithChildren(snapshot: @escaping () -> [ComponentVMBase]) {
+        _disposeAtHookBoundary(children: snapshot)
     }
 
     /// The cascade is `children`, then the members registered with
@@ -1615,7 +1607,7 @@ open class ComponentVMBase {
     /// Disposed. With a hook admitted on another thread, this VM publishes
     /// Disposed now. The cascade then runs in `_finishDisposalNow` when that
     /// hook's lease is released, also on a wait cycle.
-    private func _disposeAtHookBoundary(children: [ComponentVMBase]) {
+    private func _disposeAtHookBoundary(children: (() -> [ComponentVMBase])?) {
         lifecycleLock.lock()
         if baseDisposeStarted || disposalRequested || _status == .disposed {
             lifecycleLock.unlock()
@@ -1624,10 +1616,13 @@ open class ComponentVMBase {
         baseDisposeStarted = true
         disposeEntered = true
         // A container's children first, then the members (spec/02 §7.1).
-        let cascade = children + ownedMembers
+        let members = ownedMembers
         ownedMembers.removeAll()
+        let cascade: (() -> [ComponentVMBase])? = children == nil && members.isEmpty
+            ? nil
+            : { (children?() ?? []) + members }
         let lease = activeHookLease
-        if !cascade.isEmpty,
+        if let cascade,
            lease == nil || lease?.threadID == Self.currentThreadID {
             hookAdmissionClosed = true
             lifecycleLock.unlock()
@@ -1636,7 +1631,7 @@ open class ComponentVMBase {
             _abandonChildTransition()
             // Depth-first, before this VM publishes Disposed. Swift dispose
             // does not throw, so every child and member is attempted.
-            for vm in cascade { vm.dispose() }
+            for vm in cascade() { vm.dispose() }
             lifecycleLock.lock()
         } else {
             deferredDisposalCascade = cascade
@@ -1837,10 +1832,22 @@ open class ComponentVMBase {
         return _status
     }
 
-    private func _isDisposalRequested() -> Bool {
+    /// True once this VM's terminal disposal is requested.
+    func _isDisposalRequested() -> Bool {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
         return disposalRequested || _status == .disposed
+    }
+
+    /// Runs `commit` and returns `true`, unless this VM's terminal disposal is
+    /// requested. The check and `commit` run under `lifecycleLock`, so no
+    /// disposal request lands between them. `commit` must only store values.
+    func _commitUnlessDisposalRequested(_ commit: () -> Void) -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard !disposalRequested, _status != .disposed else { return false }
+        commit()
+        return true
     }
 
     private typealias LifecyclePublicationPlan = (
@@ -2117,11 +2124,11 @@ open class ComponentVMBase {
         }
         disposalFinished = true
         let cascade = deferredDisposalCascade
-        deferredDisposalCascade.removeAll()
+        deferredDisposalCascade = nil
         lifecycleLock.unlock()
 
         // A cascade deferred behind an admitted foreign hook runs only now.
-        for vm in cascade { vm.dispose() }
+        for vm in cascade?() ?? [] { vm.dispose() }
         _onDispose()
         disposeOwnedResources()
 

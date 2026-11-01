@@ -68,8 +68,8 @@ model.
 - While a construct or destruct hook of the VM runs on another thread, the VM
   publishes `Disposed` first and waits for that hook. After the hook returns,
   the VM disposes its children and members, before its subclass hook
-  (`LIFE-015`, spec 02 §2.4, §7.1). C#, Python and Swift fixed aggregates do
-  not follow this rule yet
+  (`LIFE-015`, spec 02 §2.4, §7.1). C# fixed aggregates do not follow this rule
+  yet
   ([open decision 2.11](../../maintenance/2026-10-18-open-cross-flavor-decisions.md#211-lifecycle-call-during-a-containers-inline-dispose-cascade)).
 - A child view-model registered with the owned-resource helper is not a
   container child. It is disposed parent-first: the parent publishes
@@ -212,8 +212,8 @@ flavor unless the exceptions below say otherwise.
 - `AggregateChangeStream.withBatch` throws `Error` after disposal.
 - Lifecycle hooks run on one thread, so no hook runs on another thread during
   disposal. A `construct()` or `destruct()` of a container from a child's
-  dispose hook runs the container's hook. C#, Python and Swift composites and
-  groups, and Rust containers, admit no hook during the child cascade
+  dispose hook runs the container's hook. C# composites and groups, and Python,
+  Swift and Rust containers, admit no hook during the child cascade
   ([open decision 2.11](../../maintenance/2026-10-18-open-cross-flavor-decisions.md#211-lifecycle-call-during-a-containers-inline-dispose-cascade)).
 
 ### 6.8.5.4. Swift
@@ -288,8 +288,8 @@ flavor unless the exceptions below say otherwise.
   ([Rust parity ledger §12.13](../../maintenance/2026-07-16-rust-capability-parity.md#1213-open-item-leaf-member-disposal-and-admitted-hooks)).
 - A `construct()` or `destruct()` of a container during its inline child
   cascade, before it publishes `Disposed`, returns `VmxError::Disposed` and
-  publishes nothing. C#, Python and Swift
-  composites and groups publish the transient status and run no hook
+  publishes nothing. C# composites and groups, and
+  Python and Swift containers, publish the transient status and run no hook
   ([open decision 2.11](../../maintenance/2026-10-18-open-cross-flavor-decisions.md#211-lifecycle-call-during-a-containers-inline-dispose-cascade)).
 
 ## 6.8.6. Practical Teardown Pattern
