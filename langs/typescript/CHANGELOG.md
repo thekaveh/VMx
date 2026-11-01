@@ -83,6 +83,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A background VM that waits on a child now rolls back and clears its in-flight
+  guard when that wait fails (#1053). The wait can fail in a deferred
+  `_transitionChildren` walk, a member hook, a `CompositeVM` selector or a
+  member `reconstruct()`, at any nesting depth. Before, the error was thrown
+  inside a foreground flush, which dropped the queued rollbacks of waiting
+  parents. Those parents stayed `Constructing` or `Destructing`. On a shared
+  `queueScheduler` (`RxDispatcher.immediate()`, `NullDispatcher`), the outermost
+  background `construct()` or `destruct()` in the flush throws the first failure
+  after the flush drains. With separate schedulers, a background hook failure
+  still throws on the background (#842). A foreground action throws any other
+  failure after the queued lifecycle actions have run. #726 fixed the first
+  level of this drop for a throwing background hook.
 - `observeHub` now labels a tree message from a second package copy as
   `TreeStructureChangedMessage` (#1079). It classifies tree messages with
   `isTreeStructureChanged`, which matches by class and then by shape (ADR-0163).

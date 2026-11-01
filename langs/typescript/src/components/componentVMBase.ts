@@ -11,7 +11,7 @@
  * See spec/05-component-vm.md and spec/02-lifecycle.md.
  */
 import { Subject } from "rxjs";
-import type { Observable, Subscription } from "rxjs";
+import type { Observable, SchedulerLike, Subscription } from "rxjs";
 import type { ViewModelType } from "./types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import { StatusTransitionError } from "../lifecycle/exceptions.js";
@@ -174,10 +174,66 @@ class DeferredLifecycle {
   }
 }
 
-/** Whether a background action is running inside its own `schedule()` call. */
+/** The first rollback failure recorded in a background `construct()` or `destruct()` flush. */
 interface BackgroundScheduling {
-  active: boolean;
   failure: { error: unknown } | null;
+}
+
+/**
+ * The outermost background `construct()` or `destruct()` that is still inside
+ * its `schedule()` call, per scheduler that serves both channels (#726, #1053).
+ * A rollback failure anywhere in that flush is recorded here. That call throws
+ * the first one after the flush drains, so no rollback queued in it is lost.
+ */
+const activeSharedDrains = new WeakMap<SchedulerLike, BackgroundScheduling>();
+
+/** Runs `run` as `scheduling`, the outermost drain of `scheduler` if none is active. */
+function drainAs(scheduler: SchedulerLike | null, scheduling: BackgroundScheduling, run: () => void): void {
+  const outermost = scheduler !== null && !activeSharedDrains.has(scheduler);
+  if (outermost) activeSharedDrains.set(scheduler, scheduling);
+  try {
+    run();
+  } finally {
+    if (outermost) activeSharedDrains.delete(scheduler);
+  }
+}
+
+/**
+ * The lifecycle actions that VMx queued on a scheduler and that have not run
+ * yet (#1053). These are the completions on the foreground, and the background
+ * actions of `construct()` and `destruct()`.
+ */
+interface CountedActions {
+  pending: number;
+  /** Changes each time a counted action is queued or runs. */
+  version: number;
+}
+
+const countedActions = new WeakMap<SchedulerLike, CountedActions>();
+
+function countedActionsOf(scheduler: SchedulerLike): CountedActions {
+  let counted = countedActions.get(scheduler);
+  if (counted === undefined) {
+    counted = { pending: 0, version: 0 };
+    countedActions.set(scheduler, counted);
+  }
+  return counted;
+}
+
+/** Queue `work` through `schedule` as a counted action of `scheduler` (#1053). */
+function scheduleCounted(
+  scheduler: SchedulerLike,
+  schedule: (work: () => void) => void,
+  work: () => void,
+): void {
+  const counted = countedActionsOf(scheduler);
+  counted.pending++;
+  counted.version++;
+  schedule(() => {
+    counted.pending = Math.max(0, counted.pending - 1);
+    counted.version++;
+    work();
+  });
 }
 
 export abstract class ComponentVMBase {
@@ -441,9 +497,9 @@ export abstract class ComponentVMBase {
         this.#releaseInFlight();
         throw error;
       }
-      const scheduling: BackgroundScheduling = { active: true, failure: null };
-      try {
-        this.#dispatcher.background.schedule(() => {
+      const scheduling: BackgroundScheduling = { failure: null };
+      drainAs(this.#sharedScheduler(), scheduling, () => {
+        this.#scheduleBackground(() => {
           // dispose() may have run between scheduling and execution; Disposed is
           // terminal (spec/02 invariant 3), so skip the work and the marshalled
           // emission.
@@ -457,7 +513,7 @@ export abstract class ComponentVMBase {
           } catch (e) {
             // VMX-007: roll _status back to Destructed and clear the in-flight
             // guard so a throwing background hook leaves the VM recoverable.
-            this.#rollBackFailedBackgroundHook(ConstructionStatus.Destructed, e, scheduling);
+            this.#rollBackFailedBackgroundHook(ConstructionStatus.Destructed, e);
             return;
           }
           // VMX-025: marshal the terminal Constructed emission onto the foreground
@@ -472,9 +528,7 @@ export abstract class ComponentVMBase {
             true,
           );
         });
-      } finally {
-        scheduling.active = false;
-      }
+      });
       if (scheduling.failure) throw scheduling.failure.error;
     } else {
       let pending = false;
@@ -527,9 +581,9 @@ export abstract class ComponentVMBase {
         this.#releaseInFlight();
         throw error;
       }
-      const scheduling: BackgroundScheduling = { active: true, failure: null };
-      try {
-        this.#dispatcher.background.schedule(() => {
+      const scheduling: BackgroundScheduling = { failure: null };
+      drainAs(this.#sharedScheduler(), scheduling, () => {
+        this.#scheduleBackground(() => {
           // dispose() may have run between scheduling and execution; Disposed is
           // terminal (spec/02 invariant 3), so skip the work and the marshalled
           // emission.
@@ -543,7 +597,7 @@ export abstract class ComponentVMBase {
           } catch (e) {
             // VMX-007: roll _status back to Constructed and clear the in-flight
             // guard so a throwing background hook leaves the VM recoverable.
-            this.#rollBackFailedBackgroundHook(ConstructionStatus.Constructed, e, scheduling);
+            this.#rollBackFailedBackgroundHook(ConstructionStatus.Constructed, e);
             return;
           }
           // VMX-025: marshal the terminal Destructed emission onto the foreground
@@ -558,9 +612,7 @@ export abstract class ComponentVMBase {
             true,
           );
         });
-      } finally {
-        scheduling.active = false;
-      }
+      });
       if (scheduling.failure) throw scheduling.failure.error;
     } else {
       let pending = false;
@@ -624,6 +676,7 @@ export abstract class ComponentVMBase {
         // A background child is still destructing: continue with the construct
         // phase only once every child has reached Destructed (spec/02 §6).
         pending = true;
+        let settling = true;
         deferred.then(({ failed, error, rethrow }) => {
           if (failed) {
             try {
@@ -631,16 +684,23 @@ export abstract class ComponentVMBase {
             } finally {
               this.#releaseInFlight();
             }
-            if (rethrow) throw error;
+            if (rethrow) this.#surfaceSettledFailure(error, settling);
             return;
           }
-          let stillPending = false;
           try {
-            stillPending = this.#reconstructConstructPhase();
-          } finally {
-            if (!stillPending) this.#releaseInFlight();
+            let stillPending = false;
+            try {
+              stillPending = this.#reconstructConstructPhase();
+            } finally {
+              if (!stillPending) this.#releaseInFlight();
+            }
+          } catch (e) {
+            // The construct phase has already rolled back (VMX-007). An
+            // inline throw here would drop work queued in this flush (#1053).
+            this.#surfaceSettledFailure(e, settling);
           }
         });
+        settling = false;
         return;
       }
       pending = this.#reconstructConstructPhase();
@@ -688,6 +748,11 @@ export abstract class ComponentVMBase {
    * once the deferral settles, and the in-flight guard is held until then.
    * Returns true while the transition is pending. A synchronous, non-foreground
    * completion leaves clearing the in-flight guard to the caller.
+   *
+   * A deferred walk can fail inside a flush of the foreground scheduler, where a
+   * throw drops the work queued behind it (#1053, as #726 for a hook). So a
+   * rethrown failure goes through `#surfaceRollbackFailure` or
+   * `#surfaceSettledFailure`, and completions are queued as counted actions.
    */
   #completeTransition(
     deferred: DeferredLifecycle | null,
@@ -708,16 +773,25 @@ export abstract class ComponentVMBase {
       }
     };
     if (deferred === null) {
-      if (foreground) this._scheduleForeground(() => { finish(success); });
+      if (foreground) this.#queueCompletion(() => { finish(success); });
       else this._setStatus(success);
       return false;
     }
+    let settling = true;
     deferred.then(({ failed, error, rethrow }) => {
       const status = failed ? rollback : success;
-      if (foreground) this._scheduleForeground(() => { finish(status); });
-      else finish(status);
-      if (failed && rethrow) throw error;
+      if (!foreground) {
+        finish(status);
+        if (failed && rethrow) this.#surfaceSettledFailure(error, settling);
+        return;
+      }
+      if (!(failed && rethrow)) {
+        this.#queueCompletion(() => { finish(status); });
+        return;
+      }
+      this.#surfaceRollbackFailure(() => { finish(status); }, error, false);
     });
+    settling = false;
     return true;
   }
 
@@ -1233,44 +1307,107 @@ export abstract class ComponentVMBase {
    * Roll a failed background hook back to `rollback` on the foreground (VMX-025;
    * `_setStatus` re-checks Disposed), clear the in-flight guard, and surface
    * `error`.
-   *
-   * When both channels share one scheduler (`RxDispatcher.immediate()` and
-   * `NullDispatcher` each use `queueScheduler` for both), a throw inside the
-   * background action makes the active flush drop the queued rollback (#726).
-   * If the action ran inside the `schedule()` call, the error is recorded and
-   * `construct()` / `destruct()` throws it after the flush drains, so the
-   * rollback and any work its observers queue still run. If the action ran
-   * later, inside an outer flush, the rollback action itself re-throws after
-   * restoring the status. With separate schedulers the throw stays on the
-   * background, an unobserved async throw on asyncScheduler (VMX-049 tracks
-   * delivering it to an awaiter).
    */
-  #rollBackFailedBackgroundHook(
-    rollback: ConstructionStatus,
-    error: unknown,
-    scheduling: BackgroundScheduling,
-  ): void {
-    const restore = (): void => {
+  #rollBackFailedBackgroundHook(rollback: ConstructionStatus, error: unknown): void {
+    this.#surfaceRollbackFailure(() => {
       try {
         this._setStatus(rollback);
       } finally {
         this.#releaseInFlight();
       }
-    };
-    if (this.#dispatcher.foreground === this.#dispatcher.background) {
-      if (scheduling.active) {
-        scheduling.failure = { error };
-        this._scheduleForeground(restore);
+    }, error, true);
+  }
+
+  /**
+   * Queue `restore` on the foreground and surface `error` without dropping a
+   * queued completion.
+   *
+   * `RxDispatcher.immediate()` and `NullDispatcher` use `queueScheduler` for
+   * both channels. A throw inside an active flush of that scheduler drops every
+   * queued action (#726, #1053). `restore` can queue more work, such as the
+   * rollback of a parent that waited on this VM. So `error` takes one of three
+   * paths:
+   *
+   * - A background `construct()` or `destruct()` can still be inside its
+   *   `schedule()` call on the shared scheduler. Then the outermost one records
+   *   `error`, and it throws the error after the flush drains.
+   * - A hook failure (`onBackground`) with separate schedulers throws `error`
+   *   on the background, as #842 does. asyncScheduler reports it as an
+   *   unobserved async throw (VMX-049).
+   * - Otherwise `#throwAfterCountedActions` throws `error` on the foreground.
+   */
+  #surfaceRollbackFailure(restore: () => void, error: unknown, onBackground: boolean): void {
+    this.#queueCompletion(restore);
+    if (this.#recordOnActiveDrain(error)) return;
+    if (this.#sharedScheduler() === null && onBackground) throw error;
+    this.#throwAfterCountedActions(error);
+  }
+
+  /**
+   * Surface `error` for a transition whose rollback has already run on this
+   * call stack. A continuation can run while its own transition is still being
+   * set up (`settling`). Then it throws to that caller, as before. Otherwise an
+   * active drain records the error, or `#throwAfterCountedActions` throws it.
+   */
+  #surfaceSettledFailure(error: unknown, settling: boolean): void {
+    if (settling) throw error;
+    if (this.#recordOnActiveDrain(error)) return;
+    this.#throwAfterCountedActions(error);
+  }
+
+  /** Record `error` on the active drain of this VM's shared scheduler, if any. */
+  #recordOnActiveDrain(error: unknown): boolean {
+    const shared = this.#sharedScheduler();
+    const drain = shared === null ? undefined : activeSharedDrains.get(shared);
+    if (drain === undefined) return false;
+    drain.failure ??= { error };
+    return true;
+  }
+
+  /** Queue `work` on the foreground as a counted completion (#1053). */
+  #queueCompletion(work: () => void): void {
+    scheduleCounted(this.#dispatcher.foreground, (w) => { this._scheduleForeground(w); }, work);
+  }
+
+  /** Queue `work` on the background as a counted action (#1053). */
+  #scheduleBackground(work: () => void): void {
+    const { background } = this.#dispatcher;
+    scheduleCounted(background, (w) => { background.schedule(w); }, work);
+  }
+
+  /**
+   * Throw `error` from a foreground action after the counted actions queued on
+   * the foreground have run, so the throw drops none of them.
+   *
+   * While counted actions are pending, the action queues itself again behind
+   * them. A throw can drop a counted action, and an override of
+   * `_scheduleForeground` can skip one. Such an action never runs. So if no
+   * counted action was queued or ran since the last pass, the action stops
+   * waiting. It clears the stale count and throws.
+   *
+   * Two such failures in one synchronous flush both wait. Only the error of
+   * the first throw to run leaves the flush. An active drain keeps the first
+   * recorded failure instead.
+   */
+  #throwAfterCountedActions(error: unknown): void {
+    const counted = countedActionsOf(this.#dispatcher.foreground);
+    let seen = counted.version;
+    const attempt = (): void => {
+      if (counted.pending > 0 && counted.version !== seen) {
+        seen = counted.version;
+        this._scheduleForeground(attempt);
         return;
       }
-      this._scheduleForeground(() => {
-        restore();
-        throw error;
-      });
-      return;
-    }
-    this._scheduleForeground(restore);
-    throw error;
+      counted.pending = 0;
+      throw error;
+    };
+    this._scheduleForeground(attempt);
+  }
+
+  /** The scheduler that serves both channels, or null with separate schedulers. */
+  #sharedScheduler(): SchedulerLike | null {
+    const { foreground, background } = this.#dispatcher;
+    return foreground === background ? foreground : null;
   }
 
   /** Schedule work on the foreground scheduler. */
