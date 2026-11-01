@@ -35,15 +35,23 @@ class InstanceGrid:
             .build()
         )
         self.page = PagedComposition(self._visible, page_size)
+        # Every change to the list. "Count" is not sufficient: a replace and a
+        # same-length replace_all keep the count, so they send no "Count".
+        list_changes = rx.merge(
+            self.instances.on_item_added,
+            self.instances.on_item_removed,
+            self.instances.on_item_replaced,
+            self.instances.on_reset,
+        )
         # A factory source sends no change signal, so the page index is not
         # re-clamped when the rows shrink. Re-clamp it here. The table renders
         # later on the App loop, so it reads the re-clamped page.
-        self._reclamp = rx.merge(
-            self.instances.on_property_changed, self.filter.property_changed
-        ).subscribe(lambda _: self._reclamp_page())
+        self._reclamp = rx.merge(list_changes, self.filter.property_changed).subscribe(
+            lambda _: self._reclamp_page()
+        )
         # Everything that can change the visible rows or the selection.
         self.changes = rx.merge(
-            self.instances.on_property_changed,
+            list_changes,
             self.filter.property_changed,
             self.page.on_property_changed,
             self.selection.property_changed,
