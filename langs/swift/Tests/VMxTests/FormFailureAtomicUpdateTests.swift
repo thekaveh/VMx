@@ -321,7 +321,8 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
 
     /// FORM-037 — a validator that calls setModel(b) while setModel(a) prepares: the nested
     /// assignment commits and publishes one model message, and the outer call commits and
-    /// publishes nothing after it.
+    /// publishes nothing after it. The nested notifications are delivered once the outer
+    /// call releases the form's state lock (#1057).
     func testForm037_nestedAssignmentFromAValidatorWins() {
         let hub = MessageHub()
         var form: FormVM<String>!
@@ -354,12 +355,12 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
             log.notices,
             expectedNotices(
                 nested,
+                "nested setModel returned",
                 "errorsChanged",
                 "canExecuteChanged",
-                "PropertyChanged(model)",
-                "nested setModel returned"
+                "PropertyChanged(model)"
             ),
-            "the outer call publishes nothing after the nested commit"
+            "the nested commit publishes once, and the outer call publishes nothing of its own"
         )
 
         // The abandoned outer call leaves the form usable.
