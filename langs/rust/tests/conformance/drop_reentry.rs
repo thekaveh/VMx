@@ -760,3 +760,119 @@ fn composite_clear_survives_an_is_current_child_subscriber_that_disposes_it() {
     assert!(!child.is_current());
     assert_eq!(is_current_messages.load(Ordering::SeqCst), 1);
 }
+
+/// #1066 — an `add` or `insert` whose admission fails destructs the child after
+/// it releases the membership gate. A hub subscriber disposes the container on
+/// every message from the child: the first disposal, inside the transaction,
+/// defers and fails the admission. The next one, from the rollback's destruct
+/// messages, must not deadlock on the gate. Returns the call's result and the
+/// child.
+fn rollback_with_a_disposing_subscriber<C: Clone + Send + Sync + 'static>(
+    what: &'static str,
+    hub: &MessageHub,
+    container: &C,
+    dispose: fn(&C) -> vmx::VmxResult<()>,
+    attach: fn(&C, ComponentVm<u32>) -> vmx::VmxResult<()>,
+) -> (vmx::VmxResult<()>, ComponentVm<u32>) {
+    let child = ComponentVm::with_model("child", 1u32, hub.clone(), NullDispatcher::new());
+    let _subscription = hub.subscribe({
+        let container = container.clone();
+        let child_id = child.id();
+        move |message| {
+            if message.sender_id() == child_id {
+                let _ = dispose(&container);
+            }
+        }
+    });
+    let result = within_timeout(what, {
+        let (container, child) = (container.clone(), child.clone());
+        move || attach(&container, child)
+    });
+    (result, child)
+}
+
+fn constructed_composite(hub: &MessageHub) -> CompositeVm<ComponentVm<u32>> {
+    let composite = CompositeVm::with_services("composite", hub.clone(), NullDispatcher::new());
+    composite.set_auto_construct_on_add(true);
+    composite.construct().unwrap();
+    composite
+}
+
+fn constructed_group(hub: &MessageHub) -> GroupVm<ComponentVm<u32>> {
+    let group = GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    group.set_auto_construct_on_add(true);
+    group.construct().unwrap();
+    group
+}
+
+#[test]
+fn composite_add_rollback_survives_a_subscriber_that_disposes_it() {
+    let hub = MessageHub::new();
+    let composite = constructed_composite(&hub);
+    let (result, child) = rollback_with_a_disposing_subscriber(
+        "CompositeVm::add",
+        &hub,
+        &composite,
+        CompositeVm::dispose,
+        |composite, child| composite.add(child),
+    );
+
+    assert_eq!(result, Err(vmx::VmxError::Disposed));
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+    assert!(composite.items().iter().all(|item| item.id() != child.id()));
+    assert_eq!(child.parent_id(), None);
+}
+
+#[test]
+fn composite_insert_rollback_survives_a_subscriber_that_disposes_it() {
+    let hub = MessageHub::new();
+    let composite = constructed_composite(&hub);
+    let (result, child) = rollback_with_a_disposing_subscriber(
+        "CompositeVm::insert",
+        &hub,
+        &composite,
+        CompositeVm::dispose,
+        |composite, child| composite.insert(0, child),
+    );
+
+    assert_eq!(result, Err(vmx::VmxError::Disposed));
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+    assert!(composite.items().iter().all(|item| item.id() != child.id()));
+    assert_eq!(child.parent_id(), None);
+}
+
+#[test]
+fn group_add_rollback_survives_a_subscriber_that_disposes_it() {
+    let hub = MessageHub::new();
+    let group = constructed_group(&hub);
+    let (result, child) = rollback_with_a_disposing_subscriber(
+        "GroupVm::add",
+        &hub,
+        &group,
+        GroupVm::dispose,
+        |group, child| group.add(child),
+    );
+
+    assert_eq!(result, Err(vmx::VmxError::Disposed));
+    assert_eq!(group.status(), ConstructionStatus::Disposed);
+    assert!(group.items().iter().all(|item| item.id() != child.id()));
+    assert_eq!(child.parent_id(), None);
+}
+
+#[test]
+fn group_insert_rollback_survives_a_subscriber_that_disposes_it() {
+    let hub = MessageHub::new();
+    let group = constructed_group(&hub);
+    let (result, child) = rollback_with_a_disposing_subscriber(
+        "GroupVm::insert",
+        &hub,
+        &group,
+        GroupVm::dispose,
+        |group, child| group.insert(0, child),
+    );
+
+    assert_eq!(result, Err(vmx::VmxError::Disposed));
+    assert_eq!(group.status(), ConstructionStatus::Disposed);
+    assert!(group.items().iter().all(|item| item.id() != child.id()));
+    assert_eq!(child.parent_id(), None);
+}

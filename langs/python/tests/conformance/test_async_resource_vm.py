@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx import (
     NULL_DISPATCHER,
     AsyncResourceError,
@@ -92,7 +93,7 @@ async def test_ares_002_success_and_ordinary_notification() -> None:
     await _wait_until(lambda: vm.state.status is AsyncResourceStatus.LOADING)
     assert vm.state.status is AsyncResourceStatus.LOADING
     result.set_result(42)
-    await asyncio.wait_for(load, timeout=1)
+    await asyncio.wait_for(load, timeout=HANG_GUARD)
 
     assert vm.state.status is AsyncResourceStatus.READY
     assert vm.state.value == 42
@@ -118,7 +119,7 @@ async def test_start_notification_failure_rolls_back_without_orphaning_loader() 
     )
 
     with pytest.raises(RuntimeError, match="observer"):
-        await asyncio.wait_for(vm.load(), timeout=1)
+        await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
     await _flush()
 
     assert vm.state.status is AsyncResourceStatus.IDLE
@@ -147,7 +148,7 @@ async def test_awaited_command_preserves_start_notification_failure_and_rolls_ba
     vm.load_command.can_execute_changed.subscribe(observe)
 
     with pytest.raises(RuntimeError, match="start observer"):
-        await asyncio.wait_for(vm.load_command.execute_async(), timeout=1)
+        await asyncio.wait_for(vm.load_command.execute_async(), timeout=HANG_GUARD)
     await _flush()
 
     assert vm.state.status is AsyncResourceStatus.IDLE
@@ -173,7 +174,7 @@ async def test_fire_and_forget_routes_start_notification_failure_after_rollback(
     vm.load_command.errors.subscribe(on_error)
 
     vm.load_command.execute()
-    await asyncio.wait_for(observed.wait(), timeout=1)
+    await asyncio.wait_for(observed.wait(), timeout=HANG_GUARD)
     await _flush()
 
     assert len(errors) == 1
@@ -211,7 +212,7 @@ async def test_completion_notification_failure_keeps_ready_and_notifies_all_comm
     result.set_result(42)
 
     with pytest.raises(RuntimeError, match="completion observer"):
-        await asyncio.wait_for(load, timeout=1)
+        await asyncio.wait_for(load, timeout=HANG_GUARD)
 
     assert vm.state.status is AsyncResourceStatus.READY
     assert vm.state.value == 42
@@ -242,13 +243,13 @@ async def test_command_routes_completion_notification_failure_with_ready_state(
 
     if fire_and_forget:
         vm.load_command.execute()
-        await asyncio.wait_for(observed.wait(), timeout=1)
+        await asyncio.wait_for(observed.wait(), timeout=HANG_GUARD)
         assert len(errors) == 1
         assert isinstance(errors[0], RuntimeError)
         assert str(errors[0]) == "completion observer"
     else:
         with pytest.raises(RuntimeError, match="completion observer"):
-            await asyncio.wait_for(vm.load_command.execute_async(), timeout=1)
+            await asyncio.wait_for(vm.load_command.execute_async(), timeout=HANG_GUARD)
         assert errors == []
 
     assert vm.state.status is AsyncResourceStatus.READY
@@ -280,11 +281,11 @@ async def test_external_cancellation_preserves_cancel_and_cleans_late_success() 
 
     vm.load_command.can_execute_changed.subscribe(fail_first_idle_notification)
     load = asyncio.create_task(vm.load())
-    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=HANG_GUARD)
 
     load.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(load, timeout=1)
+        await asyncio.wait_for(load, timeout=HANG_GUARD)
     await _wait_until(lambda: cleaned == [42])
 
     assert vm.state.status is AsyncResourceStatus.IDLE
@@ -320,7 +321,7 @@ async def test_command_cancellation_with_rollback_failure_stays_nonthrowing() ->
     vm.load_command.can_execute_changed.subscribe(fail_first_idle_notification)
     vm.load_command.errors.subscribe(errors.append)
     vm.load_command.execute()
-    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=HANG_GUARD)
 
     armed = True
     vm.load_command.cancel()
@@ -359,13 +360,13 @@ async def test_public_cancel_suppresses_rollback_observer_failure(entry: str) ->
 
     vm.load_command.can_execute_changed.subscribe(fail_first_idle_notification)
     load = asyncio.create_task(vm.load())
-    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=HANG_GUARD)
 
     if entry == "direct":
         vm.cancel()
     else:
         vm.cancel_command.execute()
-    await asyncio.wait_for(load, timeout=1)
+    await asyncio.wait_for(load, timeout=HANG_GUARD)
     await _wait_until(lambda: cleaned == [42])
 
     assert vm.state.status is AsyncResourceStatus.IDLE
@@ -411,7 +412,7 @@ async def test_ares_003_base_exception_is_captured_as_resource_state() -> None:
 
     vm = _vm(loader)
 
-    await asyncio.wait_for(vm.load(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
 
     assert isinstance(vm.state, AsyncResourceError)
     assert vm.state.error is failure
@@ -430,9 +431,9 @@ async def test_ares_004_retry_replaces_error() -> None:
         return 7
 
     vm = _vm(loader)
-    await asyncio.wait_for(vm.load(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.ERROR
-    await asyncio.wait_for(vm.reload(), timeout=1)
+    await asyncio.wait_for(vm.reload(), timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.READY
     assert vm.state.value == 7
     assert not hasattr(vm.state, "error")
@@ -458,7 +459,7 @@ async def test_ares_005_cancel_initial_load_to_idle() -> None:
     await _wait_until(lambda: vm.state.status is AsyncResourceStatus.LOADING)
     await _wait_until(lambda: started)
     vm.cancel_command.execute()
-    await asyncio.wait_for(load, timeout=1)
+    await asyncio.wait_for(load, timeout=HANG_GUARD)
 
     assert observed_cancel
     assert vm.state.status is AsyncResourceStatus.IDLE
@@ -483,17 +484,17 @@ async def test_ares_006_retain_previous_across_cancel_and_failure() -> None:
         raise failure
 
     vm = _vm(loader, retention=AsyncResourceRetention.RETAIN_PREVIOUS)
-    await asyncio.wait_for(vm.load(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
     reload_task = asyncio.create_task(vm.reload())
     await _wait_until(lambda: attempts == 2)
     assert vm.state.status is AsyncResourceStatus.LOADING
     assert vm.state.value == 3
     vm.cancel()
-    await asyncio.wait_for(reload_task, timeout=1)
+    await asyncio.wait_for(reload_task, timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.READY
     assert vm.state.value == 3
 
-    await asyncio.wait_for(vm.reload(), timeout=1)
+    await asyncio.wait_for(vm.reload(), timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.ERROR
     assert vm.state.value == 3
     assert vm.state.error is failure
@@ -516,16 +517,16 @@ async def test_ares_007_discard_cleans_before_loading() -> None:
         raise RuntimeError("offline")
 
     vm = _vm(loader, cleanup=cleaned.append)
-    await asyncio.wait_for(vm.load(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
     reload_task = asyncio.create_task(vm.reload())
     await _wait_until(lambda: attempts == 2)
     assert cleaned == [5]
     assert vm.state.status is AsyncResourceStatus.LOADING
     assert not hasattr(vm.state, "value")
     vm.cancel()
-    await asyncio.wait_for(reload_task, timeout=1)
+    await asyncio.wait_for(reload_task, timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.IDLE
-    await asyncio.wait_for(vm.load(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.ERROR
     assert not hasattr(vm.state, "value")
 
@@ -549,8 +550,8 @@ async def test_ares_007_base_exception_cleanup_is_isolated() -> None:
         raise CleanupAbort("cleanup failed")
 
     vm = _vm(loader, cleanup=cleanup)
-    await asyncio.wait_for(vm.load(), timeout=1)
-    await asyncio.wait_for(vm.reload(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
+    await asyncio.wait_for(vm.reload(), timeout=HANG_GUARD)
 
     assert cleaned == [1]
     assert vm.state.status is AsyncResourceStatus.READY
@@ -610,19 +611,19 @@ async def test_ares_008_latest_start_wins(older_first: bool, newer_fails: bool) 
     if older_first:
         before = list(notifications)
         first.set_result(1)
-        await asyncio.wait_for(older, timeout=1)
+        await asyncio.wait_for(older, timeout=HANG_GUARD)
         await _flush()
         assert notifications == before, "older completion must not notify"
         assert vm.state.status is AsyncResourceStatus.LOADING
         settle_newer()
-        await asyncio.wait_for(newer, timeout=1)
+        await asyncio.wait_for(newer, timeout=HANG_GUARD)
     else:
         settle_newer()
-        await asyncio.wait_for(newer, timeout=1)
+        await asyncio.wait_for(newer, timeout=HANG_GUARD)
         await _flush()
         before = list(notifications)
         first.set_result(1)
-        await asyncio.wait_for(older, timeout=1)
+        await asyncio.wait_for(older, timeout=HANG_GUARD)
         await _flush()
         assert notifications == before, "older completion must not notify"
 
@@ -659,7 +660,7 @@ async def test_ares_009_stale_success_cleanup_without_notification(late_failure:
     newer = asyncio.create_task(vm.reload())
     await _wait_until(lambda: attempts == 2)
     second.set_result(2)
-    await asyncio.wait_for(newer, timeout=1)
+    await asyncio.wait_for(newer, timeout=HANG_GUARD)
     count = len(changes)
     if late_failure:
         first.set_exception(RuntimeError("stale failure"))
@@ -671,7 +672,7 @@ async def test_ares_009_stale_success_cleanup_without_notification(late_failure:
     assert cleaned == ([] if late_failure else [1])
     assert len(changes) == count
     assert vm.state.value == 2
-    await asyncio.wait_for(older, timeout=1)
+    await asyncio.wait_for(older, timeout=HANG_GUARD)
 
 
 @pytest.mark.asyncio
@@ -691,8 +692,8 @@ async def test_ares_010_replacement_and_disposal_cleanup_once(same_value: bool) 
         retention=AsyncResourceRetention.RETAIN_PREVIOUS,
         cleanup=cleaned.append,
     )
-    await asyncio.wait_for(vm.load(), timeout=1)
-    await asyncio.wait_for(vm.reload(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
+    await asyncio.wait_for(vm.reload(), timeout=HANG_GUARD)
     assert cleaned == [1]
     vm.dispose()
     vm.dispose()
@@ -734,8 +735,8 @@ async def test_ares_010_without_cleanup_no_value_is_disposed() -> None:
         dispatcher=NULL_DISPATCHER,
         retention=AsyncResourceRetention.RETAIN_PREVIOUS,
     )
-    await asyncio.wait_for(vm.load(), timeout=1)
-    await asyncio.wait_for(vm.reload(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
+    await asyncio.wait_for(vm.reload(), timeout=HANG_GUARD)
     vm.dispose()
     vm.dispose()
 
@@ -775,10 +776,10 @@ async def test_ares_011_dispose_cancels_and_late_completion_is_inert() -> None:
     assert not vm.cancel_command.can_execute()
     late.set_result(9)
     await _flush()
-    await asyncio.wait_for(load, timeout=1)
+    await asyncio.wait_for(load, timeout=HANG_GUARD)
     await asyncio.sleep(0)
-    await asyncio.wait_for(vm.load(), timeout=1)
-    await asyncio.wait_for(vm.reload(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
+    await asyncio.wait_for(vm.reload(), timeout=HANG_GUARD)
     vm.cancel()
 
     assert cleaned == [9]
@@ -801,7 +802,7 @@ async def test_ares_011_dispose_cleans_retained_value_after_terminal_observer_er
         return 7
 
     vm = _vm(loader, cleanup=cleaned.append)
-    await asyncio.wait_for(vm.load(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
     vm.load_command.can_execute_changed.subscribe(
         on_completed=lambda: (_ for _ in ()).throw(ObserverFailure())
     )
@@ -843,7 +844,7 @@ async def test_ares_011_late_base_exception_is_observed_after_disposal() -> None
         await _wait_until(lambda: calls == 1)
         vm.dispose()
         release.set_result(None)
-        await asyncio.wait_for(intent, timeout=1)
+        await asyncio.wait_for(intent, timeout=HANG_GUARD)
         await _flush()
         assert unhandled == []
     finally:
@@ -866,8 +867,8 @@ async def test_ares_011_discard_cleanup_cannot_start_loader_after_disposal() -> 
         vm.dispose()
 
     vm = _vm(loader, cleanup=cleanup)
-    await asyncio.wait_for(vm.load(), timeout=1)
-    await asyncio.wait_for(vm.reload(), timeout=1)
+    await asyncio.wait_for(vm.load(), timeout=HANG_GUARD)
+    await asyncio.wait_for(vm.reload(), timeout=HANG_GUARD)
 
     assert calls == 1
     assert vm.status is ConstructionStatus.DISPOSED
@@ -879,7 +880,6 @@ async def test_ares_011_discard_cleanup_cannot_start_loader_after_disposal() -> 
 # state); no new conformance ID. Tests await explicit events, never timers.
 # ---------------------------------------------------------------------------
 
-_HANG_GUARD = 10.0
 _CANCEL_SOURCES = ("raises_cancelled_error", "cancels_own_task", "awaited_operation_cancelled")
 
 
@@ -929,9 +929,9 @@ async def _run_intent(vm: AsyncResourceVM[int], loader: _CancellingLoader, inten
         "load_command": vm.load_command.execute_async,
     }
     pending = asyncio.ensure_future(runners[intent]())
-    await asyncio.wait_for(loader.entered.wait(), _HANG_GUARD)
+    await asyncio.wait_for(loader.entered.wait(), HANG_GUARD)
     loader.trigger()
-    await asyncio.wait_for(pending, _HANG_GUARD)
+    await asyncio.wait_for(pending, HANG_GUARD)
 
 
 @pytest.mark.parametrize("source", _CANCEL_SOURCES)
@@ -1003,9 +1003,9 @@ async def test_superseded_loader_cancellation_does_not_roll_back_newer_operation
     changes: list[str] = []
     vm.property_changed.subscribe(changes.append)
     older = asyncio.ensure_future(vm.load())
-    await asyncio.wait_for(entered.wait(), _HANG_GUARD)
+    await asyncio.wait_for(entered.wait(), HANG_GUARD)
     await vm.reload()
-    await asyncio.wait_for(older, _HANG_GUARD)
+    await asyncio.wait_for(older, HANG_GUARD)
 
     assert vm.state.status is AsyncResourceStatus.READY
     assert vm.state.value == 2
@@ -1019,10 +1019,10 @@ async def test_self_cancellation_racing_explicit_cancel_publishes_one_rollback()
     changes: list[str] = []
     vm.property_changed.subscribe(changes.append)
     pending = asyncio.ensure_future(vm.load())
-    await asyncio.wait_for(loader.entered.wait(), _HANG_GUARD)
+    await asyncio.wait_for(loader.entered.wait(), HANG_GUARD)
 
     vm.cancel()  # the loader task has requested its own cancellation but not finished
-    await asyncio.wait_for(pending, _HANG_GUARD)
+    await asyncio.wait_for(pending, HANG_GUARD)
 
     assert vm.state.status is AsyncResourceStatus.IDLE
     assert changes == ["state", "state"]
@@ -1035,11 +1035,11 @@ async def test_self_cancellation_racing_dispose_does_not_revive() -> None:
     changes: list[str] = []
     vm.property_changed.subscribe(changes.append)
     pending = asyncio.ensure_future(vm.load())
-    await asyncio.wait_for(loader.entered.wait(), _HANG_GUARD)
+    await asyncio.wait_for(loader.entered.wait(), HANG_GUARD)
 
     vm.dispose()
     changes_at_dispose = len(changes)
-    await asyncio.wait_for(pending, _HANG_GUARD)
+    await asyncio.wait_for(pending, HANG_GUARD)
 
     assert vm.status is ConstructionStatus.DISPOSED
     assert changes[changes_at_dispose:] == []
@@ -1076,10 +1076,10 @@ async def test_self_cancellation_racing_stale_success_cleans_it_once() -> None:
     changes: list[str] = []
     vm.property_changed.subscribe(changes.append)
     older = asyncio.ensure_future(vm.load())
-    await asyncio.wait_for(entered.wait(), _HANG_GUARD)
+    await asyncio.wait_for(entered.wait(), HANG_GUARD)
     await vm.reload()
-    await asyncio.wait_for(older, _HANG_GUARD)
-    await asyncio.wait_for(cleaned_event.wait(), _HANG_GUARD)
+    await asyncio.wait_for(older, HANG_GUARD)
+    await asyncio.wait_for(cleaned_event.wait(), HANG_GUARD)
 
     assert cleaned == [1]  # the stale success is cleaned exactly once, never published
     assert vm.state.status is AsyncResourceStatus.IDLE

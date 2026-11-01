@@ -7,6 +7,7 @@ use super::{
     Cell, Condvar, Deserialize, HashMap, HashSet, Mutex, MutexGuard, OnceLock, Ordering, Serialize,
     ThreadId, VecDeque, Weak,
 };
+use crate::wait_for_graph::waits;
 use crate::{ValueStream, ValueSubscription};
 use std::sync::mpsc;
 
@@ -251,6 +252,15 @@ pub(crate) fn finish_with_first_failure(first: Option<FirstFailure>) -> VmxResul
     }
 }
 
+/// A container's child cascade: disposes its children and returns the first
+/// failure. It must not hold the container or its core (#750).
+pub(crate) type DisposalCascade = Box<dyn FnOnce() -> Option<FirstFailure> + Send + 'static>;
+
+fn run_disposal_cascade(cascade: DisposalCascade) -> Option<FirstFailure> {
+    catch_unwind(AssertUnwindSafe(cascade))
+        .unwrap_or_else(|payload| Some(FirstFailure::Panic(payload)))
+}
+
 pub(crate) struct MembershipTransactionGuard {
     active: Arc<AtomicBool>,
     control: Arc<MembershipTransactionControl>,
@@ -286,11 +296,18 @@ impl MembershipTransactionControl {
         }
     }
 
+    /// Identifies this control in the wait-for graph.
+    pub(crate) fn resource(&self) -> usize {
+        self as *const Self as usize
+    }
+
     fn begin(&self) {
         let mut state = lock(&self.state);
         debug_assert!(state.owner.is_none());
         debug_assert!(state.finishing_owner.is_none());
-        state.owner = Some(thread::current().id());
+        let current = thread::current().id();
+        state.owner = Some(current);
+        waits().acquire(self.resource(), current);
     }
 
     pub(crate) fn dispose_disposition(&self) -> MembershipDisposeDisposition {
@@ -316,11 +333,32 @@ impl MembershipTransactionControl {
         lock(&self.state).deferred_dispose.is_some()
     }
 
-    pub(crate) fn wait_until_inactive(&self) {
+    /// Waits until no membership transaction is active (ADR-0122), unless the
+    /// wait would close a wait-for cycle (ADR-0153).
+    ///
+    /// Returns `action` once the transaction has ended, so the caller retries.
+    /// Returns `None` when the wait would close a cycle: the transaction owner
+    /// then runs `action` when its transaction ends. An owner that is already
+    /// finishing is running this container's deferred disposal, so nothing
+    /// more is recorded.
+    pub(crate) fn wait_until_inactive_or_defer<F>(&self, action: F) -> Option<F>
+    where
+        F: FnOnce() -> VmxResult<()> + Send + 'static,
+    {
+        let current = thread::current().id();
+        let graph = waits();
         let mut state = lock(&self.state);
         while state.owner.is_some() || state.finishing_owner.is_some() {
+            if !graph.try_begin_wait(self.resource(), current) {
+                if state.owner.is_some() && state.deferred_dispose.is_none() {
+                    state.deferred_dispose = Some(Box::new(action));
+                }
+                return None;
+            }
             state = wait(&self.ready, state);
+            graph.end_wait(current);
         }
+        Some(action)
     }
 
     fn finish(&self, active: &AtomicBool) -> VmxResult<()> {
@@ -329,12 +367,17 @@ impl MembershipTransactionControl {
             let mut state = lock(&self.state);
             state.owner = None;
             state.finishing_owner = Some(current);
+            // The finishing thread holds the transaction until it clears.
+            waits().acquire(self.resource(), current);
             state.deferred_dispose.take()
         };
         let outcome = action.map(|action| catch_unwind(AssertUnwindSafe(action)));
-        active.store(false, Ordering::Release);
         let mut state = lock(&self.state);
         state.finishing_owner = None;
+        waits().release(self.resource());
+        // Only now may a new transaction begin, so its owner record cannot be
+        // released above.
+        active.store(false, Ordering::Release);
         self.ready.notify_all();
         drop(state);
         match outcome {
@@ -342,6 +385,14 @@ impl MembershipTransactionControl {
             Some(Err(payload)) => resume_unwind(payload),
             None => Ok(()),
         }
+    }
+}
+
+impl Drop for MembershipTransactionControl {
+    fn drop(&mut self) {
+        // A transaction that never finished must not leave its owner behind
+        // for a later control at the same address.
+        waits().release(self.resource());
     }
 }
 
@@ -423,7 +474,10 @@ pub enum LifecycleOperation {
 ///
 /// Construct order is never affected: construction always walks the children
 /// from the first index to the last. Disposal stays depth-first in both orders:
-/// every child is disposed before the container publishes `Disposed`.
+/// every child is disposed before the container publishes `Disposed`. When a
+/// construct or destruct hook of the container runs on another thread, the
+/// container publishes `Disposed` first. It disposes its children after that
+/// hook returns (LIFE-015).
 pub enum ChildOrder {
     #[default]
     /// Destruct and dispose children from the first index to the last, as
@@ -2655,6 +2709,12 @@ struct ComponentCoreInner<D: Dispatcher> {
     disposal_complete: bool,
     active_hook_owner: Option<ThreadId>,
     deferred_core_disposal: bool,
+    /// Set once a container's disposal starts: no construct or destruct is
+    /// admitted after it (LIFE-015).
+    hook_admission_closed: bool,
+    /// A container's child cascade that waits for a hook admitted on another
+    /// thread; the thread that finishes the disposal runs it (LIFE-015).
+    disposal_cascade: Option<DisposalCascade>,
     selected: bool,
     expanded: bool,
     child_settle: Option<ChildSettle>,
@@ -2717,6 +2777,8 @@ impl<D: Dispatcher> ComponentCore<D> {
                 disposal_complete: false,
                 active_hook_owner: None,
                 deferred_core_disposal: false,
+                hook_admission_closed: false,
+                disposal_cascade: None,
                 selected: false,
                 expanded: false,
                 child_settle: None,
@@ -2741,13 +2803,22 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     /// A child step that runs `step` on this core, holding the core weakly
-    /// while queued (#750). Once the core is gone the step does nothing.
+    /// while queued (#750). Once the core is gone or disposed, the step does
+    /// nothing. So a disposed container's walk starts no further child and
+    /// does not run its `then` (LIFE-015).
     fn weak_step<F>(&self, step: F) -> ChildStep
     where
         F: FnOnce(&Self) -> VmxResult<()> + Send + 'static,
     {
         let core = self.downgrade();
-        Box::new(move || core.upgrade().map_or(Ok(()), |core| step(&core)))
+        Box::new(move || {
+            core.upgrade().map_or(Ok(()), |core| {
+                if core.status() == ConstructionStatus::Disposed {
+                    return Ok(());
+                }
+                step(&core)
+            })
+        })
     }
 
     pub(crate) fn name(&self) -> String {
@@ -3318,6 +3389,9 @@ impl<D: Dispatcher> ComponentCore<D> {
                     }
                     _ => {}
                 }
+                if inner.hook_admission_closed && operation != LifecycleOperation::Dispose {
+                    return (Err(VmxError::Disposed), None);
+                }
                 if inner.transitioning && operation != LifecycleOperation::Dispose {
                     return (Err(VmxError::ConcurrentOperation), None);
                 }
@@ -3370,6 +3444,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             return Ok(());
         };
 
+        let mut cascade_failure = None;
         if operation == LifecycleOperation::Dispose {
             let current = thread::current().id();
             let mut inner = lock(&self.inner);
@@ -3386,6 +3461,11 @@ impl<D: Dispatcher> ComponentCore<D> {
                     return Ok(());
                 }
             }
+            // The hook has returned: a child cascade that waited for it runs
+            // now, before the dispose hook (LIFE-015).
+            let cascade = inner.disposal_cascade.take();
+            drop(inner);
+            cascade_failure = cascade.and_then(run_disposal_cascade);
         }
 
         let execution = catch_unwind(AssertUnwindSafe(|| {
@@ -3413,6 +3493,13 @@ impl<D: Dispatcher> ComponentCore<D> {
             Ok(result) => (result, None),
             Err(payload) => (Ok(()), Some(payload)),
         };
+        match cascade_failure {
+            Some(FirstFailure::Error(error)) => {
+                (operation_result, panic_payload) = (Err(error), None)
+            }
+            Some(FirstFailure::Panic(payload)) => panic_payload = Some(payload),
+            None => {}
+        }
         if deferred_disposal {
             let disposal = catch_unwind(AssertUnwindSafe(|| self.finish_deferred_core_disposal()));
             if operation_result.is_ok() && panic_payload.is_none() {
@@ -3524,14 +3611,18 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     fn finish_deferred_core_disposal(&self) -> VmxResult<()> {
-        let (hook, property_changed, background_errors) = {
-            let inner = lock(&self.inner);
+        let (cascade, hook, property_changed, background_errors) = {
+            let mut inner = lock(&self.inner);
             (
+                inner.disposal_cascade.take(),
                 inner.on_dispose.clone(),
                 inner.property_changed.clone(),
                 inner.background_errors.clone(),
             )
         };
+        // A child cascade deferred behind this thread's hook runs before the
+        // dispose hook, and its failure comes first (LIFE-015).
+        let cascade_failure = cascade.and_then(run_disposal_cascade);
         let result = catch_unwind(AssertUnwindSafe(|| {
             hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()))
         }));
@@ -3539,6 +3630,9 @@ impl<D: Dispatcher> ComponentCore<D> {
         property_changed.dispose();
         background_errors.dispose();
         self.complete_disposal();
+        if cascade_failure.is_some() {
+            return finish_with_first_failure(cascade_failure);
+        }
         match result {
             Ok(result) => result,
             Err(payload) => resume_unwind(payload),
@@ -3658,6 +3752,15 @@ impl<D: Dispatcher> ComponentCore<D> {
     ) -> VmxResult<()> {
         let child = child.clone();
         self.child_step(self.weak_step(move |core| core.run_child_transition(&child, operation)))
+    }
+
+    /// Runs `after` as one step of the supported child-transition walk, once
+    /// the earlier steps settled. A disposed component skips it (LIFE-015).
+    pub(crate) fn child_then<F>(&self, after: F) -> VmxResult<()>
+    where
+        F: FnOnce() -> VmxResult<()> + Send + 'static,
+    {
+        self.child_step(self.weak_step(move |_| after()))
     }
 
     /// Constructs or destructs `child` as one step of the supported
@@ -4293,6 +4396,40 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// (§2.4) or is a concurrent disposer whose hook is still running.
     pub(crate) fn dispose_then(&self, terminal: impl FnOnce() + Send + 'static) -> VmxResult<()> {
         lock(&self.inner).terminal_cleanups.push(Box::new(terminal));
+        self.finish_dispose()
+    }
+
+    /// Disposes a container like [`Self::dispose_then`], with `cascade`, its
+    /// child disposals, at the admitted-hook boundary (spec/02 §2.4,
+    /// LIFE-015). Hook admission closes first. With no hook admitted on
+    /// another thread, `cascade` runs now, before this core publishes
+    /// `Disposed` (LIFE-013). Otherwise this core publishes `Disposed`, and
+    /// `cascade` runs after that hook returns. It runs on this thread after
+    /// its wait, or on the hook's thread when the wait would close a cycle. The
+    /// container calls this once, and it is the core's only disposal.
+    pub(crate) fn dispose_with_cascade_then(
+        &self,
+        cascade: DisposalCascade,
+        terminal: impl FnOnce() + Send + 'static,
+    ) -> VmxResult<()> {
+        let now = {
+            let mut inner = lock(&self.inner);
+            inner.terminal_cleanups.push(Box::new(terminal));
+            inner.hook_admission_closed = true;
+            match inner.active_hook_owner {
+                Some(owner) if owner != thread::current().id() => {
+                    inner.disposal_cascade = Some(cascade);
+                    None
+                }
+                _ => Some(cascade),
+            }
+        };
+        let mut first_failure = now.and_then(run_disposal_cascade);
+        retain_first_failure(&mut first_failure, || self.finish_dispose());
+        finish_with_first_failure(first_failure)
+    }
+
+    fn finish_dispose(&self) -> VmxResult<()> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             self.transition(LifecycleOperation::Dispose)
         }));

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using VMx.Components;
 using VMx.Groups;
+using VMx.Internal;
 using VMx.Services;
 using Xunit;
 using static VMx.Tests.Helpers.Liveness;
@@ -11,7 +12,8 @@ namespace VMx.Tests.Groups;
 /// Cross-thread membership transactions on <see cref="GroupVM{VM}"/> (#718).
 /// A group waits for another thread's transaction, unless that wait would
 /// close a wait-for cycle: then the add is refused with
-/// <see cref="InvalidOperationException"/> and changes nothing.
+/// <see cref="InvalidOperationException"/> and changes nothing. A wait for a
+/// child's ownership gate joins the same graph (#1047).
 /// </summary>
 public class GroupTransferWaitCycleTests
 {
@@ -299,10 +301,106 @@ public class GroupTransferWaitCycleTests
         }
     }
 
+    // #1047: T1 holds b's ownership gate and waits for g2's transaction; T2
+    // owns that transaction and waits for b's ownership gate. The gate wait
+    // joins the wait graph, so the wait that closes the cycle is refused.
+    [Fact]
+    public async Task Ownership_Gate_Wait_That_Closes_A_Cycle_With_A_Group_Transaction_Is_Refused()
+    {
+        var b = Child("b");
+        var g1 = Group("g1", autoConstructOnAdd: true);
+        var g3 = Group("g3", autoConstructOnAdd: true);
+        var g2 = Group("g2", autoConstructOnAdd: true, b);
+        g1.Construct();
+        g3.Construct();
+        g2.Construct();
+        using var hookEntered = new ManualResetEventSlim(false);
+        var firstThread = 0;
+        var y = Child("y", onConstruct: () =>
+        {
+            // The hook runs inside g2's transaction on the second thread.
+            hookEntered.Set();
+            SpinWait.SpinUntil(
+                () => Volatile.Read(ref firstThread) != 0 &&
+                    WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref firstThread)),
+                HangGuard).Should().BeTrue("the first thread waits for g2's transaction");
+            g3.Add(b);
+        });
+
+        var second = Task.Run(() => Attempt(() => g2.Add(y)));
+        hookEntered.Wait(HangGuard).Should().BeTrue();
+        var first = Task.Run(() =>
+        {
+            Volatile.Write(ref firstThread, Environment.CurrentManagedThreadId);
+            return Attempt(() => g1.Add(b));
+        });
+        var (firstError, secondError) = await CompleteWithinHangGuard(
+            first, second, "the gate wait and the group transaction must not deadlock");
+
+        new[] { firstError, secondError }.Should().Contain(error => error is InvalidOperationException);
+        foreach (var error in new[] { firstError, secondError })
+            if (error is not null) error.Should().BeOfType<InvalidOperationException>();
+        var owner = ((IComponentVMInternals)b).Parent;
+        owner.Should().BeOneOf(g1, g2, g3);
+        foreach (var group in new[] { g1, g2, g3 })
+            group.Snapshot().Count(item => ReferenceEquals(item, b))
+                .Should().Be(ReferenceEquals(owner, group) ? 1 : 0, $"b has exactly one parent ({group.Name})");
+    }
+
+    // #1047: a cycle through two children's ownership gates only. T1 holds aa
+    // and waits for bb; T2 holds bb and then waits for aa, which is refused.
+    [Fact]
+    public async Task Ownership_Gate_Wait_That_Closes_A_Cycle_Of_Gates_Is_Refused()
+    {
+        var g1 = Group("g1", autoConstructOnAdd: true);
+        var g2 = Group("g2", autoConstructOnAdd: true);
+        var g3 = Group("g3", autoConstructOnAdd: true);
+        var g4 = Group("g4", autoConstructOnAdd: true);
+        foreach (var group in new[] { g1, g2, g3, g4 }) group.Construct();
+        using var aaEntered = new ManualResetEventSlim(false);
+        using var bbEntered = new ManualResetEventSlim(false);
+        var firstThread = 0;
+        var aaRuns = 0;
+        var bbRuns = 0;
+        ComponentVM<string>? bb = null;
+        var aa = Child("aa", onConstruct: () =>
+        {
+            // Runs on the first thread, which holds aa's ownership gate.
+            if (Interlocked.Increment(ref aaRuns) != 1) return;
+            Volatile.Write(ref firstThread, Environment.CurrentManagedThreadId);
+            aaEntered.Set();
+            bbEntered.Wait(HangGuard).Should().BeTrue();
+            g3.Add(bb!);
+        });
+        bb = Child("bb", onConstruct: () =>
+        {
+            // Runs on the second thread, which holds bb's ownership gate. After
+            // the refusal it runs again on the first thread, as g3 adds bb.
+            if (Interlocked.Increment(ref bbRuns) != 1) return;
+            bbEntered.Set();
+            aaEntered.Wait(HangGuard).Should().BeTrue();
+            SpinWait.SpinUntil(
+                () => WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref firstThread)),
+                HangGuard).Should().BeTrue("the first thread waits for bb");
+            g4.Add(aa);
+        });
+
+        var first = Task.Run(() => Attempt(() => g1.Add(aa)));
+        var second = Task.Run(() => Attempt(() => g2.Add(bb)));
+        var (firstError, secondError) = await CompleteWithinHangGuard(
+            first, second, "two gate holders must not deadlock");
+
+        firstError.Should().BeNull();
+        secondError.Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Contain("ownership transaction");
+        ShouldBeOwnedBy(aa, g1, g2, g4);
+        ShouldBeOwnedBy(bb!, g3, g1, g2, g4);
+    }
+
     [Fact]
     public void Wait_Graph_Refuses_Only_The_Edge_That_Closes_A_Cycle()
     {
-        var graph = new MembershipTransactionWaitGraph();
+        var graph = new WaitForGraph();
         object g1 = new(), g2 = new(), g3 = new();
         const int a = 1, b = 2, c = 3;
         graph.Acquire(g1, a);
@@ -323,7 +421,7 @@ public class GroupTransferWaitCycleTests
     {
         // #736: a waiter that was woken but has not yet removed its edge must
         // not make the thread that ended the transaction see a cycle.
-        var graph = new MembershipTransactionWaitGraph();
+        var graph = new WaitForGraph();
         object g1 = new(), g2 = new();
         const int a = 1, b = 2;
         graph.Acquire(g1, a);
@@ -336,5 +434,66 @@ public class GroupTransferWaitCycleTests
         graph.EndWait(b);
         graph.Acquire(g2, a);
         graph.TryBeginWait(g1, b).Should().BeTrue("a now owns g2, so b -> a closes no cycle");
+    }
+
+    [Fact]
+    public void Wait_Graph_Sees_A_Cycle_That_Crosses_A_Hub_Wait()
+    {
+        // #1055: a hub wait names its owner thread; a membership wait names its
+        // container. One graph sees a cycle that uses both kinds of edge.
+        var graph = new WaitForGraph();
+        object container = new(), hub = new();
+        const int owner = 1, drainer = 2;
+        graph.Acquire(container, owner);
+
+        graph.TryBeginWait(hub, drainer, owner).Should().BeTrue("the owner waits to send on the hub");
+        graph.TryBeginWait(container, drainer).Should().BeFalse("drainer -> owner -> drainer");
+    }
+
+    [Fact]
+    public void Wait_Graph_Sees_A_Hub_Wait_That_Closes_A_Cycle_Through_A_Container()
+    {
+        // The reverse order: the drainer waits for the container first, then
+        // the container's owner tries to wait for the drainer's hub.
+        var graph = new WaitForGraph();
+        object container = new(), hub = new();
+        const int owner = 1, drainer = 2;
+        graph.Acquire(container, owner);
+
+        graph.TryBeginWait(container, drainer).Should().BeTrue("the drainer waits for the transaction");
+        graph.TryBeginWait(hub, drainer, owner).Should().BeFalse("owner -> drainer -> container(owner)");
+    }
+
+    [Fact]
+    public void Wait_Graph_Release_Waiters_Keeps_Waits_On_A_Current_Owner()
+    {
+        var graph = new WaitForGraph();
+        object hub = new();
+        const int a = 1, b = 2, drainer = 3, former = 4;
+        graph.TryBeginWait(hub, drainer, a).Should().BeTrue();
+        graph.TryBeginWait(hub, former, b).Should().BeTrue();
+
+        graph.ReleaseWaiters(hub, drainer);
+
+        graph.IsWaitingForTesting(a).Should().BeTrue("its owner still drains the hub");
+        graph.IsWaitingForTesting(b).Should().BeFalse("its owner no longer owns the hub");
+    }
+
+    [Fact]
+    public void Wait_Graph_Release_Waiters_Drops_Only_Hub_Waits_On_That_Hub()
+    {
+        var graph = new WaitForGraph();
+        object container = new(), hub = new(), otherHub = new();
+        const int a = 1, b = 2, c = 3, d = 4;
+        graph.Acquire(container, d);
+        graph.TryBeginWait(hub, d, a).Should().BeTrue();
+        graph.TryBeginWait(otherHub, d, b).Should().BeTrue();
+        graph.TryBeginWait(container, c).Should().BeTrue();
+
+        graph.ReleaseWaiters(hub);
+
+        graph.IsWaitingForTesting(a).Should().BeFalse("its hub woke it");
+        graph.IsWaitingForTesting(b).Should().BeTrue("another hub");
+        graph.IsWaitingForTesting(c).Should().BeTrue("a membership wait is released through its owner");
     }
 }

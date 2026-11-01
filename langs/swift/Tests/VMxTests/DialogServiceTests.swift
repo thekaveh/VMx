@@ -7,19 +7,17 @@
 import XCTest
 @testable import VMx
 
-/// DIA-003 test double: a host whose user answers each confirm with a
-/// scripted result (true = confirmed, false = cancelled/dismissed).
-private final class ScriptedConfirmDialogService: DialogService {
-    private let answer: Bool
+/// DIA-003 test double: records the title of each `confirm` call.
+/// It always returns false. The tests do not check that result.
+private final class TitleRecordingDialogService: DialogService {
     private(set) var titles: [String?] = []
-    init(answer: Bool) { self.answer = answer }
 
     func pickFileToOpen(filter: FileFilter?, title: String?) async -> String? { nil }
     func pickFileToSave(filter: FileFilter?, title: String?, suggestedName: String?) async -> String? { nil }
     func notify(_ message: String, title: String?, severity: NotificationSeverity) async {}
     func confirm(_ message: String, title: String?) async -> Bool {
         titles.append(title)
-        return answer
+        return false
     }
 }
 
@@ -81,19 +79,17 @@ final class DialogServiceTests: XCTestCase {
 
         XCTAssertFalse(r1)
         XCTAssertFalse(r2)
+    }
 
-        // An implementation whose user confirms resolves true; one whose user
-        // cancels/dismisses resolves false. The title is optional either way.
-        let confirming = ScriptedConfirmDialogService(answer: true)
-        let confirmed1 = await confirming.confirm("Proceed?")
-        let confirmed2 = await confirming.confirm("Proceed?", title: "Confirm")
-        XCTAssertTrue(confirmed1)
-        XCTAssertTrue(confirmed2)
-        XCTAssertEqual(confirming.titles, [nil, "Confirm"])
+    /// DIA-003 — `confirm(_:)` forwards `title: nil`; `confirm(_:title:)` forwards the given title.
+    func testDia003ConfirmForwardsTitle() async {
+        let sut = TitleRecordingDialogService()
 
-        let dismissing = ScriptedConfirmDialogService(answer: false)
-        let dismissed = await dismissing.confirm("Proceed?")
-        XCTAssertFalse(dismissed)
+        // The library extension supplies `confirm(_:)`. It must forward a nil title.
+        _ = await sut.confirm("Proceed?")
+        _ = await sut.confirm("Proceed?", title: "Confirm")
+
+        XCTAssertEqual(sut.titles, [nil, "Confirm"])
     }
 
     // MARK: - DIA-004

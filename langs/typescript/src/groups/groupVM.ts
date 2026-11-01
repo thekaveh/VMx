@@ -133,6 +133,7 @@ export class GroupVM<VM extends ComponentVMBase>
   }
 
   add(item: VM): void {
+    if ((item as unknown) == null) throw new Error("child must not be null");
     this.#beginMembershipTransaction();
     const idx = this._children.length;
     let transfer: ParentTransfer | null = null;
@@ -181,6 +182,7 @@ export class GroupVM<VM extends ComponentVMBase>
   }
 
   insert(index: number, item: VM): void {
+    if ((item as unknown) == null) throw new Error("child must not be null");
     this.#beginMembershipTransaction();
     // splice would silently normalize/clamp while the emitted newIndex
     // carried the raw argument (spec/21 §3.2); `length` appends.
@@ -256,6 +258,7 @@ export class GroupVM<VM extends ComponentVMBase>
 
   /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
   setAt(index: number, value: VM): void {
+    if ((value as unknown) == null) throw new Error("child must not be null");
     this.#beginMembershipTransaction();
     const old = Number.isInteger(index) ? this._children[index] : undefined;
     if (old === undefined) {

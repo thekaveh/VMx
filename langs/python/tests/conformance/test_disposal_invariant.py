@@ -8,6 +8,7 @@ import threading
 import pytest
 from reactivex.subject import BehaviorSubject
 
+from tests.liveness import HANG_GUARD
 from vmx.capabilities import ExpandableState
 from vmx.collections import BatchUpdateHandle
 from vmx.commands import AsyncRelayCommand
@@ -91,7 +92,7 @@ async def test_disp_002_repeated_async_command_dispose_cancels_one_inflight_run(
     command.can_execute_changed.subscribe(on_completed=lambda: done("can_execute_changed"))
 
     run = asyncio.create_task(command.execute_async())
-    await started.wait()
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
     assert command.is_executing is True
     command.dispose()
     command.dispose()
@@ -123,14 +124,15 @@ async def test_disp_003_concurrent_notification_hub_dispose_completes_once() -> 
     barrier = threading.Barrier(32)
 
     def dispose() -> None:
-        barrier.wait()
+        barrier.wait(HANG_GUARD)
         hub.dispose()
 
-    threads = [threading.Thread(target=dispose) for _ in range(32)]
+    threads = [threading.Thread(target=dispose, daemon=True) for _ in range(32)]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(2 * HANG_GUARD)
+    assert not any(thread.is_alive() for thread in threads)
 
     assert await pending is NotificationReaction.PENDING
     assert len(completions) == 1

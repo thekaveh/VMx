@@ -189,7 +189,12 @@ raises the usage error. To destruct in reverse, pass the reversed list.
 
 Register each member with the member-disposal helper. `dispose()` then
 disposes the members in registration order before the parent publishes
-`Disposed`, so the cascade stays depth-first (spec 02 §7.1). One failing member
+`Disposed`, so the cascade stays depth-first (spec 02 §7.1). While a construct
+or destruct hook of the parent runs on another thread, the parent publishes
+`Disposed` first. It disposes the members after that hook returns. Rust disposes
+the members before it waits for that hook
+([Rust parity ledger §12.13](../../../maintenance/2026-07-16-rust-capability-parity.md#1213-open-item-leaf-member-disposal-and-admitted-hooks)).
+One failing member
 does not stop the others, and the first failure is reported after the parent's
 teardown. Swift `dispose()` does not throw, so in Swift every member is still
 attempted but a failing member is not reported.

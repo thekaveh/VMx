@@ -73,6 +73,53 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: `ObservableDictionary`: `Remove` and `Clear` now update `Keys2`
+  before `Keys1`, as `Add` does (#1075). A `Keys1` subscriber now sees the
+  updated `Keys2`. Before, an entry that a `Keys1` subscriber added during
+  `Clear` was missing from `Keys2`. `Clear` now empties the per-axis counts
+  before a key view notifies. Before, a `Remove` of an entry that a subscriber
+  added during `Clear` left its keys listed. If a `Keys2` subscriber changes
+  the entries, `Keys1` then lists only the keys that the entries use. `Keys1`
+  is also updated when a `Keys2` subscriber throws.
+- Fixed: `MessageHub` waits and container membership waits now share one
+  wait-for graph (#1055). A hub drainer can add to or dispose a container
+  from a subscriber. The container's transaction owner can send on that hub
+  at the same time. These two threads no longer deadlock. The wait that would
+  close the cycle takes its escape instead. The active drain delivers the
+  send, or an `Add` throws `InvalidOperationException`. A `Dispose()` defers
+  to the transaction owner, and the owner's pending `Add` then throws
+  `ObjectDisposedException`. A `Send`, `Batch` or `Dispose()` inside a
+  borrowed batch body on the same hub no longer waits for that hub's drainer.
+  It enqueues, nests or records the intent, as spec/03 states.
+- Fixed: a wait for a child that another thread is transferring now joins the
+  membership wait-for graph (#1047). A wait that would close a wait-for cycle
+  throws `InvalidOperationException` instead of deadlocking. The cycle can run
+  through group or composite transactions, through other children's
+  transfers, or both. A transfer that holds a child and waits for a group's
+  transaction no longer deadlocks when that transaction's owner adds the same
+  child elsewhere. The child keeps one parent.
+- Fixed: the construct walk of `CompositeVM` and `CompositeVMOfM<M, VM>`
+  assigns the `Current(selector)` result without a membership transaction
+  (spec/06 §3.2, ADR-0165, #1064). Before, the assignment threw while another
+  thread held the composite's membership transaction. That happens, for
+  example, inside an `Add` `CollectionChanged` handler, and the composite then
+  rolled back to `Destructed`. The selected child is now current before
+  `Constructed`, even when that other thread waits for the walk. The
+  assignment is a silent no-op while the composite is disposing. It is also a
+  no-op for a child that another `Add`, `Insert` or replacement has attached
+  but not yet admitted. A `Dispose()` from any current-change callback returns
+  at once. The disposal starts after that publication and any open membership
+  transaction end. An `Add`, `Insert` or replacement on another thread that
+  has not admitted its child when `Dispose()` is called fails with
+  `ObjectDisposedException` and rolls back. Before, the disposal waited for
+  it. A transfer that detached the current child no longer clears a selection
+  made after the detach.
+- Fixed: `CompositeVM` and `GroupVM` `Add`, `Insert` and the indexer setter
+  throw `ArgumentNullException` for a null child and leave the children
+  unchanged. Before, they threw `NullReferenceException` after they opened
+  the membership transaction and never closed it. Every later membership
+  change then failed or blocked, and a `Dispose()` from another thread did
+  not return (#1048).
 - Fixed: `ObservableDictionary`: an entry added from a `Keys1` subscriber no
   longer puts `Keys2` out of first-appearance order. `Keys2` now updates
   first, so a `Keys1` subscriber already sees the new Key2. When a `Keys2`

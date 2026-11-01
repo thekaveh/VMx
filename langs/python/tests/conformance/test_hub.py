@@ -13,6 +13,7 @@ import pytest
 
 import vmx.services.message_hub as message_hub_module
 from tests.conformance.fixtures.loader import load
+from tests.liveness import HANG_GUARD
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
 
@@ -347,7 +348,7 @@ def test_opposing_hub_callbacks_do_not_deadlock() -> None:
         def callback(message: PropertyChangedMessage[object]) -> None:
             nonlocal inner_deliveries
             if message.property_name == "outer":
-                callbacks_entered.wait()
+                callbacks_entered.wait(HANG_GUARD)
                 target.send(_make_msg("inner"))
             else:
                 with delivery_lock:
@@ -364,7 +365,7 @@ def test_opposing_hub_callbacks_do_not_deadlock() -> None:
     for worker in workers:
         worker.start()
     for worker in workers:
-        worker.join(timeout=2)
+        worker.join(timeout=2 * HANG_GUARD)
 
     assert not any(worker.is_alive() for worker in workers)
     assert inner_deliveries == 2
@@ -386,7 +387,7 @@ def test_opposing_hub_callback_batches_do_not_deadlock() -> None:
         def callback(message: PropertyChangedMessage[object]) -> None:
             nonlocal inner_deliveries
             if message.property_name == "outer":
-                callbacks_entered.wait()
+                callbacks_entered.wait(HANG_GUARD)
                 with target.batch():
                     target.send(_make_msg("inner"))
             else:
@@ -404,7 +405,7 @@ def test_opposing_hub_callback_batches_do_not_deadlock() -> None:
     for worker in workers:
         worker.start()
     for worker in workers:
-        worker.join(timeout=2)
+        worker.join(timeout=2 * HANG_GUARD)
 
     assert not any(worker.is_alive() for worker in workers)
     assert inner_deliveries == 2
@@ -424,11 +425,11 @@ def test_unrelated_hub_callback_send_waits_for_busy_target() -> None:
     def hold_batch() -> None:
         with target.batch():
             batch_entered.set()
-            release_batch.wait()
+            assert release_batch.wait(HANG_GUARD)
 
     batch_worker = Thread(target=hold_batch)
     batch_worker.start()
-    assert batch_entered.wait(1)
+    assert batch_entered.wait(HANG_GUARD)
 
     def cross_send(_: object) -> None:
         target.send(_make_msg("nested"))
@@ -441,8 +442,8 @@ def test_unrelated_hub_callback_send_waits_for_busy_target() -> None:
         assert not callback_returned.wait(0.05)
     finally:
         release_batch.set()
-        batch_worker.join(1)
-        source_worker.join(1)
+        batch_worker.join(HANG_GUARD)
+        source_worker.join(HANG_GUARD)
 
     assert callback_returned.is_set()
     assert deliveries == ["nested"]
@@ -474,7 +475,7 @@ def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit(
 
     def dispose_batched(_: object) -> None:
         callback_entered.set()
-        if not about_to_send.wait(1) or not wait_edge_registered.wait(1):
+        if not about_to_send.wait(HANG_GUARD) or not wait_edge_registered.wait(HANG_GUARD):
             errors.append(TimeoutError("cross-hub wait edge was not registered"))
             return
         batched.dispose()
@@ -484,7 +485,7 @@ def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit(
     def own_batch_then_cross_send() -> None:
         try:
             with batched.batch():
-                if not callback_entered.wait(1):
+                if not callback_entered.wait(HANG_GUARD):
                     raise TimeoutError("source callback did not start")
                 about_to_send.set()
                 source.send(_make_msg("inner"))
@@ -495,11 +496,11 @@ def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit(
     source_worker = Thread(target=source.send, args=(_make_msg("outer"),))
     batch_worker.start()
     source_worker.start()
-    batch_worker.join(2)
-    source_worker.join(2)
+    batch_worker.join(3 * HANG_GUARD)
+    source_worker.join(3 * HANG_GUARD)
 
     assert not batch_worker.is_alive()
     assert not source_worker.is_alive()
     assert errors == []
-    assert completed.wait(1)
+    assert completed.wait(HANG_GUARD)
     source.dispose()

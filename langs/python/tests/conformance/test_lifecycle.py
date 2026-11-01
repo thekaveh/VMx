@@ -584,6 +584,7 @@ def test_construct_publication_failure_faults_joined_waiter_with_same_error() ->
         vm.construct()
     assert raised.value is publication_error
     assert joined is not None
+    assert joined.done()
     with pytest.raises(RuntimeError) as joined_raised:
         joined.result()
     assert joined_raised.value is publication_error

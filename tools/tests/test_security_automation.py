@@ -102,10 +102,17 @@ def test_typescript_dependency_graph_is_validated_with_scoped_security_override(
         manifest = json.loads(path.read_text(encoding="utf-8"))
         assert manifest["scripts"]["check:deps"] == "npm ls --all --omit=optional"
 
+    # minimatch 11.0.3 fixes GHSA-g3hv-75wg-m249; the ESLint toolchain still
+    # declares ^10, so each project that locks ESLint overrides it.
     library_manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
-    assert library_manifest.get("overrides") == {"esbuild": "0.28.2"}
+    assert library_manifest.get("overrides") == {"esbuild": "0.28.2", "minimatch": "11.0.3"}
     react_manifest = json.loads(manifests[1].read_text(encoding="utf-8"))
-    assert react_manifest.get("overrides") == {"esbuild": "0.28.2"}
+    assert react_manifest.get("overrides") == {"esbuild": "0.28.2", "minimatch": "11.0.3"}
+    showcase_manifest = json.loads(manifests[3].read_text(encoding="utf-8"))
+    assert showcase_manifest.get("overrides") == {"minimatch": "11.0.3"}
+    for path in (manifests[0], manifests[1], manifests[3]):
+        locked = json.loads(path.with_name("package-lock.json").read_text(encoding="utf-8"))
+        assert locked["packages"]["node_modules/minimatch"]["version"] == "11.0.3"
 
     lock = json.loads(
         (REPO_ROOT / "langs/typescript/package-lock.json").read_text(encoding="utf-8")

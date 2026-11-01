@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.collections.paged_composition import PagedComposition
 from vmx.collections.token_paged_composition import TokenPagedComposition
 from vmx.components.component_vm import ComponentVM
@@ -151,16 +152,16 @@ async def test_refresh_supersedes_an_older_in_flight_load_more() -> None:
 
     sut = TokenPagedComposition(fetch_next=fetch)
     load = asyncio.create_task(sut.load_more_command.execute_async())
-    await entered[0].wait()
+    await asyncio.wait_for(entered[0].wait(), HANG_GUARD)
 
     refresh = asyncio.create_task(sut.refresh_command.execute_async())
-    await entered[1].wait()
+    await asyncio.wait_for(entered[1].wait(), HANG_GUARD)
     release[1].set()
-    await refresh
+    await asyncio.wait_for(refresh, HANG_GUARD)
     assert sut.items == ["page-1"]
 
     release[0].set()
-    await load
+    await asyncio.wait_for(load, HANG_GUARD)
 
     assert sut.items == ["page-1"]
     assert sut.current_token == "token-1"

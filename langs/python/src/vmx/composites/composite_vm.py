@@ -17,16 +17,21 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx._indexes import _reject_bool_index
+from vmx._wait_for_graph import WAITS
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
+    attach_late_start_locked,
+    auto_construct_attached,
     construct_walk,
     deliver_collection_changed,
     emit_collection_changed,
+    enter_batch,
+    exit_batch,
     join_if_pending,
     maybe_auto_construct,
+    seal_or_next_late,
 )
 from vmx.components._late_child_starts import (
-    _LateChildStage,
     _LateChildStarts,
     _LateWalk,
     _StartRecord,
@@ -105,8 +110,16 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._dispose_requested: bool = False
         self._dispose_deferred: bool = False
         self._active_current_publications: int = 0
+        # The threads that publish a current change under the lease above. A
+        # dispose from one of them defers to the lease: waiting there for
+        # another thread's transaction could deadlock the selection
+        # (spec/06 §3.2, #1064).
+        self._current_publication_threads: list[int] = []
         self._membership_transaction_active: bool = False
         self._membership_transaction_owner: int | None = None
+        # The child an in-flight add, insert or replacement attached and has
+        # not admitted yet; a rollback may still remove it (#1064).
+        self._pending_admission: VM | None = None
         self._membership_gate = RLock()
         # Start records of the children an auto-construct add attaches while
         # Constructing; the construct walk waits on them (spec/06 §5.1).
@@ -158,9 +171,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._begin_membership_transaction_locked()
             index = next((i for i, child in enumerate(self._children) if child is vm), -1)
             if index < 0:
-                self._membership_transaction_active = False
-                self._membership_transaction_owner = None
-                self._membership_condition.notify_all()
+                self._release_membership_transaction_locked()
                 raise RuntimeError("recorded parent does not contain child identity")
             child = self._children.pop(index)
             was_current = self._current is child
@@ -169,7 +180,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             first_error: BaseException | None = None
             try:
                 if was_current:
-                    self._apply_current_change(None, internal=True)
+                    self._apply_current_change(None, internal=True, only_replacing=child)
             except BaseException as error:
                 first_error = error
             try:
@@ -303,12 +314,15 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         _reject_bool_index(index)
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert and ObservableList).
+        if value is None:
+            raise ValueError("child must not be None")
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         old: VM | None = None
-        original_status = value.status
+        original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
         try:
+            original_status = value.status
             transfer = _begin_parent_transfer(value, self)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
@@ -317,10 +331,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._children[index] = value
                 old._set_parent(None)
                 value._set_parent(self)
+                self._pending_admission = value
                 record = self._attach_late_start_locked(value)
             self._auto_construct_attached(value, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
+                self._pending_admission = None
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             with self._membership_gate:
@@ -331,6 +347,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     self._children[actual_index] = old
                     old._set_parent(self)
                     value._set_parent(None)
+                self._pending_admission = None
                 self._late_starts.remove(value, record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
@@ -347,11 +364,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
-            was_current = self.current is old
 
             def clear_current() -> None:
-                if was_current:
-                    self._apply_current_change(None, internal=True)
+                # Clears current only while it is still the replaced child.
+                self._apply_current_change(None, internal=True, only_replacing=old)
 
             def raise_commit_error() -> None:
                 if commit_error is not None:
@@ -395,12 +411,15 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         semantics: negatives count from the end, out-of-range clamps).
         """
         _reject_bool_index(index)
+        if item is None:
+            raise ValueError("child must not be None")
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
-        original_status = item.status
+        original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
         try:
+            original_status = item.status
             transfer = _begin_parent_transfer(item, self)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
@@ -411,16 +430,19 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._children.insert(index, item)
                 item._set_parent(self)
                 attached = True
+                self._pending_admission = item
                 record = self._attach_late_start_locked(item)
             self._auto_construct_attached(item, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
+                self._pending_admission = None
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             with self._membership_gate:
                 if attached and any(child is item for child in self._children):
                     self._children.remove(item)
                     item._set_parent(None)
+                self._pending_admission = None
                 self._late_starts.remove(item, record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
@@ -437,22 +459,34 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
+
+            def raise_commit_error() -> None:
+                if commit_error is not None:
+                    raise commit_error
+
+            # The add is committed: it publishes even when the transfer commit
+            # failed, and the commit error re-raises first, as in the indexer
+            # and population paths (#727, #1054).
+            _run_every_step(
+                raise_commit_error,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
+                ),
             )
-            if commit_error is not None:
-                raise commit_error
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     def append(self, item: VM) -> None:
         """Append *item*, emitting a collection-changed event."""
+        if item is None:
+            raise ValueError("child must not be None")
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
-        original_status = item.status
+        original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
         try:
+            original_status = item.status
             transfer = _begin_parent_transfer(item, self)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
@@ -460,16 +494,19 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 item._set_parent(self)
                 idx = len(self._children) - 1
                 attached = True
+                self._pending_admission = item
                 record = self._attach_late_start_locked(item)
             self._auto_construct_attached(item, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
+                self._pending_admission = None
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             with self._membership_gate:
                 if attached and any(child is item for child in self._children):
                     self._children.remove(item)
                     item._set_parent(None)
+                self._pending_admission = None
                 self._late_starts.remove(item, record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
@@ -486,11 +523,20 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
+
+            def raise_commit_error() -> None:
+                if commit_error is not None:
+                    raise commit_error
+
+            # The add is committed: it publishes even when the transfer commit
+            # failed, and the commit error re-raises first, as in the indexer
+            # and population paths (#727, #1054).
+            _run_every_step(
+                raise_commit_error,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
+                ),
             )
-            if commit_error is not None:
-                raise commit_error
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
@@ -655,18 +701,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         disposed, a single ``CollectionChangedEvent(action='reset')`` is emitted
         iff at least one mutation occurred while any batch was open.
         """
-        self._batch_depth += 1
-        return BatchUpdateHandle(self)
+        return enter_batch(self)
 
     def _exit_batch(self) -> None:
-        self._batch_depth -= 1
-        if (
-            self._batch_depth == 0
-            and self._batch_dirty
-            and not self._collection_changed_subject.is_disposed
-        ):
-            self._batch_dirty = False
-            self._deliver_collection_changed(CollectionChangedEvent(action="reset"))
+        exit_batch(self)
 
     def _emit_collection_changed(self, event: CollectionChangedEvent) -> None:
         emit_collection_changed(self, event)
@@ -675,33 +713,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         deliver_collection_changed(self, event)
 
     def _attach_late_start_locked(self, child: VM) -> _StartRecord | None:
-        """Called under the gate as an add attaches *child*.
-
-        An add that will auto-start the child while this container is
-        Constructing registers a start record the construct walk waits on.
-        """
-        return self._late_starts.attach_locked(
-            child,
-            will_start=self._auto_construct_on_add
-            and self._status is ConstructionStatus.CONSTRUCTING,
-        )
+        return attach_late_start_locked(self, child)
 
     def _auto_construct_attached(self, child: VM, record: _StartRecord | None) -> None:
-        """The add's auto-construct of a child it attached with *record*."""
-        if record is None:
-            self._maybe_auto_construct(child)
-            return
-        # The construct walk never starts a late child; it waits for this
-        # attempt, then joins the child (spec/06 §5.1). The record is done
-        # before this add publishes or ends its transaction.
-        try:
-            self._late_starts.probe(child, _LateChildStage.ATTACHED)
-            if child.status is ConstructionStatus.DESTRUCTED:
-                child.construct()
-        finally:
-            record.mark_done()
-            if self._status is not ConstructionStatus.CONSTRUCTING:
-                self._late_starts.remove(child, record)
+        auto_construct_attached(self, child, record)
 
     def _maybe_auto_construct(self, child: VM) -> None:
         maybe_auto_construct(self, child)
@@ -714,25 +729,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def _seal_or_next_late(
         self, joined: list[VM], visited: dict[int, VM], walk: _LateWalk
     ) -> VM | None:
-        """The construct walk's commit step (spec/02 §6, spec/06 §5.1).
-
-        Under the membership gate, return the next unvisited member that an
-        add started (it has a start record in this walk's scope), which the
-        walk then joins. Without one, commit the Constructed state in the same
-        gated section, so an add reads either Constructing (and is joined) or
-        Constructed, then end the walk's scope.
-        """
-        with self._membership_gate:
-            for child in self._children:
-                if visited.get(id(child)) is child:
-                    continue
-                visited[id(child)] = child
-                if walk.take(child):
-                    joined.append(child)
-                    return child
-            self._mark_constructed_before_publication()
-        walk.end()
-        return None
+        return seal_or_next_late(self, joined, visited, walk)
 
     def _validate_move_index(self, index: int) -> None:
         _reject_bool_index(index)
@@ -746,9 +743,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
         After all children reach Constructed, apply the optional initial-current
         selector (spec/06 §3.2, ADR-0042). The composite is still in Constructing
-        here; every child is Constructed. A selector returning None or an
-        out-of-set value leaves current at its prior value (initially None) and
-        emits no notification — matching the select_component semantics.
+        here; every child is Constructed. The result goes through the
+        non-raising validated assignment (ADR-0050, ADR-0165). None or a value
+        that is not a committed member leaves current at its prior value
+        (initially None), with no notification. So does a disposing composite.
         """
         super()._on_construct()
         # Children whose construct population started are joined, not restarted.
@@ -771,8 +769,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             if self._current_selector is None:
                 return
             initial = self._current_selector(self)
-            if initial is not None and any(child is initial for child in self.snapshot()):
-                self._set_current(initial, async_sel=False)
+            if initial is not None:
+                self._apply_selector_result(initial)
 
         # This walk's scope of start records, begun before its snapshot.
         walk = self._late_starts.begin_walk(self)
@@ -811,13 +809,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         with self._membership_condition:
             if self._dispose_requested:
                 return
-            while (
-                self._membership_transaction_active
-                and self._membership_transaction_owner != get_ident()
-            ):
-                self._membership_condition.wait()
-                if self._dispose_requested:
-                    return
+            if get_ident() in self._current_publication_threads:
+                self._dispose_deferred = True
+                return
+            if not self._wait_for_foreign_transaction_locked():
+                return
             if self._membership_transaction_active or self._active_current_publications > 0:
                 self._dispose_deferred = True
                 return
@@ -838,6 +834,34 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._require_child_admission()
         self._membership_transaction_active = True
         self._membership_transaction_owner = get_ident()
+        WAITS.acquire(self._membership_gate, get_ident())
+
+    def _release_membership_transaction_locked(self) -> None:
+        self._membership_transaction_active = False
+        self._membership_transaction_owner = None
+        WAITS.release(self._membership_gate)
+        self._membership_condition.notify_all()
+
+    def _wait_for_foreign_transaction_locked(self) -> bool:
+        """Wait while another thread owns the membership transaction (ADR-0122).
+
+        A wait that would close a wait-for cycle records the disposal for the
+        transaction owner instead, which disposes this container when its
+        transaction ends (ADR-0153). Return False when the caller has nothing
+        left to do.
+        """
+        caller = get_ident()
+        while self._membership_transaction_active and self._membership_transaction_owner != caller:
+            if not WAITS.try_begin_wait(self._membership_gate, caller):
+                self._dispose_deferred = True
+                return False
+            try:
+                self._membership_condition.wait()
+            finally:
+                WAITS.end_wait(caller)
+            if self._dispose_requested:
+                return False
+        return True
 
     def _require_transaction_can_continue_locked(self) -> None:
         if self._dispose_requested or self._dispose_deferred:
@@ -849,12 +873,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def _end_membership_transaction(self, *, propagate_dispose_failure: bool = True) -> None:
         with self._membership_condition:
-            self._membership_transaction_active = False
-            self._membership_transaction_owner = None
+            self._release_membership_transaction_locked()
+            # The deferral stays set until dispose() admits it, so no transaction
+            # or selection starts between this release and dispose() (#1064).
             dispose = self._dispose_deferred and self._active_current_publications == 0
-            if dispose:
-                self._dispose_deferred = False
-            self._membership_condition.notify_all()
         if dispose:
             try:
                 self.dispose()
@@ -865,13 +887,13 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def _end_current_publication(self, *, propagate_dispose_failure: bool) -> None:
         with self._membership_condition:
             self._active_current_publications -= 1
+            self._current_publication_threads.remove(get_ident())
             dispose = (
                 self._active_current_publications == 0
                 and not self._membership_transaction_active
                 and self._dispose_deferred
             )
-            if dispose:
-                self._dispose_deferred = False
+            # The deferral stays set until dispose() admits it (#1064).
             self._membership_condition.notify_all()
         if dispose:
             try:
@@ -881,10 +903,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     raise
 
     def _on_dispose(self) -> None:
-        """Complete the collection_changed subject."""
-        if not self._collection_changed_subject.is_disposed:
-            self._collection_changed_subject.on_completed()
-            self._collection_changed_subject.dispose()
+        """Complete and dispose the collection_changed subject."""
+        subject = self._collection_changed_subject
+        if not subject.is_disposed:
+            # A raising completion observer must not skip the dispose (#1072).
+            _run_every_step(subject.on_completed, subject.dispose)
 
     # ── Factory hook (overridden by subclasses) ───────────────────────────────
 
@@ -1025,8 +1048,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         *,
         internal: bool = False,
         strict: bool = True,
+        only_replacing: VM | None = None,
     ) -> None:
-        """Synchronously update _current and fire notifications."""
+        """Synchronously update _current and fire notifications.
+
+        With *only_replacing*, the change applies only while that child is
+        still current: a transaction clears the child it detached, never a
+        selection made after the detach (#1064).
+        """
         # Async TOCTOU guard: with async selection the child may have been removed
         # between _set_current's membership check and this deferred foreground
         # delivery. Dropping silently upholds the spec/06 §3 invariant that a
@@ -1062,7 +1091,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                             f"Cannot set current to '{getattr(value, 'name', value)!r}': "
                             "not a member of this composite."
                         )
-                    if self._current is value:
+                    if self._current is value or (
+                        only_replacing is not None and self._current is not only_replacing
+                    ):
                         return
                     previous = self._current
                     self._current = value
@@ -1075,6 +1106,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     )
                     if owns_transaction:
                         self._active_current_publications += 1
+                        self._current_publication_threads.append(get_ident())
                         publication_active = True
             if owns_transaction:
                 owns_transaction = False
@@ -1093,6 +1125,50 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 )
             if publication_active:
                 self._end_current_publication(propagate_dispose_failure=sys.exc_info()[0] is None)
+
+    def _apply_selector_result(self, value: VM) -> None:
+        """Assign the Current(selector) result of a construct walk (#1064).
+
+        The non-raising validated assignment of spec/06 §3.2 (ADR-0165). It
+        opens no membership transaction, so another thread's open transaction
+        neither fails nor blocks it. Validation and the state commit run under
+        the coordination lane and the membership gate (spec/06 §4.2). The
+        assignment is a silent no-op while the composite is disposing. It is
+        also a no-op when *value* is not a committed member: not contained, or
+        attached by an add whose rollback could still remove it. A publication
+        lease defers any disposal until the callbacks return.
+        """
+        with _current_change_coordinator:
+            with self._membership_gate:
+                previous = self._current
+                if (
+                    value is previous
+                    or self._dispose_requested
+                    or self._dispose_deferred
+                    or value is self._pending_admission
+                    or not any(child is value for child in self._children)
+                ):
+                    return
+                self._current = value
+                previous_flag_changed = (
+                    previous._commit_is_current(False) if previous is not None else False
+                )
+                value_flag_changed = value._commit_is_current(True)
+                self._active_current_publications += 1
+                self._current_publication_threads.append(get_ident())
+        try:
+            self._finish_current_change(
+                previous,
+                value,
+                previous_flag_changed=previous_flag_changed,
+                value_flag_changed=value_flag_changed,
+            )
+        except BaseException:
+            self._end_current_publication(propagate_dispose_failure=False)
+            raise
+        # The walk calls this from an except clause, so sys.exc_info() cannot
+        # tell success from failure here.
+        self._end_current_publication(propagate_dispose_failure=True)
 
     def _finish_current_change(
         self,

@@ -65,6 +65,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
+  before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
+  updated `keys2`. Before, an entry that a `keys1` subscriber added during
+  `clear()` was missing from `keys2`. A later add with the same key2 did not
+  list it either. If a `keys2` subscriber changes the entries, `keys1` then
+  lists only the keys that the entries use.
+- `FormVM` no longer deadlocks when a validator re-enters the form, or a
+  `canExecuteChanged` or `errorsChanged` sink calls `setModel`, while another
+  thread admits an approval (#1057). A `setModel`, deny or approve call made
+  from such a callback no longer sends while another update holds the state gate
+  or its publication scope. The outermost update delivers the queued
+  notifications after it releases the gate: error maps first, in commit order,
+  then the other notifications in queue order. An approval admitted this way
+  starts its persister after its `canExecuteChanged`. So these notifications now
+  arrive after the nested call returns. They can arrive after a `dispose()` made
+  in that callback. The nested call's hub messages are also sent after the gate
+  is released. So they no longer hold the gate while they wait for another
+  thread's hub drain whose subscriber reads the form. `setModel` now raises
+  `canExecuteChanged` after the publication scope closes, as deny already did.
+  `errorsChanged` is still sent inside the scope and keeps commit order across
+  threads. This covers the notifications of `setModel`, deny and approval
+  admission. A `canExecuteChanged` sink that calls `setModel` can still deadlock
+  with a successful approval's settlement on another thread.
+- A lifecycle publication that waits behind another thread's drain now waits on
+  the thread that holds the turn (#1056). Before, a hand-off released only the
+  next waiter's wait edge. Later waiters kept an edge to the old drainer, so the
+  shared wait-for graph could miss a real cycle. A waiter that delivered through
+  `hub.send` could then wait for a hub drain whose subscriber waited for that
+  waiter's hand-off. Both threads would then stop. This was a latent defect: the
+  public API does not queue two foreign waiters on one VM today. The hand-off
+  now points every queued wait at the new drainer, under the lifecycle lock. A
+  redirected wait that would close a cycle wakes its waiter, and the drainer
+  delivers that publication in FIFO order.
+- `AggregateVM1`…`AggregateVM6` no longer dispose their components while their
+  admitted `_onConstruct()` or `_onDestruct()` hook runs on another thread
+  (#1063, LIFE-015). Before, a foreign `dispose()` during a construct hook also
+  deadlocked. It held the aggregate transaction lock while it waited for the
+  hook lease, and the hook needed that lock. The components are now disposed at
+  the hook-lease boundary of the base `dispose()`, as for `CompositeVM` and
+  `GroupVM`. The cascade reads the slots under the transaction lock only when it
+  starts, so it disposes the slots that the hook committed. With no foreign
+  hook, they are still disposed before the aggregate publishes `.disposed`
+  (LIFE-013). No hook of the aggregate is admitted while that cascade runs. Two
+  aggregates whose slot factories dispose each other no longer deadlock.
+- A `CompositeVM` or `GroupVM` `dispose()` from another thread no longer
+  disposes its children while the container's admitted `onConstruct` or
+  `onDestruct` hook runs (#1062, LIFE-015). The child cascade and the members
+  registered with `ownMember` now run at the hook-lease boundary of the base
+  `dispose()`. A leaf's members wait for its admitted hook in the same way. The
+  container publishes `.disposed` and waits for the hook to release its lease.
+  Then it disposes its children in `destructOrder` and then its members, before
+  `_onDispose()`. On a wait-for cycle, the hook's release runs this cleanup.
+  With no foreign hook running, the children are still disposed before the
+  container publishes `.disposed` (LIFE-013). No hook of the container is
+  admitted while that cascade runs. A same-thread `dispose()` from inside the
+  hook still disposes the children at once. A child walk whose owner is disposed
+  starts no further child and does not run `after`.
 - Doc comments now match the code (#791). `CollectionChangedMessage.senderName`
   says that `CompositeVM` and `GroupVM` messages carry the container's `name`,
   and `senderObject` names the container as a possible sender.
@@ -155,11 +212,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   while `setModel` or deny raises it on another thread, and a sink calls
   `canExecute()` (#704). Top-level `setModel` and deny calls now send
   `errorsChanged` and `canExecuteChanged` after they release the state gate,
-  as approval admission and settlement already did (ADR-0143). `setModel`
-  sends both, and deny sends `errorsChanged`, inside the approval
-  publication scope, so another thread's update or disposal still waits for
-  them, and `errorsChanged` values keep commit order. The strict-mode
-  approval predicate calls `equals` after it releases the gate.
+  as approval admission and settlement already did (ADR-0143). `setModel` and
+  deny send `errorsChanged` inside the approval publication scope. So another
+  thread's update or disposal still waits for it, and `errorsChanged` values
+  keep commit order. Their `canExecuteChanged` follows after the scope closes
+  (#1057). The strict-mode approval predicate calls `equals` after it releases
+  the gate.
 - `CompositeVM` and `GroupVM` no longer deadlock when a thread that sends on
   the hub inside a membership transaction waits for another thread's hub
   drain, and that drain waits for the transaction (#703). Hub waits,

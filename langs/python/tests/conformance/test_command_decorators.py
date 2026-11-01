@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from reactivex import Subject
 
+from tests.liveness import HANG_GUARD
 from vmx.commands import (
     CompositeCommand,
     ConfirmationDecoratorCommand,
@@ -382,7 +383,7 @@ async def test_CMDD_012_confirmation_resolving_after_disposal_runs_nothing(outco
     decorator.errors.subscribe(errors.append, on_completed=lambda: completions.append(None))
 
     decorator.execute()
-    await started.wait()
+    await asyncio.wait_for(started.wait(), HANG_GUARD)
     decorator.dispose()
     if outcome == "faulted":
         decision.set_exception(RuntimeError("confirm failed"))
@@ -415,11 +416,13 @@ async def test_CMDD_012_error_racing_disposal_on_another_thread_is_dropped() -> 
     decorator.errors.subscribe(errors.append, on_completed=lambda: completions.append(None))
     subject: Any = decorator._errors
     publish = subject.on_next
+    disposer_finished: list[bool] = []
 
     def _dispose_then_publish(value: BaseException) -> None:
-        disposer = threading.Thread(target=decorator.dispose)
+        disposer = threading.Thread(target=decorator.dispose, daemon=True)
         disposer.start()
-        disposer.join()
+        disposer.join(HANG_GUARD)
+        disposer_finished.append(not disposer.is_alive())
         publish(value)
 
     subject.on_next = _dispose_then_publish
@@ -434,6 +437,7 @@ async def test_CMDD_012_error_racing_disposal_on_another_thread_is_dropped() -> 
     finally:
         loop.set_exception_handler(previous_handler)
 
+    assert disposer_finished == [True]
     assert escaped == []
     assert errors == []
     assert completions == [None]

@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
 from vmx.dialogs import NullDialogService
 from vmx.forms import FormVM
@@ -625,7 +626,7 @@ async def test_form_late_persister_error_after_dispose_is_inert() -> None:
     loop.set_exception_handler(lambda _loop, context: callback_errors.append(context))
     try:
         sut.approve_command.execute()
-        await entered.wait()
+        await asyncio.wait_for(entered.wait(), HANG_GUARD)
         sut.dispose()
         release.set()
         approvals = asyncio.all_tasks() - {asyncio.current_task()}

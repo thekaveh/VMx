@@ -33,6 +33,12 @@ final class AggregateParent: ParentVM, OwnershipParentVM {
         defer { transactionLock.unlock() }
         return try action()
     }
+
+    /// The current slots, in slot order. Waits for an active slot
+    /// replacement first (spec/08 §4).
+    func slotSnapshot() -> [ComponentVMBase] {
+        withTransaction { slots() }
+    }
 }
 
 func validateAggregateSlots(
@@ -66,12 +72,18 @@ func replaceAggregateSlots(
 ) throws -> Bool {
     try withExclusiveOwnershipReservationBatch(next) {
         try validateAggregateSlots(parent: parent, children: next)
-        for child in previous { child?.dispose() }
-        guard parent.owner.status != .disposed else {
+        guard !parent.owner._isDisposalRequested() else {
+            // The dispose cascade owns the current slots (LIFE-015).
             for child in next { child.dispose() }
             return false
         }
-        assign()
+        for child in previous { child?.dispose() }
+        // A foreign dispose requests disposal under the owner's lifecycle
+        // lock, so the final check and `assign` run as one step (spec/08 §4).
+        guard parent.owner._commitUnlessDisposalRequested(assign) else {
+            for child in next { child.dispose() }
+            return false
+        }
         commitAggregateSlots(parent: parent, previous: previous, next: next)
         return true
     }

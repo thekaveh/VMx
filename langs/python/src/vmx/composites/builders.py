@@ -103,10 +103,13 @@ class CompositeVMBuilder(Generic[VM]):
         """Set an optional selector that picks the initial ``current`` child during construct.
 
         The selector runs after all children reach ``Constructed`` and before
-        the composite itself transitions to ``Constructed``. If it returns
-        ``None`` or a value not in the composite, ``current`` is left at its
-        prior value (initially ``None``) and no notification fires. See
-        ADR-0042 and spec/06 §3.2 (COMP-025).
+        the composite itself transitions to ``Constructed``. Another thread's
+        membership transaction never makes the assignment raise or wait. A
+        ``None`` result or a value that is not a committed child leaves
+        ``current`` at its prior value (initially ``None``). No notification
+        fires. The same holds while the composite is being disposed. A child
+        that another add has attached but not yet admitted is not committed
+        yet. See ADR-0042, ADR-0165 and spec/06 §3.2 (COMP-025).
         """
         return dataclasses.replace(self, _current_selector=selector)
 
@@ -227,10 +230,13 @@ class CompositeVMOfBuilder(Generic[M, VM]):
         """Set an optional selector that picks the initial ``current`` child during construct.
 
         The selector runs after all children reach ``Constructed`` and before
-        the composite itself transitions to ``Constructed``. If it returns
-        ``None`` or a value not in the composite, ``current`` is left at its
-        prior value (initially ``None``) and no notification fires. See
-        ADR-0042 and spec/06 §3.2 (COMP-025).
+        the composite itself transitions to ``Constructed``. Another thread's
+        membership transaction never makes the assignment raise or wait. A
+        ``None`` result or a value that is not a committed child leaves
+        ``current`` at its prior value (initially ``None``). No notification
+        fires. The same holds while the composite is being disposed. A child
+        that another add has attached but not yet admitted is not committed
+        yet. See ADR-0042, ADR-0165 and spec/06 §3.2 (COMP-025).
         """
         return dataclasses.replace(self, _current_selector=selector)
 

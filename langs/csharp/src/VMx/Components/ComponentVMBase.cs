@@ -164,7 +164,7 @@ internal static class ComponentOwnership
             if (_exclusive)
                 foreach (var state in _states) state.InProgress = false;
             for (var index = _states.Length - 1; index >= 0; index--)
-                Monitor.Exit(_states[index].Gate);
+                Exit(_states[index]);
         }
     }
 
@@ -172,6 +172,48 @@ internal static class ComponentOwnership
     {
         internal readonly object Gate = new();
         internal bool InProgress;
+
+        // Re-entrant holds by the thread that holds Gate; guarded by Gate.
+        internal int HoldCount;
+    }
+
+    // Records the holder of an identity in the wait graph on its first hold, so
+    // a thread that waits for the identity can see a wait-for cycle through
+    // it (#1047). Call only while holding the gate.
+    private static void Hold(OwnershipState state)
+    {
+        if (state.HoldCount++ == 0)
+            WaitForGraph.Shared.Acquire(state.Gate, Environment.CurrentManagedThreadId);
+    }
+
+    // Leaves the gate; the last exit removes the holder from the wait graph.
+    private static void Exit(OwnershipState state)
+    {
+        if (--state.HoldCount == 0) WaitForGraph.Shared.Release(state.Gate);
+        Monitor.Exit(state.Gate);
+    }
+
+    // Waits until the holder of a blocked identity lets it go. The wait joins
+    // the wait graph: a wait that would close a wait-for cycle through
+    // membership transactions, ownership gates or both is refused instead of
+    // deadlocking (#1047).
+    private static void WaitForRelease(OwnershipState blocked)
+    {
+        var caller = Environment.CurrentManagedThreadId;
+        var waits = WaitForGraph.Shared;
+        if (!waits.TryBeginWait(blocked.Gate, caller))
+            throw new InvalidOperationException(
+                "A component ownership transaction is in progress on a thread that " +
+                "waits for this one; waiting would deadlock.");
+        try
+        {
+            Monitor.Enter(blocked.Gate);
+            Monitor.Exit(blocked.Gate);
+        }
+        finally
+        {
+            waits.EndWait(caller);
+        }
     }
 
     private static readonly ConditionalWeakTable<IComponentVM, OwnershipState> States = new();
@@ -193,7 +235,11 @@ internal static class ComponentOwnership
             {
                 foreach (var state in states)
                 {
-                    if (Monitor.TryEnter(state.Gate)) acquired.Add(state);
+                    if (Monitor.TryEnter(state.Gate))
+                    {
+                        Hold(state);
+                        acquired.Add(state);
+                    }
                     else
                     {
                         blocked = state;
@@ -202,13 +248,12 @@ internal static class ComponentOwnership
                 }
                 if (blocked is null) return states;
                 for (var index = acquired.Count - 1; index >= 0; index--)
-                    Monitor.Exit(acquired[index].Gate);
+                    Exit(acquired[index]);
             }
 
             // Never wait for one identity while retaining the coordinator or
             // another identity. Once the blocker moves, retry the complete set.
-            Monitor.Enter(blocked.Gate);
-            Monitor.Exit(blocked.Gate);
+            WaitForRelease(blocked);
         }
     }
 
@@ -222,7 +267,7 @@ internal static class ComponentOwnership
         if (states.Any(state => state.InProgress))
         {
             for (var index = states.Length - 1; index >= 0; index--)
-                Monitor.Exit(states[index].Gate);
+                Exit(states[index]);
             throw new InvalidOperationException(
                 "An ownership transaction is already in progress for a reserved component.");
         }
@@ -259,7 +304,7 @@ internal static class ComponentOwnership
         AcquireStates([identity]);
         if (state.InProgress)
         {
-            Monitor.Exit(state.Gate);
+            Exit(state);
             throw new InvalidOperationException(
                 $"Cannot transfer '{child.Name}': an ownership transaction is already in progress.");
         }
@@ -287,7 +332,7 @@ internal static class ComponentOwnership
         catch
         {
             state.InProgress = false;
-            Monitor.Exit(state.Gate);
+            Exit(state);
             throw;
         }
 
@@ -304,7 +349,7 @@ internal static class ComponentOwnership
             finally
             {
                 state.InProgress = false;
-                Monitor.Exit(state.Gate);
+                Exit(state);
             }
         }
 

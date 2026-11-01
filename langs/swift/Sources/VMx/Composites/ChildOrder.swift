@@ -18,7 +18,10 @@ public enum ChildOrder: Sendable, Equatable {
     /// Destruct and dispose children in reverse child order, last index
     /// first. A later child that depends on an earlier one is torn down
     /// before it. Every child is still disposed before the container
-    /// publishes `Disposed` (LIFE-013).
+    /// publishes `Disposed` (LIFE-013). When a construct or destruct hook of
+    /// the container runs on another thread, the container publishes
+    /// `Disposed` first. It disposes its children after that hook returns
+    /// (LIFE-015).
     case reverse
 
     /// `children` in this order.

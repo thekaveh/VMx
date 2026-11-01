@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.notifications import (
     Notification,
     NotificationHub,
@@ -40,7 +41,7 @@ async def test_resolve_completes_the_waiter_when_a_pending_subscriber_raises() -
     with pytest.raises(_SubscriberError):
         hub.resolve(notification, NotificationReaction.APPROVE)
 
-    assert await asyncio.wait_for(post, timeout=1) is NotificationReaction.APPROVE
+    assert await asyncio.wait_for(post, timeout=HANG_GUARD) is NotificationReaction.APPROVE
     subscription.dispose()
 
 
@@ -56,7 +57,7 @@ async def test_dispose_completes_waiters_when_a_pending_subscriber_raises() -> N
     with pytest.raises(_SubscriberError):
         hub.dispose()
 
-    assert await asyncio.wait_for(post, timeout=1) is NotificationReaction.PENDING
+    assert await asyncio.wait_for(post, timeout=HANG_GUARD) is NotificationReaction.PENDING
 
 
 async def test_pending_completes_when_a_subscriber_disposes_the_hub_and_then_raises() -> None:
@@ -98,7 +99,7 @@ def test_a_waiting_dispose_wakes_when_a_completion_observer_raises_base_exceptio
     def on_next(snapshot: object) -> None:
         if snapshot:
             in_next.set()
-            release.wait(5)
+            release.wait(HANG_GUARD)
             raise ValueError("delivery")
 
     def on_completed() -> None:
@@ -115,7 +116,7 @@ def test_a_waiting_dispose_wakes_when_a_completion_observer_raises_base_exceptio
 
     poster = threading.Thread(target=post_on_loop)
     poster.start()
-    assert in_next.wait(5)
+    assert in_next.wait(HANG_GUARD)
     disposed = threading.Event()
 
     def dispose() -> None:
@@ -126,6 +127,6 @@ def test_a_waiting_dispose_wakes_when_a_completion_observer_raises_base_exceptio
     threading.Thread(target=dispose, daemon=True).start()
     time.sleep(0.2)
     release.set()
-    poster.join(5)
+    poster.join(HANG_GUARD)
 
-    assert disposed.wait(5), "the waiting dispose must wake"
+    assert disposed.wait(HANG_GUARD), "the waiting dispose must wake"

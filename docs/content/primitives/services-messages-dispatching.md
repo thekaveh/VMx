@@ -360,7 +360,8 @@ Threaded flavors serialize another producer behind the active transaction. They
 then deliver on that producer's calling thread, also from inside a callback.
 Unrelated busy targets therefore still wait synchronously.
 
-The only exception is an actual cross-hub thread wait cycle (ADR-0119). The
+The only exception is an actual cross-hub thread wait cycle (ADR-0119). In C#
+and Swift, the cycle can also run through a container membership wait. The
 send that would close the cycle enqueues and returns to the active owner's
 drain. A disposal in that position records terminal intent for the owner to
 finish. A cyclic batch borrows the target until its body exits, so the owner
