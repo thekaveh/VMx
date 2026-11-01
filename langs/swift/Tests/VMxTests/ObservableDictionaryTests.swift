@@ -179,6 +179,94 @@ final class ObservableDictionaryTests: XCTestCase {
         XCTAssertEqual(sut.keys2.toArray(), [2, 1, 4])
     }
 
+    // #1075: an entry added from a key-view reset handler during clear keeps
+    // both views equal to the keys of the remaining entries.
+    func testKeyViewsMatchTheEntriesAfterAKeyViewResetHandlerAddsDuringClear() {
+        for view in ["keys1", "keys2"] {
+            let sut = ObservableDictionary<String, String, String>()
+            sut.set("a", "a", "outer")
+            var done = false
+            let reset = view == "keys1" ? sut.keys1.reset : sut.keys2.reset
+            reset.sink {
+                guard !done else { return }
+                done = true
+                sut.set("b", "b", "nested")
+            }.store(in: &cancellables)
+
+            sut.clear()
+
+            XCTAssertEqual(sut.entries().map { "\($0.key1)\($0.key2)" }, ["bb"], view)
+            XCTAssertEqual(sut.keys1.toArray(), ["b"], view)
+            XCTAssertEqual(sut.keys2.toArray(), ["b"], view)
+
+            sut.delete("b", "b")
+
+            XCTAssertEqual(sut.size, 0, view)
+            XCTAssertEqual(sut.keys1.toArray(), [], view)
+            XCTAssertEqual(sut.keys2.toArray(), [], view)
+        }
+    }
+
+    // #1075: an entry added or removed from a key-view itemRemoved handler
+    // during delete keeps both views equal to the distinct keys of the entries.
+    // keys1 never lists a key twice, also while a subscriber runs.
+    func testKeyViewsMatchTheEntriesAfterAKeyViewHandlerChangesThemDuringDelete() {
+        let cases: [(view: String, nested: String, keys1: [String], keys2: [String])] = [
+            ("keys1", "add", ["b", "c", "a"], ["y", "z", "x"]),
+            ("keys1", "delete", ["c"], ["z"]),
+            ("keys2", "add", ["b", "c", "a"], ["y", "z", "x"]),
+            ("keys2", "delete", ["c"], ["z"]),
+        ]
+        for (view, nested, keys1, keys2) in cases {
+            let label = "\(view) \(nested)"
+            let sut = ObservableDictionary<String, String, String>()
+            sut.set("a", "x", "outer")
+            sut.set("b", "y", "kept")
+            sut.set("c", "z", "kept")
+            var done = false
+            let itemRemoved = view == "keys1"
+                ? sut.keys1.itemRemoved.map { _ in () }.eraseToAnyPublisher()
+                : sut.keys2.itemRemoved.map { _ in () }.eraseToAnyPublisher()
+            itemRemoved.sink {
+                guard !done else { return }
+                done = true
+                if nested == "add" { sut.set("a", "x", "nested") } else { sut.delete("b", "y") }
+            }.store(in: &cancellables)
+            var snapshots: [[String]] = []
+            sut.keys1.itemAdded.sink { _ in snapshots.append(sut.keys1.toArray()) }
+                .store(in: &cancellables)
+
+            sut.delete("a", "x")
+
+            var seen1 = Set<String>()
+            var seen2 = Set<String>()
+            let entries = sut.entries()
+            XCTAssertEqual(entries.map(\.key1).filter { seen1.insert($0).inserted }, keys1, label)
+            XCTAssertEqual(entries.map(\.key2).filter { seen2.insert($0).inserted }, keys2, label)
+            XCTAssertEqual(sut.keys1.toArray(), keys1, label)
+            XCTAssertEqual(sut.keys2.toArray(), keys2, label)
+            XCTAssertTrue(snapshots.allSatisfy { Set($0).count == $0.count }, label)
+        }
+    }
+
+    // #1075: delete and clear update keys2 first, as an add does, so a keys1
+    // subscriber already reads the updated keys2.
+    func testKeys2IsUpdatedWhenKeys1NotifiesADeleteOrAClear() {
+        let sut = ObservableDictionary<String, String, String>()
+        sut.set("a", "a", "first")
+        sut.set("b", "b", "second")
+        var seen: [[String]] = []
+        sut.keys1.itemRemoved.sink { _ in seen.append(sut.keys2.toArray()) }
+            .store(in: &cancellables)
+        sut.keys1.reset.sink { seen.append(sut.keys2.toArray()) }
+            .store(in: &cancellables)
+
+        sut.delete("a", "a")
+        sut.clear()
+
+        XCTAssertEqual(seen, [["b"], []])
+    }
+
     func testHubAddIndexFollowsTheKeyPairAfterANestedClearAndReAdd() {
         let hub = MessageHub()
         let sut = ObservableDictionary<String, String, Int>(hub: hub)
