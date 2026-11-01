@@ -259,6 +259,46 @@ fn dispose_fixed_aggregate_child<T: VmNode>(child: &T, first: &mut Option<FirstF
     child.set_parent_handle(None);
 }
 
+/// One component's disposal in a fixed aggregate's child cascade.
+type FixedChildDisposal = Box<dyn FnOnce(&mut Option<FirstFailure>) + Send>;
+
+fn fixed_child_disposal<T: VmNode>(child: Option<T>) -> Option<FixedChildDisposal> {
+    child.map(|child| {
+        Box::new(move |first: &mut Option<FirstFailure>| {
+            dispose_fixed_aggregate_child(&child, first);
+        }) as FixedChildDisposal
+    })
+}
+
+/// Disposes the components in order and then the aggregate, with the
+/// components at the aggregate's admitted-hook boundary (LIFE-015).
+fn dispose_fixed_aggregate<D: Dispatcher>(
+    core: &ComponentCore<D>,
+    ownership: &FixedAggregateOwnership,
+    commands: &Arc<OnceLock<ComponentCommands>>,
+    children: impl IntoIterator<Item = Option<FixedChildDisposal>>,
+) -> VmxResult<()> {
+    core.abandon_child_settle();
+    let children: Vec<_> = children.into_iter().flatten().collect();
+    let child_ids = Arc::clone(&ownership.child_ids);
+    let commands = Arc::clone(commands);
+    core.dispose_with_cascade_then(
+        Box::new(move || {
+            let mut first_failure = None;
+            for dispose in children {
+                dispose(&mut first_failure);
+            }
+            *lock(&child_ids) = HashSet::new();
+            first_failure
+        }),
+        move || {
+            if let Some(commands) = commands.get() {
+                commands.dispose();
+            }
+        },
+    )
+}
+
 fn replace_fixed_aggregate_child<T: VmNode, D: Dispatcher>(
     slot: &AggregateSlot<T>,
     next: T,
@@ -457,21 +497,12 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        self.core.abandon_child_settle();
-        let mut first_failure = None;
-        if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_failure);
-        }
-        self.ownership.replace_ids(HashSet::new());
-        retain_first_failure(&mut first_failure, || {
-            let commands = Arc::clone(&self.commands);
-            self.core.dispose_then(move || {
-                if let Some(commands) = commands.get() {
-                    commands.dispose();
-                }
-            })
-        });
-        finish_with_first_failure(first_failure)
+        dispose_fixed_aggregate(
+            &self.core,
+            &self.ownership,
+            &self.commands,
+            [fixed_child_disposal(self.component_1())],
+        )
     }
 
     /// Returns the aggregate lifecycle status.
@@ -834,24 +865,15 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        self.core.abandon_child_settle();
-        let mut first_failure = None;
-        if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_failure);
-        }
-        if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_failure);
-        }
-        self.ownership.replace_ids(HashSet::new());
-        retain_first_failure(&mut first_failure, || {
-            let commands = Arc::clone(&self.commands);
-            self.core.dispose_then(move || {
-                if let Some(commands) = commands.get() {
-                    commands.dispose();
-                }
-            })
-        });
-        finish_with_first_failure(first_failure)
+        dispose_fixed_aggregate(
+            &self.core,
+            &self.ownership,
+            &self.commands,
+            [
+                fixed_child_disposal(self.component_1()),
+                fixed_child_disposal(self.component_2()),
+            ],
+        )
     }
 
     /// Returns the aggregate lifecycle status.
@@ -1194,27 +1216,16 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        self.core.abandon_child_settle();
-        let mut first_failure = None;
-        if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_failure);
-        }
-        if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_failure);
-        }
-        if let Some(component3) = self.component_3() {
-            dispose_fixed_aggregate_child(&component3, &mut first_failure);
-        }
-        self.ownership.replace_ids(HashSet::new());
-        retain_first_failure(&mut first_failure, || {
-            let commands = Arc::clone(&self.commands);
-            self.core.dispose_then(move || {
-                if let Some(commands) = commands.get() {
-                    commands.dispose();
-                }
-            })
-        });
-        finish_with_first_failure(first_failure)
+        dispose_fixed_aggregate(
+            &self.core,
+            &self.ownership,
+            &self.commands,
+            [
+                fixed_child_disposal(self.component_1()),
+                fixed_child_disposal(self.component_2()),
+                fixed_child_disposal(self.component_3()),
+            ],
+        )
     }
 
     /// Returns the aggregate lifecycle status.
@@ -1557,30 +1568,17 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        self.core.abandon_child_settle();
-        let mut first_failure = None;
-        if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_failure);
-        }
-        if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_failure);
-        }
-        if let Some(component3) = self.component_3() {
-            dispose_fixed_aggregate_child(&component3, &mut first_failure);
-        }
-        if let Some(component4) = self.component_4() {
-            dispose_fixed_aggregate_child(&component4, &mut first_failure);
-        }
-        self.ownership.replace_ids(HashSet::new());
-        retain_first_failure(&mut first_failure, || {
-            let commands = Arc::clone(&self.commands);
-            self.core.dispose_then(move || {
-                if let Some(commands) = commands.get() {
-                    commands.dispose();
-                }
-            })
-        });
-        finish_with_first_failure(first_failure)
+        dispose_fixed_aggregate(
+            &self.core,
+            &self.ownership,
+            &self.commands,
+            [
+                fixed_child_disposal(self.component_1()),
+                fixed_child_disposal(self.component_2()),
+                fixed_child_disposal(self.component_3()),
+                fixed_child_disposal(self.component_4()),
+            ],
+        )
     }
 
     /// Returns the aggregate lifecycle status.
@@ -1969,33 +1967,18 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        self.core.abandon_child_settle();
-        let mut first_failure = None;
-        if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_failure);
-        }
-        if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_failure);
-        }
-        if let Some(component3) = self.component_3() {
-            dispose_fixed_aggregate_child(&component3, &mut first_failure);
-        }
-        if let Some(component4) = self.component_4() {
-            dispose_fixed_aggregate_child(&component4, &mut first_failure);
-        }
-        if let Some(component5) = self.component_5() {
-            dispose_fixed_aggregate_child(&component5, &mut first_failure);
-        }
-        self.ownership.replace_ids(HashSet::new());
-        retain_first_failure(&mut first_failure, || {
-            let commands = Arc::clone(&self.commands);
-            self.core.dispose_then(move || {
-                if let Some(commands) = commands.get() {
-                    commands.dispose();
-                }
-            })
-        });
-        finish_with_first_failure(first_failure)
+        dispose_fixed_aggregate(
+            &self.core,
+            &self.ownership,
+            &self.commands,
+            [
+                fixed_child_disposal(self.component_1()),
+                fixed_child_disposal(self.component_2()),
+                fixed_child_disposal(self.component_3()),
+                fixed_child_disposal(self.component_4()),
+                fixed_child_disposal(self.component_5()),
+            ],
+        )
     }
 
     /// Returns the aggregate lifecycle status.
@@ -2429,36 +2412,19 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        self.core.abandon_child_settle();
-        let mut first_failure = None;
-        if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_failure);
-        }
-        if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_failure);
-        }
-        if let Some(component3) = self.component_3() {
-            dispose_fixed_aggregate_child(&component3, &mut first_failure);
-        }
-        if let Some(component4) = self.component_4() {
-            dispose_fixed_aggregate_child(&component4, &mut first_failure);
-        }
-        if let Some(component5) = self.component_5() {
-            dispose_fixed_aggregate_child(&component5, &mut first_failure);
-        }
-        if let Some(component6) = self.component_6() {
-            dispose_fixed_aggregate_child(&component6, &mut first_failure);
-        }
-        self.ownership.replace_ids(HashSet::new());
-        retain_first_failure(&mut first_failure, || {
-            let commands = Arc::clone(&self.commands);
-            self.core.dispose_then(move || {
-                if let Some(commands) = commands.get() {
-                    commands.dispose();
-                }
-            })
-        });
-        finish_with_first_failure(first_failure)
+        dispose_fixed_aggregate(
+            &self.core,
+            &self.ownership,
+            &self.commands,
+            [
+                fixed_child_disposal(self.component_1()),
+                fixed_child_disposal(self.component_2()),
+                fixed_child_disposal(self.component_3()),
+                fixed_child_disposal(self.component_4()),
+                fixed_child_disposal(self.component_5()),
+                fixed_child_disposal(self.component_6()),
+            ],
+        )
     }
 
     /// Returns the aggregate lifecycle status.

@@ -73,6 +73,20 @@ function sameValueZero(left: unknown, right: unknown): boolean {
   );
 }
 
+/**
+ * Decrements the count of `key` and drops `key` when no entry uses it.
+ * Returns true when `key` was dropped.
+ */
+function release<Key>(counts: Map<Key, number>, key: Key): boolean {
+  const count = counts.get(key) ?? 1;
+  if (count > 1) {
+    counts.set(key, count - 1);
+    return false;
+  }
+  counts.delete(key);
+  return true;
+}
+
 // ── ObservableDictionary ──────────────────────────────────────────────────────
 
 export class ObservableDictionary<TKey1, TKey2, TValue> {
@@ -99,6 +113,11 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
    * key-view subscriber changed the entries during its notification.
    */
   #version = 0;
+  /**
+   * Counts the deletes and clears that notify keys2 now. keys1 can then still
+   * list a key that no entry uses, so an add checks keys1 first (#1075).
+   */
+  #removalsNotifyingKeys2 = 0;
 
   readonly #itemAdded =
     new Subject<DictionaryItemAddedEvent<TKey1, TKey2, TValue>>();
@@ -235,22 +254,16 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#keyOrder.splice(orderIndex, 1);
     this.#version += 1;
 
-    // Update key-axis views: decrement refcount; drop from list when count reaches 0.
-    const newKey1Count = (this.#key1Counts.get(key1) ?? 1) - 1;
-    if (newKey1Count <= 0) {
-      this.#key1Counts.delete(key1);
-      this.#removeAxisKey(this.#keys1, key1);
-    } else {
-      this.#key1Counts.set(key1, newKey1Count);
-    }
+    // Count both axes before either key view notifies: drop a key from its
+    // view only when its count reaches 0.
+    const dropKey1 = release(this.#key1Counts, key1);
+    const dropKey2 = release(this.#key2Counts, key2);
 
-    const newKey2Count = (this.#key2Counts.get(key2) ?? 1) - 1;
-    if (newKey2Count <= 0) {
-      this.#key2Counts.delete(key2);
-      this.#removeAxisKey(this.#keys2, key2);
-    } else {
-      this.#key2Counts.set(key2, newKey2Count);
+    // Keys2 first, so a keys1 subscriber sees the updated keys2, as on add (#1075).
+    if (dropKey2) {
+      this.#notifyKeys2(() => this.#removeAxisKey(this.#keys2, key2));
     }
+    if (dropKey1) this.#removeKey1(key1);
 
     // 1. Local granular event first.
     this.#itemRemoved.next({ key1, key2, value });
@@ -304,8 +317,9 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#version += 1;
     this.#key1Counts.clear();
     this.#key2Counts.clear();
-    this.#keys1.clear();
-    this.#keys2.clear();
+    // Keys2 first, so a keys1 subscriber sees the cleared keys2, as on add (#1075).
+    this.#notifyKeys2(() => this.#keys2.clear());
+    this.#clearKeys1();
     // 1. Local event first.
     this.#reset.next();
     // 2. Publish to hub (if present).
@@ -351,18 +365,76 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   }
 
   /**
-   * Appends `key1` unless a keys2 subscriber changed the entries. Then `key1`
-   * is listed only while an entry still uses it, after every listed key that
-   * has an entry before `key1`'s first entry.
+   * Appends `key1` unless a keys2 subscriber changed the entries, or a delete
+   * or clear notifies keys2 now. Then `#listKey1` decides.
    */
   #addKey1(key1: TKey1, version: number): void {
-    if (version === this.#version) {
+    if (version === this.#version && this.#removalsNotifyingKeys2 === 0) {
       this.#keys1.push(key1);
       return;
     }
+    this.#listKey1(key1);
+  }
+
+  /**
+   * Lists `key1` only while an entry still uses it and keys1 does not list it
+   * yet, at `#key1Position`.
+   */
+  #listKey1(key1: TKey1): void {
     if (!this.#key1Counts.has(key1)) return;
     for (const listed of this.#keys1) if (sameValueZero(listed, key1)) return;
+    this.#keys1.insert(this.#key1Position(key1), key1);
+  }
 
+  /**
+   * Unlists `key1` when no entry uses it. If a keys2 subscriber added an entry
+   * with `key1`, `key1` stays listed and moves to `#key1Position` (#1075).
+   */
+  #removeKey1(key1: TKey1): void {
+    if (!this.#key1Counts.has(key1)) {
+      this.#removeAxisKey(this.#keys1, key1);
+      return;
+    }
+    let listed = -1;
+    let index = 0;
+    for (const candidate of this.#keys1) {
+      if (sameValueZero(candidate, key1)) {
+        listed = index;
+        break;
+      }
+      index += 1;
+    }
+    if (listed === this.#key1Position(key1)) return;
+    if (listed >= 0) this.#keys1.removeAt(listed);
+    // The removal notifies keys1, and a subscriber can change the entries.
+    this.#listKey1(key1);
+  }
+
+  /**
+   * Empties keys1 unless a keys2 subscriber added entries. Then keys1 lists
+   * their key1 values in first-appearance order, with at most one reset
+   * (#1075).
+   */
+  #clearKeys1(): void {
+    if (this.#keyOrder.length === 0) {
+      this.#keys1.clear();
+      return;
+    }
+    const keys = [...new Set(this.#keyOrder.map((entry) => entry.key1))];
+    const listed = this.#keys1.toArray();
+    if (
+      listed.length !== keys.length ||
+      listed.some((key, index) => !sameValueZero(key, keys[index]))
+    ) {
+      this.#keys1.replaceAll(keys);
+    }
+  }
+
+  /**
+   * The keys1 index for `key1`, counted without `key1`: after every listed key
+   * that has an entry before `key1`'s first entry.
+   */
+  #key1Position(key1: TKey1): number {
     const earlier = new Set<TKey1>();
     for (const entry of this.#keyOrder) {
       if (sameValueZero(entry.key1, key1)) break;
@@ -371,10 +443,21 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     let position = 0;
     let index = 0;
     for (const listed of this.#keys1) {
+      if (sameValueZero(listed, key1)) continue;
       index += 1;
       if (earlier.has(listed)) position = index;
     }
-    this.#keys1.insert(position, key1);
+    return position;
+  }
+
+  /** Runs a keys2 change of a delete or clear. keys1 can lag behind it. */
+  #notifyKeys2(change: () => void): void {
+    this.#removalsNotifyingKeys2 += 1;
+    try {
+      change();
+    } finally {
+      this.#removalsNotifyingKeys2 -= 1;
+    }
   }
 
   #removeAxisKey<Key>(keys: ObservableList<Key>, key: Key): void {

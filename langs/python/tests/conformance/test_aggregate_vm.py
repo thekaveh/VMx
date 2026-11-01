@@ -13,13 +13,21 @@ AGG-006 — Arity-6 all six components reach Constructed; destruction waits for 
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 from tests.liveness import HANG_GUARD
-from vmx.aggregates.aggregate_vm import AggregateVM1, AggregateVM2
+from vmx.aggregates.aggregate_vm import (
+    AggregateVM1,
+    AggregateVM2,
+    AggregateVM3,
+    AggregateVM4,
+    AggregateVM5,
+    AggregateVM6,
+)
 from vmx.aggregates.builders import (
     AggregateVM1Builder,
     AggregateVM2Builder,
@@ -127,6 +135,13 @@ class _StatusReadBarrierAggregate(AggregateVM1[ComponentVM]):
             self._status_read.set()
             if not self._disposal_attempted.wait(timeout=HANG_GUARD):
                 raise TimeoutError("test did not attempt aggregate disposal")
+            # The foreign dispose publishes DISPOSED while this hook runs, so
+            # the captured status is stale when it is returned.
+            deadline = time.monotonic() + HANG_GUARD
+            while self._status is not ConstructionStatus.DISPOSED:
+                if time.monotonic() > deadline:
+                    raise TimeoutError("the aggregate disposal did not publish DISPOSED")
+                time.sleep(0.001)
         return captured
 
 
@@ -627,12 +642,15 @@ def test_aggregate_dispose_cannot_race_fixed_slot_commit(reconstruct: bool) -> N
             aggregate.dispose()
 
         disposal_result = pool.submit(dispose)
-        operation_result.result(timeout=HANG_GUARD)
-        disposal_result.result(timeout=HANG_GUARD)
+        # The paused status read waits up to two HANG_GUARD bounds.
+        operation_result.result(timeout=3 * HANG_GUARD)
+        disposal_result.result(timeout=3 * HANG_GUARD)
 
     candidate = created[-1]
     assert aggregate.status is ConstructionStatus.DISPOSED
     assert candidate.status is ConstructionStatus.DISPOSED
+    # A stale terminal check commits no candidate (spec/08 §4).
+    assert candidate not in aggregate.components()
 
 
 @pytest.mark.conformance("AGG-007")
@@ -834,3 +852,288 @@ def test_LIFE_013_aggregate_dispose_children_before_parent(arity: int) -> None:
         assert disposal_order.index(f"c{n}") < disposal_order.index(f"agg{arity}"), (
             f"c{n} must be Disposed before agg{arity} (LIFE-013)"
         )
+
+
+# ---------------------------------------------------------------------------
+# LIFE-015 (AggregateVM) — the slot cascade waits for the admitted hook (#1063)
+# Sibling of test_group_vm.py::test_LIFE_015_child_cascade_waits_for_admitted_group_hook.
+# ---------------------------------------------------------------------------
+
+
+_AGGREGATES: dict[int, type] = {
+    1: AggregateVM1,
+    2: AggregateVM2,
+    3: AggregateVM3,
+    4: AggregateVM4,
+    5: AggregateVM5,
+    6: AggregateVM6,
+}
+
+
+class _SlotCleanupProbe(ComponentVM):
+    """A slot that records each terminal cleanup in a shared log."""
+
+    def __init__(self, name: str, hub: MessageHub[object], log: list[str]) -> None:
+        super().__init__(name=name, hint="", hub=hub, dispatcher=_dispatcher())
+        self._log = log
+        self.cleanups = 0
+
+    def _on_dispose(self) -> None:
+        self.cleanups += 1
+        self._log.append(f"cleanup:{self.name}")
+
+
+@pytest.mark.parametrize("phase", ["construct", "destruct"])
+@pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_aggregate_slot_cascade_waits_for_admitted_hook(arity: int, phase: str) -> None:
+    """LIFE-015 for AggregateVMN: a foreign dispose cleans no slot until the
+    aggregate's blocked construct or destruct hook returns. Neither thread
+    deadlocks. Each slot is cleaned once, and the aggregate ends Disposed
+    (#1063)."""
+    hub = _hub()
+    log: list[str] = []
+    hook_entered = threading.Event()
+    release_hook = threading.Event()
+    blocking = threading.Event()
+    created: list[_SlotCleanupProbe] = []
+
+    def factory(index: int) -> Callable[[], _SlotCleanupProbe]:
+        def make() -> _SlotCleanupProbe:
+            first = not any(slot.name.startswith(f"c{index}") for slot in created)
+            slot = _SlotCleanupProbe(f"c{index}" if first else f"c{index}-candidate", hub, log)
+            created.append(slot)
+            return slot
+
+        return make
+
+    def block() -> None:
+        if blocking.is_set():
+            log.append("hook-enter")
+            hook_entered.set()
+            assert release_hook.wait(HANG_GUARD)
+            log.append("hook-exit")
+
+    class _BlockingAggregate(_AGGREGATES[arity]):  # type: ignore[misc, valid-type]
+        def _on_construct(self) -> None:
+            if phase == "construct":
+                block()
+            super()._on_construct()
+            if blocking.is_set():
+                log.append("hook-returned")
+
+        def _on_destruct(self) -> None:
+            if phase == "destruct":
+                block()
+            super()._on_destruct()
+            if blocking.is_set():
+                log.append("hook-returned")
+
+    factories = {f"factory{n}": factory(n) for n in range(1, arity + 1)}
+    aggregate = _BlockingAggregate(
+        name=f"agg{arity}", hint="", hub=hub, dispatcher=_dispatcher(), **factories
+    )
+    aggregate.construct()
+    if phase == "construct":
+        aggregate.destruct()
+    slots = list(aggregate.components())
+    assert len(slots) == arity
+    blocking.set()
+    operation = aggregate.construct if phase == "construct" else aggregate.destruct
+    operation_errors: list[BaseException] = []
+    dispose_errors: list[BaseException] = []
+
+    def run_operation() -> None:
+        try:
+            operation()
+        except BaseException as error:
+            operation_errors.append(error)
+
+    def dispose() -> None:
+        try:
+            aggregate.dispose()
+        except BaseException as error:
+            dispose_errors.append(error)
+
+    operator = threading.Thread(target=run_operation, daemon=True)
+    operator.start()
+    try:
+        assert hook_entered.wait(HANG_GUARD)
+        disposer = threading.Thread(target=dispose, daemon=True)
+        disposer.start()
+        disposer.join(0.2)
+        assert disposer.is_alive(), "the foreign dispose waits for the admitted hook"
+        assert not any(entry.startswith("cleanup:") for entry in log), (
+            "no slot is cleaned while the admitted hook runs"
+        )
+    finally:
+        # A failed assertion must not leave the hook thread blocked.
+        release_hook.set()
+    operator.join(HANG_GUARD)
+    disposer.join(HANG_GUARD)
+    assert not operator.is_alive(), f"{phase}() deadlocked"
+    assert not disposer.is_alive(), "dispose() deadlocked"
+
+    assert operation_errors == []
+    assert dispose_errors == []
+    hook_returned = log.index("hook-returned")
+    for slot in slots:
+        assert log.index(f"cleanup:{slot.name}") > hook_returned
+        assert slot.cleanups == 1
+        assert slot.status is ConstructionStatus.DISPOSED
+    # A construct after the dispose request disposes its candidates at once
+    # and commits none (spec/08 §4).
+    assert all(slot.cleanups == 1 for slot in created)
+    assert aggregate.components() == slots
+    assert aggregate.status is ConstructionStatus.DISPOSED
+
+
+@pytest.mark.parametrize("arity", [1, 2, 3, 4, 5, 6])
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_no_aggregate_hook_is_admitted_during_its_slot_cascade(arity: int) -> None:
+    """LIFE-015 for AggregateVMN: no hook of the aggregate is admitted while
+    its slot cascade runs. A construct() from a slot's dispose hook creates no
+    slot, and the aggregate ends Disposed with no Constructed slot left."""
+    hub = _hub()
+    log: list[str] = []
+    created: list[_SlotCleanupProbe] = []
+
+    def factory(index: int) -> Callable[[], _SlotCleanupProbe]:
+        def make() -> _SlotCleanupProbe:
+            slot = _SlotCleanupProbe(f"c{index}-{len(created)}", hub, log)
+            created.append(slot)
+            return slot
+
+        return make
+
+    factories = {f"factory{n}": factory(n) for n in range(1, arity + 1)}
+    aggregate = _AGGREGATES[arity](
+        name=f"agg{arity}", hint="", hub=hub, dispatcher=_dispatcher(), **factories
+    )
+    aggregate.construct()
+    aggregate.destruct()
+    slots = list(aggregate.components())
+    construct_errors: list[BaseException] = []
+
+    def construct_again() -> None:
+        try:
+            aggregate.construct()
+        except BaseException as error:
+            construct_errors.append(error)
+
+    slots[0]._own(construct_again)
+
+    aggregate.dispose()
+
+    assert construct_errors == []
+    assert len(created) == arity, "no hook ran, so no candidate was created"
+    assert aggregate.components() == slots
+    assert all(slot.status is ConstructionStatus.DISPOSED for slot in created)
+    assert aggregate.status is ConstructionStatus.DISPOSED
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_construct_before_the_slot_cascade_starts_is_disposed_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LIFE-015 for AggregateVM1: a construct() runs after dispose() records
+    its request, but before the slot cascade starts. It commits its slot and
+    reaches Constructed with it. The cascade then disposes that slot once, and
+    the aggregate never reports Constructed with an empty slot (#1063)."""
+    hub = _hub()
+    log: list[str] = []
+    created: list[_SlotCleanupProbe] = []
+
+    def factory() -> _SlotCleanupProbe:
+        slot = _SlotCleanupProbe(f"c{len(created) + 1}", hub, log)
+        created.append(slot)
+        return slot
+
+    aggregate = AggregateVM1(
+        name="agg", hint="", hub=hub, dispatcher=_dispatcher(), factory1=factory
+    )
+    slot_at_constructed: list[ConstructionStatus | None] = []
+
+    def on_message(msg: object) -> None:
+        if (
+            isinstance(msg, ConstructionStatusChangedMessage)
+            and msg.sender is aggregate
+            and msg.status == ConstructionStatus.CONSTRUCTED
+        ):
+            component = aggregate.component_1
+            slot_at_constructed.append(None if component is None else component.status)
+
+    hub.messages.subscribe(on_message)
+    cascade_reached = threading.Event()
+    release_cascade = threading.Event()
+    start_cascade = aggregate._dispose_with_children_from
+
+    def paused(children: Callable[[], tuple[object, ...]]) -> None:
+        cascade_reached.set()
+        assert release_cascade.wait(HANG_GUARD)
+        start_cascade(children)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(aggregate, "_dispose_with_children_from", paused)
+    disposer = threading.Thread(target=aggregate.dispose, daemon=True)
+    disposer.start()
+    try:
+        assert cascade_reached.wait(HANG_GUARD)
+        aggregate.construct()
+    finally:
+        release_cascade.set()
+        disposer.join(HANG_GUARD)
+
+    assert not disposer.is_alive()
+    assert slot_at_constructed == [ConstructionStatus.CONSTRUCTED]
+    assert [slot.cleanups for slot in created] == [1]
+    assert created[0].status is ConstructionStatus.DISPOSED
+    assert aggregate.status is ConstructionStatus.DISPOSED
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_opposing_aggregate_factories_dispose_each_other_without_deadlock() -> None:
+    """LIFE-015 for AggregateVM1: two aggregates whose slot factories each
+    dispose the other aggregate, from inside their admitted construct hooks,
+    both finish. Each ends Disposed, and no slot stays alive (#1063)."""
+    hub = _hub()
+    log: list[str] = []
+    rendezvous = threading.Barrier(2, timeout=HANG_GUARD)
+    aggregates: dict[str, AggregateVM1[_SlotCleanupProbe]] = {}
+    created: list[_SlotCleanupProbe] = []
+
+    def factory(other: str) -> Callable[[], _SlotCleanupProbe]:
+        def make() -> _SlotCleanupProbe:
+            rendezvous.wait()
+            aggregates[other].dispose()
+            slot = _SlotCleanupProbe(f"slot-of-{other}", hub, log)
+            created.append(slot)
+            return slot
+
+        return make
+
+    for name, other in (("a", "b"), ("b", "a")):
+        aggregates[name] = AggregateVM1(
+            name=name, hint="", hub=hub, dispatcher=_dispatcher(), factory1=factory(other)
+        )
+    errors: list[BaseException] = []
+
+    def construct(aggregate: AggregateVM1[_SlotCleanupProbe]) -> None:
+        try:
+            aggregate.construct()
+        except BaseException as error:
+            errors.append(error)
+
+    threads = [
+        threading.Thread(target=construct, args=(aggregate,), daemon=True)
+        for aggregate in aggregates.values()
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(HANG_GUARD)
+
+    assert [thread.is_alive() for thread in threads] == [False, False], "no deadlock"
+    assert errors == []
+    assert all(a.status is ConstructionStatus.DISPOSED for a in aggregates.values())
+    assert len(created) == 2
+    assert all(slot.status is ConstructionStatus.DISPOSED for slot in created)

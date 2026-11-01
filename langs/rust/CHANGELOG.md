@@ -100,6 +100,49 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm`, `GroupVm` and `AggregateVm1`…`AggregateVm6` no longer dispose
+  their children while their admitted construct or destruct hook runs on another
+  thread (#1062, LIFE-015). The child cascade now runs at the hook boundary of
+  the container's own disposal. A foreign `dispose()` publishes `Disposed`,
+  waits for the hook, and then disposes the children. On a wait-for cycle, the
+  hook's thread disposes them when the hook returns. That thread's `construct()`
+  or `destruct()` then returns the first child failure, unless the call failed
+  already. With no foreign hook, the children are still disposed before the
+  container publishes `Disposed` (LIFE-013). A `construct()` or `destruct()` of
+  the container during that cascade returns `VmxError::Disposed` and publishes
+  nothing. A child walk of a disposed container starts no further child and does
+  not run its selector. A `ComponentVm` child walk also stops: once the
+  component is disposed, `ChildTransitions::transition` starts no member, `then`
+  does not run, and both return `Ok(())`. A second `dispose()` of a
+  `CompositeVm` or `GroupVm` returns `Ok(())` at once. So a child that disposes
+  its parent no longer makes the parent publish `Disposed` before the remaining
+  children.
+- `TokenPagedComposition` no longer commits a refresh or load that a later load
+  superseded (#1045). An operation started with no lock, so a load could start
+  between a commit's last staleness check and its writes. The load then
+  appended a page fetched for the old prefix to the new accumulator. A start
+  now takes an operation gate. Each commit holds that gate from its final check
+  until it has written the items and the cursor.
+- `FormVm::is_dirty` on another thread no longer pairs a model and a
+  snapshot that never coexisted (#1073). A reset approval replaces both in two
+  steps, so a clean reset could read as dirty. An approval that advanced the
+  snapshot after an edit could also read as clean. `is_dirty` now reads the
+  pair again when an approval commit overlapped its reads. It still holds no
+  lock while `PartialEq` runs.
+- A `FormVm` approval with `reset_on_approved` now validates the reset model
+  under the update lock, before it commits (#1046). Before, a validator
+  registered on another thread during that validation was left out. The
+  approval then committed stale errors, so an invalid reset model read as
+  valid. A validator registered meanwhile now revalidates the committed model.
+  A re-entrant registration during the validation makes it run again, until a
+  run registers no validator.
+- A `FormVm` approval started from an approval subscriber no longer applies
+  the outer approval's deferred edits early (#1061). Before, the outer
+  approval's later subscribers saw the edited, dirty model instead of the
+  settled one. Only a thread's outermost settlement now applies the deferred
+  edits, after its own subscribers have run, as C# does for nesting on one
+  thread. An edit that a subscriber of the outermost approval makes still
+  applies at once.
 - `ServicedObservableCollection` and `KeyedServicedObservableCollection` no
   longer deliver a stale message after user code panics under a mutation
   (#1065). User code runs under a mutation: `PartialEq` in `remove`, and the

@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using VMx.Builders;
 using VMx.Capabilities;
 using VMx.Collections;
@@ -22,9 +23,11 @@ public sealed class GlobalSearchVM : ComponentVMBase
     private readonly IDispatcher _dispatcher;
     private readonly int _pageSize;
     private readonly SearchableState<string> _search;
-    private readonly TokenPagedComposition<NoteVM, string> _paged;
+    private readonly TokenPagedComposition<NoteVM, SearchCursor> _paged;
     private readonly object _ownedResultsGate = new();
     private readonly HashSet<NoteVM> _ownedResults = new(ReferenceEqualityComparer.Instance);
+    // The search term that fetched each result.
+    private readonly ConditionalWeakTable<NoteVM, string> _resultTerms = new();
     private bool _ownedResultsDisposed;
     private bool _ownDisposed;
 
@@ -46,14 +49,28 @@ public sealed class GlobalSearchVM : ComponentVMBase
             predicate: (_, _) => true,
             debounce: searchDebounce,
             scheduler: dispatcher.Foreground);
-        _paged = new TokenPagedComposition<NoteVM, string>(
+        _paged = new TokenPagedComposition<NoteVM, SearchCursor>(
             FetchNextAsync,
             autoConstructOnAdd: true,
+            // Pages for different terms are never equal, so a refresh for a new
+            // term replaces the loaded pages and their cursor.
             pagesEqual: (left, right) =>
                 left.Count == right.Count
-                && left.Zip(right).All(pair => pair.First.Model.Id == pair.Second.Model.Id));
+                && left.Zip(right).All(pair =>
+                    pair.First.Model.Id == pair.Second.Model.Id
+                    && TermOf(pair.First) == TermOf(pair.Second)));
+        // A refresh replaces the loaded pages, so "Load more" is not available
+        // until the refresh is complete. A call made during a refresh does
+        // nothing. A load that starts during a refresh makes the composition
+        // discard that refresh (spec 21 §6.2).
+        LoadMoreCommand = AsyncRelayCommand.Builder()
+            .Predicate(() => _paged.LoadMoreCommand.CanExecute(null) && !_paged.RefreshCommand.IsExecuting)
+            .Task(_ => _paged.LoadMoreCommand.ExecuteAsync())
+            .Build();
         _paged.CollectionChanged += OnPagedCollectionChanged;
         _paged.PropertyChanged += OnPagedPropertyChanged;
+        _paged.LoadMoreCommand.CanExecuteChanged += OnPagedCommandCanExecuteChanged;
+        _paged.RefreshCommand.CanExecuteChanged += OnPagedCommandCanExecuteChanged;
     }
 
     /// <inheritdoc/>
@@ -68,8 +85,8 @@ public sealed class GlobalSearchVM : ComponentVMBase
     /// <summary>Refreshes the result set from the first page.</summary>
     public AsyncRelayCommand RefreshCommand => _paged.RefreshCommand;
 
-    /// <summary>Loads and appends the next result page.</summary>
-    public AsyncRelayCommand LoadMoreCommand => _paged.LoadMoreCommand;
+    /// <summary>Loads and appends the next result page. It cannot run while a refresh runs.</summary>
+    public AsyncRelayCommand LoadMoreCommand { get; }
 
     /// <summary>Current global search term.</summary>
     public string SearchTerm
@@ -93,33 +110,44 @@ public sealed class GlobalSearchVM : ComponentVMBase
         RefreshCommand.Execute(null);
     }
 
-    private async Task<TokenPage<NoteVM, string>> FetchNextAsync(string? token)
+    private async Task<TokenPage<NoteVM, SearchCursor>> FetchNextAsync(SearchCursor? cursor)
     {
-        var page = await _repo.SearchNotesAsync(SearchTerm, token, _pageSize).ConfigureAwait(false);
+        // The first page uses the current term. A later page uses the term in
+        // the cursor, so "Load more" continues the term of the loaded pages.
+        var term = cursor?.Term ?? SearchTerm;
+        var page = await _repo.SearchNotesAsync(term, cursor?.Offset, _pageSize).ConfigureAwait(false);
         var items = page.Items
             .Select(model => OwnResult(
                 NoteVM.Builder()
                     .Name($"global-{model.Id}")
                     .Services(Hub, _dispatcher)
                     .Model(model)
-                    .Build()))
+                    .Build(),
+                term))
             .ToList();
-        return new TokenPage<NoteVM, string>(items, page.NextToken);
+        var next = page.NextToken is null ? null : new SearchCursor(term, page.NextToken);
+        return new TokenPage<NoteVM, SearchCursor>(items, next);
     }
 
-    private NoteVM OwnResult(NoteVM result)
+    private NoteVM OwnResult(NoteVM result, string term)
     {
         bool disposeImmediately;
         lock (_ownedResultsGate)
         {
             disposeImmediately = _ownedResultsDisposed;
             if (!disposeImmediately)
+            {
                 _ownedResults.Add(result);
+                _resultTerms.AddOrUpdate(result, term);
+            }
         }
         if (disposeImmediately)
             result.Dispose();
         return result;
     }
+
+    private string? TermOf(NoteVM result) =>
+        _resultTerms.TryGetValue(result, out var term) ? term : null;
 
     private void DisposeOwnedResults()
     {
@@ -141,10 +169,15 @@ public sealed class GlobalSearchVM : ComponentVMBase
 
     private void OnPagedPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(TokenPagedComposition<NoteVM, string>.HasMore))
+        if (e.PropertyName == nameof(TokenPagedComposition<NoteVM, SearchCursor>.HasMore))
         {
             NotifyPropertyChanged(nameof(HasMore));
         }
+    }
+
+    private void OnPagedCommandCanExecuteChanged(object? sender, EventArgs e)
+    {
+        LoadMoreCommand.RaiseCanExecuteChanged();
     }
 
     /// <inheritdoc/>
@@ -154,7 +187,10 @@ public sealed class GlobalSearchVM : ComponentVMBase
         _ownDisposed = true;
         _paged.CollectionChanged -= OnPagedCollectionChanged;
         _paged.PropertyChanged -= OnPagedPropertyChanged;
+        _paged.LoadMoreCommand.CanExecuteChanged -= OnPagedCommandCanExecuteChanged;
+        _paged.RefreshCommand.CanExecuteChanged -= OnPagedCommandCanExecuteChanged;
         DisposeOwnedResults();
+        LoadMoreCommand.Dispose();
         _paged.Dispose();
         _search.Dispose();
         base.Dispose();
@@ -162,6 +198,9 @@ public sealed class GlobalSearchVM : ComponentVMBase
 
     /// <summary>Returns an empty builder.</summary>
     public static GlobalSearchVMBuilder Builder() => GlobalSearchVMBuilder.Empty;
+
+    /// <summary>The cursor for the next page. It keeps the term of the loaded pages.</summary>
+    private sealed record SearchCursor(string Term, string Offset);
 
     /// <summary>Immutable fluent builder.</summary>
     public sealed class GlobalSearchVMBuilder

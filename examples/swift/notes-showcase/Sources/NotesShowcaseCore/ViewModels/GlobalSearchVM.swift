@@ -5,12 +5,15 @@ import VMx
 private final class GlobalSearchResultOwner: @unchecked Sendable {
     private let lock = NSLock()
     private var results: [ObjectIdentifier: NoteVM] = [:]
+    /// The search term that fetched each owned result.
+    private var terms: [ObjectIdentifier: String] = [:]
     private var disposed = false
 
-    func track(_ result: NoteVM) -> NoteVM {
+    func track(_ result: NoteVM, term: String) -> NoteVM {
         let disposeImmediately = lock.withLock { () -> Bool in
             guard !disposed else { return true }
             results[ObjectIdentifier(result)] = result
+            terms[ObjectIdentifier(result)] = term
             return false
         }
         if disposeImmediately {
@@ -19,10 +22,17 @@ private final class GlobalSearchResultOwner: @unchecked Sendable {
         return result
     }
 
+    func term(of result: NoteVM) -> String? {
+        lock.withLock { terms[ObjectIdentifier(result)] }
+    }
+
     func disposeAll() {
         let owned = lock.withLock { () -> [NoteVM] in
             disposed = true
-            defer { results.removeAll() }
+            defer {
+                results.removeAll()
+                terms.removeAll()
+            }
             return Array(results.values)
         }
         for result in owned {
@@ -31,13 +41,74 @@ private final class GlobalSearchResultOwner: @unchecked Sendable {
     }
 }
 
+/// Tracks search requests so that a load can find a refresh that it discarded.
+private final class SearchRequests: @unchecked Sendable {
+    private let lock = NSLock()
+    private var term: String?
+    private var fetches = 0
+    private var lastFetchFailed = false
+    private var overlap = false
+    private var rerunSearch: (() -> Void)?
+
+    /// The term of the latest `searchNow()` call or first-page fetch.
+    var requestedTerm: String? { lock.withLock { term } }
+    var firstPageFetches: Int { lock.withLock { fetches } }
+    var lastFirstPageFetchFailed: Bool { lock.withLock { lastFetchFailed } }
+
+    func record(_ requested: String) {
+        lock.withLock { term = requested }
+    }
+
+    func recordFirstPageFetch(_ requested: String) {
+        lock.withLock {
+            term = requested
+            fetches += 1
+            lastFetchFailed = false
+        }
+    }
+
+    func recordFirstPageFailure() {
+        lock.withLock { lastFetchFailed = true }
+    }
+
+    /// Records that a first-page fetch started while a load ran.
+    func markOverlap() {
+        lock.withLock { overlap = true }
+    }
+
+    /// Returns true once after `markOverlap()`.
+    func takeOverlap() -> Bool {
+        lock.withLock {
+            defer { overlap = false }
+            return overlap
+        }
+    }
+
+    /// Sets the call that checks the results after an overlap and searches
+    /// again if needed.
+    func onRerun(_ rerun: @escaping () -> Void) {
+        lock.withLock { rerunSearch = rerun }
+    }
+
+    func rerun() {
+        lock.withLock { rerunSearch }?()
+    }
+}
+
+/// The cursor for the next page. It keeps the term of the loaded pages.
+private struct SearchCursor: Sendable {
+    let term: String
+    let offset: String
+}
+
 /// Token-paged search and lifetime owner for every result VM it creates.
 public final class GlobalSearchVM: ComponentVMBase {
     private let repo: any NoteRepository
     private let pageSize: Int
     private let search: SearchableState<String>
-    private let paged: TokenPagedComposition<NoteVM, String>
+    private let paged: TokenPagedComposition<NoteVM, SearchCursor>
     private let resultOwner: GlobalSearchResultOwner
+    private let searchRequests = SearchRequests()
     private var cancellables: Set<AnyCancellable> = []
     /// Guards `searchPending` and `searchDisposed`. `searchNow()` runs on the
     /// UI thread, and the refresh command settles on a cooperative-pool thread.
@@ -64,42 +135,95 @@ public final class GlobalSearchVM: ComponentVMBase {
         )
         let resultOwner = GlobalSearchResultOwner()
         self.resultOwner = resultOwner
+        let searchRequests = self.searchRequests
         let repoRef = repository
         let hubRef = hub
         let dispatcherRef = dispatcher
-        self.paged = TokenPagedComposition<NoteVM, String>(
-            fetchNext: { [search] token in
-                let page = try await repoRef.searchNotes(
-                    term: search.searchTerm,
-                    token: token,
-                    pageSize: pageSize
-                )
+        let paged = TokenPagedComposition<NoteVM, SearchCursor>(
+            fetchNext: { [search] cursor in
+                // The first page uses the current term. A later page uses the term in
+                // the cursor, so "Load more" continues the term of the loaded pages.
+                let term = cursor?.term ?? search.searchTerm
+                if cursor == nil { searchRequests.recordFirstPageFetch(term) }
+                let page: (items: [NoteModel], nextToken: String?)
+                do {
+                    page = try await repoRef.searchNotes(
+                        term: term,
+                        token: cursor?.offset,
+                        pageSize: pageSize
+                    )
+                } catch {
+                    if cursor == nil { searchRequests.recordFirstPageFailure() }
+                    throw error
+                }
                 let items = try page.items.map { model in
                     resultOwner.track(
                         try NoteVM.builder()
                             .name("global-\(model.id)")
                             .services(hub: hubRef, dispatcher: dispatcherRef)
                             .model(model)
-                            .build()
+                            .build(),
+                        term: term
                     )
                 }
-                return (items, page.nextToken)
+                return (items, page.nextToken.map { SearchCursor(term: term, offset: $0) })
             },
             autoConstructOnAdd: true,
+            // Pages for different terms are never equal, so a refresh for a new
+            // term replaces the loaded pages and their cursor.
             pagesEqual: { left, right in
-                left.map { $0.model.id } == right.map { $0.model.id }
+                left.count == right.count
+                    && zip(left, right).allSatisfy { pair in
+                        pair.0.model.id == pair.1.model.id
+                            && resultOwner.term(of: pair.0) == resultOwner.term(of: pair.1)
+                    }
             }
         )
+        self.paged = paged
+        // A refresh replaces the loaded pages, so "Load more" is not available
+        // until the refresh is complete. A call made during a refresh does
+        // nothing. A load that starts during a refresh makes the composition
+        // discard that refresh (spec 21 §6.2).
+        self.loadMoreCommand = AsyncRelayCommand.builder()
+            .predicate { [paged] in
+                paged.loadMoreCommand.canExecute() && !paged.refreshCommand.isExecuting
+            }
+            .triggers(paged.loadMoreCommand.canExecuteChanged)
+            .triggers(paged.refreshCommand.canExecuteChanged)
+            .task { [paged, searchRequests] in
+                // The task starts after the predicate passed, on another thread. A
+                // refresh can start after the check below and before the load
+                // starts. The load then discards that refresh. So when a refresh
+                // started during the load, check the results once both are idle.
+                let fetches = searchRequests.firstPageFetches
+                guard !paged.refreshCommand.isExecuting else { return }
+                defer {
+                    if searchRequests.firstPageFetches > fetches {
+                        searchRequests.markOverlap()
+                        searchRequests.rerun()
+                    }
+                }
+                try await paged.loadMoreCommand.executeAsync()
+            }
+            .build()
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
+
+        searchRequests.onRerun { [weak self] in
+            self?.dispatcher.scheduleForeground { [weak self] in self?.searchAgainIfDiscarded() }
+        }
 
         paged.collectionChanged
             .sink { [weak self] _ in self?.notifyResults() }
             .store(in: &cancellables)
         // Re-run a search refused during a fetch once the refresh command is
         // idle again. The command reports that through `canExecuteChanged`.
+        // The sink also checks for a refresh that a load discarded.
         paged.refreshCommand.canExecuteChanged
-            .sink { [weak self] in self?.runPendingSearch() }
+            .sink { [weak self] in
+                self?.runPendingSearch()
+                self?.searchRequests.rerun()
+            }
             .store(in: &cancellables)
         paged.propertyChanged
             .sink { [weak self] name in
@@ -129,9 +253,24 @@ public final class GlobalSearchVM: ComponentVMBase {
     /// term when it starts, so the latest term always wins. Several calls
     /// made during one fetch cause one more fetch.
     public func searchNow() {
+        searchRequests.record(search.searchTerm)
         search.search()
         pendingSearchLock.withLock { searchPending = true }
         runPendingSearch()
+    }
+
+    /// After a load that overlapped a refresh, search again if that refresh was
+    /// lost. The results then show an older term than the latest request. A
+    /// failed first-page fetch is not run again.
+    private func searchAgainIfDiscarded() {
+        guard !refreshCommand.isExecuting, !paged.loadMoreCommand.isExecuting else { return }
+        guard searchRequests.takeOverlap() else { return }
+        let shown = paged.items.first.flatMap { resultOwner.term(of: $0) }
+        guard let shown,
+              let requested = searchRequests.requestedTerm,
+              shown != requested,
+              !searchRequests.lastFirstPageFetchFailed else { return }
+        searchNow()
     }
 
     private func runPendingSearch() {
@@ -157,9 +296,8 @@ public final class GlobalSearchVM: ComponentVMBase {
         paged.refreshCommand
     }
 
-    public var loadMoreCommand: AsyncRelayCommand {
-        paged.loadMoreCommand
-    }
+    /// Loads and appends the next page. It cannot run while a refresh runs.
+    public let loadMoreCommand: AsyncRelayCommand
 
     private func notifyResults() {
         _notifyPropertyChanged("results")
@@ -176,6 +314,7 @@ public final class GlobalSearchVM: ComponentVMBase {
         }
         cancellables.removeAll()
         resultOwner.disposeAll()
+        loadMoreCommand.dispose()
         paged.dispose()
         search.dispose()
         super._onDispose()

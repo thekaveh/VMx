@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
@@ -19,9 +20,13 @@ from vmx import (
 from vmx.messages.protocols import Message
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
+from notes_showcase.models.note_model import NoteModel
 from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.note_vm import NoteVM
 from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
+
+if TYPE_CHECKING:
+    from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
 
 
 def _build(
@@ -548,6 +553,146 @@ async def test_global_search_vm_keeps_loaded_results_across_unchanged_term_refre
     assert ids[:2] == loaded
     assert len(ids) == 3
     assert len(set(ids)) == len(ids)
+    vm.dispose()
+
+
+class _HeldSearchRepository(InMemoryNoteRepository):
+    """In-memory repository that records each search and holds searches on request."""
+
+    def __init__(self) -> None:
+        super().__init__(build_seed(), load_notes_delay=0.0)
+        self.searches: list[tuple[str, str | None]] = []
+        self._open = asyncio.Event()
+        self._open.set()
+        self._first_pages_only = False
+
+    def hold(self, *, first_pages_only: bool = False) -> None:
+        self._first_pages_only = first_pages_only
+        self._open.clear()
+
+    def release(self) -> None:
+        self._open.set()
+
+    async def search_notes(
+        self, term: str, token: str | None, page_size: int
+    ) -> tuple[list[NoteModel], str | None]:
+        self.searches.append((term, token))
+        if token is None or not self._first_pages_only:
+            await self._open.wait()
+        return await super().search_notes(term, token, page_size)
+
+
+def _build_global_search(repo: InMemoryNoteRepository) -> GlobalSearchVM:
+    from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
+
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    return (
+        GlobalSearchVM.builder()
+        .name("global-search")
+        .services(MessageHub[Message](), dispatcher)
+        .repository(repo)
+        .page_size(1)
+        .search_debounce_seconds(0.0)
+        .build()
+    )
+
+
+def _matches(note: NoteVM, term: str) -> bool:
+    model = note.model
+    return term in f"{model.title} {model.body} {' '.join(model.tags)}".lower()
+
+
+async def _settle(vm: GlobalSearchVM) -> None:
+    """Wait until neither search command runs for several loop turns in a row."""
+    idle_turns = 0
+    for _ in range(500):
+        busy = vm.refresh_command.is_executing or vm.load_more_command.is_executing
+        idle_turns = 0 if busy else idle_turns + 1
+        if idle_turns >= 5:
+            return
+        await asyncio.sleep(0.005)
+
+
+async def test_global_search_vm_loads_more_for_the_term_of_the_loaded_pages() -> None:
+    repo = _HeldSearchRepository()
+    vm = _build_global_search(repo)
+
+    vm.search_term = "review"
+    await vm.refresh_command.execute_async()
+    # Edit the term without a search, then ask for the next page. After that
+    # load, the view model refreshes for the edited term. Hold that first page.
+    vm.search_term = "plan"
+    repo.hold(first_pages_only=True)
+    await vm.load_more_command.execute_async()
+
+    assert repo.searches[:2] == [("review", None), ("review", "1")]
+    loaded = vm.results
+    assert len(loaded) == 2
+    assert all(_matches(note, "review") for note in loaded)
+    repo.release()
+    await _settle(vm)
+    vm.dispose()
+
+
+async def test_global_search_vm_ends_on_current_term_after_load_more_during_refresh() -> None:
+    repo = _HeldSearchRepository()
+    vm = _build_global_search(repo)
+
+    vm.search_term = "review"
+    await vm.refresh_command.execute_async()
+    repo.hold()
+    vm.search_term = "plan"
+    vm.search()
+    assert vm.refresh_command.is_executing
+    vm.load_more_command.execute()
+    repo.release()
+    await _settle(vm)
+
+    results = vm.results
+    ids = [note.model.id for note in results]
+    shared_terms = [t for t in ("review", "plan") if all(_matches(n, t) for n in results)]
+    assert results
+    assert shared_terms, f"results {ids} mix two terms"
+    assert shared_terms == ["plan"], f"results {ids}"
+    vm.dispose()
+
+
+async def test_global_search_vm_ends_on_current_term_after_load_more_then_search() -> None:
+    repo = _HeldSearchRepository()
+    vm = _build_global_search(repo)
+
+    vm.search_term = "review"
+    await vm.refresh_command.execute_async()
+    # The load is admitted first. Its task starts after the search began.
+    vm.load_more_command.execute()
+    vm.search_term = "plan"
+    vm.search()
+    await _settle(vm)
+
+    results = vm.results
+    ids = [note.model.id for note in results]
+    assert results
+    assert all(_matches(note, "plan") for note in results), f"results {ids}"
+    vm.dispose()
+
+
+async def test_global_search_vm_drops_old_term_pages_when_a_new_first_page_matches() -> None:
+    repo = _HeldSearchRepository()
+    vm = _build_global_search(repo)
+
+    await vm.refresh_command.execute_async()
+    await vm.load_more_command.execute_async()
+    assert [note.model.id for note in vm.results] == ["note-01", "note-02"]
+    # The first "review" page is note-01 again, the head of the loaded pages.
+    vm.search_term = "review"
+    await vm.refresh_command.execute_async()
+    await _settle(vm)
+    await vm.load_more_command.execute_async()
+    await _settle(vm)
+
+    assert repo.searches[-2:] == [("review", None), ("review", "1")]
+    assert len(vm.results) == 2
+    assert all(_matches(note, "review") for note in vm.results)
     vm.dispose()
 
 

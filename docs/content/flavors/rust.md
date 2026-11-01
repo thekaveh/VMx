@@ -17,7 +17,7 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The
   [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  lists the open items and recorded differences in §12.4.7 and §12.7–§12.12. Two COMP-026
+  lists the open items and recorded differences in §12.4.7 and §12.7–§12.13. Two COMP-026
   tests in `langs/rust/tests/conformance/composite_vm.rs` are `#[ignore]`d for
   a composite-selection gap.
 

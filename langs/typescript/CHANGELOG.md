@@ -83,6 +83,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A background VM that waits on a child now rolls back and clears its in-flight
+  guard when that wait fails (#1053). The wait can fail in a deferred
+  `_transitionChildren` walk, a member hook, a `CompositeVM` selector or a
+  member `reconstruct()`, at any nesting depth. Before, the error was thrown
+  inside a foreground flush, which dropped the queued rollbacks of waiting
+  parents. Those parents stayed `Constructing` or `Destructing`. On a shared
+  `queueScheduler` (`RxDispatcher.immediate()`, `NullDispatcher`), the outermost
+  background `construct()` or `destruct()` in the flush throws the first failure
+  after the flush drains. With separate schedulers, a background hook failure
+  still throws on the background (#842). A foreground action throws any other
+  failure after the queued lifecycle actions have run. #726 fixed the first
+  level of this drop for a throwing background hook.
+- `observeHub` now labels a tree message from a second package copy as
+  `TreeStructureChangedMessage` (#1079). It classifies tree messages with
+  `isTreeStructureChanged`, which matches by class and then by shape (ADR-0163).
+  Before, such a message used its constructor name, such as a bundler-renamed
+  `TreeStructureChangedMessage$1`, or `Object` for a plain object. Devtools
+  filters and grouping by `messageType` then missed it. An application message
+  class with the same shape now gets this label too. Use `mapAction` to keep a
+  custom name.
+- `ObservableDictionary`: `delete` and `clear` now update `keys2` before
+  `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
+  `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
+  missing from `keys2`. A later add with the same key2 did not list it either.
+  If a `keys2` subscriber changes the entries, `keys1` then lists only the keys
+  that the entries use.
 - The locked ESLint dependency graph now uses `minimatch` 11.0.3 through an
   `overrides` entry. This removes the glob-pattern denial-of-service advisory
   GHSA-g3hv-75wg-m249. ESLint and typescript-eslint still declare `minimatch`

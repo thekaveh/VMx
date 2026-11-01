@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { MessageHub } from "../../../src/services/messageHub.js";
 import { PropertyChangedMessage } from "../../../src/messages/propertyChanged.js";
 import { CollectionChangedMessage } from "../../../src/messages/collectionChanged.js";
+import { TreeStructureChangedMessage } from "../../../src/messages/treeStructureChanged.js";
+import type { IMessage } from "../../../src/messages/types.js";
 import {
   observeHub,
   type DevtoolsErrorContext,
@@ -491,5 +493,68 @@ describe("observeHub", () => {
     second.dispose();
     firstHub.dispose();
     secondHub.dispose();
+  });
+});
+
+describe("observeHub tree-structure messages (#1079)", () => {
+  /** A structurally equal class that a bundler renamed for a second package copy. */
+  class TreeStructureChangedMessage$1 {
+    constructor(
+      readonly sender: unknown,
+      readonly senderName: string,
+      readonly change: "added",
+      readonly affected: unknown,
+      readonly index: number,
+    ) {}
+  }
+
+  function actionsFor(messages: IMessage[]) {
+    const hub = new MessageHub();
+    const events: DevtoolsEvent[] = [];
+    const connection = observeHub(hub, (event) => events.push(event));
+    for (const message of messages) hub.send(message);
+    connection.dispose();
+    hub.dispose();
+    return events.map((event) => event.action);
+  }
+
+  it("labels a tree message from a second package copy by its canonical type", () => {
+    const [own, copy] = actionsFor([
+      new TreeStructureChangedMessage({}, "TreeVM", "added", {}, 0),
+      new TreeStructureChangedMessage$1({}, "TreeVM", "added", {}, 0),
+    ]);
+
+    expect(own?.messageType).toBe("TreeStructureChangedMessage");
+    expect(copy?.messageType).toBe("TreeStructureChangedMessage");
+    expect(copy?.type).toBe("TreeStructureChangedMessage/TreeVM");
+  });
+
+  it("labels a plain object with the tree-message shape by its canonical type", () => {
+    const [action] = actionsFor([
+      { sender: {}, senderName: "TreeVM", change: "removed", affected: {}, index: 1 } as IMessage,
+    ]);
+
+    expect(action?.messageType).toBe("TreeStructureChangedMessage");
+  });
+
+  it("still records a tree-shaped message whose property reads throw", () => {
+    const hostile = new Proxy(
+      { sender: {}, senderName: "TreeVM", change: "added", affected: {}, index: 0 },
+      {
+        get: (target, key, receiver) => {
+          if (key === "change" || key === "affected" || key === "index") {
+            throw new Error("hostile read");
+          }
+          return Reflect.get(target, key, receiver) as unknown;
+        },
+      },
+    ) as IMessage;
+
+    let actions: ReturnType<typeof actionsFor> = [];
+    expect(() => {
+      actions = actionsFor([hostile]);
+    }).not.toThrow();
+    expect(actions).toHaveLength(1);
+    expect(typeof actions[0]?.messageType).toBe("string");
   });
 });

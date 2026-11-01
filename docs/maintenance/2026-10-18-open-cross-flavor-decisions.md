@@ -62,6 +62,29 @@ add or insert attach rollback:
 On the ordinary construct path no flavor rolls back siblings that already
 constructed. The spec does not say whether it should.
 
+### 1.4. Notifications of an update nested in a form callback
+
+A validator, snapshotter or equality callback of `SetModel` or deny can call
+`SetModel`, deny or approve on the same form (spec 20 §5.4, FORM-037). Spec 20
+§5.2 and §5.3 describe the notifications as steps of one synchronous call.
+`SetModel` sends `ErrorsChanged`, `CanExecuteChanged` and the model message
+(§5.2). An admitted approval raises `CanExecuteChanged` and only then calls the
+persister (§5.3, ADR-0143). The spec does not say when a call nested in a
+preparation callback (§5.4) sends its notifications.
+
+| Flavor | Result                                                                                                                                                                                                                                                                                                    |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C#     | Sends the notifications before the nested `SetModel` returns, inside the outer call's lock ([`FormVM.cs`](../../langs/csharp/src/VMx/Forms/FormVM.cs), `SetModel`)                                                                                                                                        |
+| Python | The same as C# ([`form_vm.py`](../../langs/python/src/vmx/forms/form_vm.py), `set_model`)                                                                                                                                                                                                                 |
+| Swift  | Queues them. The outermost call sends them after it releases the state lock: error maps first, in commit order, then the other notifications in queue order. A nested approve starts its persister at that time ([`FormVM.swift`](../../langs/swift/Sources/VMx/Forms/FormVM.swift), `takeNoticesLocked`) |
+
+In Swift, the nested call returns before these steps run. A nested approve
+followed by a `dispose()` in the same callback therefore never calls the
+persister. Swift queues the notifications because a Combine sink on another
+thread can wait for the state lock while it holds the subject's delivery lock
+(#1057). An update made from an `errorsChanged` sink of `setModel` or deny is
+queued in the same way. TypeScript and Rust are not recorded here.
+
 ## 2. Small spec gaps
 
 ### 2.1. Notification opacity after resolution
@@ -172,6 +195,34 @@ Removal differs again. Swift `remove`, `removeAt` and `clear` also wait for
 another thread's transaction. In C# composites and groups and in Python, these
 calls fail instead.
 
+### 2.11. Lifecycle call during a container's inline dispose cascade
+
+With no hook running on another thread, a container disposes its children
+before it publishes `Disposed` (LIFE-013). The spec does not say whether a
+construct or destruct hook of the container can run while that cascade runs. A
+`construct()` or `destruct()` of the container in that window has different
+results. A child's dispose hook can make such a call. The rows below describe
+composites and groups. Python and Swift fixed aggregates behave like their
+composites and groups.
+
+| Flavor     | Result                                                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C#         | Publishes `Constructing` or `Destructing`, runs no hook and returns ([`ComponentVMBase.cs`](../../langs/csharp/src/VMx/Components/ComponentVMBase.cs), `TryClaimLifecycleHook`) |
+| Python     | Publishes the transient status, runs no hook and returns ([`base.py`](../../langs/python/src/vmx/components/base.py), `_invoke_lifecycle_hook`)                                 |
+| Swift      | Publishes the transient status, runs no hook and returns ([`ComponentVMBase.swift`](../../langs/swift/Sources/VMx/Lifecycle/ComponentVMBase.swift), `_claimHook`)               |
+| Rust       | Returns `VmxError::Disposed` and publishes nothing ([`runtime.rs`](../../langs/rust/src/runtime.rs), `transition_with_body`)                                                    |
+| TypeScript | Publishes the transient status and runs the hook ([`compositeVMBase.ts`](../../langs/typescript/src/composites/compositeVMBase.ts), `_onConstruct`; no admission flag)          |
+
+Rust admits the hook in the same step that publishes the transient status, so
+it refuses the call before it publishes. Rust fixed aggregates refuse the call
+in the same way.
+
+C# fixed aggregates dispose their slots before the base disposal starts, so
+they admit and run the hook. They also do not follow LIFE-015 for a hook on
+another thread. No issue covers these cases yet.
+
+After the cascade, the container publishes `Disposed` in every flavor.
+
 ## 3. Swift signatures that cannot throw
 
 Swift `Command.execute()` cannot throw
@@ -196,6 +247,6 @@ ADR-0037 and ADR-0053.
 ## 5. Related records
 
 - Rust parity backlog: [Rust parity status](2026-07-16-rust-capability-parity.md),
-  §12.4.7 and §12.7–§12.12.
+  §12.4.7 and §12.7–§12.13.
 - The remaining Notes Showcase UX policies stay with the owner and are not
   listed here.

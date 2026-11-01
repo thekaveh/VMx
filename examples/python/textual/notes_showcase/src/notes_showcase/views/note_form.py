@@ -4,7 +4,8 @@ Phase 5.b binding-gap #1: ``NoteFormVM`` exposes new scalar setters
 (``title`` / ``body`` / ``starred``) that wrap ``draft = replace(draft, ...)``.
 The widgets here two-way bind to those scalars, so typing into the Title
 ``Input`` actually writes back into the form and flips ``is_dirty`` →
-``approve_command.can_execute``.
+``approve_command.can_execute``. The Body ``TextArea`` reports edits through
+``TextArea.Changed``, so ``on_text_area_changed`` writes them back.
 
 The dirty marker reads the ``is_dirty`` :class:`DerivedProperty` through
 ``on_derived_change`` (Phase 5.b binding-gap #3) — the
@@ -28,8 +29,10 @@ from notes_showcase.views.adapter import (
     bind_command,
     bind_property,
     bind_property_two_way,
+    bind_text_area,
     on_derived_change,
     on_vm_property_change,
+    push_text_area_text,
 )
 
 
@@ -84,7 +87,14 @@ def _wire_bindings(view: NoteFormView) -> CompositeDisposable:
             transform=lambda value: str(value) if value else "",
         ),
         bind_property_two_way(view.query_one("#form_starred", Checkbox), "value", vm, "starred"),
-        bind_property_two_way(view.query_one("#form_body", TextArea), "text", vm, "body"),
+        # TextArea.text is not reactive. Typed edits come back through
+        # on_text_area_changed (#1069). A different note resets the editor.
+        bind_text_area(
+            view.query_one("#form_body", TextArea),
+            vm,
+            "body",
+            identity=lambda: vm.snapshot.id,
+        ),
         # Tag draft (text input) + add/save/revert commands.
         bind_property_two_way(view.query_one("#form_tag_draft", Input), "value", vm, "tag_draft"),
         bind_command(view.query_one("#form_add_tag", Button), vm.add_tag_command),
@@ -168,6 +178,10 @@ class NoteFormView(Vertical):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         _submit(self._vm, event.input.id)
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if event.text_area.id == "form_body":
+            push_text_area_text(event.text_area, self._vm, "body")
 
     def on_unmount(self) -> None:
         self._disposables.dispose()

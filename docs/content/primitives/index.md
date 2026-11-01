@@ -44,7 +44,7 @@ The normative concepts are shared across C#, Python, TypeScript, Swift, and
 Rust. The
 [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
 records the closed original Rust scope, the open Rust items, and the recorded
-differences (§12.4.7 and §12.7–§12.12).
+differences (§12.4.7 and §12.7–§12.13).
 Surface spellings follow each language idiom:
 
 | Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
