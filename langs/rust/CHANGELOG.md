@@ -100,6 +100,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `TokenPagedComposition` no longer commits a refresh or load that a later load
+  superseded (#1045). An operation started with no lock, so a load could start
+  between a commit's last staleness check and its writes. The load then
+  appended a page fetched for the old prefix to the new accumulator. A start
+  now takes an operation gate. Each commit holds that gate from its final check
+  until it has written the items and the cursor.
 - `FormVm::is_dirty` on another thread no longer pairs a model and a
   snapshot that never coexisted (#1073). A reset approval replaces both in two
   steps, so a clean reset could read as dirty. An approval that advanced the
