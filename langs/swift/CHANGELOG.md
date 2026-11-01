@@ -65,6 +65,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVM` no longer deadlocks when a validator re-enters the form, or a
+  `canExecuteChanged` or `errorsChanged` sink calls `setModel`, while another
+  thread admits an approval (#1057). A `setModel`, deny or approve call made
+  from such a callback no longer sends while another update holds the state gate
+  or its publication scope. The outermost update delivers the queued
+  notifications after it releases the gate: error maps first, in commit order,
+  then the other notifications in queue order. An approval admitted this way
+  starts its persister after its `canExecuteChanged`. So these notifications now
+  arrive after the nested call returns. They can arrive after a `dispose()` made
+  in that callback. The nested call's hub messages are also sent after the gate
+  is released. So they no longer hold the gate while they wait for another
+  thread's hub drain whose subscriber reads the form. `setModel` now raises
+  `canExecuteChanged` after the publication scope closes, as deny already did.
+  `errorsChanged` is still sent inside the scope and keeps commit order across
+  threads. This covers the notifications of `setModel`, deny and approval
+  admission. A `canExecuteChanged` sink that calls `setModel` can still deadlock
+  with a successful approval's settlement on another thread.
 - A lifecycle publication that waits behind another thread's drain now waits on
   the thread that holds the turn (#1056). Before, a hand-off released only the
   next waiter's wait edge. Later waiters kept an edge to the old drainer, so the
@@ -189,11 +206,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   while `setModel` or deny raises it on another thread, and a sink calls
   `canExecute()` (#704). Top-level `setModel` and deny calls now send
   `errorsChanged` and `canExecuteChanged` after they release the state gate,
-  as approval admission and settlement already did (ADR-0143). `setModel`
-  sends both, and deny sends `errorsChanged`, inside the approval
-  publication scope, so another thread's update or disposal still waits for
-  them, and `errorsChanged` values keep commit order. The strict-mode
-  approval predicate calls `equals` after it releases the gate.
+  as approval admission and settlement already did (ADR-0143). `setModel` and
+  deny send `errorsChanged` inside the approval publication scope. So another
+  thread's update or disposal still waits for it, and `errorsChanged` values
+  keep commit order. Their `canExecuteChanged` follows after the scope closes
+  (#1057). The strict-mode approval predicate calls `equals` after it releases
+  the gate.
 - `CompositeVM` and `GroupVM` no longer deadlock when a thread that sends on
   the hub inside a membership transaction waits for another thread's hub
   drain, and that drain waits for the transaction (#703). Hub waits,

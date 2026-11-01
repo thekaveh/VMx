@@ -55,13 +55,30 @@ public final class FormVM<Model> {
     // Approval publication runs outside `stateGate`, so observers on other
     // threads can read the form while it is delivered (#533). Meanwhile,
     // mutations and disposal on other threads wait, as in C# and Python.
-    // `setModel` and deny use the same scope for their notifications (#704),
-    // so another thread's update or disposal waits until they are delivered.
+    // `setModel` and deny send `errorsChanged` inside the same scope (#704),
+    // so error maps keep commit order. Another thread's update or disposal
+    // waits until they are delivered. Their `canExecuteChanged` and hub
+    // messages follow after the scope closes (#1057).
     private var approvalPublishing = false
     private var approvalPublisher: UInt64 = 0
     private var publicationDepth = 0
     private var approvalGeneration = 0
     private let approvalFinished = NSCondition()
+    // Re-entrant updates (#1057): `setModel` and deny hold `stateGate` across
+    // consumer callbacks. This counts those frames on the thread that holds
+    // the gate. A call nested in one of them queues its notifications in
+    // `pendingNotices`, and the outermost frame delivers them after it
+    // releases the gate. Another thread's sink may wait for the gate while
+    // it holds Combine's delivery lock.
+    private var preparationDepth = 0
+    private var pendingNotices = Notices()
+    // The thread that sends error maps inside its open publication scopes in
+    // `deliver`, or 0. An update or admission on that thread, made from an
+    // `errorsChanged` sink, queues its notifications in `scopedNotices`. Its
+    // error maps go out inside those scopes, and the rest follows them. Only
+    // that thread adds to or takes from `scopedNotices`.
+    private var scopedDeliveryThread: UInt64 = 0
+    private var scopedNotices = Notices()
 
     private let persister: (Model) async throws -> Void
     private let hub: MessageHubProtocol
@@ -211,7 +228,8 @@ public final class FormVM<Model> {
     /// disposal waits until this call has committed. If a callback re-enters
     /// on this thread and disposes the form or commits another update, this
     /// call commits and publishes nothing, and the newest committed state
-    /// stands.
+    /// stands. The notifications of an update made from such a callback are
+    /// delivered after this call releases the form's state lock (#1057).
     public func setModel(_ newModel: Model) {
         stateGate.lock()
         awaitForeignApprovalLocked()
@@ -225,28 +243,15 @@ public final class FormVM<Model> {
             return
         }
         activeMutations += 1
-        var shouldPublish = false
-        var publishedErrors: [String: String]?
-        var publishCanExecute = false
+        preparationDepth += 1
+        var notices = Notices()
         defer {
-            // Observers are notified after the gate is released (ADR-0143): a
-            // `canExecuteChanged` sink reads the form under the gate (#704).
-            // The publication scope keeps commit order across threads.
+            // Observers are notified after the gate is released (ADR-0143,
+            // #704), by the outermost update on this thread (#1057).
+            preparationDepth -= 1
+            let delivery = takeNoticesLocked(notices)
             stateGate.unlock()
-            if shouldPublish {
-                if let publishedErrors {
-                    _errorsChanged.send(publishedErrors)
-                }
-                if publishCanExecute {
-                    _approveCanExecSubject.send(())
-                }
-                exitPublication()
-                hub.send(PropertyChangedMessage(
-                    sender: self,
-                    senderName: "FormVM",
-                    propertyName: "model"
-                ))
-            }
+            deliver(delivery)
             endMutation()
         }
 
@@ -272,12 +277,19 @@ public final class FormVM<Model> {
         guard beginCommitLocked(base) else { return }
         _model = newModel
         _errors = nextErrors
-        if errorsChanged {
-            publishedErrors = nextErrors
-        }
-        publishCanExecute = canExecuteChanged
         enterPublicationLocked()
-        shouldPublish = true
+        notices.scopes += 1
+        if errorsChanged {
+            notices.errors.append(nextErrors)
+        }
+        if canExecuteChanged {
+            notices.afterScope.append(.canExecuteChanged)
+        }
+        notices.afterScope.append(.message(PropertyChangedMessage(
+            sender: self,
+            senderName: "FormVM",
+            propertyName: "model"
+        )))
     }
 
     // ── Async core ────────────────────────────────────────────────────────────
@@ -328,16 +340,7 @@ public final class FormVM<Model> {
             task: { [weak self] in
                 // Admit before returning, so a second `execute()` is refused
                 // even before the persister task starts (§5.3).
-                guard let self, let admission = self.admitApproval() else { return }
-                let context = UncheckedSendableBox((self, admission))
-                Task { [context] in
-                    let (form, admitted) = context.value
-                    do {
-                        try await form.runApproval(admitted)
-                    } catch {
-                        form.emitApproveError(error)
-                    }
-                }
+                _ = self?.admitApproval(startingCommandTask: true)
             },
             predicate: { [weak self] in
                 self?.canApprove() ?? false
@@ -356,7 +359,17 @@ public final class FormVM<Model> {
             return
         }
         activeMutations += 1
-        defer { endMutation() }
+        preparationDepth += 1
+        var notices = Notices()
+        defer {
+            // Observers are notified after the gate is released (ADR-0143,
+            // #704), by the outermost update on this thread (#1057).
+            preparationDepth -= 1
+            let delivery = takeNoticesLocked(notices)
+            stateGate.unlock()
+            deliver(delivery)
+            endMutation()
+        }
 
         // Preparation (§5.4): the snapshotter, validator, and equality
         // callbacks run under the re-entrant `stateGate`, which keeps updates
@@ -379,24 +392,101 @@ public final class FormVM<Model> {
         // Commit in one step, unless a re-entrant callback made the prepared
         // revert stale: a form disposed meanwhile is not reverted and
         // publishes no deny message.
-        guard beginCommitLocked(base) else {
-            stateGate.unlock()
-            return
-        }
+        guard beginCommitLocked(base) else { return }
         _model = nextModel
         _errors = nextErrors
         enterPublicationLocked()
-        stateGate.unlock()
-
-        // Observers are notified after the gate is released (ADR-0143, #704).
+        notices.scopes += 1
         if errorsChanged {
-            _errorsChanged.send(nextErrors)
+            notices.errors.append(nextErrors)
         }
-        exitPublication()
-        hub.send(FormRevertedMessage(senderObject: self, senderName: "FormVM"))
-        hub.send(PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model"))
+        notices.afterScope.append(.message(FormRevertedMessage(senderObject: self, senderName: "FormVM")))
+        notices.afterScope.append(.message(
+            PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model")
+        ))
         if canExecuteChanged {
-            _approveCanExecSubject.send(())
+            notices.afterScope.append(.canExecuteChanged)
+        }
+    }
+
+    // ── Deferred notifications (#1057) ────────────────────────────────────────
+
+    /// Notifications an update or admission delivers after it releases
+    /// `stateGate`. Each `errors` map is sent inside the publication scope
+    /// its commit opened, so error maps keep commit order across threads.
+    /// The scopes then close. `afterScope` is delivered after those scopes,
+    /// because a sink that updates the form waits for an open scope. An
+    /// approval's own publication scope can still be open around it.
+    private struct Notices {
+        var errors: [[String: String]] = []
+        var scopes = 0
+        var afterScope: [Notice] = []
+
+        mutating func append(_ other: Notices) {
+            errors += other.errors
+            scopes += other.scopes
+            afterScope += other.afterScope
+        }
+    }
+
+    private enum Notice {
+        case canExecuteChanged
+        case message(any Message)
+        case startApproval(ApprovalAdmission)
+    }
+
+    /// Called under `stateGate` by a frame about to release it. A frame
+    /// nested in an update on this thread queues `notices` for the outermost
+    /// one and returns nothing. The outermost frame takes the whole queue.
+    /// Inside the error-map phase of a delivery on this thread, the outermost
+    /// frame queues that queue for the delivery instead.
+    private func takeNoticesLocked(_ notices: Notices) -> Notices {
+        pendingNotices.append(notices)
+        guard preparationDepth == 0 else { return Notices() }
+        let delivery = pendingNotices
+        pendingNotices = Notices()
+        guard scopedDeliveryThread != Self.currentThread else {
+            scopedNotices.append(delivery)
+            return Notices()
+        }
+        return delivery
+    }
+
+    /// Delivers notifications taken by `takeNoticesLocked`, with `stateGate`
+    /// released.
+    private func deliver(_ notices: Notices) {
+        var notices = notices
+        if !notices.errors.isEmpty {
+            withStateGate { scopedDeliveryThread = Self.currentThread }
+            var sent = 0
+            while sent < notices.errors.count {
+                _errorsChanged.send(notices.errors[sent])
+                sent += 1
+                if sent == notices.errors.count {
+                    // An `errorsChanged` sink may have updated the form on
+                    // this thread. Its queued error maps go out inside the
+                    // scopes that are still open.
+                    notices.append(withStateGate { () -> Notices in
+                        let queued = scopedNotices
+                        scopedNotices = Notices()
+                        return queued
+                    })
+                }
+            }
+            withStateGate { scopedDeliveryThread = 0 }
+        }
+        for _ in 0..<notices.scopes {
+            exitPublication()
+        }
+        for notice in notices.afterScope {
+            switch notice {
+            case .canExecuteChanged:
+                _approveCanExecSubject.send(())
+            case .message(let message):
+                hub.send(message)
+            case .startApproval(let admission):
+                startCommandApproval(admission)
+            }
         }
     }
 
@@ -439,15 +529,40 @@ public final class FormVM<Model> {
     /// approval in flight (§5.3). The in-flight mark and the capture happen
     /// together under `stateGate`; `canExecuteChanged` is then raised once
     /// outside it. Returns `nil` for a refused call, which has no effect.
-    private func admitApproval() -> ApprovalAdmission? {
-        let admission = withStateGate { () -> ApprovalAdmission? in
-            guard !_disposed, _errors.isEmpty, !approvalInFlight else { return nil }
-            approvalInFlight = true
-            return ApprovalAdmission(captured: _model)
+    ///
+    /// The command path passes `startingCommandTask` to start its persister
+    /// task after that notification. An admission nested in an update on
+    /// this thread queues both for the outermost update (#1057).
+    private func admitApproval(startingCommandTask: Bool = false) -> ApprovalAdmission? {
+        stateGate.lock()
+        guard !_disposed, _errors.isEmpty, !approvalInFlight else {
+            stateGate.unlock()
+            return nil
         }
-        guard let admission else { return nil }
-        _approveCanExecSubject.send(())
+        approvalInFlight = true
+        let admission = ApprovalAdmission(captured: _model)
+        var notices = Notices()
+        notices.afterScope.append(.canExecuteChanged)
+        if startingCommandTask {
+            notices.afterScope.append(.startApproval(admission))
+        }
+        let delivery = takeNoticesLocked(notices)
+        stateGate.unlock()
+        deliver(delivery)
         return admission
+    }
+
+    /// Runs a command-path approval; a failure surfaces on ``approveErrors``.
+    private func startCommandApproval(_ admission: ApprovalAdmission) {
+        let context = UncheckedSendableBox((self, admission))
+        Task { [context] in
+            let (form, admitted) = context.value
+            do {
+                try await form.runApproval(admitted)
+            } catch {
+                form.emitApproveError(error)
+            }
+        }
     }
 
     /// Persists an admitted approval and settles it. A persister failure or
