@@ -83,6 +83,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `observeHub` now labels a tree message from a second package copy as
+  `TreeStructureChangedMessage` (#1079). It classifies tree messages with
+  `isTreeStructureChanged`, which matches by class and then by shape (ADR-0163).
+  Before, such a message used its constructor name, such as a bundler-renamed
+  `TreeStructureChangedMessage$1`, or `Object` for a plain object. Devtools
+  filters and grouping by `messageType` then missed it. An application message
+  class with the same shape now gets this label too. Use `mapAction` to keep a
+  custom name.
 - `ObservableDictionary`: `delete` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
