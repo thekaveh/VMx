@@ -26,6 +26,14 @@ _DEFAULT_PAGE_SIZE = 5
 _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _SearchCursor:
+    """The cursor for the next page. It keeps the term of the loaded pages."""
+
+    term: str
+    offset: str
+
+
 class GlobalSearchVM(ComponentVM):
     """Token-paged search that owns every result VM it creates."""
 
@@ -53,12 +61,16 @@ class GlobalSearchVM(ComponentVM):
         )
         self._owned_results_lock = threading.Lock()
         self._owned_results: dict[int, NoteVM] = {}
+        # The search term that fetched each owned result, by ``id``.
+        self._result_terms: dict[int, str] = {}
         self._owned_results_disposed = False
-        self._paged: TokenPagedComposition[NoteVM, str] = TokenPagedComposition(
+        self._paged: TokenPagedComposition[NoteVM, _SearchCursor] = TokenPagedComposition(
             self._fetch_next,
             auto_construct_on_add=True,
+            # Pages for different terms are never equal, so a refresh for a new
+            # term replaces the loaded pages and their cursor.
             pages_equal=lambda left, right: (
-                [n.model.id for n in left] == [n.model.id for n in right]
+                [self._result_key(n) for n in left] == [self._result_key(n) for n in right]
             ),
         )
         self._collection_sub = self._paged.on_collection_changed.subscribe(
@@ -69,12 +81,29 @@ class GlobalSearchVM(ComponentVM):
         )
         # Latest term wins: the refresh command refuses to start while one is
         # in flight, so a term typed during a refresh would otherwise leave
-        # results for the stale term on screen. ``_results_term`` is the term
-        # the loaded pages describe; when a refresh settles for an older term,
-        # refresh again for the current one.
-        self._results_term: str | None = None
+        # results for the stale term on screen. ``_refresh_term`` is the term
+        # of the latest first-page fetch. When a refresh settles for an older
+        # term, refresh again for the current one.
+        self._refresh_term: str | None = None
         self._refresh_settled_sub = self._paged.refresh_command.can_execute_changed.subscribe(
             lambda _: self._refresh_if_stale()
+        )
+        # A refresh replaces the loaded pages, so "Load more" is not available
+        # until the refresh is complete. A call made during a refresh does
+        # nothing. A load that starts during a refresh makes the composition
+        # discard that refresh (spec 21 §6.2).
+        self._load_more_command = (
+            AsyncRelayCommand.builder()
+            .predicate(
+                lambda: (
+                    self._paged.load_more_command.can_execute()
+                    and not self._paged.refresh_command.is_executing
+                )
+            )
+            .triggers(self._paged.load_more_command.can_execute_changed)
+            .triggers(self._paged.refresh_command.can_execute_changed)
+            .task(self._load_more_unless_refreshing)
+            .build()
         )
 
     @property
@@ -101,8 +130,8 @@ class GlobalSearchVM(ComponentVM):
     def _refresh_if_stale(self) -> None:
         command = self.refresh_command
         if (
-            self._results_term is not None
-            and self._results_term != self.search_term
+            self._refresh_term is not None
+            and self._refresh_term != self.search_term
             and not command.is_executing
             and command.can_execute()
         ):
@@ -122,15 +151,19 @@ class GlobalSearchVM(ComponentVM):
 
     @property
     def load_more_command(self) -> AsyncRelayCommand:
-        return self._paged.load_more_command
+        return self._load_more_command
 
-    async def _fetch_next(self, token: str | None) -> tuple[list[NoteVM], str | None]:
-        # A refresh (no token) pins the term; later pages continue that term so
-        # "Load more" never splices another term's results onto the list.
-        if token is None or self._results_term is None:
-            self._results_term = self.search_term
-        term = self._results_term
-        page, next_token = await self._repo.search_notes(term, token, self._page_size)
+    async def _fetch_next(
+        self, cursor: _SearchCursor | None
+    ) -> tuple[list[NoteVM], _SearchCursor | None]:
+        # The first page uses the current term. A later page uses the term in
+        # the cursor, so "Load more" continues the term of the loaded pages.
+        if cursor is None:
+            term, offset = self.search_term, None
+            self._refresh_term = term
+        else:
+            term, offset = cursor.term, cursor.offset
+        page, next_token = await self._repo.search_notes(term, offset, self._page_size)
         return (
             [
                 self._own_result(
@@ -138,18 +171,32 @@ class GlobalSearchVM(ComponentVM):
                     .name(f"global-{note.id}")
                     .services(self._hub, self._dispatcher)
                     .model(note)
-                    .build()
+                    .build(),
+                    term,
                 )
                 for note in page
             ],
-            next_token,
+            None if next_token is None else _SearchCursor(term, next_token),
         )
 
-    def _own_result(self, result: NoteVM) -> NoteVM:
+    async def _load_more_unless_refreshing(self) -> None:
+        # The task starts after the predicate passed. A refresh that starts in
+        # that gap makes this load do nothing. A refresh that starts later
+        # discards the load (spec 21 §6.2).
+        if self._paged.refresh_command.is_executing:
+            return
+        await self._paged.load_more_command.execute_async()
+
+    def _result_key(self, result: NoteVM) -> tuple[str, str | None]:
+        with self._owned_results_lock:
+            return result.model.id, self._result_terms.get(id(result))
+
+    def _own_result(self, result: NoteVM, term: str) -> NoteVM:
         with self._owned_results_lock:
             dispose_immediately = self._owned_results_disposed
             if not dispose_immediately:
                 self._owned_results[id(result)] = result
+                self._result_terms[id(result)] = term
         if dispose_immediately:
             result.dispose()
         return result
@@ -159,6 +206,7 @@ class GlobalSearchVM(ComponentVM):
             self._owned_results_disposed = True
             owned = list(self._owned_results.values())
             self._owned_results.clear()
+            self._result_terms.clear()
         for result in owned:
             result.dispose()
 
@@ -173,6 +221,7 @@ class GlobalSearchVM(ComponentVM):
         self._property_sub.dispose()
         self._refresh_settled_sub.dispose()
         self._dispose_owned_results()
+        self._load_more_command.dispose()
         self._paged.dispose()
         self._search.dispose()
         super().dispose()

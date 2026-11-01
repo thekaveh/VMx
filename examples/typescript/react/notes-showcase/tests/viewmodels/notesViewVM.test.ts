@@ -8,6 +8,7 @@ import {
 } from "@thekaveh/vmx";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
+import type { NoteModel } from "../../src/models/noteModel.js";
 import { buildSeed } from "../../src/models/seed.js";
 import { NotesViewVM } from "../../src/viewmodels/notesViewVM.js";
 
@@ -453,6 +454,37 @@ describe("NotesViewVM", () => {
   });
 });
 
+/** Records each search call and holds the calls made while `hold()` is on. */
+class HeldSearchRepository extends InMemoryNoteRepository {
+  readonly searches: (readonly [string, string | null])[] = [];
+  #holding = false;
+  #held: (() => void)[] = [];
+
+  constructor() {
+    super(buildSeed(), { loadNotesDelayMs: 0 });
+  }
+
+  hold(): void {
+    this.#holding = true;
+  }
+
+  release(): void {
+    this.#holding = false;
+    for (const resume of this.#held.splice(0)) resume();
+  }
+
+  override async searchNotes(term: string, token: string | null, pageSize: number) {
+    this.searches.push([term, token]);
+    if (this.#holding) await new Promise<void>((resume) => this.#held.push(resume));
+    return super.searchNotes(term, token, pageSize);
+  }
+}
+
+function matchesTerm(note: { model: NoteModel }, term: string): boolean {
+  const { title, body, tags } = note.model;
+  return `${title} ${body} ${tags.join(" ")}`.toLowerCase().includes(term);
+}
+
 describe("Global search token paging", () => {
   it("repository returns deterministic token pages over all notes", async () => {
     const repo = new InMemoryNoteRepository(buildSeed(), {
@@ -545,5 +577,88 @@ describe("Global search token paging", () => {
         (result) => result.status === ConstructionStatus.Disposed,
       ),
     ).toBe(true);
+  });
+
+  it("GlobalSearchVM loads more for the term of the loaded pages after an unsearched term edit", async () => {
+    const { GlobalSearchVM } = await import("../../src/viewmodels/globalSearchVM.js");
+    const repo = new HeldSearchRepository();
+    const vm = GlobalSearchVM.builder()
+      .name("global-search")
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .repository(repo)
+      .pageSize(1)
+      .searchDebounceMs(0)
+      .build();
+
+    vm.searchTerm = "review";
+    await vm.refreshCommand.executeAsync();
+    // Edit the term without a refresh, as the C# view does before "Search".
+    vm.searchTerm = "plan";
+    await vm.loadMoreCommand.executeAsync();
+
+    expect(repo.searches).toEqual([["review", null], ["review", "1"]]);
+    expect(vm.results).toHaveLength(2);
+    expect(vm.results.every((note) => matchesTerm(note, "review"))).toBe(true);
+    vm.dispose();
+  });
+
+  it("GlobalSearchVM drops the loaded pages of the old term when a new term's first page matches them", async () => {
+    const { GlobalSearchVM } = await import("../../src/viewmodels/globalSearchVM.js");
+    const repo = new HeldSearchRepository();
+    const vm = GlobalSearchVM.builder()
+      .name("global-search")
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .repository(repo)
+      .pageSize(1)
+      .searchDebounceMs(0)
+      .build();
+
+    await vm.refreshCommand.executeAsync();
+    await vm.loadMoreCommand.executeAsync();
+    expect(vm.results.map((note) => note.model.id)).toEqual(["note-01", "note-02"]);
+    // The first "review" page is note-01 again, the head of the loaded pages.
+    vm.searchTerm = "review";
+    await vm.refreshCommand.executeAsync();
+    await vm.loadMoreCommand.executeAsync();
+
+    expect(repo.searches.slice(-2)).toEqual([["review", null], ["review", "1"]]);
+    expect(vm.results).toHaveLength(2);
+    expect(vm.results.every((note) => matchesTerm(note, "review"))).toBe(true);
+    vm.dispose();
+  });
+
+  it("GlobalSearchVM ends on the current term when Load more runs during a refresh", async () => {
+    const { GlobalSearchVM } = await import("../../src/viewmodels/globalSearchVM.js");
+    const repo = new HeldSearchRepository();
+    const vm = GlobalSearchVM.builder()
+      .name("global-search")
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .repository(repo)
+      .pageSize(1)
+      .searchDebounceMs(0)
+      .build();
+
+    vm.searchTerm = "review";
+    await vm.refreshCommand.executeAsync();
+    repo.hold();
+    vm.searchTerm = "plan";
+    vm.search();
+    expect(vm.refreshCommand.isExecuting).toBe(true);
+    vm.loadMoreCommand.execute();
+    repo.release();
+    await vi.waitFor(() => {
+      expect(vm.refreshCommand.isExecuting).toBe(false);
+      expect(vm.loadMoreCommand.isExecuting).toBe(false);
+    });
+
+    const results = vm.results;
+    const ids = results.map((note) => note.model.id).join(", ");
+    expect(results.length).toBeGreaterThan(0);
+    const sharedTerms = ["review", "plan"].filter((term) =>
+      results.every((note) => matchesTerm(note, term)),
+    );
+    expect(sharedTerms, `results ${ids} mix two terms`).not.toEqual([]);
+    expect(sharedTerms, `results ${ids}`).toEqual(["plan"]);
+    vm.dispose();
   });
 });
