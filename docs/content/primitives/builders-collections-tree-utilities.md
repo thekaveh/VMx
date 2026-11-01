@@ -341,18 +341,30 @@ into the outermost Reset. If the batch body fails after replacement, the scope
 still closes, publishes that completed mutation once, and rethrows the original
 failure. This is list-local batching; it does not suppress VM container events.
 
-## 6.7.10. Paging A One-Shot Source
+## 6.7.10. Paged Composition Sources
 
-`PagedComposition` decorates a live source: arrays, `ObservableList`, other
-repeatable iterables, and factories are enumerated again on every read, so
-their changes stay visible. A source that can be enumerated only once is
-materialized when the pager is constructed. In TypeScript that is a direct
-iterator such as a generator object; in Python it is any `Iterator`. Swift and
-Rust take a repeatable collection, so the case does not arise there. C# accepts
-any `IEnumerable<TVM>` and enumerates it again on each read. Materialize a
-one-shot C# source first, for example with `ToList()`; the pager then pages
-that copy. Every
-source must be finite, because `pageCount` needs its total length.
+In C#, Python and TypeScript, `PagedComposition` decorates a live source. The
+pager enumerates arrays, `ObservableList` and other repeatable iterables again
+on every read. In Python and TypeScript, it also calls a factory again on every
+read. A source change therefore shows on the next read. The pager clamps
+`currentPageIndex` when it observes a change, for example from an
+`ObservableList`. It also clamps when the caller sets the page index or changes
+the page size.
+
+Swift and Rust page a stored copy that they take at construction. A later
+change to the caller's array or `Vec` does not reach that copy. To change the
+Swift copy, call `setSource(_:)`. To change the Rust copy, call `set_source`,
+`push` or `remove_at`. Each of these calls clamps `currentPageIndex`. Swift
+`init(sourceComposite:)` follows the composite through `collectionChanged`. Each
+emission replaces the stored copy.
+
+Python and TypeScript materialize a one-shot source when they construct the
+pager. In TypeScript, a one-shot source is a direct iterator such as a generator
+object. In Python, it is any `Iterator`. Swift takes an array or a
+`CompositeVM`, and Rust takes a `Vec`, so a one-shot source cannot occur there.
+C# does not materialize a one-shot source. Materialize it first, for example
+with `ToList()`. The pager then pages that copy. Every source must be finite,
+because `pageCount` needs its total length.
 
 ```ts
 function* notes() {
