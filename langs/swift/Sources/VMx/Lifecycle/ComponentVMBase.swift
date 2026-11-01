@@ -444,6 +444,8 @@ final class ChildTransitionWalker {
     /// Supplies children added while the walk runs; each is joined, never
     /// started by the walk.
     private let lateChild: LateChildSource?
+    /// True once the walk's owner is disposed: the walk starts no further child.
+    private let superseded: () -> Bool
     private let target: ConstructionStatus
     private let transient: ConstructionStatus
     private var currentDeferral = LifecycleDeferral()
@@ -456,12 +458,14 @@ final class ChildTransitionWalker {
         construct: Bool,
         after: (() throws -> Void)?,
         joined: [ComponentVMBase] = [],
-        lateChild: LateChildSource? = nil
+        lateChild: LateChildSource? = nil,
+        superseded: @escaping () -> Bool = { false }
     ) {
         self.children = children
         self.after = after
         self.joined = Set(joined.map(ObjectIdentifier.init))
         self.lateChild = lateChild
+        self.superseded = superseded
         self.target = construct ? .constructed : .destructed
         self.transient = construct ? .constructing : .destructing
     }
@@ -510,8 +514,10 @@ final class ChildTransitionWalker {
         guard let lateChild else { return .sealed }
         while true {
             lateChild.willSeal?()
+            // A disposed owner joins no further late child (LIFE-015).
+            let stopped = superseded()
             lock.lock()
-            if cancelled {
+            if cancelled || stopped {
                 lock.unlock()
                 return .abandoned
             }
@@ -531,7 +537,8 @@ final class ChildTransitionWalker {
             currentDeferral = fresh
             lock.unlock()
             do {
-                if try advance() { return .pending(fresh) }
+                // A walk stopped by disposal never settles `fresh`.
+                if try advance() { return superseded() ? .abandoned : .pending(fresh) }
             } catch {
                 endLate()
                 return .failed
@@ -541,8 +548,10 @@ final class ChildTransitionWalker {
 
     private func advance() throws -> Bool {
         while true {
+            // A disposed owner starts no further child and no `after` (LIFE-015).
+            let stopped = superseded()
             lock.lock()
-            guard !cancelled else {
+            guard !cancelled, !stopped else {
                 lock.unlock()
                 return true
             }
@@ -754,9 +763,9 @@ open class ComponentVMBase {
     private var ownedCleanups: [() throws -> Void] = []
     /// Member VMs registered through `ownMember`, in registration order.
     private var ownedMembers: [ComponentVMBase] = []
-    /// Set under `lifecycleLock` when disposal starts: at a container's
-    /// `dispose()` entry (`_enterDispose()`), before its child cascade, or at
-    /// this base `dispose()` entry. From then on `ownMember` disposes a new
+    /// Set under `lifecycleLock` when disposal starts, at the entry of
+    /// `_disposeAtHookBoundary(children:)`, before the child cascade. Every
+    /// `dispose()` path reaches it. From then on `ownMember` disposes a new
     /// member at once (spec/02 §7.1).
     private var disposeEntered = false
     /// Set when this base `dispose()` body starts, before the member
@@ -810,6 +819,12 @@ open class ComponentVMBase {
     private var activeHookLease: LifecycleHookLease?
     private var disposalCleanupPendingForHook = false
     private var disposalFinished = false
+    /// Set while a dispose cascade runs ahead of this VM's terminal
+    /// transition: no lifecycle hook is admitted meanwhile (LIFE-015).
+    private var hookAdmissionClosed = false
+    /// The child and member cascade of a disposal that found a foreign hook
+    /// admitted; `_finishDisposalNow` runs it after the lease (LIFE-015).
+    private var deferredDisposalCascade: (() -> [ComponentVMBase])?
 
     // ── Deferred child transitions (spec/02 §6, LIFE-014) ───────────────
 
@@ -1502,7 +1517,8 @@ open class ComponentVMBase {
             construct: construct,
             after: after,
             joined: joined,
-            lateChild: lateChild
+            lateChild: lateChild,
+            superseded: { [weak self] in self?._isDisposalRequested() ?? true }
         )
         if construct, lateChild != nil {
             // Late children are sealed at commit time (spec/06 §5.1).
@@ -1555,21 +1571,6 @@ open class ComponentVMBase {
         return deferral
     }
 
-    /// A container's `dispose()` override calls this at entry, before its
-    /// child cascade, under `lifecycleLock`. It marks disposal as started so
-    /// `ownMember` disposes a new member at once, and returns `false` when
-    /// disposal already started (a re-entrant or concurrent call, which then
-    /// returns at once without waiting, spec/02 §7.1).
-    func _enterDispose() -> Bool {
-        lifecycleLock.lock()
-        defer { lifecycleLock.unlock() }
-        guard !disposeEntered, !disposalRequested, _status != .disposed else {
-            return false
-        }
-        disposeEntered = true
-        return true
-    }
-
     /// Idempotent terminal transition. From any non-Disposed state,
     /// transitions to `.disposed` and invokes `_onDispose()`. Subclasses
     /// override `_onDispose()` (and may override `dispose()` itself to
@@ -1579,31 +1580,63 @@ open class ComponentVMBase {
     /// child walk and disposes every member registered through
     /// ``ownMember(_:)``, in registration order (spec/02 §7.1). A container
     /// disposes its own children first. A `dispose()` call that arrives while
-    /// the members are being disposed returns at once.
-    open func dispose() {
+    /// the members are being disposed returns at once. While a construct or
+    /// destruct hook of this VM runs on another thread, this VM publishes
+    /// `.disposed` first. It disposes no child or member until that hook
+    /// returns (LIFE-015).
+    open func dispose() { _disposeAtHookBoundary(children: nil) }
+
+    /// A container's `dispose()` calls this, holding no lock, instead of
+    /// disposing `children` and then calling `super.dispose()` (LIFE-013).
+    /// The cascade runs at the same admitted-hook boundary as `dispose()`
+    /// (LIFE-015).
+    final func _disposeWithChildren(_ children: [ComponentVMBase]) {
+        _disposeAtHookBoundary(children: children.isEmpty ? nil : { children })
+    }
+
+    /// Like `_disposeWithChildren(_:)`, but `snapshot` is read only when the
+    /// cascade starts. A fixed aggregate reads its slots under its own lock
+    /// then, so the cascade disposes the slots an admitted hook committed.
+    final func _disposeWithChildren(snapshot: @escaping () -> [ComponentVMBase]) {
+        _disposeAtHookBoundary(children: snapshot)
+    }
+
+    /// The cascade is `children`, then the members registered with
+    /// `ownMember`. With no hook admitted, or one admitted on this thread,
+    /// hook admission closes and the cascade runs before this VM publishes
+    /// Disposed. With a hook admitted on another thread, this VM publishes
+    /// Disposed now. The cascade then runs in `_finishDisposalNow` when that
+    /// hook's lease is released, also on a wait cycle.
+    private func _disposeAtHookBoundary(children: (() -> [ComponentVMBase])?) {
         lifecycleLock.lock()
         if baseDisposeStarted || disposalRequested || _status == .disposed {
             lifecycleLock.unlock()
             return
         }
-        // A leaf enters disposal here; a container already entered through
-        // `_enterDispose()` before its child cascade and reaches this body
-        // once, through `super.dispose()`.
         baseDisposeStarted = true
         disposeEntered = true
+        // A container's children first, then the members (spec/02 §7.1).
         let members = ownedMembers
         ownedMembers.removeAll()
-        lifecycleLock.unlock()
-        if !members.isEmpty {
-            // A member reaching Disposed must not roll this VM back ahead of
-            // its own disposal (as the containers' child cascade, LIFE-013).
+        let cascade: (() -> [ComponentVMBase])? = children == nil && members.isEmpty
+            ? nil
+            : { (children?() ?? []) + members }
+        let lease = activeHookLease
+        if let cascade,
+           lease == nil || lease?.threadID == Self.currentThreadID {
+            hookAdmissionClosed = true
+            lifecycleLock.unlock()
+            // A child reaching Disposed must not roll this VM back ahead of
+            // its own disposal (LIFE-013).
             _abandonChildTransition()
             // Depth-first, before this VM publishes Disposed. Swift dispose
-            // does not throw, so every member is attempted.
-            for member in members { member.dispose() }
+            // does not throw, so every child and member is attempted.
+            for vm in cascade() { vm.dispose() }
+            lifecycleLock.lock()
+        } else {
+            deferredDisposalCascade = cascade
         }
 
-        lifecycleLock.lock()
         if disposalRequested || _status == .disposed {
             lifecycleLock.unlock()
             return
@@ -1727,9 +1760,11 @@ open class ComponentVMBase {
     ///
     /// `dispose()` disposes the registered members in registration order,
     /// before this VM publishes `.disposed`. A container disposes its own
-    /// children first. Every member is attempted. Swift disposal does not
-    /// throw, so a member's failing cleanup is not reported (the flavors with
-    /// a throwing disposal surface report the first failure).
+    /// children first. While a construct or destruct hook of this VM runs on
+    /// another thread, this VM publishes `.disposed` first. It disposes the
+    /// members after that hook returns (LIFE-015). Every member is attempted. Swift
+    /// disposal does not throw, so a member's failing cleanup is not reported
+    /// (the flavors with a throwing disposal surface report the first failure).
     ///
     /// ```swift
     /// let chart: ChartVM
@@ -1797,10 +1832,22 @@ open class ComponentVMBase {
         return _status
     }
 
-    private func _isDisposalRequested() -> Bool {
+    /// True once this VM's terminal disposal is requested.
+    func _isDisposalRequested() -> Bool {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
         return disposalRequested || _status == .disposed
+    }
+
+    /// Runs `commit` and returns `true`, unless this VM's terminal disposal is
+    /// requested. The check and `commit` run under `lifecycleLock`, so no
+    /// disposal request lands between them. `commit` must only store values.
+    func _commitUnlessDisposalRequested(_ commit: () -> Void) -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard !disposalRequested, _status != .disposed else { return false }
+        commit()
+        return true
     }
 
     private typealias LifecyclePublicationPlan = (
@@ -1818,7 +1865,8 @@ open class ComponentVMBase {
         defer { lifecycleLock.unlock() }
         guard transitionGeneration == generation,
               _status == status,
-              activeHookLease == nil else { return nil }
+              activeHookLease == nil,
+              !hookAdmissionClosed else { return nil }
         let lease = LifecycleHookLease(threadID: Self.currentThreadID)
         activeHookLease = lease
         return lease
@@ -1869,6 +1917,18 @@ open class ComponentVMBase {
         let succeeded = publication.publication.succeeded
         lifecycleLock.unlock()
         return succeeded
+    }
+
+    /// Test-only seam (#1056): commits `status` for the transition in flight,
+    /// on the calling thread, as a foreground completion does. Two threads
+    /// that call it while a third drains this VM queue two foreign waiters,
+    /// which the in-flight guard keeps the public API from doing.
+    @discardableResult
+    func commitInFlightStatusForTesting(_ status: ConstructionStatus) -> Bool {
+        lifecycleLock.lock()
+        let generation = transitionGeneration
+        lifecycleLock.unlock()
+        return _commitStatus(status, generation: generation)
     }
 
     /// Mutate status and enqueue its immutable publication record while
@@ -1946,7 +2006,12 @@ open class ComponentVMBase {
             plan.publication.ready.wait()
             // The edge ends before this thread drains or delivers.
             ThreadWaitGraph.shared.endWait(caller: caller)
-            _drainLifecyclePublications()
+            lifecycleLock.lock()
+            let adopted = plan.publication.mayBeAdopted
+            lifecycleLock.unlock()
+            // A hand-off that adopted this publication woke this thread
+            // without the turn; the drainer delivers it.
+            if !adopted { _drainLifecyclePublications() }
         }
     }
 
@@ -1987,9 +2052,34 @@ open class ComponentVMBase {
             if next.waitRegistered {
                 ThreadWaitGraph.shared.release(resource: ObjectIdentifier(next))
             }
+            _redirectQueuedWaitsLocked(to: next.ownerThread)
             next.ready.signal()
             lifecycleLock.unlock()
             return
+        }
+    }
+
+    /// Points the wait edge of each publication queued behind the handed-over
+    /// turn at the new drainer (#1056). After that, no edge names a thread
+    /// that no longer drains this VM. A waiter whose new edge would close a
+    /// cycle is woken without the turn. Its publication becomes adoptable,
+    /// and the drainer that reaches it delivers it in FIFO order. A wait
+    /// refused at registration works the same way. Called under
+    /// `lifecycleLock`.
+    private func _redirectQueuedWaitsLocked(to drainer: UInt64) {
+        var index = lifecyclePublicationHead + 1
+        while index < lifecyclePublications.count {
+            let queued = lifecyclePublications[index]
+            index += 1
+            guard queued.waitRegistered else { continue }
+            if ThreadWaitGraph.shared.redirectWait(
+                caller: queued.ownerThread,
+                resource: ObjectIdentifier(queued),
+                to: drainer
+            ) { continue }
+            queued.waitRegistered = false
+            queued.mayBeAdopted = true
+            queued.ready.signal()
         }
     }
 
@@ -2075,8 +2165,12 @@ open class ComponentVMBase {
             return
         }
         disposalFinished = true
+        let cascade = deferredDisposalCascade
+        deferredDisposalCascade = nil
         lifecycleLock.unlock()
 
+        // A cascade deferred behind an admitted foreign hook runs only now.
+        for vm in cascade?() ?? [] { vm.dispose() }
         _onDispose()
         disposeOwnedResources()
 

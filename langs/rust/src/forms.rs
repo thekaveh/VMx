@@ -128,6 +128,12 @@ struct ApprovalPublication<M> {
     /// not a flag: an approval admitted by one of their observers settles
     /// inside the outer publication and must not end it (ADR-0143).
     pre_publishing: usize,
+    /// Per thread, the number of settlements still publishing, `OnApproved`
+    /// included. Only a thread's outermost settlement replays the deferred
+    /// edits (#1061). A nested approval started by an approval subscriber
+    /// leaves them until the outer subscribers have run. The depth is per
+    /// thread: another thread's settlement still replays when it ends.
+    publishing: Vec<(ThreadId, usize)>,
     deferred_models: Vec<M>,
 }
 
@@ -135,7 +141,78 @@ impl<M> ApprovalPublication<M> {
     fn new() -> Self {
         Self {
             pre_publishing: 0,
+            publishing: Vec::new(),
             deferred_models: Vec::new(),
+        }
+    }
+
+    fn enter(&mut self, thread: ThreadId) {
+        match self
+            .publishing
+            .iter_mut()
+            .find(|(owner, _)| *owner == thread)
+        {
+            Some((_, depth)) => *depth += 1,
+            None => self.publishing.push((thread, 1)),
+        }
+    }
+
+    /// Ends one settlement on `thread`. Returns whether it was the thread's
+    /// outermost one.
+    fn leave(&mut self, thread: ThreadId) -> bool {
+        let Some(index) = self
+            .publishing
+            .iter()
+            .position(|(owner, _)| *owner == thread)
+        else {
+            return true;
+        };
+        self.publishing[index].1 -= 1;
+        if self.publishing[index].1 > 0 {
+            return false;
+        }
+        self.publishing.swap_remove(index);
+        true
+    }
+}
+
+/// Counts one settlement in [`ApprovalPublication::publishing`] until it
+/// finishes, even when a notification observer panics.
+struct ApprovalPublishingGuard<M> {
+    publication: Arc<Mutex<ApprovalPublication<M>>>,
+    thread: ThreadId,
+    finished: bool,
+}
+
+impl<M> ApprovalPublishingGuard<M> {
+    fn new(publication: Arc<Mutex<ApprovalPublication<M>>>) -> Self {
+        let thread = thread::current().id();
+        lock(&publication).enter(thread);
+        Self {
+            publication,
+            thread,
+            finished: false,
+        }
+    }
+
+    /// Ends this settlement's publication. Returns the deferred edits when it
+    /// is this thread's outermost settlement and no settlement is publishing
+    /// its notifications; returns none otherwise.
+    fn finish(mut self) -> Vec<M> {
+        self.finished = true;
+        let mut publication = lock(&self.publication);
+        if publication.leave(self.thread) && publication.pre_publishing == 0 {
+            std::mem::take(&mut publication.deferred_models)
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+impl<M> Drop for ApprovalPublishingGuard<M> {
+    fn drop(&mut self) {
+        if !self.finished {
+            lock(&self.publication).leave(self.thread);
         }
     }
 }
@@ -313,6 +390,14 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     /// under the update lock. Only a callback re-entering from the preparing
     /// thread can advance it during a preparation, which is then stale.
     commit_generation: Arc<AtomicU64>,
+    /// Counts the revalidations that validator registrations start, each under
+    /// the update lock. While an approval validates its reset model, only a
+    /// registration re-entering from that thread can advance it (#1046).
+    revalidations: Arc<AtomicU64>,
+    /// Odd while an approval commit replaces the snapshot, and for a reset
+    /// also the model, under separate mutexes. `is_dirty` reads a pair that no
+    /// such commit overlapped (#1073). No user code runs while it is odd.
+    pair_version: Arc<AtomicU64>,
     disposed: Arc<Mutex<bool>>,
     hub: MessageHub,
 }
@@ -361,6 +446,8 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             approval_in_flight: Arc::new(AtomicBool::new(false)),
             update_lock: Arc::new(UpdateLock::new()),
             commit_generation: Arc::new(AtomicU64::new(0)),
+            revalidations: Arc::new(AtomicU64::new(0)),
+            pair_version: Arc::new(AtomicU64::new(0)),
             disposed: Arc::new(Mutex::new(false)),
             hub,
         };
@@ -542,9 +629,22 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
 
     /// Reports whether the current model differs from the snapshot.
     pub fn is_dirty(&self) -> bool {
-        // Compare copies, so no lock is held while `PartialEq` runs.
-        let model = self.model();
-        model != self.snapshot()
+        // Compare copies, so no lock is held while `PartialEq` runs. The model
+        // is read first, so only a snapshot write between the two reads can
+        // pair values that never coexisted. Read the pair again when an
+        // approval commit, the only snapshot writer, overlapped them (#1073).
+        loop {
+            let version = self.pair_version.load(Ordering::SeqCst);
+            if version % 2 == 1 {
+                thread::yield_now();
+                continue;
+            }
+            let model = self.model();
+            let snapshot = self.snapshot();
+            if self.pair_version.load(Ordering::SeqCst) == version {
+                return model != snapshot;
+            }
+        }
     }
 
     /// Returns the current validation messages in field-key order.
@@ -703,12 +803,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         let committed = if let Some(reset_on_approved) = &self.reset_on_approved {
             // Prepare the complete transition before mutating local state. The
             // callback or either snapshot operation may fail/panic without a
-            // partial assignment.
+            // partial assignment. The commit validates the reset model.
             let reset = reset_on_approved(model)?;
             let next_model = (self.snapshotter)(&reset);
             let next_snapshot = (self.snapshotter)(&reset);
-            let next_errors = self.validation_errors_for(&next_model);
-            self.commit_approval(next_snapshot, Some((next_model, next_errors)))
+            self.commit_approval(next_snapshot, Some(next_model))
         } else {
             self.commit_approval((self.snapshotter)(model), None)
         };
@@ -716,7 +815,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Commits the post-persist state: the advanced snapshot, or a prepared
-    /// reset with its model and errors.
+    /// reset model, which it validates first.
     ///
     /// The commit is authoritative over edits made during the approval
     /// (spec/20 §5.1) and yields only to disposal. Admission and this step
@@ -726,17 +825,32 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// synchronous observers cannot see a reset model paired with the previous
     /// snapshot or errors. Returns whether the effective errors changed, or
     /// `None` when disposal suppressed the commit.
-    fn commit_approval(
-        &self,
-        snapshot: M,
-        reset: Option<(M, BTreeMap<String, String>)>,
-    ) -> Option<bool> {
+    fn commit_approval(&self, snapshot: M, reset: Option<M>) -> Option<bool> {
         let serialized = self.update_lock.acquire();
         if *lock(&self.disposed) {
             drop(serialized);
             return None;
         }
+        // The reset model is validated under the update lock, before any field
+        // changes (#1046). A validator registered on another thread meanwhile
+        // revalidates after this commit. A validator registered re-entrantly
+        // during a run makes the validation run again, until a run registers
+        // none. A re-entrant update needs no rerun: the reset is authoritative.
+        let reset = reset.map(|model| loop {
+            let revalidations = self.revalidations.load(Ordering::SeqCst);
+            let errors = self.validation_errors_for(&model);
+            if self.revalidations.load(Ordering::SeqCst) == revalidations {
+                break (model, errors);
+            }
+        });
+        if *lock(&self.disposed) {
+            drop(serialized);
+            return None;
+        }
         self.commit_generation.fetch_add(1, Ordering::SeqCst);
+        // The odd pair version marks the snapshot write, and a reset's model
+        // install, for `is_dirty` (#1073); no user code runs inside it.
+        self.pair_version.fetch_add(1, Ordering::SeqCst);
         let replaced_snapshot = std::mem::replace(&mut *lock(&self.snapshot), snapshot);
         let (errors_changed, replaced_model) = match reset {
             Some((model, errors)) => {
@@ -745,6 +859,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             }
             None => (false, None),
         };
+        self.pair_version.fetch_add(1, Ordering::SeqCst);
         drop(serialized);
         // Replaced values are dropped after the update lock is released.
         drop((replaced_snapshot, replaced_model));
@@ -754,6 +869,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// Settlement steps 2 to 4 of a committed approval. The in-flight mark is
     /// already clear.
     fn settle_approved(&self, model: M, errors_changed: bool) {
+        let publishing = ApprovalPublishingGuard::new(Arc::clone(&self.approval_publication));
         {
             // Model edits made by these observers wait until the approval
             // subscribers have seen the committed state.
@@ -789,16 +905,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 }
             }
         }));
-        let deferred_models = {
-            let mut publication = lock(&self.approval_publication);
-            // An enclosing settlement still publishing keeps the edits until
-            // its own subscribers have run.
-            if publication.pre_publishing > 0 {
-                Vec::new()
-            } else {
-                std::mem::take(&mut publication.deferred_models)
-            }
-        };
+        // An enclosing settlement on this thread, in its notifications or its
+        // subscribers, keeps the edits until its own subscribers have run.
+        let deferred_models = publishing.finish();
         for deferred_model in deferred_models {
             self.set_model(deferred_model);
         }
@@ -1062,6 +1171,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// commits supersedes it.
     fn revalidate(&self) {
         let serialized = self.update_lock.acquire();
+        self.revalidations.fetch_add(1, Ordering::SeqCst);
         let generation = self.commit_generation.load(Ordering::SeqCst);
         let errors = self.validation_errors_for(&self.model());
         if self.commit_generation.load(Ordering::SeqCst) != generation {
@@ -1413,6 +1523,8 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             approval_in_flight: Arc::new(AtomicBool::new(false)),
             update_lock: Arc::new(UpdateLock::new()),
             commit_generation: Arc::new(AtomicU64::new(0)),
+            revalidations: Arc::new(AtomicU64::new(0)),
+            pair_version: Arc::new(AtomicU64::new(0)),
             disposed: Arc::new(Mutex::new(false)),
             hub: self.hub,
         };

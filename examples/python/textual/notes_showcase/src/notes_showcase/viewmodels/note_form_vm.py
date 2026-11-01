@@ -203,10 +203,10 @@ class NoteFormVM(ComponentVM, IReconstructable):
 
     # Phase 5.b binding gap #1: NoteModel is an immutable record, so widgets
     # cannot two-way bind to ``draft.title`` (the chain is read-only). Expose
-    # per-field scalar setters on the form itself so the Textual ``Input`` /
-    # ``TextArea`` / ``Checkbox`` widgets can ``bind_property_two_way`` to
-    # ``title`` / ``body`` / ``starred`` and edits actually round-trip back
-    # into the form.
+    # per-field scalar setters on the form itself. The Textual ``Input`` and
+    # ``Checkbox`` widgets then ``bind_property_two_way`` to ``title`` and
+    # ``starred``, and edits round-trip back into the form. The ``TextArea``
+    # binds to ``body`` through ``bind_text_area`` and ``push_text_area_text``.
     @property
     def title(self) -> str:
         return self.draft.title

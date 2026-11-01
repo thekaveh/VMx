@@ -60,6 +60,64 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `ObservableDictionary`: `remove` and `clear` now update `keys2` before
+  `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
+  `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
+  missing from `keys2`. If a `keys2` subscriber changes the entries, `keys1`
+  then lists only the keys that the entries use. `keys1` is also updated when
+  a `keys2` subscriber raises.
+- `AggregateVM1`…`AggregateVM6` no longer dispose their slots while their
+  admitted construct or destruct hook runs on another thread (#1063, LIFE-015).
+  Before, a foreign `dispose()` during a construct hook also deadlocked. It held
+  the aggregate lock while it waited for the hook, and the hook needed that
+  lock. The slot cascade now runs at the admitted-hook boundary of the base
+  `dispose()`. It reads the slots under the aggregate lock only when it starts,
+  so it disposes the slots that the hook committed. With no foreign hook, the
+  slots are still disposed before the aggregate publishes `DISPOSED` (LIFE-013).
+  No hook of the aggregate is admitted while that cascade runs. Two aggregates
+  whose slot factories dispose each other no longer deadlock. A second
+  concurrent `dispose()` now returns at once, as it does for composites and
+  groups.
+- A cross-thread `dispose()` of a `CompositeVM` or `GroupVM` no longer hangs
+  when its wait would close a wait-for cycle (ADR-0153, ADR-0166, #1059).
+  Before, two threads that each held one container's membership transaction
+  and disposed the other's container waited for each other forever. Membership
+  transaction owners and disposal waits are now recorded in one process-wide
+  wait-for graph. The disposal that would close a cycle records the intent and
+  returns. The transaction owner disposes the container when its transaction
+  ends. A disposal that closes no cycle still waits for the transaction.
+- The construct walk of `CompositeVM` and `CompositeVMOf` assigns the
+  `current(selector)` result without a membership transaction (spec/06 §3.2,
+  ADR-0165, #1064). Before, the assignment raised `RuntimeError` while another
+  thread held the composite's membership transaction. That happens, for
+  example, inside an `append` `on_collection_changed` handler, and the
+  composite then rolled back to `DESTRUCTED`. The selected child is now
+  current before `CONSTRUCTED`, even when that other thread waits for the
+  walk. The assignment is a silent no-op while the composite is disposing. It
+  is also a no-op for a child that another `append`, `insert` or index
+  assignment has attached but not yet admitted. A `dispose()` from any
+  current-change callback returns at once. The disposal starts after that
+  publication and any open membership transaction end. An `append`, `insert`
+  or index assignment on another thread that has not admitted its child when
+  `dispose()` is called fails with `RuntimeError` and rolls back. Before, the
+  disposal waited for it. A transfer that detached the current child no longer
+  clears a selection made after the detach.
+- `CompositeVM`, `CompositeVMOf` and `GroupVM` `dispose()` now dispose the
+  `on_collection_changed` subject when a completion observer raises, then
+  re-raise that error. Before, a later subscriber received completion instead
+  of `DisposedException` (#1072).
+- `CompositeVM.append`/`add`/`insert` and `GroupVM.add`/`insert` re-raise a
+  failed parent-transfer commit before a raising destination subscriber's
+  error, as the indexer and population paths do (#727). Before, the
+  destination error propagated and the commit error was lost. The add still
+  publishes one local event and one hub message (#1054).
+- `CompositeVM.append`/`add`/`insert`/`__setitem__` and `GroupVM.add`/
+  `insert`/`__setitem__` raise `ValueError` for a `None` child and leave the
+  children unchanged. Before, they raised `AttributeError` after they opened
+  the membership transaction and never closed it. Every later membership
+  change then raised `RuntimeError`, and a `dispose()` from another thread did
+  not return. Another value without a `status`, such as a slice assignment,
+  now also fails without leaving the transaction open (#1048).
 - The `AsyncRelayCommand.execute` docstring now says that `execute()` admits
   the run before it returns and schedules it on the running event loop, or on
   the VMx background loop when none runs, without calling `execute_async`.

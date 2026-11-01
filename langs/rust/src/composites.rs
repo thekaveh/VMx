@@ -4,13 +4,13 @@
 
 use super::{
     begin_membership_transaction, begin_parent_transfer, catch_unwind, finish_with_first_error,
-    finish_with_first_failure, lock, replace_locked, resume_unwind, retain_first_error,
-    retain_first_failure, retain_parent_transfer_commit, Arc, AssertUnwindSafe, AtomicBool,
-    ChildOrder, ComponentCore, ConstructionStatus, Dispatcher, HashSet, LateStarts,
-    LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl,
-    MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher, ObservableList, Ordering,
-    ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream, RelayCommand,
-    StartAttempt, TreeNode, ViewModelType, VmNode, VmxError, VmxResult,
+    lock, replace_locked, resume_unwind, retain_first_error, retain_first_failure,
+    retain_parent_transfer_commit, Arc, AssertUnwindSafe, AtomicBool, ChildOrder, ComponentCore,
+    ConstructionStatus, Dispatcher, HashSet, LateStarts, LifecycleOperation,
+    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
+    MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
+    ParentTransfer, PropertyChangedStream, RelayCommand, StartAttempt, TreeNode, ViewModelType,
+    VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -707,6 +707,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 item.set_parent_handle(None);
             }
+            // Destruct after releasing the gate: its messages can reach a
+            // subscriber that disposes this container (#1066).
+            drop(_gate);
             let compensation_error = if original_status == ConstructionStatus::Destructed
                 && item.status() == ConstructionStatus::Constructed
             {
@@ -889,6 +892,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 item.set_parent_handle(None);
             }
+            // Destruct after releasing the gate: its messages can reach a
+            // subscriber that disposes this container (#1066).
+            drop(_gate);
             let compensation_error = if original_status == ConstructionStatus::Destructed
                 && item.status() == ConstructionStatus::Constructed
             {
@@ -1257,7 +1263,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Disposes all children and returns the first encountered error.
     ///
     /// Children are disposed in the composite's [`ChildOrder`], each before
-    /// the composite publishes `Disposed`.
+    /// the composite publishes `Disposed`. When a construct or destruct hook of
+    /// the composite runs on another thread, the composite publishes `Disposed`
+    /// first. It disposes no child until that hook returns (LIFE-015). A
+    /// second `dispose()` returns `Ok(())` at once.
     pub fn dispose(&self) -> VmxResult<()> {
         self.core.abandon_child_settle();
         let snapshot = loop {
@@ -1271,7 +1280,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
                 MembershipDisposeDisposition::Foreign => {
                     drop(_gate);
-                    self.membership_transaction_control.wait_until_inactive();
+                    let deferred = self.clone();
+                    if self
+                        .membership_transaction_control
+                        .wait_until_inactive_or_defer(move || deferred.dispose())
+                        .is_none()
+                    {
+                        return Ok(());
+                    }
                     continue;
                 }
                 MembershipDisposeDisposition::Inactive => {
@@ -1286,22 +1302,20 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
         };
         let Some(snapshot) = snapshot else {
-            let mut first_failure = None;
-            retain_first_failure(&mut first_failure, || {
-                let commands = self.commands.clone();
-                self.core.dispose_then(move || commands.dispose())
-            });
-            return finish_with_first_failure(first_failure);
+            return Ok(());
         };
-        let mut first_failure = None;
-        for item in self.destruct_order.arrange(snapshot) {
-            retain_first_failure(&mut first_failure, || item.dispose());
-        }
-        retain_first_failure(&mut first_failure, || {
-            let commands = self.commands.clone();
-            self.core.dispose_then(move || commands.dispose())
-        });
-        finish_with_first_failure(first_failure)
+        let children = self.destruct_order.arrange(snapshot);
+        let commands = self.commands.clone();
+        self.core.dispose_with_cascade_then(
+            Box::new(move || {
+                let mut first_failure = None;
+                for item in children {
+                    retain_first_failure(&mut first_failure, || item.dispose());
+                }
+                first_failure
+            }),
+            move || commands.dispose(),
+        )
     }
 
     /// Local collection-change stream of the children (see

@@ -4,7 +4,6 @@ using System.Reactive.Disposables;
 using System.Runtime.ExceptionServices;
 using VMx.Collections;
 using VMx.Components;
-using VMx.Groups;
 using VMx.Internal;
 using VMx.Lifecycle;
 using VMx.Messages;
@@ -32,7 +31,7 @@ internal static class ContainerConstructWalk
     /// attempt, then joins it, so one whose own construction failed rolls the
     /// container back. A late child without a record was not started by an
     /// add, so the walk skips it. The scope stays open after the last scan:
-    /// <see cref="SealOrNextLateLocked"/> joins a child added after it, and
+    /// <see cref="SealOrNextLate"/> joins a child added after it, and
     /// commits the Constructed state under the membership gate.
     /// </summary>
     internal static IEnumerable<IComponentVM> Enumerate<VM>(
@@ -59,14 +58,16 @@ internal static class ContainerConstructWalk
     }
 
     /// <summary>
-    /// The construct walk's commit step; call it under the membership gate.
-    /// Returns the next unvisited member that an add started (it has a start
-    /// record in <paramref name="walk"/>), which the walk then joins. Without
-    /// one, it commits the Constructed state through <paramref name="commit"/>
-    /// in the same gated section and returns null, so an add reads either
-    /// Constructing (and is joined) or Constructed (spec/02 §6, spec/06 §5.1).
+    /// The construct walk's commit step. Under <paramref name="gate"/>, the
+    /// membership gate, it returns the next unvisited member that an add
+    /// started (it has a start record in <paramref name="walk"/>), which the
+    /// walk then joins. Without one, it commits the Constructed state through
+    /// <paramref name="commit"/> in the same gated section, so an add reads
+    /// either Constructing (and is joined) or Constructed, then ends the walk's
+    /// scope and returns null (spec/02 §6, spec/06 §5.1).
     /// </summary>
-    internal static IComponentVM? SealOrNextLateLocked<VM>(
+    internal static IComponentVM? SealOrNextLate<VM>(
+        object gate,
         IEnumerable<VM> members,
         ISet<IComponentVM> joined,
         ISet<IComponentVM> visited,
@@ -74,22 +75,27 @@ internal static class ContainerConstructWalk
         Action commit)
         where VM : class, IComponentVM
     {
-        foreach (var child in members)
+        lock (gate)
         {
-            if (!visited.Add(child)) continue;
-            if (!walk.Take(child)) continue;
-            joined.Add(child);
-            return child;
+            foreach (var child in members)
+            {
+                if (!visited.Add(child)) continue;
+                if (!walk.Take(child)) continue;
+                joined.Add(child);
+                return child;
+            }
+            commit();
         }
-        commit();
+        walk.End();
         return null;
     }
 }
 
 /// <summary>
-/// The collection-change delivery and auto-construct-on-add steps shared by
-/// composites and groups (spec/01 §1.4, spec/06 §5.1). Each container member
-/// only forwards here with its own event, flags, and disposal check.
+/// The collection-change delivery, auto-construct-on-add, and late-child start
+/// steps shared by composites and groups (spec/01 §1.4, spec/06 §5.1). Each
+/// container member only forwards here with its own event, flags, start
+/// records, and disposal check.
 /// </summary>
 internal static class ContainerMembership
 {
@@ -140,6 +146,110 @@ internal static class ContainerMembership
         if (status != ConstructionStatus.Constructed) return;
         if (item.Status == ConstructionStatus.Constructed) return;
         item.Construct();
+    }
+
+    /// <summary>
+    /// Called under the gate as an add attaches <paramref name="item"/>: an
+    /// add that will auto-start the child while the
+    /// <paramref name="container"/> is Constructing registers a start record
+    /// the construct walk waits on.
+    /// </summary>
+    internal static LateChildStarts.Record? AttachLateStartLocked<VM>(
+        ComponentVMBase container,
+        LateChildStarts lateStarts,
+        bool autoConstructOnAdd,
+        VM item)
+        where VM : class, IComponentVM
+        => lateStarts.AttachLocked(
+            item, autoConstructOnAdd && container.Status == ConstructionStatus.Constructing);
+
+    /// <summary>The add's auto-construct of a child it attached with <paramref name="record"/>.</summary>
+    internal static void AutoConstructAttached<VM>(
+        ComponentVMBase container,
+        LateChildStarts lateStarts,
+        bool autoConstructOnAdd,
+        VM item,
+        LateChildStarts.Record? record)
+        where VM : class, IComponentVM
+    {
+        if (record is null)
+        {
+            MaybeAutoConstruct(container, autoConstructOnAdd, item);
+            return;
+        }
+        // The construct walk never starts a late child; it waits for this
+        // attempt, then joins the child (spec/06 §5.1). The record is done
+        // before this add publishes or ends its transaction.
+        try
+        {
+            lateStarts.Probe(item, LateChildStage.Attached);
+            if (item.Status == ConstructionStatus.Destructed) item.Construct();
+        }
+        finally
+        {
+            record.MarkDone();
+            if (container.Status != ConstructionStatus.Constructing) lateStarts.Remove(item, record);
+        }
+    }
+}
+
+/// <summary>
+/// The ref-counted collection-change batch shared by composites and groups
+/// (spec v1.1). A change inside an open batch only marks it dirty; the
+/// outermost close delivers one <c>Reset</c> if any change occurred.
+/// </summary>
+internal sealed class ContainerBatch
+{
+    private readonly Action<NotifyCollectionChangedEventArgs> _deliver;
+    private int _depth;
+    private bool _dirty;
+
+    /// <param name="deliver">The container's local-event and hub delivery.</param>
+    internal ContainerBatch(Action<NotifyCollectionChangedEventArgs> deliver) => _deliver = deliver;
+
+    /// <summary>Opens one batch level; disposing the handle closes it once.</summary>
+    internal IDisposable Enter()
+    {
+        _depth++;
+        return new Handle(this);
+    }
+
+    /// <summary>Delivers <paramref name="args"/> now, or marks an open batch dirty.</summary>
+    internal void Raise(NotifyCollectionChangedEventArgs args)
+    {
+        if (_depth > 0)
+        {
+            _dirty = true;
+            return;
+        }
+        _deliver(args);
+    }
+
+    private void Exit()
+    {
+        _depth--;
+        if (_depth == 0 && _dirty)
+        {
+            _dirty = false;
+            _deliver(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
+    }
+
+    /// <summary>The handle <see cref="Enter"/> returns.</summary>
+    private sealed class Handle : IDisposable
+    {
+        private readonly ContainerBatch _owner;
+        private bool _disposed;
+
+        internal Handle(ContainerBatch owner) => _owner = owner;
+
+        /// <summary>Closes the batch and emits a Reset event if mutations occurred.</summary>
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _owner.Exit();
+        }
     }
 }
 
@@ -341,16 +451,22 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private VM? _current;
 
     // ── Batch-update state (spec v1.1) ────────────────────────────────────────
-    private int _batchDepth;
-    private bool _batchDirty;
+    private readonly ContainerBatch _batch;
 
     // Collects the children population started constructing (see OnConstruct).
     private HashSet<IComponentVM>? _populationJoined;
     private int _disposeRequested;
     private bool _disposeDeferred;
     private int _activeCurrentPublications;
+    // The threads that publish a current change under the lease above. A
+    // Dispose from one of them defers to the lease: waiting there for another
+    // thread's transaction could deadlock the selection (spec/06 §3.2, #1064).
+    private readonly List<int> _currentPublicationThreads = new();
     private bool _membershipTransactionActive;
     private int _membershipTransactionOwnerThreadId;
+    // The child an in-flight Add, Insert or replacement attached and has not
+    // admitted yet; its rollback may still remove it (#1064).
+    private VM? _pendingAdmission;
     private readonly object _membershipGate = new();
     // Start records of the children an auto-construct add attaches while
     // Constructing; the construct walk waits on them (spec/06 §5.1).
@@ -409,6 +525,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         get { lock (_membershipGate) return _children[index]; }
         set
         {
+            ThrowHelper.ThrowIfNull(value, nameof(value));
             BeginMembershipTransaction();
             ParentTransferToken? transfer = null;
             VM? old = null;
@@ -426,20 +543,21 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     _children[index] = value;
                     old.SetParent(null);
                     value.SetParent(this);
+                    _pendingAdmission = value;
                     record = AttachLateStartLocked(value);
                 }
                 AutoConstructAttached(value, record);
-                lock (_membershipGate) EnsureTransactionCanContinueLocked();
+                lock (_membershipGate)
+                {
+                    EnsureTransactionCanContinueLocked();
+                    _pendingAdmission = null;
+                }
                 admissionComplete = true;
                 ComponentOwnership.CommitThenPublish(transfer, () =>
                 {
-                    var wasCurrent = ReferenceEquals(Current, old);
                     PublishEvery(
-                        () =>
-                        {
-                            if (wasCurrent)
-                                ApplyCurrentChange(null, internalTransaction: true);
-                        },
+                        // Clears Current only while it is still the replaced child.
+                        () => ApplyCurrentChange(null, internalTransaction: true, onlyReplacing: old),
                         () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                             NotifyCollectionChangedAction.Remove, old, index)),
                         () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
@@ -460,6 +578,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                         old.SetParent(this);
                         value.SetParent(null);
                     }
+                    _pendingAdmission = null;
                     _lateStarts.Remove(value, record);
                 }
                 if (originalStatus == ConstructionStatus.Destructed &&
@@ -525,6 +644,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
+        _batch = new ContainerBatch(DeliverCollectionChanged);
         _asyncSelection = asyncSelection;
         _autoConstructOnAdd = autoConstructOnAdd;
         _destructOrder = destructOrder;
@@ -598,7 +718,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             {
                 _membershipTransactionActive = false;
                 _membershipTransactionOwnerThreadId = 0;
-                MembershipTransactionWaitGraph.Shared.Release(_membershipGate);
+                WaitForGraph.Shared.Release(_membershipGate);
                 Monitor.PulseAll(_membershipGate);
                 throw new InvalidOperationException("The recorded parent does not contain the child identity.");
             }
@@ -613,7 +733,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 try
                 {
                     if (wasCurrent)
-                        ApplyCurrentChange(null, internalTransaction: true);
+                        ApplyCurrentChange(null, internalTransaction: true, onlyReplacing: child);
                 }
                 catch (Exception error)
                 {
@@ -686,6 +806,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void Add(VM item)
     {
+        ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
@@ -702,10 +823,15 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 item.SetParent(this);
                 idx = _children.Count - 1;
                 attached = true;
+                _pendingAdmission = item;
                 record = AttachLateStartLocked(item);
             }
             AutoConstructAttached(item, record);
-            lock (_membershipGate) EnsureTransactionCanContinueLocked();
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                _pendingAdmission = null;
+            }
         }
         catch (Exception originalError)
         {
@@ -720,6 +846,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     _children.RemoveAt(attachedIndex);
                     item.SetParent(null);
                 }
+                _pendingAdmission = null;
                 _lateStarts.Remove(item, record);
             }
             if (originalStatus == ConstructionStatus.Destructed &&
@@ -795,6 +922,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void Insert(int index, VM item)
     {
+        ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
@@ -811,10 +939,15 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 _children.Insert(index, item);
                 item.SetParent(this);
                 attached = true;
+                _pendingAdmission = item;
                 record = AttachLateStartLocked(item);
             }
             AutoConstructAttached(item, record);
-            lock (_membershipGate) EnsureTransactionCanContinueLocked();
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                _pendingAdmission = null;
+            }
         }
         catch (Exception originalError)
         {
@@ -829,6 +962,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     _children.RemoveAt(attachedIndex);
                     item.SetParent(null);
                 }
+                _pendingAdmission = null;
                 _lateStarts.Remove(item, record);
             }
             if (originalStatus == ConstructionStatus.Destructed &&
@@ -969,32 +1103,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <see cref="CollectionChangedMessage{T}"/> Reset, iff any mutation
     /// occurred during the batch.
     /// </summary>
-    public IDisposable BatchUpdate()
-    {
-        _batchDepth++;
-        return new CollectionBatch(this);
-    }
+    public IDisposable BatchUpdate() => _batch.Enter();
 
-    private void ExitBatch()
-    {
-        _batchDepth--;
-        if (_batchDepth == 0 && _batchDirty)
-        {
-            _batchDirty = false;
-            DeliverCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Reset));
-        }
-    }
-
-    private void RaiseCollectionChanged(NotifyCollectionChangedEventArgs args)
-    {
-        if (_batchDepth > 0)
-        {
-            _batchDirty = true;
-            return;
-        }
-        DeliverCollectionChanged(args);
-    }
+    private void RaiseCollectionChanged(NotifyCollectionChangedEventArgs args) => _batch.Raise(args);
 
     /// <summary>
     /// Raises the local event, then publishes one equivalent
@@ -1009,37 +1120,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             static composite => Volatile.Read(ref composite._disposeRequested) == 0
                 && !composite.IsDisposed());
 
-    /// <summary>
-    /// Called under the gate as an add attaches <paramref name="item"/>: an
-    /// add that will auto-start the child while this container is
-    /// Constructing registers a start record the construct walk waits on.
-    /// </summary>
     private LateChildStarts.Record? AttachLateStartLocked(VM item)
-        => _lateStarts.AttachLocked(
-            item, _autoConstructOnAdd && Status == ConstructionStatus.Constructing);
+        => ContainerMembership.AttachLateStartLocked(this, _lateStarts, _autoConstructOnAdd, item);
 
-    /// <summary>The add's auto-construct of a child it attached with <paramref name="record"/>.</summary>
     private void AutoConstructAttached(VM item, LateChildStarts.Record? record)
-    {
-        if (record is null)
-        {
-            MaybeAutoConstruct(item);
-            return;
-        }
-        // The construct walk never starts a late child; it waits for this
-        // attempt, then joins the child (spec/06 §5.1). The record is done
-        // before this add publishes or ends its transaction.
-        try
-        {
-            _lateStarts.Probe(item, LateChildStage.Attached);
-            if (item.Status == ConstructionStatus.Destructed) item.Construct();
-        }
-        finally
-        {
-            record.MarkDone();
-            if (Status != ConstructionStatus.Constructing) _lateStarts.Remove(item, record);
-        }
-    }
+        => ContainerMembership.AutoConstructAttached(this, _lateStarts, _autoConstructOnAdd, item, record);
 
     private void MaybeAutoConstruct(VM item)
         => ContainerMembership.MaybeAutoConstruct(this, _autoConstructOnAdd, item);
@@ -1049,26 +1134,6 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         if (index < 0 || index >= _children.Count)
             throw new ArgumentOutOfRangeException(parameterName, index,
                 $"Move index must be in [0, {_children.Count}).");
-    }
-
-    /// <summary>
-    /// Disposable batch handle returned by <see cref="BatchUpdate"/>.
-    /// Decrement the composite's batch depth on dispose.
-    /// </summary>
-    private sealed class CollectionBatch : IDisposable
-    {
-        private readonly CompositeVMBase<VM> _owner;
-        private bool _disposed;
-
-        internal CollectionBatch(CompositeVMBase<VM> owner) => _owner = owner;
-
-        /// <summary>Closes the batch and emits a Reset event if mutations occurred.</summary>
-        public void Dispose()
-        {
-            if (_disposed) return;
-            _disposed = true;
-            _owner.ExitBatch();
-        }
     }
 
     // ── IList<VM>: query ──────────────────────────────────────────────────────
@@ -1121,8 +1186,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 // The selector runs only after every child settles Constructed.
                 if (_currentSelector is null) return;
                 var initial = _currentSelector(this);
-                if (initial is not null && IndexOfIdentity(initial) >= 0)
-                    SetCurrent(initial, async: false);
+                if (initial is not null) ApplySelectorResult(initial);
             },
             joined: joined,
             join: lateWalk.Join,
@@ -1136,23 +1200,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         CompleteLifecycleHookAfter(walk);
     }
 
-    /// <summary>
-    /// The commit step of this container's construct walk (spec/06 §5.1):
-    /// joins a child an add started after the last scan, or commits Constructed
-    /// and ends the walk's scope.
-    /// </summary>
     private IComponentVM? SealOrNextLate(
         ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk)
-    {
-        IComponentVM? late;
-        lock (_membershipGate)
-        {
-            late = ContainerConstructWalk.SealOrNextLateLocked(
-                _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
-        }
-        if (late is null) lateWalk.End();
-        return late;
-    }
+        => ContainerConstructWalk.SealOrNextLate(
+            _membershipGate, _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
 
     /// <summary>Constructs all current children sequentially.</summary>
     protected void ConstructChildren()
@@ -1306,6 +1357,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         lock (_membershipGate)
         {
             if (_disposeRequested != 0) return;
+            if (_currentPublicationThreads.Contains(Environment.CurrentManagedThreadId))
+            {
+                _disposeDeferred = true;
+                return;
+            }
             if (!WaitForForeignTransactionLocked()) return;
             if (_membershipTransactionActive || _activeCurrentPublications > 0)
             {
@@ -1347,7 +1403,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private bool WaitForForeignTransactionLocked()
     {
         var caller = Environment.CurrentManagedThreadId;
-        var waits = MembershipTransactionWaitGraph.Shared;
+        var waits = WaitForGraph.Shared;
         while (_membershipTransactionActive && _membershipTransactionOwnerThreadId != caller)
         {
             if (!waits.TryBeginWait(_membershipGate, caller))
@@ -1369,7 +1425,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         _membershipTransactionOwnerThreadId = Environment.CurrentManagedThreadId;
         // Recorded so a group transfer or a disposal that waits for this
         // transaction can see a wait-for cycle (#717).
-        MembershipTransactionWaitGraph.Shared.Acquire(_membershipGate, _membershipTransactionOwnerThreadId);
+        WaitForGraph.Shared.Acquire(_membershipGate, _membershipTransactionOwnerThreadId);
     }
 
     private void BeginMembershipTransaction()
@@ -1391,9 +1447,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         {
             _membershipTransactionActive = false;
             _membershipTransactionOwnerThreadId = 0;
-            MembershipTransactionWaitGraph.Shared.Release(_membershipGate);
+            WaitForGraph.Shared.Release(_membershipGate);
+            // The deferral stays set until Dispose admits it, so no transaction
+            // or selection starts between this release and Dispose (#1064).
             dispose = _disposeDeferred && _activeCurrentPublications == 0;
-            if (dispose) _disposeDeferred = false;
             Monitor.PulseAll(_membershipGate);
         }
         if (dispose)
@@ -1409,9 +1466,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         lock (_membershipGate)
         {
             _activeCurrentPublications--;
+            _currentPublicationThreads.Remove(Environment.CurrentManagedThreadId);
+            // The deferral stays set until Dispose admits it (#1064).
             dispose = _activeCurrentPublications == 0 &&
                 !_membershipTransactionActive && _disposeDeferred;
-            if (dispose) _disposeDeferred = false;
             Monitor.PulseAll(_membershipGate);
         }
         if (dispose)
@@ -1447,10 +1505,17 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         }
     }
 
+    /// <summary>
+    /// Synchronously updates <c>Current</c> and publishes the change. With
+    /// <paramref name="onlyReplacing"/>, the change applies only while that child
+    /// is still current: a transaction clears the child it detached, never a
+    /// selection made after the detach (#1064).
+    /// </summary>
     private void ApplyCurrentChange(
         VM? value,
         bool internalTransaction = false,
-        bool strict = true)
+        bool strict = true,
+        VM? onlyReplacing = null)
     {
         // Async TOCTOU guard: with AsyncSelection the child may have been removed
         // between SetCurrent's membership check and this deferred foreground
@@ -1489,7 +1554,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                             throw new InvalidOperationException(
                                 $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
                     }
-                    else if (!ReferenceEquals(_current, value))
+                    else if (!ReferenceEquals(_current, value) &&
+                        (onlyReplacing is null || ReferenceEquals(_current, onlyReplacing)))
                     {
                         previous = _current;
                         _current = value;
@@ -1499,6 +1565,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                         if (ownsTransaction)
                         {
                             _activeCurrentPublications++;
+                            _currentPublicationThreads.Add(Environment.CurrentManagedThreadId);
                             publicationActive = true;
                         }
                     }
@@ -1522,6 +1589,51 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             throw;
         }
         if (publicationActive) EndCurrentPublication(propagateDisposeFailure: true);
+    }
+
+    /// <summary>
+    /// Assigns the <c>Current(selector)</c> result of a construct walk: the
+    /// non-raising validated assignment of spec/06 §3.2 (ADR-0165, #1064). It
+    /// opens no membership transaction, so another thread's open transaction
+    /// neither fails nor blocks it. Validation and the state commit run under
+    /// the coordination lane and the membership gate (spec/06 §4.2). The
+    /// assignment is a silent no-op while this composite is disposing. It is
+    /// also a no-op when <paramref name="value"/> is not a committed member:
+    /// not contained, or attached by an add whose rollback could still remove
+    /// it. A publication lease defers a disposal until the callbacks return.
+    /// </summary>
+    private void ApplySelectorResult(VM value)
+    {
+        VM? previous;
+        bool previousFlagChanged;
+        bool valueFlagChanged;
+        lock (CompositeCurrentChangeCoordinator.Gate)
+        {
+            lock (_membershipGate)
+            {
+                previous = _current;
+                if (ReferenceEquals(previous, value) ||
+                    Volatile.Read(ref _disposeRequested) != 0 || _disposeDeferred ||
+                    ReferenceEquals(value, _pendingAdmission) ||
+                    !_children.Any(child => ReferenceEquals(child, value)))
+                    return;
+                _current = value;
+                previousFlagChanged = previous?.CommitIsCurrent(false) ?? false;
+                valueFlagChanged = value.CommitIsCurrent(true);
+                _activeCurrentPublications++;
+                _currentPublicationThreads.Add(Environment.CurrentManagedThreadId);
+            }
+        }
+        try
+        {
+            FinishCurrentChange(previous, value, previousFlagChanged, valueFlagChanged);
+        }
+        catch
+        {
+            EndCurrentPublication(propagateDisposeFailure: false);
+            throw;
+        }
+        EndCurrentPublication(propagateDisposeFailure: true);
     }
 
     private void FinishCurrentChange(

@@ -489,4 +489,168 @@ public sealed class NotesViewVMTests
         Assert.Equal(ids.Length, ids.Distinct().Count());
         vm.Dispose();
     }
+
+    // Records every SearchNotesAsync call. Calls made while Hold is on wait until Release.
+    private sealed class HeldSearchRepository : INoteRepository
+    {
+        private readonly InMemoryNoteRepository _inner =
+            new(SeedData.Build(), loadNotesDelay: TimeSpan.Zero);
+        private readonly object _gate = new();
+        private readonly List<(string Term, string? Token)> _searches = [];
+        private TaskCompletionSource _open = OpenGate();
+
+        public IReadOnlyList<(string Term, string? Token)> Searches
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _searches.ToArray();
+                }
+            }
+        }
+
+        public void Hold()
+        {
+            lock (_gate)
+            {
+                _open = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+
+        public void Release()
+        {
+            lock (_gate)
+            {
+                _open.TrySetResult();
+            }
+        }
+
+        private static TaskCompletionSource OpenGate()
+        {
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            gate.SetResult();
+            return gate;
+        }
+
+        public async Task<NoteSearchPage> SearchNotesAsync(
+            string term, string? token, int pageSize, CancellationToken ct = default)
+        {
+            Task open;
+            lock (_gate)
+            {
+                _searches.Add((term, token));
+                open = _open.Task;
+            }
+            await open.WaitAsync(ct).ConfigureAwait(false);
+            return await _inner.SearchNotesAsync(term, token, pageSize, ct).ConfigureAwait(false);
+        }
+
+        public Task<(IReadOnlyList<NotebookModel> Notebooks, IReadOnlyList<NoteModel> Notes)> LoadAllAsync(CancellationToken ct = default)
+            => _inner.LoadAllAsync(ct);
+        public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
+            => _inner.LoadNotesAsync(notebookId, ct);
+        public Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
+            => _inner.SaveNoteAsync(note, ct);
+        public Task DeleteNoteAsync(string id, CancellationToken ct = default)
+            => _inner.DeleteNoteAsync(id, ct);
+        public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default)
+            => _inner.AddNotebookAsync(notebook, ct);
+        public Task ExportAsync(IReadOnlyList<NotebookModel> notebooks, IReadOnlyList<NoteModel> notes, string path, CancellationToken ct = default)
+            => _inner.ExportAsync(notebooks, notes, path, ct);
+    }
+
+    private static GlobalSearchVM BuildGlobalSearch(INoteRepository repo)
+    {
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        return GlobalSearchVM.Builder()
+            .Name("global-search")
+            .Services(new MessageHub(), dispatcher)
+            .Repository(repo)
+            .PageSize(1)
+            .SearchDebounce(TimeSpan.Zero)
+            .Build();
+    }
+
+    private static bool MatchesTerm(NoteVM note, string term)
+    {
+        var model = note.Model;
+        return $"{model.Title} {model.Body} {string.Join(" ", model.Tags)}"
+            .ToLowerInvariant()
+            .Contains(term, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GlobalSearchVM_loads_more_for_the_term_of_the_loaded_pages_after_an_unsearched_term_edit()
+    {
+        var repo = new HeldSearchRepository();
+        var vm = BuildGlobalSearch(repo);
+
+        vm.SearchTerm = "review";
+        await vm.RefreshCommand.ExecuteAsync();
+        // The view writes SearchTerm on each keystroke. Only the Search button refreshes.
+        vm.SearchTerm = "plan";
+        await vm.LoadMoreCommand.ExecuteAsync();
+
+        Assert.Equal(
+            new (string Term, string? Token)[] { ("review", null), ("review", "1") },
+            repo.Searches);
+        Assert.Equal(2, vm.Results.Count);
+        Assert.All(vm.Results, n => Assert.True(MatchesTerm(n, "review"), n.Model.Id));
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task GlobalSearchVM_drops_the_old_term_pages_when_a_new_term_first_page_matches_them()
+    {
+        var repo = new HeldSearchRepository();
+        var vm = BuildGlobalSearch(repo);
+
+        await vm.RefreshCommand.ExecuteAsync();
+        await vm.LoadMoreCommand.ExecuteAsync();
+        Assert.Equal(new[] { "note-01", "note-02" }, vm.Results.Select(n => n.Model.Id));
+        // The first "review" page is note-01 again, the head of the loaded pages.
+        vm.SearchTerm = "review";
+        await vm.RefreshCommand.ExecuteAsync();
+        await vm.LoadMoreCommand.ExecuteAsync();
+
+        Assert.Equal(
+            new (string Term, string? Token)[] { ("review", null), ("review", "1") },
+            repo.Searches.TakeLast(2));
+        Assert.Equal(2, vm.Results.Count);
+        Assert.All(vm.Results, n => Assert.True(MatchesTerm(n, "review"), n.Model.Id));
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task GlobalSearchVM_ends_on_the_current_term_when_load_more_runs_during_a_refresh()
+    {
+        var repo = new HeldSearchRepository();
+        var vm = BuildGlobalSearch(repo);
+
+        vm.SearchTerm = "review";
+        await vm.RefreshCommand.ExecuteAsync();
+        repo.Hold();
+        vm.SearchTerm = "plan";
+        vm.Search();
+        await TestWait.WaitUntilAsync(() => repo.Searches.Count == 2);
+        Assert.True(vm.RefreshCommand.IsExecuting, "the refresh waits in the repository");
+        vm.LoadMoreCommand.Execute(null);
+        repo.Release();
+
+        bool Idle() => !vm.RefreshCommand.IsExecuting && !vm.LoadMoreCommand.IsExecuting;
+        await TestWait.WaitUntilAsync(Idle);
+        await Task.Delay(50);
+        await TestWait.WaitUntilAsync(Idle);
+
+        var results = vm.Results;
+        var ids = string.Join(", ", results.Select(n => n.Model.Id));
+        Assert.NotEmpty(results);
+        var sharedTerms = new[] { "review", "plan" }
+            .Where(term => results.All(n => MatchesTerm(n, term)))
+            .ToArray();
+        Assert.True(sharedTerms.Length > 0, $"results {ids} mix two terms");
+        Assert.Equal(new[] { "plan" }, sharedTerms);
+        vm.Dispose();
+    }
 }

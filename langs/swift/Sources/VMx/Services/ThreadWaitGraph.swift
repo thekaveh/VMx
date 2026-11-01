@@ -12,7 +12,9 @@
 // `release(resource:)` before it wakes the waiters, so no woken waiter keeps
 // an edge to an owner that no longer blocks it. Edges to the same owner thread
 // on other resources stay, because that thread may still hold them. A woken
-// waiter that must wait again registers a new edge.
+// waiter that must wait again registers a new edge. A resource can pass to
+// another owner while its waiters stay blocked. The thread that passes it then
+// calls `redirectWait` for each waiter, so no edge names the old owner.
 //
 // Lock order: the graph lock is a leaf. A caller may hold a hub gate, a
 // container gate or a lifecycle lock when it calls in, but the graph never
@@ -76,6 +78,20 @@ final class ThreadWaitGraph: @unchecked Sendable {
             }
             cursor = next.owner
         }
+        return true
+    }
+
+    /// Points the edge of `caller` on `resource` at `newOwner`. Returns
+    /// `false`, and removes the edge, when the new edge would close a cycle.
+    /// Returns `true`, and records nothing, when `caller` has no edge on
+    /// `resource`.
+    func redirectWait(caller: UInt64, resource: ObjectIdentifier, to newOwner: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let edge = waitingOn[caller], edge.resource == resource else { return true }
+        waitingOn.removeValue(forKey: caller)
+        guard !reaches(caller, from: newOwner) else { return false }
+        waitingOn[caller] = Edge(owner: newOwner, resource: resource)
         return true
     }
 

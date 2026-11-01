@@ -131,6 +131,10 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
     /// Changes on every add, remove, and clear, so an add can tell whether a
     /// key-view subscriber changed the entries during its notification.
     private var version = 0
+    /// Counts the deletes and clears that notify keys2 now. keys1 can then
+    /// still list a key that no entry uses, so an add checks keys1 first
+    /// (#1075).
+    private var removalsNotifyingKeys2 = 0
 
     // MARK: - Private subjects
 
@@ -259,23 +263,15 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
         }
         version &+= 1
 
-        // Update key-axis views: decrement refcount; drop from the live view
-        // when the count reaches zero (last entry for that distinct key).
-        let newKey1Count = (key1Counts[key1] ?? 1) - 1
-        if newKey1Count <= 0 {
-            key1Counts[key1] = nil
-            removeFromView(keys1View, key1)
-        } else {
-            key1Counts[key1] = newKey1Count
-        }
+        // Count both axes before either live view notifies: drop a key from
+        // its view only when its count reaches zero (last entry for that key).
+        let dropKey1 = Self.release(&key1Counts, key1)
+        let dropKey2 = Self.release(&key2Counts, key2)
 
-        let newKey2Count = (key2Counts[key2] ?? 1) - 1
-        if newKey2Count <= 0 {
-            key2Counts[key2] = nil
-            removeFromView(keys2View, key2)
-        } else {
-            key2Counts[key2] = newKey2Count
-        }
+        // Keys2 first, so a keys1 subscriber sees the updated keys2, as on an
+        // add (#1075).
+        if dropKey2 { notifyKeys2 { removeFromView(keys2View, key2) } }
+        if dropKey1 { removeKey1(key1) }
 
         // 1. Local granular event first (COL-022 ordering).
         itemRemovedSubject.send(
@@ -299,8 +295,10 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
         version &+= 1
         key1Counts.removeAll()
         key2Counts.removeAll()
-        keys1View.clear()
-        keys2View.clear()
+        // Keys2 first, so a keys1 subscriber sees the cleared keys2, as on an
+        // add (#1075).
+        notifyKeys2 { keys2View.clear() }
+        clearKeys1()
         // 1. Local event first (COL-022 ordering).
         resetSubject.send(())
         // 2. Hub publication (no-op when hub is nil).
@@ -363,24 +361,80 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
         return keyOrder.firstIndex(of: key) ?? -1
     }
 
-    /// Appends `key1` unless a keys2 subscriber changed the entries. Then
-    /// `key1` is listed only while an entry still uses it, after every listed
-    /// key that has an entry before `key1`'s first entry.
+    /// Appends `key1` unless a keys2 subscriber changed the entries, or a
+    /// delete or clear notifies keys2 now. Then `listKey1` decides.
     private func addKey1(_ key1: TKey1, addVersion: Int) {
-        if addVersion == version {
+        if addVersion == version && removalsNotifyingKeys2 == 0 {
             keys1View.append(key1)
             return
         }
-        let listed = keys1View.toArray()
-        guard key1Counts[key1] != nil, !listed.contains(key1) else { return }
+        listKey1(key1)
+    }
 
+    /// Lists `key1` only while an entry still uses it and keys1 does not list
+    /// it yet, at `key1Position`.
+    private func listKey1(_ key1: TKey1) {
+        guard key1Counts[key1] != nil, !keys1View.toArray().contains(key1) else { return }
+        keys1View.insert(key1, at: key1Position(key1))
+    }
+
+    /// Unlists `key1` when no entry uses it. If a keys2 subscriber added an
+    /// entry with `key1`, `key1` stays listed and moves to `key1Position`
+    /// (#1075).
+    private func removeKey1(_ key1: TKey1) {
+        guard key1Counts[key1] != nil else {
+            removeFromView(keys1View, key1)
+            return
+        }
+        let listed = keys1View.toArray().firstIndex(of: key1)
+        if listed == key1Position(key1) { return }
+        if let listed { keys1View.removeAt(listed) }
+        // The removal notifies keys1, and a subscriber can change the entries.
+        listKey1(key1)
+    }
+
+    /// Empties keys1 unless a keys2 subscriber added entries. Then keys1 lists
+    /// their key1 values in first-appearance order, with at most one reset
+    /// (#1075).
+    private func clearKeys1() {
+        guard !keyOrder.isEmpty else {
+            keys1View.clear()
+            return
+        }
+        var seen = Set<TKey1>()
+        let keys = keyOrder.map(\.k1).filter { seen.insert($0).inserted }
+        if keys1View.toArray() != keys { keys1View.replaceAll(keys) }
+    }
+
+    /// The keys1 index for `key1`, counted without `key1`: after every listed
+    /// key that has an entry before `key1`'s first entry.
+    private func key1Position(_ key1: TKey1) -> Int {
         var earlier = Set<TKey1>()
         for key in keyOrder {
             if key.k1 == key1 { break }
             earlier.insert(key.k1)
         }
-        let position = (listed.lastIndex { earlier.contains($0) }).map { $0 + 1 } ?? 0
-        keys1View.insert(key1, at: position)
+        let others = keys1View.toArray().filter { $0 != key1 }
+        return (others.lastIndex { earlier.contains($0) }).map { $0 + 1 } ?? 0
+    }
+
+    /// Runs a keys2 change of a delete or clear. keys1 can lag behind it.
+    private func notifyKeys2(_ change: () -> Void) {
+        removalsNotifyingKeys2 += 1
+        defer { removalsNotifyingKeys2 -= 1 }
+        change()
+    }
+
+    /// Decrements the count of `key` and drops `key` when no entry uses it.
+    /// Returns `true` when `key` was dropped.
+    private static func release<K: Hashable>(_ counts: inout [K: Int], _ key: K) -> Bool {
+        let count = counts[key] ?? 1
+        if count > 1 {
+            counts[key] = count - 1
+            return false
+        }
+        counts[key] = nil
+        return true
     }
 
     /// Remove the first occurrence of `key` from a live key view (by value).

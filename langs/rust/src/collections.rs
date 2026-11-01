@@ -89,11 +89,18 @@ impl ServicedCollectionAdmission {
 }
 
 impl Drop for ServicedCollectionAdmission {
+    /// Releases a drain that was not handed to `publish` or `finish`. If user
+    /// code under the admission panicked, the messages its nested mutations
+    /// queued are discarded. A subscriber panic does the same, so a later
+    /// mutation never delivers them late (#1065).
     fn drop(&mut self) {
         if !self.armed || !self.owns_drain {
             return;
         }
         let mut state = lock(&self.delivery.state);
+        if thread::panicking() {
+            state.pending.clear();
+        }
         if state.draining_owner == Some(self.current) {
             state.draining_owner = None;
         }

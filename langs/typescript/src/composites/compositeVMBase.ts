@@ -249,6 +249,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   add(item: VM): void {
+    if ((item as unknown) == null) throw new Error("child must not be null");
     this.#beginMembershipTransaction();
     let transfer: ParentTransfer | null = null;
     let attached = false;
@@ -304,6 +305,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   insert(index: number, item: VM): void {
+    if ((item as unknown) == null) throw new Error("child must not be null");
     this.#beginMembershipTransaction();
     // splice would silently normalize/clamp while the emitted newIndex
     // carried the raw argument (spec/21 §3.2); `length` appends.
@@ -426,6 +428,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
   setAt(index: number, value: VM): void {
+    if ((value as unknown) == null) throw new Error("child must not be null");
     this.#beginMembershipTransaction();
     if (!Number.isInteger(index) || index < 0 || index >= this._children.length) {
       this.#endMembershipTransaction();

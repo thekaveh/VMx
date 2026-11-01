@@ -1,7 +1,7 @@
 # 12. Rust Parity Status
 
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
-after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7.
+after closure: §12.7 to §12.13, plus the "Still open" notes in §12.4.7.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -238,6 +238,10 @@ synchronous `with_confirm_delete`, which takes no `current_changed` trigger
 membership transaction across `CollectionChanged` and current-change
 publication, so a selection from those callbacks or a concurrent selection
 fails with `OwnershipTransactionInProgress` (two `COMP-026` tests are ignored).
+The construct walk's `Current(selector)` assignment can select an unadmitted
+child and can assign while disposing. It does not defer a disposal from its
+callbacks, and a transfer commit always clears `current` (spec/06 §3.2,
+ADR-0165 §3).
 
 ### 12.4.8. Hot-Stream Completion And Notification Replay
 
@@ -296,7 +300,7 @@ observable behavior covered by this review.
 
 The ADR-0120 sender representation in §12.2.1 remains the sole intentional
 flavor-specific shape in this ledger. The §12.5 editorial note applies to all
-five flavors and is not a parity backlog. §12.7 to §12.12 record the open items and differences found
+five flavors and is not a parity backlog. §12.7 to §12.13 record the open items and differences found
 after closure. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
@@ -372,3 +376,15 @@ sets `Clear` or `PreserveIfVisible` with `set_cursor_policy` after construction,
 and that call does not reconcile again. C#, Python, TypeScript, and Swift take
 the policy at construction, so a `Clear` or `PreserveIfVisible` view starts
 with no current item; the same Rust view starts on the first visible item.
+
+## 12.13. Open Item: Leaf Member Disposal and Admitted Hooks
+
+Rust `ComponentVm::dispose` disposes the members registered with `own_member`
+before the core disposal starts. A `dispose()` from another thread therefore
+disposes those members while the component's admitted construct or destruct
+hook still runs. Spec 02 §7.1 applies the admitted-hook rule of §2.4 to member
+disposal, as C#, Python and Swift do. Rust containers follow the rule (#1062).
+A fix can pass the member disposals to `ComponentCore::dispose_with_cascade_then`.
+Leaf components also use `transition_background`, `run_background_hook` and
+`publish_reconstruct_status`, and these paths must then check the closed hook
+admission too.

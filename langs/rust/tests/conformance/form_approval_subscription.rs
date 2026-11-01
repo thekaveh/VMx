@@ -376,3 +376,206 @@ fn a_nested_settlement_edit_waits_for_the_outer_subscribers() {
     );
     assert_eq!(form.model(), 9);
 }
+
+/// The #1061 reproduction and what it records.
+struct NestedApproval {
+    form: FormVm<i32>,
+    /// `(approved, model)` that `S2` saw, once per approval.
+    records: Arc<Mutex<Vec<(i32, i32)>>>,
+    /// The result of the nested approval that `S1` started.
+    inner_result: Arc<Mutex<Option<vmx::VmxResult<()>>>>,
+    /// How often the model 9 was assigned.
+    assignments_of_nine: Arc<AtomicUsize>,
+    _subscriptions: Vec<ApprovalSubscription>,
+    _observer: vmx::Subscription,
+}
+
+/// Builds the #1061 reproduction. The outer settlement notification makes an
+/// edit to 9, which settlement defers. `S1` starts a nested approval on its
+/// first call, and `S2` records `(approved, model)` for each approval. A
+/// validator counts how often the model 9 is assigned.
+fn nested_subscriber_approval(panic_in_outer_s2: bool) -> NestedApproval {
+    let assignments_of_nine = Arc::new(AtomicUsize::new(0));
+    let form = FormVm::builder()
+        .initial(1)
+        .persister(|_: &i32| Ok(()))
+        .validator("value", {
+            let assignments_of_nine = Arc::clone(&assignments_of_nine);
+            move |model| {
+                if *model == 9 {
+                    assignments_of_nine.fetch_add(1, Ordering::SeqCst);
+                }
+                None
+            }
+        })
+        .build()
+        .unwrap();
+    let notifications = Arc::new(AtomicUsize::new(0));
+    let observer = form.approve_command().can_execute_changed().subscribe({
+        let form = form.clone();
+        // 1: outer admission, 2: outer settlement.
+        move |_| {
+            if notifications.fetch_add(1, Ordering::SeqCst) + 1 == 2 {
+                form.set_model(9);
+            }
+        }
+    });
+    let inner_result = Arc::new(Mutex::new(None));
+    let s1 = form.subscribe_approved({
+        let (form, inner_result) = (form.clone(), Arc::clone(&inner_result));
+        let started = std::sync::atomic::AtomicBool::new(false);
+        move |_| {
+            if !started.swap(true, Ordering::SeqCst) {
+                *inner_result.lock().unwrap() = Some(form.approve());
+            }
+        }
+    });
+    let records = Arc::new(Mutex::new(Vec::new()));
+    let s2 = form.subscribe_approved({
+        let (form, records) = (form.clone(), Arc::clone(&records));
+        move |approved| {
+            let mut records = records.lock().unwrap();
+            records.push((approved, form.model()));
+            // The inner approval records first; the outer one second.
+            if panic_in_outer_s2 && records.len() == 2 {
+                drop(records);
+                panic!("outer approval subscriber panicked");
+            }
+        }
+    });
+    NestedApproval {
+        form,
+        records,
+        inner_result,
+        assignments_of_nine,
+        _subscriptions: vec![s1, s2],
+        _observer: observer,
+    }
+}
+
+/// #1061 — an approval started from an approval subscriber does not replay
+/// the outer settlement's deferred edit. The outer approval's later
+/// subscribers still see the committed model, and the edit applies once the
+/// outer approval returns.
+#[test]
+fn a_nested_approval_from_a_subscriber_keeps_the_outer_deferred_edit() {
+    // Every field is bound, so the subscriptions stay alive for the test.
+    let NestedApproval {
+        form,
+        records,
+        inner_result,
+        assignments_of_nine,
+        _subscriptions,
+        _observer,
+    } = nested_subscriber_approval(false);
+
+    form.set_model(2);
+    form.approve().unwrap();
+
+    assert!(matches!(*inner_result.lock().unwrap(), Some(Ok(()))));
+    assert_eq!(*records.lock().unwrap(), vec![(2, 2), (2, 2)]);
+    assert_eq!(form.model(), 9);
+    assert_eq!(assignments_of_nine.load(Ordering::SeqCst), 1);
+}
+
+/// #1061 — the same when `S2` panics in the outer approval: the panic reaches
+/// the `approve()` caller, and the deferred edit still applies, once.
+#[test]
+fn a_nested_approval_keeps_the_outer_deferred_edit_when_an_outer_subscriber_panics() {
+    // Every field is bound, so the subscriptions stay alive for the test.
+    let NestedApproval {
+        form,
+        records,
+        inner_result,
+        assignments_of_nine,
+        _subscriptions,
+        _observer,
+    } = nested_subscriber_approval(true);
+
+    form.set_model(2);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| form.approve()));
+
+    assert!(outcome.is_err(), "the subscriber panic reaches approve()");
+    assert!(matches!(*inner_result.lock().unwrap(), Some(Ok(()))));
+    assert_eq!(*records.lock().unwrap(), vec![(2, 2), (2, 2)]);
+    assert_eq!(form.model(), 9);
+    assert_eq!(assignments_of_nine.load(Ordering::SeqCst), 1);
+}
+
+/// #1061 — an edit made by an approval subscriber itself is not deferred.
+#[test]
+fn an_edit_made_by_an_approval_subscriber_applies_at_once() {
+    let form = FormVm::new("form", 1);
+    let seen = Arc::new(Mutex::new(None));
+    let _subscriber = form.subscribe_approved({
+        let (form, seen) = (form.clone(), Arc::clone(&seen));
+        move |_| {
+            form.set_model(4);
+            *seen.lock().unwrap() = Some(form.model());
+        }
+    });
+
+    form.set_model(2);
+    form.approve().unwrap();
+
+    assert_eq!(*seen.lock().unwrap(), Some(4));
+    assert_eq!(form.model(), 4);
+}
+
+/// #1061 review — the publishing depth is per thread. Thread A waits inside its
+/// first approval subscriber while thread B runs a whole approval. B's
+/// settlement-deferred edit applies before B's `approve()` returns, and A's
+/// later replay does not overwrite B's next edit.
+#[test]
+fn another_threads_approval_replays_its_own_deferred_edit() {
+    let form = FormVm::new("form", 1);
+    let armed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let _observer = form.approve_command().can_execute_changed().subscribe({
+        let form = form.clone();
+        let armed = Arc::clone(&armed);
+        // B's settlement notification runs after the commit of 3.
+        move |_| {
+            if form.snapshot() == 3 && armed.swap(false, Ordering::SeqCst) {
+                form.set_model(7);
+            }
+        }
+    });
+    let (entered, entered_rx) = mpsc::channel::<()>();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let (entered, release_rx) = (Mutex::new(entered), Mutex::new(release_rx));
+    let first = std::sync::atomic::AtomicBool::new(true);
+    let _subscriber = form.subscribe_approved(move |_| {
+        if first.swap(false, Ordering::SeqCst) {
+            entered.lock().unwrap().send(()).unwrap();
+            // A dropped sender also releases A, so a failed assertion below
+            // cannot leave A waiting.
+            let _ = release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(10));
+        }
+    });
+
+    form.set_model(2);
+    let a = std::thread::spawn({
+        let form = form.clone();
+        move || form.approve()
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    form.set_model(3);
+    form.approve().unwrap();
+    let after_b = form.model();
+    form.set_model(8);
+    release.send(()).unwrap();
+    a.join().unwrap().unwrap();
+
+    assert_eq!(
+        after_b, 7,
+        "B's deferred edit applies before B's approve returns"
+    );
+    assert_eq!(
+        form.model(),
+        8,
+        "A's replay does not overwrite B's later edit"
+    );
+}

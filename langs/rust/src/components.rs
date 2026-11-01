@@ -257,6 +257,8 @@ impl<'a, D: Dispatcher> ChildTransitions<'a, D> {
     /// Returns the failure of a step that settled while this call ran.
     /// After a step failed, later calls start no child and return the same
     /// failure, and the walk fails even when the closure drops the error.
+    /// Once the component is disposed, the step starts no child and returns
+    /// `Ok(())` (spec/02 §2.4).
     pub fn transition<N: VmNode>(&self, child: &N) -> VmxResult<()> {
         self.step(|| self.core.transition_or_join_child(child, self.operation))
     }
@@ -270,11 +272,14 @@ impl<'a, D: Dispatcher> ChildTransitions<'a, D> {
     /// the parent `ComponentVm` or a value that holds it: the parent would then
     /// own itself, and a parent waiting on a child that never settles would
     /// never be freed (#750). Capture the members or a weak handle instead.
+    ///
+    /// Once the component is disposed, `after` does not run, and this returns
+    /// `Ok(())` (spec/02 §2.4).
     pub fn then<F>(&self, after: F) -> VmxResult<()>
     where
         F: FnOnce() -> VmxResult<()> + Send + 'static,
     {
-        self.step(|| self.core.child_step(Box::new(after)))
+        self.step(|| self.core.child_then(after))
     }
 
     fn step(&self, run: impl FnOnce() -> VmxResult<()>) -> VmxResult<()> {

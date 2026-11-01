@@ -17,6 +17,7 @@ from threading import Event, Thread
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.collections import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder
@@ -156,7 +157,7 @@ def test_concurrent_admission_cannot_escape_disposal_snapshot(
 
     def blocked_transfer(child: object, parent: object) -> object:
         entered.set()
-        assert release.wait(timeout=2)
+        assert release.wait(timeout=HANG_GUARD)
         return original(child, parent)  # type: ignore[arg-type]
 
     monkeypatch.setattr(group_module, "_begin_parent_transfer", blocked_transfer)
@@ -173,13 +174,13 @@ def test_concurrent_admission_cannot_escape_disposal_snapshot(
 
     worker = Thread(target=admit)
     worker.start()
-    assert entered.wait(timeout=2)
+    assert entered.wait(timeout=HANG_GUARD)
     disposer = Thread(target=dispose)
     disposer.start()
     assert not disposal_done.wait(timeout=0.05)
     release.set()
-    worker.join(timeout=2)
-    disposer.join(timeout=2)
+    worker.join(timeout=HANG_GUARD)
+    disposer.join(timeout=HANG_GUARD)
 
     assert not worker.is_alive()
     assert not disposer.is_alive()

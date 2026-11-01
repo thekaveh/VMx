@@ -1504,6 +1504,12 @@ fn current_selector_builder_hook_drives_initial_selection_during_construct() {
     let children = vec![child("a"), child("b"), child("c")];
     let calls = Arc::new(AtomicUsize::new(0));
     let calls_inner = calls.clone();
+    // The selector reads the composite through this slot, which the test
+    // clears at the end so the composite does not keep itself alive.
+    let slot = Arc::new(Mutex::new(None::<vmx::CompositeVm<Child>>));
+    let selector_slot = slot.clone();
+    let statuses = Arc::new(Mutex::new(Vec::new()));
+    let selector_statuses = statuses.clone();
     let composite = vmx::CompositeVm::<Child>::builder()
         .name("root")
         .services(hub, NullDispatcher::new())
@@ -1516,10 +1522,15 @@ fn current_selector_builder_hook_drives_initial_selection_during_construct() {
             assert!(items
                 .iter()
                 .all(|item| item.status() == ConstructionStatus::Constructed));
+            let composite = selector_slot.lock().unwrap().clone();
+            if let Some(composite) = composite {
+                selector_statuses.lock().unwrap().push(composite.status());
+            }
             items.get(1).cloned()
         })
         .build()
         .unwrap();
+    *slot.lock().unwrap() = Some(composite.clone());
 
     composite.construct().unwrap();
 
@@ -1553,6 +1564,16 @@ fn current_selector_builder_hook_drives_initial_selection_during_construct() {
     );
     assert_eq!(composite.current(), Some(children[1].clone()));
     assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    // The selector runs before the composite reaches Constructed.
+    let statuses = statuses.lock().unwrap().clone();
+    assert_eq!(statuses.len(), 3, "one status per selector run");
+    assert!(
+        statuses
+            .iter()
+            .all(|status| *status != ConstructionStatus::Constructed),
+        "the selector ran after the composite reached Constructed: {statuses:?}"
+    );
+    slot.lock().unwrap().take();
 
     let hub = MessageHub::new();
     let recorder = hub.record(1024);

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.collections.token_paged_composition import TokenPagedComposition
 from vmx.components.component_vm import ComponentVM
 from vmx.lifecycle.status import ConstructionStatus
@@ -263,7 +264,7 @@ async def test_load_started_during_refresh_makes_the_refresh_result_stale() -> N
     await _until_pending(pending, 3)
     trace = _trace(sut)
     pending[1].set_result(([9], "stale"))
-    await refresh
+    await asyncio.wait_for(refresh, HANG_GUARD)
 
     assert trace == []
     assert sut.items == [1, 2]

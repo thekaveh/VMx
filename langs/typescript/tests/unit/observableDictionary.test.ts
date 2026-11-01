@@ -647,3 +647,84 @@ describe("ObservableDictionary keys2-subscriber changes during an add", () => {
     expect([...sut.keys2]).toEqual([2, 1, 4]);
   });
 });
+
+// #1075: entries changed from a key-view subscriber during a delete or clear.
+describe("ObservableDictionary key-view changes during a delete or clear", () => {
+  it.each(["keys1", "keys2"] as const)(
+    "matches the entries after a %s reset subscriber adds during clear",
+    (view) => {
+      const sut = new ObservableDictionary<string, string, string>();
+      sut.add("a", "a", "outer");
+      let done = false;
+      const reset: Observable<void> =
+        view === "keys1" ? sut.keys1.reset : sut.keys2.reset;
+      reset.subscribe(() => {
+        if (done) return;
+        done = true;
+        sut.add("b", "b", "nested");
+      });
+
+      sut.clear();
+
+      expect([...sut]).toEqual([["b", "b", "nested"]]);
+      expect([...sut.keys1]).toEqual(["b"]);
+      expect([...sut.keys2]).toEqual(["b"]);
+
+      sut.delete("b", "b");
+
+      expect([...sut]).toEqual([]);
+      expect([...sut.keys1]).toEqual([]);
+      expect([...sut.keys2]).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["keys1", "add", ["b", "c", "a"], ["y", "z", "x"]],
+    ["keys1", "delete", ["c"], ["z"]],
+    ["keys2", "add", ["b", "c", "a"], ["y", "z", "x"]],
+    ["keys2", "delete", ["c"], ["z"]],
+  ] as const)(
+    "matches the entries after a %s itemRemoved subscriber's %s during delete",
+    (view, nested, keys1, keys2) => {
+      const sut = new ObservableDictionary<string, string, string>();
+      sut.add("a", "x", "outer");
+      sut.add("b", "y", "kept");
+      sut.add("c", "z", "kept");
+      let done = false;
+      const itemRemoved: Observable<unknown> =
+        view === "keys1" ? sut.keys1.itemRemoved : sut.keys2.itemRemoved;
+      itemRemoved.subscribe(() => {
+        if (done) return;
+        done = true;
+        if (nested === "add") sut.add("a", "x", "nested");
+        else sut.delete("b", "y");
+      });
+      // keys1 never lists a key twice, also while a subscriber runs.
+      const snapshots: string[][] = [];
+      sut.keys1.itemAdded.subscribe(() => snapshots.push([...sut.keys1]));
+
+      sut.delete("a", "x");
+
+      const entries = [...sut];
+      expect([...new Set(entries.map(([key1]) => key1))]).toEqual(keys1);
+      expect([...new Set(entries.map(([, key2]) => key2))]).toEqual(keys2);
+      expect([...sut.keys1]).toEqual(keys1);
+      expect([...sut.keys2]).toEqual(keys2);
+      for (const keys of snapshots) expect(new Set(keys).size).toBe(keys.length);
+    },
+  );
+
+  it("updates keys2 before keys1 notifies a delete or a clear", () => {
+    const sut = new ObservableDictionary<string, string, string>();
+    sut.add("a", "a", "first");
+    sut.add("b", "b", "second");
+    const seen: string[][] = [];
+    sut.keys1.itemRemoved.subscribe(() => seen.push([...sut.keys2]));
+    sut.keys1.reset.subscribe(() => seen.push([...sut.keys2]));
+
+    sut.delete("a", "a");
+    sut.clear();
+
+    expect(seen).toEqual([["b"], []]);
+  });
+});

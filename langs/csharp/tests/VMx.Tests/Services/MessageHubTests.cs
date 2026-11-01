@@ -298,6 +298,199 @@ public class MessageHubTests
         innerDeliveries.Should().Be(2);
     }
 
+    // #1055 review: Q drains h and sends on h2, Y drains h2 and sends on h3,
+    // and P drains h3. P borrows h (a cycle), then borrows h2 and sends on h
+    // inside that borrowed body. The borrowed body enqueues for Q's drain
+    // instead of waiting for Q, who waits for P's borrow to end (spec/03).
+    [Fact]
+    public async Task Send_In_A_Borrowed_Body_After_A_Nested_Borrow_Does_Not_Deadlock()
+    {
+        var h = new MessageHub();
+        var h2 = new MessageHub();
+        var h3 = new MessageHub();
+        int q = 0, y = 0;
+        using var pDraining = new ManualResetEventSlim(false);
+        using var yDraining = new ManualResetEventSlim(false);
+        using var s1 = h.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag != "q0") return;
+            Volatile.Write(ref q, Environment.CurrentManagedThreadId);
+            h2.Send(new Stub("q1"));
+        });
+        using var s2 = h2.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag != "y0") return;
+            Volatile.Write(ref y, Environment.CurrentManagedThreadId);
+            yDraining.Set();
+            h3.Send(new Stub("y1"));
+        });
+        using var s3 = h3.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag != "p0") return;
+            pDraining.Set();
+            SpinWait.SpinUntil(
+                () => Volatile.Read(ref q) != 0 && Volatile.Read(ref y) != 0 &&
+                    VMx.Internal.WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref q)) &&
+                    VMx.Internal.WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref y)),
+                HangGuard).Should().BeTrue("Q and Y wait for the next hub");
+            h.Batch(() =>
+            {
+                h2.Batch(() => { });
+                h.Send(new Stub("pm"));
+            });
+        });
+
+        static Task Run(Action body) => Task.Factory.StartNew(
+            body, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        var p = Run(() => h3.Send(new Stub("p0")));
+        pDraining.Wait(HangGuard).Should().BeTrue();
+        var yTask = Run(() => h2.Send(new Stub("y0")));
+        yDraining.Wait(HangGuard).Should().BeTrue();
+        var qTask = Run(() => h.Send(new Stub("q0")));
+
+        var all = Task.WhenAll(p, yTask, qTask);
+        (await Task.WhenAny(all, Task.Delay(HangGuard))).Should().BeSameAs(all, "the three drains form one cycle");
+        await all;
+        // Disposed only after the drains finish, so a regression fails here
+        // instead of hanging in Dispose.
+        h.Dispose();
+        h2.Dispose();
+        h3.Dispose();
+    }
+
+    // #1055 review: Q drains h and sends on h2, which P drains. P borrows h
+    // (the cycle Q -> P), disposes h2 inside the borrowed body, then sends on
+    // h. The disposal wakes Q, who then waits for P's borrow of h to end; P's
+    // send in that borrowed body enqueues instead of waiting for Q.
+    [Fact]
+    public async Task Send_After_Disposing_The_Drained_Hub_In_A_Borrowed_Body_Does_Not_Deadlock()
+    {
+        var h = new MessageHub();
+        var h2 = new MessageHub();
+        var q = 0;
+        using var pDraining = new ManualResetEventSlim(false);
+        using var s1 = h.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag != "q0") return;
+            Volatile.Write(ref q, Environment.CurrentManagedThreadId);
+            h2.Send(new Stub("q1"));
+        });
+        using var s2 = h2.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag != "p0") return;
+            pDraining.Set();
+            SpinWait.SpinUntil(
+                () => Volatile.Read(ref q) != 0 &&
+                    VMx.Internal.WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref q)),
+                HangGuard).Should().BeTrue("Q waits for P's drain of h2");
+            h.Batch(() =>
+            {
+                h2.Dispose();
+                h.Send(new Stub("pm"));
+            });
+        });
+
+        static Task Run(Action body) => Task.Factory.StartNew(
+            body, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        var p = Run(() => h2.Send(new Stub("p0")));
+        pDraining.Wait(HangGuard).Should().BeTrue();
+        var qTask = Run(() => h.Send(new Stub("q0")));
+
+        var both = Task.WhenAll(p, qTask);
+        (await Task.WhenAny(both, Task.Delay(HangGuard))).Should().BeSameAs(both, "the two drains form one cycle");
+        await both;
+        h.Dispose();
+    }
+
+    // Q drains h and sends on h2, which P drains. P borrows h (the cycle
+    // Q -> P), disposes h2, then runs the body on h inside the borrowed scope.
+    // Returns what h delivered, whether h completed, and P's batch error.
+    private static async Task<(List<string> Delivered, bool Completed, Exception? Error)> RunInABorrowedBody(
+        Action<MessageHub> body)
+    {
+        var h = new MessageHub();
+        var h2 = new MessageHub();
+        var q = 0;
+        var delivered = new List<string>();
+        var completed = false;
+        Exception? bodyError = null;
+        using var pDraining = new ManualResetEventSlim(false);
+        using var recorder = h.Messages.OfType<Stub>().Subscribe(
+            message => { lock (delivered) delivered.Add(message.Tag); },
+            () => Volatile.Write(ref completed, true));
+        using var s1 = h.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag != "q0") return;
+            Volatile.Write(ref q, Environment.CurrentManagedThreadId);
+            h2.Send(new Stub("q1"));
+        });
+        using var s2 = h2.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag != "p0") return;
+            pDraining.Set();
+            SpinWait.SpinUntil(
+                () => Volatile.Read(ref q) != 0 &&
+                    VMx.Internal.WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref q)),
+                HangGuard);
+            try
+            {
+                h.Batch(() =>
+                {
+                    h2.Dispose();
+                    body(h);
+                });
+            }
+            catch (Exception error)
+            {
+                bodyError = error;
+            }
+        });
+
+        static Task Run(Action action) => Task.Factory.StartNew(
+            action, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        var p = Run(() => h2.Send(new Stub("p0")));
+        pDraining.Wait(HangGuard).Should().BeTrue();
+        var qTask = Run(() => h.Send(new Stub("q0")));
+        var both = Task.WhenAll(p, qTask);
+        (await Task.WhenAny(both, Task.Delay(HangGuard))).Should().BeSameAs(both, "the two drains form one cycle");
+        await both;
+        h.Send(new Stub("after"));
+        List<string> result;
+        lock (delivered) result = delivered.ToList();
+        var hubCompleted = Volatile.Read(ref completed);
+        h.Dispose();
+        return (result, hubCompleted, bodyError);
+    }
+
+    [Fact]
+    public async Task Batch_In_A_Borrowed_Body_Nests_Without_Waiting_For_The_Drainer()
+    {
+        var (delivered, completed, error) = await RunInABorrowedBody(h => h.Batch(() =>
+        {
+            h.Send(new Stub("pm1"));
+            h.Send(new Stub("pm2"));
+        }));
+
+        error.Should().BeNull();
+        completed.Should().BeFalse();
+        delivered.Should().Equal("q0", "pm1", "pm2", "after");
+    }
+
+    [Fact]
+    public async Task Dispose_In_A_Borrowed_Body_Records_The_Intent_For_The_Drainer()
+    {
+        var (delivered, completed, error) = await RunInABorrowedBody(h =>
+        {
+            h.Send(new Stub("pm1"));
+            h.Dispose();
+            h.Send(new Stub("pm2"));
+        });
+
+        error.Should().BeNull();
+        completed.Should().BeTrue("the drainer finishes the recorded disposal");
+        delivered.Should().Equal("q0");
+    }
+
     [Fact]
     public async Task Opposing_Hub_Callbacks_Can_Dispose_Each_Other_Without_Deadlock()
     {

@@ -100,6 +100,73 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm`, `GroupVm` and `AggregateVm1`…`AggregateVm6` no longer dispose
+  their children while their admitted construct or destruct hook runs on another
+  thread (#1062, LIFE-015). The child cascade now runs at the hook boundary of
+  the container's own disposal. A foreign `dispose()` publishes `Disposed`,
+  waits for the hook, and then disposes the children. On a wait-for cycle, the
+  hook's thread disposes them when the hook returns. That thread's `construct()`
+  or `destruct()` then returns the first child failure, unless the call failed
+  already. With no foreign hook, the children are still disposed before the
+  container publishes `Disposed` (LIFE-013). A `construct()` or `destruct()` of
+  the container during that cascade returns `VmxError::Disposed` and publishes
+  nothing. A child walk of a disposed container starts no further child and does
+  not run its selector. A `ComponentVm` child walk also stops: once the
+  component is disposed, `ChildTransitions::transition` starts no member, `then`
+  does not run, and both return `Ok(())`. A second `dispose()` of a
+  `CompositeVm` or `GroupVm` returns `Ok(())` at once. So a child that disposes
+  its parent no longer makes the parent publish `Disposed` before the remaining
+  children.
+- `TokenPagedComposition` no longer commits a refresh or load that a later load
+  superseded (#1045). An operation started with no lock, so a load could start
+  between a commit's last staleness check and its writes. The load then
+  appended a page fetched for the old prefix to the new accumulator. A start
+  now takes an operation gate. Each commit holds that gate from its final check
+  until it has written the items and the cursor.
+- `FormVm::is_dirty` on another thread no longer pairs a model and a
+  snapshot that never coexisted (#1073). A reset approval replaces both in two
+  steps, so a clean reset could read as dirty. An approval that advanced the
+  snapshot after an edit could also read as clean. `is_dirty` now reads the
+  pair again when an approval commit overlapped its reads. It still holds no
+  lock while `PartialEq` runs.
+- A `FormVm` approval with `reset_on_approved` now validates the reset model
+  under the update lock, before it commits (#1046). Before, a validator
+  registered on another thread during that validation was left out. The
+  approval then committed stale errors, so an invalid reset model read as
+  valid. A validator registered meanwhile now revalidates the committed model.
+  A re-entrant registration during the validation makes it run again, until a
+  run registers no validator.
+- A `FormVm` approval started from an approval subscriber no longer applies
+  the outer approval's deferred edits early (#1061). Before, the outer
+  approval's later subscribers saw the edited, dirty model instead of the
+  settled one. Only a thread's outermost settlement now applies the deferred
+  edits, after its own subscribers have run, as C# does for nesting on one
+  thread. An edit that a subscriber of the outermost approval makes still
+  applies at once.
+- `ServicedObservableCollection` and `KeyedServicedObservableCollection` no
+  longer deliver a stale message after user code panics under a mutation
+  (#1065). User code runs under a mutation: `PartialEq` in `remove`, and the
+  `Drop` of an item or key that the mutation removes, replaces or clears. When
+  that code mutated the collection and then panicked, the nested change stayed
+  queued. The next mutation delivered it before its own change. The queued
+  messages are now discarded, as they already were when a subscriber panics.
+- `CompositeVm::add`, `CompositeVm::insert`, `GroupVm::add` and `GroupVm::insert`
+  no longer deadlock when admission fails and a subscriber disposes the
+  container (#1066). The rollback destructed the child while it held the
+  membership gate. A subscriber that disposed the container from the child's
+  destruct messages then waited for that gate on the same thread. The rollback
+  now releases the gate first, as `replace` already did. The call returns
+  `VmxError::Disposed`, and the container ends `Disposed`.
+- A cross-thread `dispose()` of a `CompositeVm`, `GroupVm` or fixed aggregate
+  no longer hangs when its wait would close a wait-for cycle (ADR-0153,
+  ADR-0167, #1058). Before, two threads that each held one container's
+  membership transaction and disposed the other's container waited for each
+  other forever. Transaction owners and disposal waits are now recorded in one
+  process-wide wait-for graph. The disposal that would close a cycle records
+  the intent and returns, and the transaction owner disposes the container
+  when its transaction ends. If that owner's `add` has not admitted its child
+  yet, the `add` returns `VmxError::Disposed` and rolls the child back. A
+  disposal that closes no cycle still waits for the transaction.
 - The summary line of `ModalVm::open()` now says that the call has no effect
   and does not reopen a dismissed modal. Before, it said that the call marks
   the modal as open (#799).
