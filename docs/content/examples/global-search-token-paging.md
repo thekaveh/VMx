@@ -9,9 +9,14 @@ Global all-notes search is the scenario path that demonstrates
 - Search results do not depend on the focused notebook.
 - A source change refreshes the results while the search term stays the same.
   The refresh occurs before token paging reads the new filtered projection.
-- A refresh that does not change the first page keeps every loaded result and
-  its continuation. Load More then continues after the last visible result and
-  does not fetch page two again (spec 21 §6.2, ADR-0136).
+- A refresh for the same term that does not change the first page keeps every
+  loaded result and its continuation. Load More then continues after the last
+  visible result and does not fetch page two again (spec 21 §6.2, ADR-0136).
+- Load More fetches the next page for the term of the loaded pages, even after
+  the term is edited. A refresh for another term replaces the loaded pages and
+  their continuation. The Python showcase then refreshes for the edited term.
+- Load More is not available while a refresh runs. A call made during a
+  refresh does nothing, so the results never mix two terms.
 - The search explicitly owns every lifecycle-bearing result VM it creates. This
   includes results that are later replaced, equality-suppressed, or returned by
   stale asynchronous work.
@@ -52,9 +57,10 @@ lifecycle-bearing result VMs, so it does not need this registry.
 ## 8.6.4. Token Types
 
 The token is opaque, and `null` / `None` / `nil` both requests the first page
-and ends paging. The showcases use string tokens. For an integer offset or
-page cursor, C# needs a token type that can hold `null`: use `int?`, where `0`
-is a valid cursor, rather than `int`, which cannot say "no next page". With
+and ends paging. The four showcases use a private cursor record. It holds the
+search term and the repository's string offset. For an integer offset or page
+cursor, C# needs a token type that can hold `null`: use `int?`, where `0` is a
+valid cursor, rather than `int`, which cannot say "no next page". With
 `int`, the `TokenPagedComposition` constructor throws
 `NotSupportedException`.
 
