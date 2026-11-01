@@ -65,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
+  before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
+  updated `keys2`. Before, an entry that a `keys1` subscriber added during
+  `clear()` was missing from `keys2`. A later add with the same key2 did not
+  list it either. If a `keys2` subscriber changes the entries, `keys1` then
+  lists only the keys that the entries use.
 - `FormVM` no longer deadlocks when a validator re-enters the form, or a
   `canExecuteChanged` or `errorsChanged` sink calls `setModel`, while another
   thread admits an approval (#1057). A `setModel`, deny or approve call made

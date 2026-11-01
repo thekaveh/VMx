@@ -5,7 +5,7 @@ See spec/21-collections.md §4 and ADR-0025.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Generic, TypeVar
 
 import reactivex as rx
@@ -68,6 +68,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         # Changes on every add, remove, and clear, so an add can tell whether a
         # key-view subscriber changed the entries during its notification.
         self._version = 0
+        # Counts the removes and clears that notify keys2 now. keys1 can then
+        # still list a key that no entry uses, so an add checks keys1 first
+        # (#1075).
+        self._removals_notifying_keys2 = 0
 
         # Distinct-key observable views (mutated internally to stay in lockstep
         # with the entries). The public ``keys1``/``keys2`` hand out read-only
@@ -240,11 +244,19 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._key_order.remove((key1, key2))
         self._version += 1
 
-        # Update key-axis views: drop only when no other entry uses this key.
-        if not any(_same_key(k[0], key1) for k in self._data):
-            self._keys1.remove(key1)
-        if not any(_same_key(k[1], key2) for k in self._data):
-            self._keys2.remove(key2)
+        # Decide both axes before either key view notifies: drop a key only
+        # when no other entry uses it.
+        drop_key1 = not self._uses_key1(key1)
+        drop_key2 = not any(_same_key(k2, key2) for _, k2 in self._key_order)
+
+        # Keys2 first, so a keys1 subscriber sees the updated keys2, as on add
+        # (#1075). Keys1 is updated even when a keys2 subscriber raises.
+        try:
+            if drop_key2:
+                self._notify_keys2(lambda: self._keys2.remove(key2))
+        finally:
+            if drop_key1:
+                self._remove_key1(key1)
 
         self._on_removed(key1, key2, value)
         return True
@@ -259,8 +271,12 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._data.clear()
         self._key_order.clear()
         self._version += 1
-        self._keys1.clear()
-        self._keys2.clear()
+        # Keys2 first, so a keys1 subscriber sees the cleared keys2, as on add
+        # (#1075). Keys1 is updated even when a keys2 subscriber raises.
+        try:
+            self._notify_keys2(self._keys2.clear)
+        finally:
+            self._clear_keys1()
         self._on_reset()
 
     # ── Enumeration ───────────────────────────────────────────────────────────
@@ -324,24 +340,80 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._on_added(key1, key2, value, index)
 
     def _add_key1(self, key1: TKey1, version: int) -> None:
-        # Append key1 unless a keys2 subscriber changed the entries. Then list
-        # key1 only while an entry still uses it, after every listed key that
-        # has an entry before key1's first entry.
-        if version == self._version:
+        # Append key1 unless a keys2 subscriber changed the entries, or a
+        # remove or clear notifies keys2 now. Then _list_key1 decides.
+        if version == self._version and not self._removals_notifying_keys2:
             self._keys1.add(key1)
             return
-        if self._keys1_contains(key1) or not any(_same_key(k1, key1) for k1, _ in self._key_order):
+        self._list_key1(key1)
+
+    def _list_key1(self, key1: TKey1) -> None:
+        # List key1 only while an entry still uses it and keys1 does not list
+        # it yet, at _key1_position.
+        if self._keys1_contains(key1) or not self._uses_key1(key1):
             return
+        self._keys1.insert(self._key1_position(key1), key1)
+
+    def _remove_key1(self, key1: TKey1) -> None:
+        # Unlist key1 when no entry uses it. If a keys2 subscriber added an
+        # entry with key1, key1 stays listed and moves to _key1_position
+        # (#1075).
+        if not self._uses_key1(key1):
+            self._keys1.remove(key1)
+            return
+        listed = next(
+            (index for index, k in enumerate(self._keys1) if _same_key(k, key1)),
+            -1,
+        )
+        if listed == self._key1_position(key1):
+            return
+        if listed >= 0:
+            self._keys1.remove_at(listed)
+        # The removal notifies keys1, and a subscriber can change the entries.
+        self._list_key1(key1)
+
+    def _clear_keys1(self) -> None:
+        # Empty keys1 unless a keys2 subscriber added entries. Then keys1
+        # lists their key1 values in first-appearance order, with at most
+        # one reset (#1075).
+        if not self._key_order:
+            self._keys1.clear()
+            return
+        keys: list[TKey1] = []
+        for k1, _ in self._key_order:
+            if not any(_same_key(k, k1) for k in keys):
+                keys.append(k1)
+        if list(self._keys1) != keys:
+            self._keys1.replace_all(keys)
+
+    def _key1_position(self, key1: TKey1) -> int:
+        # The keys1 index for key1, counted without key1: after every listed
+        # key that has an entry before key1's first entry.
         earlier: set[TKey1] = set()
         for k1, _ in self._key_order:
             if _same_key(k1, key1):
                 break
             earlier.add(k1)
         position = 0
-        for index, listed in enumerate(self._keys1):
+        index = 0
+        for listed in self._keys1:
+            if _same_key(listed, key1):
+                continue
+            index += 1
             if listed in earlier:
-                position = index + 1
-        self._keys1.insert(position, key1)
+                position = index
+        return position
+
+    def _notify_keys2(self, change: Callable[[], object]) -> None:
+        # Run a keys2 change of a remove or clear. keys1 can lag behind it.
+        self._removals_notifying_keys2 += 1
+        try:
+            change()
+        finally:
+            self._removals_notifying_keys2 -= 1
+
+    def _uses_key1(self, key1: TKey1) -> bool:
+        return any(_same_key(k1, key1) for k1, _ in self._key_order)
 
     def _keys1_contains(self, key1: TKey1) -> bool:
         # ObservableList does not expose __contains__; iterate to check.
