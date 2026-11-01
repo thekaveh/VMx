@@ -179,6 +179,7 @@ before it publishes `Disposed` (LIFE-013). The spec does not say whether a
 construct or destruct hook of the container can run while that cascade runs. A
 `construct()` or `destruct()` of the container in that window has different
 results. A child's dispose hook can make such a call. The rows below describe
+composites and groups. Python and Swift fixed aggregates behave like their
 composites and groups.
 
 | Flavor     | Result                                                                                                                                                                          |
@@ -193,13 +194,9 @@ Rust admits the hook in the same step that publishes the transient status, so
 it refuses the call before it publishes. Rust fixed aggregates refuse the call
 in the same way.
 
-C#, Python and Swift fixed aggregates dispose their slots before the base
-disposal starts, so they admit and run the hook. A Python `AggregateVM1` then
-reaches `CONSTRUCTED` inside its cascade. The slot that the factory creates
-for that construct stays `CONSTRUCTED` after the aggregate is `DISPOSED`. These
-aggregates also do not follow LIFE-015 for a hook on another thread. Issue
-#1063 covers a construct hook in Python and Swift. No issue covers the other
-cases yet.
+C# fixed aggregates dispose their slots before the base disposal starts, so
+they admit and run the hook. They also do not follow LIFE-015 for a hook on
+another thread. No issue covers these cases yet.
 
 After the cascade, the container publishes `Disposed` in every flavor.
 

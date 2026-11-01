@@ -60,6 +60,18 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `AggregateVM1`…`AggregateVM6` no longer dispose their slots while their
+  admitted construct or destruct hook runs on another thread (#1063, LIFE-015).
+  Before, a foreign `dispose()` during a construct hook also deadlocked. It held
+  the aggregate lock while it waited for the hook, and the hook needed that
+  lock. The slot cascade now runs at the admitted-hook boundary of the base
+  `dispose()`. It reads the slots under the aggregate lock only when it starts,
+  so it disposes the slots that the hook committed. With no foreign hook, the
+  slots are still disposed before the aggregate publishes `DISPOSED` (LIFE-013).
+  No hook of the aggregate is admitted while that cascade runs. Two aggregates
+  whose slot factories dispose each other no longer deadlock. A second
+  concurrent `dispose()` now returns at once, as it does for composites and
+  groups.
 - A cross-thread `dispose()` of a `CompositeVM` or `GroupVM` no longer hangs
   when its wait would close a wait-for cycle (ADR-0153, ADR-0166, #1059).
   Before, two threads that each held one container's membership transaction

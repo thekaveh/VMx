@@ -65,6 +65,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `AggregateVM1`…`AggregateVM6` no longer dispose their components while their
+  admitted `_onConstruct()` or `_onDestruct()` hook runs on another thread
+  (#1063, LIFE-015). Before, a foreign `dispose()` during a construct hook also
+  deadlocked. It held the aggregate transaction lock while it waited for the
+  hook lease, and the hook needed that lock. The components are now disposed at
+  the hook-lease boundary of the base `dispose()`, as for `CompositeVM` and
+  `GroupVM`. The cascade reads the slots under the transaction lock only when it
+  starts, so it disposes the slots that the hook committed. With no foreign
+  hook, they are still disposed before the aggregate publishes `.disposed`
+  (LIFE-013). No hook of the aggregate is admitted while that cascade runs. Two
+  aggregates whose slot factories dispose each other no longer deadlock.
 - A `CompositeVM` or `GroupVM` `dispose()` from another thread no longer
   disposes its children while the container's admitted `onConstruct` or
   `onDestruct` hook runs (#1062, LIFE-015). The child cascade and the members

@@ -45,14 +45,14 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
     }
 
     open override func dispose() {
-        // A re-entrant or concurrent dispose returns at once (spec/02 §7.1);
-        // the first call disposes the components, the members, then self.
-        guard _enterDispose() else { return }
-        aggregateParent.withTransaction {
-        _abandonChildTransition()
-        component1?.dispose()
-        super.dispose()
-        }
+        // LIFE-013 at the base's admitted-hook boundary (LIFE-015): a foreign
+        // disposal disposes no slot while this aggregate's hook runs. The
+        // slots are read when the cascade starts, so the snapshot waits for an
+        // active slot replacement (spec/08 §4). A re-entrant or concurrent
+        // dispose returns at once (spec/02 §7.1).
+        _disposeWithChildren(snapshot: { [unowned self] in
+            aggregateParent.slotSnapshot()
+        })
     }
 
     public static func builder() -> AggregateVM1Builder<C1> {
