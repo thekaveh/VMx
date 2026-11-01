@@ -65,6 +65,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `CompositeVM` or `GroupVM` `dispose()` from another thread no longer
+  disposes its children while the container's admitted `onConstruct` or
+  `onDestruct` hook runs (#1062, LIFE-015). The child cascade and the members
+  registered with `ownMember` now run at the hook-lease boundary of the base
+  `dispose()`. A leaf's members wait for its admitted hook in the same way. The
+  container publishes `.disposed` and waits for the hook to release its lease.
+  Then it disposes its children in `destructOrder` and then its members, before
+  `_onDispose()`. On a wait-for cycle, the hook's release runs this cleanup.
+  With no foreign hook running, the children are still disposed before the
+  container publishes `.disposed` (LIFE-013). No hook of the container is
+  admitted while that cascade runs. A same-thread `dispose()` from inside the
+  hook still disposes the children at once. A child walk whose owner is disposed
+  starts no further child and does not run `after`.
 - Doc comments now match the code (#791). `CollectionChangedMessage.senderName`
   says that `CompositeVM` and `GroupVM` messages carry the container's `name`,
   and `senderObject` names the container as a possible sender.
