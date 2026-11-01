@@ -3,7 +3,7 @@ import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 import { ConstructionStatusChangedMessage } from "../messages/constructionStatusChanged.js";
 import { FormRevertedMessage } from "../messages/formReverted.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
-import { TreeStructureChangedMessage } from "../messages/treeStructureChanged.js";
+import { isTreeStructureChanged } from "../messages/predicates.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import { sanitizeDevtoolsValue } from "./sanitize.js";
 import type {
@@ -365,7 +365,8 @@ function canonicalMessageType(message: IMessage): string {
     if (message instanceof PropertyChangedMessage) return "PropertyChangedMessage";
     if (message instanceof CollectionChangedMessage) return "CollectionChangedMessage";
     if (message instanceof ConstructionStatusChangedMessage) return "ConstructionStatusChangedMessage";
-    if (message instanceof TreeStructureChangedMessage) return "TreeStructureChangedMessage";
+    // A tree message from a second package copy matches by shape (ADR-0163).
+    if (isTreeStructureChanged(message)) return "TreeStructureChangedMessage";
     if (message instanceof FormRevertedMessage) return "FormRevertedMessage";
   } catch {
     // IMessage is structural; hostile proxies must not escape observability.
