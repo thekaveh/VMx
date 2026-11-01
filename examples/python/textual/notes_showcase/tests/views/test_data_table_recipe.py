@@ -7,10 +7,12 @@ recipe).
 
 from __future__ import annotations
 
+import dataclasses
 import threading
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
+import pytest
 from textual.app import App, ComposeResult
 from textual.pilot import Pilot
 from vmx import Message, MessageHub
@@ -70,6 +72,10 @@ def _instance(grid: InstanceGrid, key: str) -> Instance:
 
 def _keys(table: InstanceTable) -> list[str]:
     return [str(row.key.value) for row in table.ordered_rows]
+
+
+def _page_keys(grid: InstanceGrid) -> list[str]:
+    return [instance.id for instance in grid.page.items]
 
 
 def _cursor_key(table: InstanceTable) -> str:
@@ -339,3 +345,56 @@ async def test_removing_instances_past_the_current_page_shows_the_last_page() ->
         assert grid.page.page_count == 0
         assert grid.page.current_page_index == 0
         assert _keys(table) == []
+
+
+async def test_a_replace_and_a_same_length_replace_all_re_render_the_rows() -> None:
+    grid = _grid()
+    table = InstanceTable(grid)
+
+    async with GridApp(table).run_test() as pilot:
+        grid.filter.model = "a"  # alpha, bravo, charlie, delta
+        await _settle(pilot)
+        assert _keys(table) == _page_keys(grid) == ["i0", "i1", "i2", "i3"]
+
+        # Neither mutation changes the count, so the list sends no "Count".
+        grid.instances.replace(0, dataclasses.replace(_instance(grid, "i0"), name="hotel"))
+        await _settle(pilot)
+        assert _keys(table) == _page_keys(grid) == ["i1", "i2", "i3"]
+
+        hidden = ["echo", "golf", "hotel", "kilo", "mike"]
+        grid.instances.replace_all(Instance(f"i{i}", name, "up") for i, name in enumerate(hidden))
+        await _settle(pilot)
+        assert _keys(table) == _page_keys(grid) == []
+
+
+def _rename_echo_with_replace(grid: InstanceGrid) -> None:
+    grid.instances.replace(4, dataclasses.replace(_instance(grid, "i4"), name="foxtrot"))
+
+
+def _rename_echo_with_replace_all(grid: InstanceGrid) -> None:
+    grid.instances.replace_all(
+        [
+            dataclasses.replace(instance, name="foxtrot") if instance.id == "i4" else instance
+            for instance in grid.instances
+        ]
+    )
+
+
+@pytest.mark.parametrize("rename_echo", [_rename_echo_with_replace, _rename_echo_with_replace_all])
+async def test_a_same_count_change_past_the_current_page_shows_the_last_page(
+    rename_echo: Callable[[InstanceGrid], None],
+) -> None:
+    grid = _grid(page_size=2)
+    table = InstanceTable(grid)
+
+    async with GridApp(table).run_test() as pilot:
+        grid.filter.model = "e"  # charlie, delta, echo: two pages
+        grid.page.move_to_last_page()  # page 2 holds echo
+        await _settle(pilot)
+        assert _keys(table) == ["i4"]
+
+        rename_echo(grid)  # the filter hides foxtrot, so page 2 no longer exists
+        await _settle(pilot)
+
+        assert grid.page.current_page_index == max(0, grid.page.page_count - 1) == 0
+        assert _keys(table) == _page_keys(grid) == ["i2", "i3"]
