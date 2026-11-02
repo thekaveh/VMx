@@ -66,6 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Development type checking now runs TypeScript 7.0. `npm run typecheck` and
+  `npm run typecheck:tests` use the native `tsc` of the `typescript-7` alias
+  (`npm:typescript@^7.0.2`). `typescript` stays at `^6.0.3`, because
+  TypeScript 7 has no JavaScript compiler API, which `@typescript-eslint` and
+  the `tsup` declaration build need. The published package does not change.
 - `dispose()` re-entered while the VM is disposing is now a no-op (#661,
   ADR-0162). The first call finishes the work: it disposes the registered
   members, then publishes `Disposed`.
