@@ -20,7 +20,7 @@ APP_PACKAGES = {
     "Avalonia.Fonts.Inter": "12.1.4",
 }
 TEST_PACKAGES = {
-    "Microsoft.NET.Test.Sdk": "18.10.1",
+    "Microsoft.NET.Test.Sdk": "18.11.0",
     "xunit.v3": "3.2.2",
     "xunit.runner.visualstudio": "4.0.1",
     "Microsoft.Reactive.Testing": "7.0.0",
