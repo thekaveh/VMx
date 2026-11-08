@@ -282,12 +282,22 @@ that races the in-flight persistence is overwritten by the reset, but neither
 the callback input nor the `OnApproved` payload changes from the captured
 persisted value.
 
+A `SetModel` or deny called from `resetOnApproved` itself, or from another
+callback of the post-persist commit, does not race the reset. It is queued and
+replayed after `OnApproved` (§5.3, *Updates during approval publication*,
+ADR-0174). It publishes nothing while the commit runs, so no notification is
+delivered while the commit holds the form's state lock. `OnApproved` observers
+see the reset state, and the queued call then applies to that state.
+
 If the callback or either snapshot preparation fails, persistence has already
 succeeded but the reset transaction does not mutate `Model`, `Snapshot`, or
 validation and `OnApproved` does not fire. The awaitable approve path propagates
 that one failure to its caller and emits nothing on `ApproveErrors`; the
 fire-and-forget command path emits it exactly once on `ApproveErrors`. Consumers
 must treat retries as potentially repeating an already-successful persistence.
+A queued call whose call-time preparation fails throws into the callback
+(§5.3); when the callback lets that failure escape, the reset fails in this
+way. Calls that the failed commit already queued still replay (§5.3).
 
 The callback does not run for invalid approval, persister failure or
 cancellation, disposal before or during persistence, or deny/revert. When the
@@ -375,6 +385,83 @@ independently of the settled approval's remaining notifications. Because no two
 approvals overlap, snapshots advance in admission order and each persister
 result is routed exactly once.
 
+**Updates during approval publication (spec v3.30, ADR-0174).** After the
+persister of an approval succeeds, the approval's *pre-publication window* runs
+on the approving thread. It starts when the post-persist commit starts: the `resetOnApproved` call
+(§5.1), or the snapshot advance when no reset is configured. It ends when
+`OnApproved` delivery starts. It covers the commit's callbacks (the reset
+callback, the snapshotter, and the validators) and settlement steps 2 and 3.
+When the post-persist commit fails, the window ends with that failure. The
+*publication scope* runs from settlement step 1 until the `OnApproved`
+delivery returns. These rules apply:
+
+1. **Queue.** A `SetModel` or `DenyCommand.Execute()` that the approving thread
+   makes inside the pre-publication window is queued and does not commit. A
+   call made from an `OnApproved` subscriber is outside that approval's window
+   and runs as an ordinary update. Approve calls are never queued; they are admitted or
+   refused as described above. `Dispose()` is never queued.
+1. **Call-time preparation.** Before a call is queued, it applies the disposal
+   admission rule and the null check (§5.2). Then it runs its §5.4 preparation
+   against the current form state: the equality comparisons, the validators,
+   and, for deny, the snapshotter. A failure propagates to the caller, as in
+   §5.4, and nothing is queued. The preparation never skips the enqueue: a
+   candidate equal to the live model is still queued, because earlier queued
+   calls can change the live model before this call replays. The prepared
+   result is discarded. If a callback of this preparation re-enters and
+   disposes the form, or makes another update (queued or committed), the call
+   returns without queueing, as in §5.4.
+1. **Nothing published at call time.** A queued call returns without changing
+   the form and publishes nothing. No notification of a queued call is
+   delivered while the approval holds the form's state lock. `OnApproved`
+   observers therefore see the committed approval state, which with
+   `resetOnApproved` is the reset state of §5.1. They never see a model that a
+   queued call sets or reverts.
+1. **Replay.** The queue replays in call order on the approving thread. On
+   success, it replays after the `OnApproved` delivery returns and the
+   publication scope ends. When that scope is nested in an outer publication
+   on the same thread, the outer one replays the queue when its own scope ends.
+   When the post-persist commit failed, the queue replays after the failed
+   settlement's `CanExecuteChanged` (step 3) and before the failure reaches its
+   channel. Each queued call replays as a new call (§5.2,
+   §5.4). It applies the admission rule and runs its preparation again against
+   the state at replay time. A candidate equal to the live model at replay time
+   therefore changes nothing, a call replayed after disposal does nothing, and
+   each replayed update publishes its own notifications. A call that a nested
+   approval's settlement queues on the same thread joins the same queue.
+1. **Isolation.** A failure in one replay does not stop the later replays. The
+   failure can come from the replayed preparation, or from an observer whose
+   failure the replayed update's notification propagates. The settled approval
+   stays settled: its commit stands, and `OnApproved` is neither repeated nor
+   withdrawn.
+1. **Failure channel.** After the last replay, the first replay failure
+   propagates through the approval's own failure route: to the awaiter of
+   `ApproveAsync`, or, on the command path, once on `ApproveErrors`. A replay is
+   a deferred part of the settlement, so its failure goes where a failure
+   from a settlement observer goes. If the approval already carries a failure,
+   that failure wins and the replay failures are discarded. Such a failure is a
+   failed post-persist commit, or a failure that an `ErrorsChanged`,
+   `CanExecuteChanged`, or `OnApproved` observer propagates from the
+   settlement notifications.
+1. **Other threads.** During the publication scope, a `SetModel`, deny, or
+   `Dispose()` from another thread waits until the scope ends. Only the
+   approving thread's calls are queued. The replay runs after the scope ends,
+   so a waiting call from another thread can proceed during the replay. Updates
+   stay serialized (§5.4), in either order.
+
+Flavor notes:
+
+- Rust's failure is a panic. Each replay runs under its own unwind guard. After
+  the last replay, the first replay panic resumes, unless the approval already
+  carries a panic, which wins (#740). Rust still queues calls from other
+  threads in the pre-publication window and does not yet apply rule 7 (#1160).
+- Swift validators, the injected `equals`, the snapshotter, and the sinks
+  cannot throw. Only the queue, call-time staleness, replay, and wait rules
+  apply.
+- TypeScript runs on one thread, so rule 7 does not apply. An `rxjs` subscriber
+  failure does not propagate to the notifying call, and the hub swallows
+  handler failures (chapter 03 §3.4). In TypeScript, only a replayed
+  preparation failure therefore reaches rule 6.
+
 Disposal during an in-flight approval suppresses settlement (§10): no state
 commit, no `ErrorsChanged` or `CanExecuteChanged` from settlement, and no
 outcome on `OnApproved` or `ApproveErrors`. The disposed form is inert, so later
@@ -415,6 +502,11 @@ admitted update completes normally as chapter 02 §7 requires. Flavors keep this
 by holding the form's re-entrant state lock across preparation, or by an
 equivalent per-form serialization.
 
+Inside an approval's pre-publication window (§5.3), an update on the approving
+thread runs this preparation when it is called and is then queued. A failure
+still reaches the caller. The update commits only when it replays, and the
+replay runs the whole update again, preparation included.
+
 A callback may still re-enter the form from the thread that is preparing. If,
 by the time preparation completes, that re-entry has disposed the form or
 committed another update (a nested `SetModel`, deny, approval commit, or
@@ -433,7 +525,8 @@ Flavor notes:
   re-entrancy and disposal rules apply.
 
 The approval reset of §5.1 already prepares before it commits and is unchanged.
-This section adds no public member.
+A `SetModel` or deny that one of its callbacks makes is queued (§5.3). This
+section adds no public member.
 
 ## 6. Lifecycle state diagram
 
@@ -658,6 +751,18 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
 - `FORM-038` — A validator that disposes the form during `SetModel` or deny
   preparation: the call commits and publishes nothing and the form stays inert
   (§5.4, §10).
+- `FORM-039` — A `SetModel` or deny made from `resetOnApproved` or from a
+  settlement `ErrorsChanged` or `CanExecuteChanged` observer is queued. It
+  publishes nothing before `OnApproved`, and `OnApproved` observers see the
+  reset or advanced approval state, never a model that the queued call sets or
+  reverts. The queued calls replay in call order after `OnApproved` delivery
+  returns, and each publishes its own notifications (§5.1, §5.3).
+- `FORM-040` — A queued update runs its preparation when it is called: a
+  failing callback propagates to the caller and queues nothing, and a candidate
+  equal to the live model is still queued. A replay failure does not stop the
+  later replays or unsettle the approval. After the last replay, the first
+  replay failure reaches the approval's failure route once, and a failure that
+  an `OnApproved` subscriber propagates wins over it (§5.3, §5.4).
 
 `DISP-004` adds the cross-cutting assertion that repeated disposal completes
 owned form channels and commands at most once while preserving `FORM-014`.

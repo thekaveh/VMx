@@ -23,22 +23,49 @@ import Combine
 public final class RelayCommand: Command {
     private let task: (() -> Void)?
     private let predicate: (() -> Bool)?
-    private let canExecuteChangedSubject = PassthroughSubject<Void, Never>()
+    private let sendCanExecuteChanged: () -> Void
+    private let finishCanExecuteChanged: () -> Void
+    private let canExecuteChangedPublisher: AnyPublisher<Void, Never>
     private var cancellables: Set<AnyCancellable> = []
     private var disposed = false
 
-    public init(
+    public convenience init(
         task: (() -> Void)?,
         predicate: (() -> Bool)?,
         triggers: [AnyPublisher<Void, Never>]
     ) {
+        self.init(task: task, predicate: predicate, triggers: triggers, concurrentDelivery: false)
+    }
+
+    /// With `concurrentDelivery`, `canExecuteChanged` goes through a
+    /// `VMxConcurrentSubject`, which holds no lock while a sink runs, so a
+    /// sink on one thread never blocks a send on another. `FormVM` uses it
+    /// for its approve and deny commands (ADR-0174 §2.3). Otherwise a Combine
+    /// `PassthroughSubject` delivers it.
+    init(
+        task: (() -> Void)?,
+        predicate: (() -> Bool)?,
+        triggers: [AnyPublisher<Void, Never>],
+        concurrentDelivery: Bool
+    ) {
         self.task = task
         self.predicate = predicate
+        if concurrentDelivery {
+            let subject = VMxConcurrentSubject<Void, Never>()
+            sendCanExecuteChanged = { subject.send(()) }
+            finishCanExecuteChanged = { subject.send(completion: .finished) }
+            canExecuteChangedPublisher = subject.eraseToAnyPublisher()
+        } else {
+            let subject = PassthroughSubject<Void, Never>()
+            sendCanExecuteChanged = { subject.send(()) }
+            finishCanExecuteChanged = { subject.send(completion: .finished) }
+            canExecuteChangedPublisher = subject.eraseToAnyPublisher()
+        }
 
-        let subject = canExecuteChangedSubject
+        let send = sendCanExecuteChanged
         for trigger in triggers {
             trigger
-                .sink { _ in subject.send(()) }
+                .sink { _ in send() }
                 .store(in: &cancellables)
         }
     }
@@ -58,23 +85,23 @@ public final class RelayCommand: Command {
     }
 
     public var canExecuteChanged: AnyPublisher<Void, Never> {
-        canExecuteChangedSubject.eraseToAnyPublisher()
+        canExecuteChangedPublisher
     }
 
     /// Emits one re-evaluation notification without invoking user closures.
     /// Repeated calls are additive; calls after disposal are no-ops.
     public func raiseCanExecuteChanged() {
         guard !disposed else { return }
-        canExecuteChangedSubject.send(())
+        sendCanExecuteChanged()
     }
 
     /// Idempotent. Subsequent calls are a no-op.
     public func dispose() {
         guard !disposed else { return }
         disposed = true
-        canExecuteChangedSubject.send(())
+        sendCanExecuteChanged()
         cancellables.removeAll()
-        canExecuteChangedSubject.send(completion: .finished)
+        finishCanExecuteChanged()
     }
 
     /// Entrypoint for the immutable builder.
