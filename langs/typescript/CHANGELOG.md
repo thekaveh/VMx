@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-066` conformance tests: a failing local collection subscriber does not
+  suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). TypeScript
+  already behaved this way.
 - `TreeSelection<TVM>`, an opt-in helper that keeps one current node per
   `HierarchicalVM` tree (#667, ADR-0164, HIER-033..HIER-040). Construct it on
   a root node. It exposes `current`, `canSelect(node)`, `select(node)`,
@@ -65,6 +68,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   GRP-014 and COMP-046.
 
 ### Changed
+
+- `TokenPagedComposition`: a load also checks `hasMore` when it starts, as in
+  the other flavors (#1161, ADR-0169). Behavior does not change: the load body
+  already starts in the admission turn.
 
 - Development type checking now runs TypeScript 7.0. `npm run typecheck` and
   `npm run typecheck:tests` use the native `tsc` of the `typescript-7` alias
@@ -128,7 +135,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     background `Constructed` or `Destructed` commit, a rollback or a queued
     background hook that a dispose hook drains from the scheduler publishes
     nothing, and the call returns as one that disposal superseded.
-
+- `FormVM` now queues every `setModel` and deny made during an approval's
+  post-persist commit and settlement, and replays them after `onApproved`
+  (#1168, #1050, ADR-0174, FORM-039, FORM-040). The queue now opens when the
+  commit starts, so it covers calls from `resetOnApproved`, the snapshotter
+  and the validators. Before, such a call committed and published at once, and
+  the reset then overwrote it. A deny from a settlement observer is queued like
+  `setModel`, so `onApproved` observers no longer see a reverted model. A
+  queued call runs its validators, equality and snapshotter when it is called.
+  A failure throws to the caller and queues nothing, and an equal candidate is
+  still queued. Before, a queued candidate was not prepared. Its failure
+  surfaced after `onApproved`, failed the settled approval and dropped the
+  later queued edits. Each queued call now replays as a new call. A failing
+  replay no longer stops the later ones. The first replay failure reaches the
+  `approveAsync` awaiter, or `approveErrors` once on the command path, after
+  the last replay. A failed reset commit still wins over it. Calls queued
+  before a failed reset commit replay before that failure is routed. Each
+  queued call runs its validators once more, at call time.
 - `CompositeVM` and `CompositeVMOf` selection now follows spec/06 §4.3
   (#1149, ADR-0165, ADR-0173). No selection path opens a membership
   transaction.

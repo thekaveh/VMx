@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
@@ -316,6 +317,75 @@ def test_release_notes_remain_after_public_verification() -> None:
     )
     assert "mkdir /tmp/react-consumer" in verification
     assert "createVmxStore" in verification
+
+
+def _run_core_prerequisite(
+    tmp_path: Path, package: dict[str, object], npm_exit: int = 0, tag_version: str = "0.2.0"
+):
+    step = _job("react").split("      - name: Verify tag and public core prerequisite\n", 1)[1]
+    script = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n      - ", 1)[0])
+    adapter = tmp_path / "packages/react"
+    adapter.mkdir(parents=True)
+    (adapter / "package.json").write_text(json.dumps(package))
+    stub = tmp_path / "bin/npm"
+    stub.parent.mkdir()
+    stub.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$VMX_TEST_NPM_ARGS"\n'
+        f"[ {npm_exit} -eq 0 ] && printf '\"3.30.0\"\\n'\nexit {npm_exit}\n"
+    )
+    stub.chmod(0o755)
+    node = shutil.which("node")
+    assert node is not None
+    (stub.parent / "node").symlink_to(node)
+    arguments = tmp_path / "npm-arguments.txt"
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=tmp_path,
+        env={
+            "PATH": str(stub.parent) + os.pathsep + os.defpath,
+            "GITHUB_REF": f"refs/tags/react-v{tag_version}",
+            "VMX_TEST_NPM_ARGS": str(arguments),
+        },
+        text=True,
+        capture_output=True,
+        timeout=15,
+    )
+    return result, (arguments.read_text().splitlines() if arguments.exists() else [])
+
+
+ADAPTER = {"version": "0.2.0", "peerDependencies": {"@thekaveh/vmx": "^3.24.1"}}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_core_prerequisite_queries_the_peer_range_not_the_core_source(tmp_path: Path) -> None:
+    result, arguments = _run_core_prerequisite(tmp_path, ADAPTER)
+    assert result.returncode == 0, result.stderr
+    assert arguments == ["view", "@thekaveh/vmx@^3.24.1", "version", "--json"]
+    assert 'Published @thekaveh/vmx versions in ^3.24.1: "3.30.0"' in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_core_prerequisite_fails_when_no_published_core_matches(tmp_path: Path) -> None:
+    result, arguments = _run_core_prerequisite(tmp_path, ADAPTER, npm_exit=1)
+    assert result.returncode == 1
+    assert arguments == ["view", "@thekaveh/vmx@^3.24.1", "version", "--json"]
+    assert "No published @thekaveh/vmx satisfies the adapter peer range ^3.24.1" in result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_core_prerequisite_fails_without_a_core_peer_range(tmp_path: Path) -> None:
+    result, arguments = _run_core_prerequisite(tmp_path, {"version": "0.2.0"})
+    assert result.returncode == 1
+    assert not arguments
+    assert "has no @thekaveh/vmx peer range" in result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_core_prerequisite_fails_on_a_tag_version_mismatch(tmp_path: Path) -> None:
+    result, arguments = _run_core_prerequisite(tmp_path, ADAPTER, tag_version="0.2.1")
+    assert result.returncode == 1
+    assert not arguments
+    assert "Tag/package version mismatch" in result.stderr
 
 
 def test_executable_release_regressions_run_on_ubuntu_ci() -> None:

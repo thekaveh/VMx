@@ -2884,6 +2884,18 @@ pub trait TreeNode: VmNode {
         Vec::new()
     }
 
+    /// Returns child nodes in traversal order, or the error that stops their
+    /// materialization.
+    ///
+    /// [`walk`](crate::walk), [`walk_expanded`](crate::walk_expanded) and
+    /// [`find`](crate::find) read children through this method, so a node
+    /// whose children can fail to load reports that failure to the caller
+    /// (spec/13 §6, ADR-0170). The default wraps
+    /// [`children_nodes`](Self::children_nodes) in `Ok`.
+    fn try_children_nodes(&self) -> VmxResult<Vec<Self>> {
+        Ok(self.children_nodes())
+    }
+
     /// Returns the node's opt-in expansion capability, when present.
     fn expandable(&self) -> Option<&dyn crate::Expandable> {
         None

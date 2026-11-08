@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Reactive.Disposables;
+using System.Runtime.ExceptionServices;
 using VMx.Messages;
 using VMx.Services;
 
@@ -101,12 +102,19 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
     /// <inheritdoc/>
     protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
     {
-        // 1. Raise the standard local event first.
-        base.OnCollectionChanged(e);
+        // 1. Raise the standard local event first. A throwing local handler
+        //    must not suppress the hub message for the committed change:
+        //    send it, then rethrow the first failure (spec/01 §1.4, ADR-0171).
+        ExceptionDispatchInfo? firstFailure = null;
+        try { base.OnCollectionChanged(e); }
+        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
 
         // 2. Publish to hub (if present).
-        if (_hub is null) return;
-
-        _hub.Send(CollectionChangedMessage<T>.From(this, e));
+        if (_hub is not null)
+        {
+            try { _hub.Send(CollectionChangedMessage<T>.From(this, e)); }
+            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+        }
+        firstFailure?.Throw();
     }
 }

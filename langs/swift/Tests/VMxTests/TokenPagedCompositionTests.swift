@@ -115,6 +115,84 @@ final class TokenPagedCompositionTests: XCTestCase {
         XCTAssertFalse(sut.loadMoreCommand.canExecute())
     }
 
+    /// Thread-safe fetch harness for the #1161 regressions (spec 21 §6.2,
+    /// ADR-0169). Pages [1] and [101] load; then a refresh fetch can be held.
+    private final class TerminalAfterAdmissionHarness: @unchecked Sendable {
+        let lock = NSLock()
+        var calls: [String?] = []
+        var holdNextFirstPage = 0
+        var held: [CheckedContinuation<([Int], String?), Error>] = []
+        let heldStarted = DispatchSemaphore(value: 0)
+        var resets = 0
+        let resetSeen = DispatchSemaphore(value: 0)
+
+        func fetch(_ token: String?) async throws -> ([Int], String?) {
+            let hold = lock.withLock { () -> Bool in
+                calls.append(token)
+                guard token == nil, holdNextFirstPage > 0 else { return false }
+                holdNextFirstPage -= 1
+                return true
+            }
+            if hold {
+                return try await withCheckedThrowingContinuation { continuation in
+                    lock.withLock { held.append(continuation) }
+                    heldStarted.signal()
+                }
+            }
+            // Page 1. Before the fix a gated-out load refetched it here.
+            return token == nil ? ([1], "1") : ([101], "2")
+        }
+
+        func takeHeld() -> CheckedContinuation<([Int], String?), Error>? {
+            lock.withLock { held.isEmpty ? nil : held.removeFirst() }
+        }
+
+        var callCount: Int { lock.withLock { calls.count } }
+        func calls(since start: Int) -> [String?] { lock.withLock { Array(calls[start...]) } }
+    }
+
+    /// COL-026 / #1161 — a refresh commits a terminal token after loadMore was
+    /// admitted but before its body starts. The load fetches nothing and appends
+    /// nothing; before the fix it refetched page 1 and appended it again.
+    func testCOL026TerminalTokenCommittedAfterAdmissionFetchesNothing() async throws {
+        let harness = TerminalAfterAdmissionHarness()
+        let sut = TokenPagedComposition<Int, String>(fetchNext: harness.fetch)
+        try await sut.loadMoreCommand.executeAsync()
+        try await sut.loadMoreCommand.executeAsync()
+        XCTAssertEqual(sut.items, [1, 101])
+        XCTAssertEqual(sut.currentToken, "2")
+
+        let callsBefore = harness.callCount
+        harness.lock.withLock { harness.holdNextFirstPage = 1 }
+        let refresh = Task.detached { try await sut.refreshCommand.executeAsync() }
+        XCTAssertEqual(harness.heldStarted.wait(timeout: .now() + 2), .success)
+
+        sut.collectionChanged.sink { _ in
+            harness.lock.withLock { harness.resets += 1 }
+            harness.resetSeen.signal()
+        }.store(in: &cancellables)
+        let armed = ManagedAtomicFlag()
+        var resetWait: DispatchTimeoutResult?
+        // admit() fires canExecuteChanged after admission and before the body
+        // Task starts; the refresh commits its terminal page in that window.
+        sut.loadMoreCommand.canExecuteChanged.sink { _ in
+            guard armed.takeOnce() else { return }
+            harness.takeHeld()?.resume(returning: ([1, 101, 555], nil))
+            resetWait = harness.resetSeen.wait(timeout: .now() + 2)
+        }.store(in: &cancellables)
+
+        try await Task.detached { try await sut.loadMoreCommand.executeAsync() }.value
+        try await refresh.value
+
+        XCTAssertEqual(resetWait, .success)
+        XCTAssertEqual(sut.items, [1, 101, 555])
+        XCTAssertNil(sut.currentToken)
+        XCTAssertFalse(sut.hasMore)
+        XCTAssertEqual(harness.calls(since: callsBefore), [nil])
+        XCTAssertEqual(harness.lock.withLock { harness.resets }, 1)
+        XCTAssertFalse(sut.loadMoreCommand.canExecute())
+    }
+
     /// COL-027 — refresh clears and refetches first page.
     func testCOL027RefreshRefetchesFirstPage() async throws {
         var pages: [([Int], String?)] = [([1, 2], "next"), ([9], nil)]
@@ -298,5 +376,18 @@ final class TokenPagedCompositionTests: XCTestCase {
 
         XCTAssertEqual(sut.pageCount, 1)
         XCTAssertTrue(seen.contains("items"))
+    }
+}
+
+/// A one-shot flag that is safe to take from any thread.
+private final class ManagedAtomicFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var available = true
+
+    func takeOnce() -> Bool {
+        lock.withLock {
+            defer { available = false }
+            return available
+        }
     }
 }

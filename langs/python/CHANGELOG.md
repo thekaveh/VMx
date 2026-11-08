@@ -161,6 +161,37 @@ below for them.
   disposing thread waited for the hook. A child whose transition started
   before the dispose still finishes it. The walk's future then completes
   without error, as in C#, Swift and Rust.
+- `FormVM` queues every `set_model` and deny that the approving thread makes in
+  an approval's pre-publication window and replays them after `on_approved`
+  (spec/20 §5.3, ADR-0174, FORM-039, FORM-040, #1168, #1050). The window now
+  opens with the post-persist commit. Calls from `reset_on_approved`, the
+  snapshotter, and the validators of that commit are queued, as are calls from
+  the settlement `errors_changed` and `can_execute_changed` observers. Before,
+  a call from `reset_on_approved` committed at once and the reset then
+  overwrote it. A deny from a settlement observer also committed at once, so
+  `on_approved` observers saw the reverted model. A queued call now runs its
+  preparation when it is called, so a failing validator or `__eq__` raises to
+  the caller and nothing is queued. Before, the failure surfaced only at
+  replay and failed the settled approval. Each queued call replays as a new
+  call, in call order. A replay failure no longer stops the later replays. The
+  first one reaches the approval's own failure route after the last replay:
+  the `approve_async` awaiter, or `approve_errors` once on the command path.
+  A failure that the approval already carries wins. That is a failed reset, or
+  a failure that a settlement or `on_approved` observer raises. After a failed
+  reset, the calls it queued replay before the failure is routed. Only the
+  approving thread's calls are queued. Another thread still waits only during
+  the publication scope, and while the post-persist commit runs its approve is
+  refused and the reset overwrites its `set_model`. Each queued update calls
+  the validators once more, at call time.
+- `ServicedObservableCollection`, `KeyedServicedObservableCollection` and
+  `ObservableDictionary` now send the hub `CollectionChangedMessage` when a
+  local subscriber raises (#1051, ADR-0171, COL-066). The change stays
+  committed, and the first failure is re-raised after the hub send.
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command was admitted. The load then refetched
+  page 1 and appended it again, and `has_more` stayed true. The load now changes
+  nothing and does not supersede an in-flight refresh.
 - `CompositeVM` selection opens no membership transaction (ADR-0173, spec/06
   §4.3). The `current` setter, `select_component`, `deselect_component`, the
   child `select` and `deselect` paths and the `async_selection` setter commit
