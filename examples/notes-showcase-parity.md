@@ -111,8 +111,8 @@ shipping translated application catalogs is outside this example scenario.
 Row 17 has an explicit item-lifetime boundary: each `GlobalSearchVM` owns every
 constructed `NoteVM` it creates until terminal disposal, including results
 replaced by refresh or discarded by equality/stale-operation handling. The Rust
-TUI counterpart stores cloned `NoteModel` values and therefore has no
-lifecycle-bearing search-result ownership obligation.
+TUI counterpart stores cloned `NoteModel` values with their search term and
+therefore has no lifecycle-bearing search-result ownership obligation.
 
 [^theme]: ThemeVM ships in each flavor's `viewmodels/` plus a per-framework
     `ThemeAdapter` in `views/adapter/` (Swift: `Sources/NotesShowcase/Adapter/`). `WorkspaceVM` owns the `ThemeVM` as a

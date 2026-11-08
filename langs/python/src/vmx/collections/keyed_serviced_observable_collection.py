@@ -14,6 +14,7 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx._indexes import _reject_bool_index
+from vmx.collections._delivery import deliver_then_publish
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
 
@@ -303,6 +304,10 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         self._index_by_key = index_by_key
 
     def _emit(self, message: CollectionChangedMessage[T]) -> None:
-        self._subject.on_next(message)
+        # A failing local subscriber does not suppress the hub message; the
+        # first failure is re-raised after publication (ADR-0171).
+        deliver_then_publish(lambda: self._subject.on_next(message), lambda: self._publish(message))
+
+    def _publish(self, message: CollectionChangedMessage[T]) -> None:
         if self._hub is not None:
             self._hub.send(message)

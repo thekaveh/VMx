@@ -1,4 +1,4 @@
-use crate::models::{InMemoryNoteRepository, NoteDraft, NoteModel, NotebookModel};
+use crate::models::{note_matches, InMemoryNoteRepository, NoteDraft, NoteModel, NotebookModel};
 use std::sync::{Arc, Mutex, MutexGuard};
 use vmx::{
     AggregateVm6, Command, ComponentVm, CompositeVm, DecoratorCommand, DiscriminatorVm,
@@ -9,6 +9,9 @@ use vmx::{
 
 const PAGE_SIZE: usize = 2;
 const SEARCH_PAGE_SIZE: usize = 2;
+/// One refresh fetches the first page at most this many times. Each extra
+/// fetch replaces a refresh that a racing load discarded.
+const SEARCH_RUNS: usize = 3;
 /// At most this many notifications stay pending, as in every flavor.
 const NOTIFICATION_CAP: usize = 5;
 
@@ -543,36 +546,95 @@ fn build_form(
         .expect("form builder is complete")
 }
 
+/// One search result: a note and the term that found it.
+///
+/// The derived equality includes the term, so pages for different terms are
+/// never equal, and a refresh for a new term replaces the loaded pages and
+/// their cursor (spec 21 §6.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub term: String,
+    pub note: NoteModel,
+}
+
+/// The cursor for the next page. It keeps the term of the loaded pages, so
+/// Load more continues that term even after the query is edited.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchCursor {
+    pub term: String,
+    pub offset: usize,
+}
+
+/// Search progress that `refresh()` and `load_more()` share. No lock on it is
+/// held while the pager runs, so a refresh re-entered from a hub subscriber
+/// cannot deadlock.
+#[derive(Debug, Default)]
+struct SearchProgress {
+    /// The `refresh()` calls that are running. Load more is unavailable while
+    /// one runs.
+    refreshing: usize,
+    /// The first-page fetches started so far.
+    first_page_fetches: usize,
+    /// The term of the latest first-page fetch.
+    first_page_term: String,
+}
+
+/// Ends one `refresh()` call, also when the pager panics.
+struct RefreshRun<'a>(&'a Mutex<SearchProgress>);
+
+impl Drop for RefreshRun<'_> {
+    fn drop(&mut self) {
+        lock(self.0).refreshing -= 1;
+    }
+}
+
 #[derive(Clone)]
 pub struct GlobalSearchVm {
     core: ComponentVm<()>,
     state: SearchableState<NoteModel>,
-    pages: TokenPagedComposition<NoteModel, usize>,
+    pages: TokenPagedComposition<SearchHit, SearchCursor>,
+    progress: Arc<Mutex<SearchProgress>>,
 }
 
 impl GlobalSearchVm {
     fn new(repository: InMemoryNoteRepository, hub: MessageHub) -> Self {
-        // The searchable state owns the term and the matching rule; the token
-        // pager pages over its filtered projection.
+        // The searchable state owns the term. The token pager pages over
+        // repository search results, which use the same matching rule.
         let state = SearchableState::from_items(
-            move || repository.notes(),
+            {
+                let repository = repository.clone();
+                move || repository.notes()
+            },
             |note: &NoteModel, term: &str| note_matches(note, term),
         );
+        let progress = Arc::new(Mutex::new(SearchProgress::default()));
         let loader_state = state.clone();
+        let loader_progress = progress.clone();
         let pages = TokenPagedComposition::with_loader_and_hub(
-            Some(0usize),
-            move |token| {
-                let offset = token.unwrap_or(0);
-                let matches = loader_state.filtered();
-                let page = matches
-                    .iter()
-                    .skip(offset)
-                    .take(SEARCH_PAGE_SIZE)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                let next = offset + page.len();
-                let next_token = (next < matches.len()).then_some(next);
-                (page, next_token)
+            None,
+            move |cursor: Option<SearchCursor>| {
+                // The first page uses the current term. A later page uses the
+                // term in the cursor, so Load more continues the term of the
+                // loaded pages.
+                let (term, offset) = match cursor {
+                    Some(cursor) => (cursor.term, cursor.offset),
+                    None => {
+                        let term = loader_state.search_term();
+                        let mut progress = lock(&loader_progress);
+                        progress.first_page_fetches += 1;
+                        progress.first_page_term = term.clone();
+                        (term, 0)
+                    }
+                };
+                let (notes, next) = repository.search_notes(&term, offset, SEARCH_PAGE_SIZE);
+                let hits = notes
+                    .into_iter()
+                    .map(|note| SearchHit {
+                        term: term.clone(),
+                        note,
+                    })
+                    .collect();
+                (hits, next.map(|offset| SearchCursor { term, offset }))
             },
             hub.clone(),
         );
@@ -580,6 +642,7 @@ impl GlobalSearchVm {
             core: ComponentVm::with_model("global-search", (), hub, NullDispatcher::new()),
             state,
             pages,
+            progress,
         }
     }
 
@@ -591,23 +654,53 @@ impl GlobalSearchVm {
         self.state.search_term()
     }
 
+    /// Refreshes the results for the current term.
+    ///
+    /// Load more is unavailable while this runs. A load that passed its
+    /// check just before the refresh began can still start during the
+    /// refresh, and the pager then discards the refresh (spec 21 §6.2). So
+    /// when the results do not all carry the term that the refresh fetched,
+    /// this searches again, at most `SEARCH_RUNS` times in all.
     pub fn refresh(&self) {
-        self.pages.refresh();
+        lock(&self.progress).refreshing += 1;
+        let _run = RefreshRun(&self.progress);
+        for _ in 0..SEARCH_RUNS {
+            let fetches = lock(&self.progress).first_page_fetches;
+            self.pages.refresh();
+            let (fetched, term) = {
+                let progress = lock(&self.progress);
+                (
+                    progress.first_page_fetches != fetches,
+                    progress.first_page_term.clone(),
+                )
+            };
+            // A refused or disposed refresh fetched nothing to check.
+            if !fetched || self.pages.items().iter().all(|hit| hit.term == term) {
+                return;
+            }
+        }
     }
 
+    /// Loads and appends the next page. A call made during a refresh does
+    /// nothing, so the results never mix two terms.
     pub fn load_more(&self) {
+        if lock(&self.progress).refreshing > 0 {
+            return;
+        }
         self.pages.load_next();
     }
 
+    /// Reports whether Load more can run: a next page exists and no refresh
+    /// is running.
     pub fn can_load_more(&self) -> bool {
-        self.pages.can_load_more()
+        lock(&self.progress).refreshing == 0 && self.pages.can_load_more()
     }
 
     pub fn result_titles(&self) -> Vec<String> {
         self.pages
             .items()
             .into_iter()
-            .map(|note| note.title)
+            .map(|hit| hit.note.title)
             .collect()
     }
 }
@@ -950,19 +1043,6 @@ impl WorkspaceVm {
     pub fn dispose(&self) -> VmxResult<()> {
         self.aggregate.dispose()
     }
-}
-
-fn note_matches(note: &NoteModel, term: &str) -> bool {
-    let term = term.trim().to_lowercase();
-    if term.is_empty() {
-        return true;
-    }
-    note.title.to_lowercase().contains(&term)
-        || note.body.to_lowercase().contains(&term)
-        || note
-            .tags
-            .iter()
-            .any(|tag| tag.to_lowercase().contains(&term))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
