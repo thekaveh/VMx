@@ -106,7 +106,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
   refetched page 1 and appended it again, and `has_more()` stayed true. The load
   now changes nothing and does not supersede an in-flight refresh. The ad hoc
   `load_more(loader)` call is unchanged.
-
 - A `FormVm` approval started from another approval's settlement notification
   now runs its approval subscribers with model edits applied at once (#1160).
   Before, the outer approval's pre-publication window stayed active, so those
