@@ -89,7 +89,9 @@ below for them.
   also refuses it, with its `SelectComponent` exception. The commit checks
   `CONSTRUCTED` again under the same locks as `select_component`. A destruct
   on another thread after the entry check makes the call raise the predicate
-  `ValueError`. An `async_selection(True)` delivery drops such a child.
+  `ValueError`. An `async_selection(True)` delivery drops such a child. The
+  check runs before the disposing check. So while the composite disposes, the
+  call no longer raises the disposing `RuntimeError`, as in Swift.
 - Hub, container membership and child ownership-lock waits now record in one
   wait-for graph, `vmx._wait_for_graph.WAITS` (spec/03 §4.1, ADR-0172). A
   cycle that crosses these waits no longer hangs (#1157): when a hub drainer

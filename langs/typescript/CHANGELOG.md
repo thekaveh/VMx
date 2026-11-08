@@ -110,7 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   also refuses it, with its `SelectComponent` exception. Inside the caller's
   own uncommitted transaction it still throws the transaction error. An
   `asyncSelection(true)` delivery checks `Constructed` again and drops such a
-  child.
+  child. The check runs before the disposing check. So while the composite
+  disposes, the call no longer throws the disposing error, as in Swift.
 - A lifecycle call during the inline dispose cascade now fails (#1174,
   #1167, ADR-0175, LIFE-021). A container disposes its children, and a leaf
   its members, before it publishes `Disposed`.
