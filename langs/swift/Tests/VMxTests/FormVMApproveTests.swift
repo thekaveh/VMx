@@ -29,6 +29,26 @@ private final class PersistRecorder {
     }
 }
 
+/// Lock-protected append-only log. Combine sinks run on the thread that
+/// sends, so values written from a background Task must not be read on the
+/// test thread without synchronization.
+private final class LockedLog<Element>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Element] = []
+
+    func append(_ element: Element) {
+        lock.lock()
+        storage.append(element)
+        lock.unlock()
+    }
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage.count
+    }
+}
+
 // MARK: - Test cases
 
 final class FormVMApproveTests: XCTestCase {
@@ -213,8 +233,8 @@ final class FormVMApproveTests: XCTestCase {
         let recorder = PersistRecorder()
         recorder.shouldThrow = true
 
-        var errors: [Error] = []
-        var approved: [TestModel] = []
+        let errors = LockedLog<Error>()
+        let approved = LockedLog<TestModel>()
         var cancellables = Set<AnyCancellable>()
 
         let sut = FormVM(
@@ -222,14 +242,20 @@ final class FormVMApproveTests: XCTestCase {
             persister: recorder.persister
         )
 
-        sut.approveErrors.sink { errors.append($0) }.store(in: &cancellables)
+        // Drain the fire-and-forget Task via XCTestExpectation. The sink that
+        // records the error also fulfills the expectation, after the append,
+        // so wait(for:) orders the write before the assertions below. A
+        // separate fulfilling sink would race: Combine does not order sibling
+        // subscribers, so wait(for:) could return before the append (#1169).
+        // assertForOverFulfill (default true) keeps the "exactly once" check.
+        let errorExpectation = expectation(description: "approveErrors fires")
+        sut.approveErrors.sink { error in
+            errors.append(error)
+            errorExpectation.fulfill()
+        }.store(in: &cancellables)
         sut.onApproved.sink { approved.append($0) }.store(in: &cancellables)
 
         sut.setModel(TestModel(name: "Bob", value: 2))
-
-        // Drain the fire-and-forget Task via XCTestExpectation.
-        let errorExpectation = expectation(description: "approveErrors fires")
-        sut.approveErrors.first().sink { _ in errorExpectation.fulfill() }.store(in: &cancellables)
 
         sut.approveCommand.execute()
 
