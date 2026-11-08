@@ -65,6 +65,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM` selection follows ADR-0173 (spec/06 §4.3, #1145, #1150,
+  #1201). No selection path opens, joins or waits for a membership
+  transaction. The `current` setter, `setCurrent(_:)`, `selectComponent(_:)`,
+  `deselectComponent(_:)`, the child `select()`/`deselect()` paths, the
+  construct walk's assignment and the destruct clear commit under the shared
+  lane and the membership gate, so they no longer wait for another thread's
+  add, insert, removal or transfer. Before, a selection or a construct whose
+  hook waited for that thread could stall until a timeout.
+  - A child that an add, insert, replacement or population attached but has
+    not admitted is not a member. `setCurrent(_:)` throws, and
+    `canSetCurrent(_:)` and `canSelectComponent(_:)` return `false`. The walk
+    no longer selects such a child.
+  - While disposal is requested or deferred, a non-`nil` selection is
+    refused. A `nil` clear still commits. After `Disposed`, selection stays
+    inert.
+  - On the thread whose own transaction has not committed yet, every
+    selection call is refused and the walk's assignment is a silent no-op.
+    From the commit on, including the add's `collectionChanged` delivery, that
+    thread can select, for example the child it just added.
+  - `dispose()` from a thread that is publishing a selection returns at once.
+    The disposal runs when the publication and any open transaction end. The
+    deferral stays set until `dispose()` admits it.
+  - A detach clears `current` only while the detached child is still current,
+    so a selection made after a transfer's detach stays.
+  - With `asyncSelection(true)`, the walk's assignment is synchronous: the
+    composite reaches `Constructed` with its pick current. The setter
+    validates at call time and its delivery validates again.
+  - `destruct()` always clears `current` (`COMP-005`). Before, a destruct
+    inside the composite's own transaction, or while disposal was deferred,
+    skipped the clear without an error and reached `Destructed` with
+    `current` still set.
+
+  Refusals use the existing channels: `setCurrent(_:)`, `selectComponent(_:)`
+  and `deselectComponent(_:)` throw `CompositeMembershipError`, whose
+  `description` now names the reason, the `current` setter traps (ADR-0009),
+  and `selectChild`/`deselectChild` are silent no-ops.
+
 - `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
   before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
   updated `keys2`. Before, an entry that a `keys1` subscriber added during
