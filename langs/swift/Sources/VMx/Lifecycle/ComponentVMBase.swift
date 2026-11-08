@@ -78,7 +78,32 @@ final class ParentTransfer {
 
 private let ownershipTransactionCoordinator = NSRecursiveLock()
 
-private func acquireOwnershipIdentities(_ children: [ComponentVMBase]) -> [ComponentVMBase] {
+/// Takes `identity`'s ownership gate without blocking. The first hold of the
+/// calling thread records it as the gate's holder in `ThreadWaitGraph`, so a
+/// thread that waits for the gate can see the cycle (spec/03 §4.1, #1154).
+private func tryHoldOwnershipGate(_ identity: ComponentVMBase) -> Bool {
+    guard identity.ownershipGate.try() else { return false }
+    identity.ownershipGateHolds += 1
+    if identity.ownershipGateHolds == 1 {
+        ThreadWaitGraph.shared.acquire(
+            resource: ObjectIdentifier(identity.ownershipGate),
+            thread: ThreadWaitGraph.currentThread
+        )
+    }
+    return true
+}
+
+/// Releases one hold of `identity`'s ownership gate. The last hold removes the
+/// holder from `ThreadWaitGraph` before the gate unlocks (release before wake).
+private func releaseOwnershipGate(_ identity: ComponentVMBase) {
+    identity.ownershipGateHolds -= 1
+    if identity.ownershipGateHolds == 0 {
+        ThreadWaitGraph.shared.releaseHolder(resource: ObjectIdentifier(identity.ownershipGate))
+    }
+    identity.ownershipGate.unlock()
+}
+
+private func acquireOwnershipIdentities(_ children: [ComponentVMBase]) throws -> [ComponentVMBase] {
     var seen = Set<ObjectIdentifier>()
     let identities = children.compactMap { child -> ComponentVMBase? in
         let identity = child._ownershipIdentity
@@ -89,34 +114,47 @@ private func acquireOwnershipIdentities(_ children: [ComponentVMBase]) -> [Compo
         var blocked: ComponentVMBase?
         ownershipTransactionCoordinator.lock()
         for identity in identities {
-            if identity.ownershipGate.try() {
+            if tryHoldOwnershipGate(identity) {
                 acquired.append(identity)
             } else {
                 blocked = identity
                 break
             }
         }
-        if blocked == nil {
+        guard let blocked else {
             ownershipTransactionCoordinator.unlock()
             return identities
         }
-        for identity in acquired.reversed() { identity.ownershipGate.unlock() }
+        for identity in acquired.reversed() { releaseOwnershipGate(identity) }
         ownershipTransactionCoordinator.unlock()
 
-        // Never retain the coordinator or another child while waiting. Once
-        // this blocker moves, retry the complete identity set atomically.
-        blocked!.ownershipGate.lock()
-        blocked!.ownershipGate.unlock()
+        // Never retain the coordinator or another child while waiting. A wait
+        // that would close a wait-for cycle fails before any mutation: the
+        // gate's holder already waits, directly or through other threads, for
+        // this one (spec/03 §4.1). Once this blocker moves, retry the complete
+        // identity set atomically.
+        let caller = ThreadWaitGraph.currentThread
+        guard ThreadWaitGraph.shared.beginResourceWait(
+            caller: caller,
+            resource: ObjectIdentifier(blocked.ownershipGate)
+        ) else {
+            throw ContainerOwnershipTransactionError()
+        }
+        blocked.ownershipGate.lock()
+        // End the edge while this thread holds the gate, so no later holder
+        // inherits it.
+        ThreadWaitGraph.shared.endWait(caller: caller)
+        blocked.ownershipGate.unlock()
     }
 }
 
 func withOwnershipReservationBatch<T>(
     _ children: [ComponentVMBase],
     _ body: () throws -> T
-) rethrows -> T {
-    let identities = acquireOwnershipIdentities(children)
+) throws -> T {
+    let identities = try acquireOwnershipIdentities(children)
     defer {
-        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+        for identity in identities.reversed() { releaseOwnershipGate(identity) }
     }
     return try body()
 }
@@ -125,15 +163,15 @@ func withExclusiveOwnershipReservationBatch<T>(
     _ children: [ComponentVMBase],
     _ body: () throws -> T
 ) throws -> T {
-    let identities = acquireOwnershipIdentities(children)
+    let identities = try acquireOwnershipIdentities(children)
     guard !identities.contains(where: { $0.ownershipInProgress }) else {
-        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+        for identity in identities.reversed() { releaseOwnershipGate(identity) }
         throw ContainerOwnershipTransactionError()
     }
     for identity in identities { identity.ownershipInProgress = true }
     defer {
         for identity in identities { identity.ownershipInProgress = false }
-        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+        for identity in identities.reversed() { releaseOwnershipGate(identity) }
     }
     return try body()
 }
@@ -144,9 +182,9 @@ func beginParentTransfer(
     transaction: ContainerOwnershipTransaction
 ) throws -> ParentTransfer {
     let identity = child._ownershipIdentity
-    _ = acquireOwnershipIdentities([identity])
+    _ = try acquireOwnershipIdentities([identity])
     guard !identity.ownershipInProgress else {
-        identity.ownershipGate.unlock()
+        releaseOwnershipGate(identity)
         throw ContainerOwnershipTransactionError()
     }
     identity.ownershipInProgress = true
@@ -172,14 +210,14 @@ func beginParentTransfer(
         }
     } catch {
         identity.ownershipInProgress = false
-        identity.ownershipGate.unlock()
+        releaseOwnershipGate(identity)
         throw error
     }
 
     func finish(commit: Bool) {
         defer {
             identity.ownershipInProgress = false
-            identity.ownershipGate.unlock()
+            releaseOwnershipGate(identity)
         }
         if commit { staged?.commit() } else { staged?.rollback() }
     }
@@ -792,6 +830,8 @@ open class ComponentVMBase {
 
     func _ownershipParentDidChange() {}
     fileprivate let ownershipGate = NSRecursiveLock()
+    // The calling thread's recursive holds of `ownershipGate`; guarded by it.
+    fileprivate var ownershipGateHolds = 0
     fileprivate var ownershipInProgress = false
 
     // ── Reactive primitives ─────────────────────────────────────────────

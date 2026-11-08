@@ -26,6 +26,7 @@ from reactivex import operators as ops
 from reactivex.abc import SchedulerBase
 from reactivex.subject import Subject
 
+from vmx._wait_for_graph import WAITS
 from vmx.commands.relay_command import RelayCommand
 from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
@@ -46,6 +47,50 @@ if TYPE_CHECKING:
 _OWNERSHIP_TRANSACTION_GATE = threading.RLock()
 
 
+def _hold_ownership_identity(identity: _ComponentVMBase) -> bool:
+    """Take one hold of *identity*'s ownership lock without waiting.
+
+    The first hold records the calling thread as the lock's holder in the
+    wait-for graph, so a thread that waits for the lock can see the cycle
+    (spec/03 §4.1, #1155). The lock is recursive, so the count keeps the
+    holder recorded until its last hold is released.
+    """
+    if not identity._ownership_lock.acquire(blocking=False):
+        return False
+    identity._ownership_holds += 1
+    if identity._ownership_holds == 1:
+        WAITS.acquire(identity._ownership_lock, threading.get_ident())
+    return True
+
+
+def _release_ownership_identity(identity: _ComponentVMBase) -> None:
+    """Release one hold; the last one clears the holder before it wakes waiters."""
+    identity._ownership_holds -= 1
+    if identity._ownership_holds == 0:
+        WAITS.release(identity._ownership_lock)
+    identity._ownership_lock.release()
+
+
+def _wait_for_ownership_identity(identity: _ComponentVMBase) -> None:
+    """Wait until another thread releases *identity*'s ownership lock.
+
+    The wait records an edge in the wait-for graph. When that edge would close
+    a cycle, raise ``RuntimeError`` before any mutation instead of waiting
+    (spec/03 §4.1, ADR-0172).
+    """
+    caller = threading.get_ident()
+    if not WAITS.try_begin_wait(identity._ownership_lock, caller):
+        raise RuntimeError(
+            "ownership transaction is in progress on a thread that waits for this "
+            "one; waiting would deadlock"
+        )
+    try:
+        identity._ownership_lock.acquire()
+        identity._ownership_lock.release()
+    finally:
+        WAITS.end_wait(caller)
+
+
 def _acquire_ownership_identities(
     identities: Iterable[_ComponentVMBase],
 ) -> list[_ComponentVMBase]:
@@ -56,7 +101,7 @@ def _acquire_ownership_identities(
         blocked: _ComponentVMBase | None = None
         with _OWNERSHIP_TRANSACTION_GATE:
             for identity in ordered:
-                if identity._ownership_lock.acquire(blocking=False):
+                if _hold_ownership_identity(identity):
                     acquired.append(identity)
                 else:
                     blocked = identity
@@ -64,12 +109,12 @@ def _acquire_ownership_identities(
             if blocked is None:
                 return acquired
             for identity in reversed(acquired):
-                identity._ownership_lock.release()
+                _release_ownership_identity(identity)
 
-        # Wait outside the coordinator and without retaining any other child.
-        # Once the blocker moves, retry the complete set atomically.
-        blocked._ownership_lock.acquire()
-        blocked._ownership_lock.release()
+        # Wait outside the coordinator and without retaining any child that
+        # this call acquired. Once the blocker moves, retry the complete set
+        # atomically.
+        _wait_for_ownership_identity(blocked)
 
 
 @contextmanager
@@ -80,7 +125,7 @@ def _ownership_reservation_batch(children: Iterable[_ComponentVMBase]) -> Iterat
         yield
     finally:
         for identity in reversed(identities):
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
 
 
 @contextmanager
@@ -91,7 +136,7 @@ def _exclusive_ownership_reservation_batch(
     identities = _acquire_ownership_identities(child._ownership_identity for child in children)
     if any(identity._ownership_in_progress for identity in identities):
         for identity in reversed(identities):
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
         raise RuntimeError("ownership transaction is already in progress")
     for identity in identities:
         identity._ownership_in_progress = True
@@ -101,7 +146,7 @@ def _exclusive_ownership_reservation_batch(
         for identity in identities:
             identity._ownership_in_progress = False
         for identity in reversed(identities):
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
 
 
 # Child-walk futures that ``_transition_children`` creates. Only these are
@@ -176,31 +221,29 @@ class _LifecycleHookLease:
         self.deferred_disposal: Callable[[], None] | None = None
 
 
-_lifecycle_wait_graph_gate = threading.RLock()
-_lifecycle_thread_waits_for: dict[int, int] = {}
+class _Completion(Protocol):
+    def wait(self) -> object: ...
 
 
-def _register_lifecycle_wait(waiter: int, owner: int) -> bool:
-    """Register a lifecycle wait edge; return true if it closes a cycle."""
-    with _lifecycle_wait_graph_gate:
-        _lifecycle_thread_waits_for[waiter] = owner
-        cursor = owner
-        visited: set[int] = set()
-        while cursor not in visited:
-            if cursor == waiter:
-                _lifecycle_thread_waits_for.pop(waiter, None)
-                return True
-            visited.add(cursor)
-            next_owner = _lifecycle_thread_waits_for.get(cursor)
-            if next_owner is None:
-                return False
-            cursor = next_owner
+def _wait_for_lifecycle_owner(resource: object, completed: _Completion) -> bool:
+    """Wait until *completed* is set, unless the wait would close a live cycle.
+
+    *resource* is one hook lease or one lifecycle publication. Its owner, the
+    hook's thread or the publication's drainer, is recorded in the shared
+    wait-for graph, so a cycle through lifecycle, hub, membership and
+    ownership waits is visible (spec/02 §2.4, spec/03 §4.1, ADR-0172). The
+    owner releases the resource in the graph before it sets *completed*, so a
+    finished hook or a delivered publication never counts in a later cycle
+    check (#1182). Return False, without waiting, when the wait is refused.
+    """
+    caller = threading.get_ident()
+    if not WAITS.try_begin_wait(resource, caller):
         return False
-
-
-def _unregister_lifecycle_wait(waiter: int) -> None:
-    with _lifecycle_wait_graph_gate:
-        _lifecycle_thread_waits_for.pop(waiter, None)
+    try:
+        completed.wait()
+    finally:
+        WAITS.end_wait(caller)
+    return True
 
 
 def _dispose_children(children: Iterable[_Disposable | None]) -> BaseException | None:
@@ -319,7 +362,7 @@ def _begin_parent_transfer(
     identity = child._ownership_identity
     _acquire_ownership_identities((identity,))
     if identity._ownership_in_progress:
-        identity._ownership_lock.release()
+        _release_ownership_identity(identity)
         raise RuntimeError(f"Cannot transfer {child.name!r}: ownership transaction is in progress")
     identity._ownership_in_progress = True
     try:
@@ -340,7 +383,7 @@ def _begin_parent_transfer(
         staged = None if ownership_parent is None else ownership_parent.detach_for_transfer(child)
     except BaseException:
         identity._ownership_in_progress = False
-        identity._ownership_lock.release()
+        _release_ownership_identity(identity)
         raise
 
     def finish(commit: bool) -> None:
@@ -349,7 +392,7 @@ def _begin_parent_transfer(
                 (staged.commit if commit else staged.rollback)()
         finally:
             identity._ownership_in_progress = False
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
 
     return _ParentTransfer(lambda: finish(True), lambda: finish(False))
 
@@ -443,6 +486,7 @@ class _ComponentVMBase(ABC):
         # commit/rollback. The recursive lock serializes competing threads;
         # the flag rejects same-thread reparenting from an auto-construct hook.
         self._ownership_lock = threading.RLock()
+        self._ownership_holds = 0
         self._ownership_in_progress = False
 
         # ── property_changed subject ────────────────────────────────────────
@@ -1166,18 +1210,17 @@ class _ComponentVMBase(ABC):
             if first_error is not None:
                 raise first_error
 
-        if hook_lease is not None and hook_lease.owner_thread != threading.get_ident():
-            caller = threading.get_ident()
-            if _register_lifecycle_wait(caller, hook_lease.owner_thread):
-                with self._lifecycle_lock:
-                    if self._active_hook_lease is hook_lease:
-                        hook_lease.deferred_disposal = finish_disposal
-                        return
-            else:
-                try:
-                    hook_lease.completed.wait()
-                finally:
-                    _unregister_lifecycle_wait(caller)
+        if (
+            hook_lease is not None
+            and hook_lease.owner_thread != threading.get_ident()
+            and not _wait_for_lifecycle_owner(hook_lease, hook_lease.completed)
+        ):
+            # The wait would close a live cycle: the hook's thread runs the
+            # terminal cleanup when the hook finishes (ADR-0126).
+            with self._lifecycle_lock:
+                if self._active_hook_lease is hook_lease:
+                    hook_lease.deferred_disposal = finish_disposal
+                    return
         finish_disposal()
 
     def _with_member_cascade(
@@ -1253,6 +1296,7 @@ class _ComponentVMBase(ABC):
                 return False
             lease = _LifecycleHookLease()
             self._active_hook_lease = lease
+            WAITS.acquire(lease, lease.owner_thread)
             # Each hook starts with a fresh deferral slot.
             self._deferred_lifecycle_future = None
         try:
@@ -1275,6 +1319,9 @@ class _ComponentVMBase(ABC):
                     self._active_hook_lease = None
                 deferred_disposal = lease.deferred_disposal
                 lease.deferred_disposal = None
+            # Release before wake: a foreign dispose() that waits for this
+            # lease stops counting in cycle checks before it wakes (#1182).
+            WAITS.release(lease)
             lease.completed.set()
             if deferred_disposal is not None:
                 # The cycle-broken dispose call has already returned. A deferred
@@ -1923,22 +1970,31 @@ class _ComponentVMBase(ABC):
     def _enqueue_lifecycle_publication_locked(
         self, status: ConstructionStatus
     ) -> tuple[_LifecyclePublication, bool]:
-        publication = _LifecyclePublication(status)
-        self._lifecycle_publications.append(publication)
-        if self._lifecycle_drainer_thread is None:
-            self._lifecycle_drainer_thread = threading.get_ident()
-            return publication, True
-        return publication, False
+        return self._enqueue_locked(_LifecyclePublication(status))
 
     def _enqueue_lifecycle_action_locked(
         self, action: Callable[[], None]
     ) -> tuple[_LifecyclePublication, bool]:
-        publication = _LifecyclePublication(action=action)
+        return self._enqueue_locked(_LifecyclePublication(action=action))
+
+    def _enqueue_locked(
+        self, publication: _LifecyclePublication
+    ) -> tuple[_LifecyclePublication, bool]:
+        """Queue *publication*; return True when the caller becomes the drainer.
+
+        The drainer keeps draining until the queue is empty, so it owns every
+        queued publication until it delivers it. The graph records that owner,
+        and the drainer releases each publication before it sets ``completed``
+        (spec/02 §2.4, ADR-0172).
+        """
         self._lifecycle_publications.append(publication)
-        if self._lifecycle_drainer_thread is None:
-            self._lifecycle_drainer_thread = threading.get_ident()
-            return publication, True
-        return publication, False
+        drainer = self._lifecycle_drainer_thread
+        should_drain = drainer is None
+        if drainer is None:
+            drainer = threading.get_ident()
+            self._lifecycle_drainer_thread = drainer
+        WAITS.acquire(publication, drainer)
+        return publication, should_drain
 
     def _enqueue_waiter_completion_locked(
         self, waiters: list[Future[None]]
@@ -1982,24 +2038,23 @@ class _ComponentVMBase(ABC):
             except BaseException as error:
                 publication.error = error
             finally:
+                # Release before wake (#1182).
+                WAITS.release(publication)
                 publication.completed.set()
 
     def _await_lifecycle_publication(
         self, publication: _LifecyclePublication, should_drain: bool
     ) -> None:
-        """Drain or wait, escaping only an actual cross-VM thread cycle."""
+        """Drain or wait, escaping only a wait that would close a live cycle.
+
+        A refused wait leaves the publication queued for its drainer, and the
+        call returns (ADR-0117). That includes a call from the drainer itself,
+        such as a status observer that disposes the VM it observes.
+        """
         if should_drain:
             self._drain_lifecycle_publications()
         elif not publication.completed.is_set():
-            caller = threading.get_ident()
-            with self._lifecycle_lock:
-                owner = self._lifecycle_drainer_thread
-            if owner is not None and owner != caller:
-                if not _register_lifecycle_wait(caller, owner):
-                    try:
-                        publication.completed.wait()
-                    finally:
-                        _unregister_lifecycle_wait(caller)
+            _wait_for_lifecycle_owner(publication, publication.completed)
 
         if publication.completed.is_set() and publication.error is not None:
             raise publication.error

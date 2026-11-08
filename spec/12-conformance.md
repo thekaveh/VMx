@@ -396,6 +396,10 @@ outer transaction then sends `C`
 **And** the outer send returns only after both have observed `B`
 **And** delivery uses an iterative queue rather than recursive dispatch
 
+The one exception is the wait-for cycle of chapter 03 §4.2 rule 5, where a
+drainer with queued messages releases the drain to a borrowed scope's exit
+(ADR-0172). No `HUB-010` test forms that cycle.
+
 ### HUB-011 — Subscriber failure does not abort a transaction drain
 
 **Given** subscriber A raises for every message and subscriber B records messages

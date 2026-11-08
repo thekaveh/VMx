@@ -1,6 +1,6 @@
 # ADR 0166 — Python container disposal checks a wait-for graph
 
-- **Status:** Accepted
+- **Status:** Accepted (Extended by ADR-0172)
 - **Date:** 2026-10-30
 - **Spec version:** 3.30.0 (flavor status update in chapter 06 §4.2)
 - **Implements:** [ADR-0153](0153-cyclic-cross-thread-container-disposal-defers-to-the-owner.md)
@@ -38,6 +38,9 @@ The graph covers container membership waits only. Python hub waits keep their
 own hub-only graph, so a cycle through a hub drain and a container wait is not
 yet visible in Python.
 
+ADR-0172 extends this decision. Python hub, lifecycle, and ownership-lock waits
+join this graph, so the gap above is closed.
+
 This adds no conformance ID and changes no package or specification version.
 
 ## 3. Consequences
@@ -46,4 +49,5 @@ This adds no conformance ID and changes no package or specification version.
   the other's container no longer hang. Both containers reach `DISPOSED`.
 - In such a cycle, one `dispose()` returns before its container is disposed.
   The owning thread finishes the disposal when its transaction ends.
-- Chapter 06 §4.2 now records the gap for Rust only.
+- Chapter 06 §4.2 recorded the gap for Rust only until ADR-0167 closed it.
+  It now records no gap for this rule.

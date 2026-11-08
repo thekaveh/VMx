@@ -394,20 +394,77 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     // drained outside the gate so two VMs can safely react to each other's
     // lifecycle messages without acquiring their gates in opposing order.
     private readonly object _gate = new();
-    private static readonly object s_lifecycleWaitGraphGate = new();
-    private static readonly Dictionary<int, int> s_lifecycleWaitGraph = [];
 
-    private sealed class LifecycleDelivery(Action action)
+    /// <summary>
+    /// One lifecycle resource that a foreign thread can wait for: a lifecycle
+    /// delivery or an admitted hook lease. Its waits are edges of the shared
+    /// <see cref="WaitForGraph"/>, keyed by this instance and never by the VM
+    /// (spec/03 §4.1, ADR-0172, #1156). A waiter records its edge only while
+    /// the resource is unfinished, and the owner removes every edge on it
+    /// before it sets <see cref="Completed"/>. Both steps run under this
+    /// resource's own lock, so no edge outlives the owner's release (#1183).
+    /// A resource that no foreign thread waits for never touches the graph.
+    /// </summary>
+    private abstract class LifecycleWaitResource
+    {
+        private readonly object _sync = new();
+        private bool _watched;
+
+        internal ManualResetEventSlim Completed { get; } = new(false);
+
+        /// <summary>
+        /// Waits on <paramref name="caller"/>'s thread until <paramref name="owner"/>
+        /// finishes this resource. Returns <see langword="false"/>, without
+        /// waiting, when that wait would close a live wait-for cycle.
+        /// <paramref name="wokenForTesting"/> runs after the wait ends and
+        /// before the caller removes its own edge.
+        /// </summary>
+        internal bool WaitUnlessCyclic(int owner, int caller, Action? wokenForTesting)
+        {
+            var recorded = false;
+            lock (_sync)
+            {
+                if (!Completed.IsSet)
+                {
+                    if (!WaitForGraph.Shared.TryBeginWait(this, owner, caller)) return false;
+                    _watched = true;
+                    recorded = true;
+                }
+            }
+            try
+            {
+                Completed.Wait();
+                if (recorded) wokenForTesting?.Invoke();
+            }
+            finally
+            {
+                if (recorded) WaitForGraph.Shared.EndWait(caller);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Removes the waits on this resource, then wakes its waiters.
+        /// </summary>
+        internal void Finish()
+        {
+            lock (_sync)
+            {
+                if (_watched) WaitForGraph.Shared.ReleaseWaiters(this);
+                Completed.Set();
+            }
+        }
+    }
+
+    private sealed class LifecycleDelivery(Action action) : LifecycleWaitResource
     {
         internal Action Action { get; } = action;
         internal ExceptionDispatchInfo? Failure { get; set; }
-        internal ManualResetEventSlim Completed { get; } = new(false);
     }
 
-    private sealed class LifecycleHookLease
+    private sealed class LifecycleHookLease : LifecycleWaitResource
     {
         internal int OwnerThreadId { get; } = Environment.CurrentManagedThreadId;
-        internal ManualResetEventSlim Completed { get; } = new(false);
         internal Action? DeferredDisposal { get; set; }
     }
 
@@ -1765,8 +1822,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         if (hookLease is not null &&
             hookLease.OwnerThreadId != Environment.CurrentManagedThreadId)
         {
-            var caller = Environment.CurrentManagedThreadId;
-            if (RegisterLifecycleWait(caller, hookLease.OwnerThreadId))
+            // The wait is an edge to the hook's thread in the shared graph, so
+            // a cycle through a hub, membership, ownership or other lifecycle
+            // wait is refused too (#1156). A refused wait defers terminal
+            // cleanup to the hook's completion (ADR-0126).
+            if (!hookLease.WaitUnlessCyclic(
+                    hookLease.OwnerThreadId,
+                    Environment.CurrentManagedThreadId,
+                    AfterLifecycleWaitWokenForTesting))
             {
                 lock (_gate)
                 {
@@ -1775,15 +1838,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                         hookLease.DeferredDisposal = FinishDisposal;
                         return;
                     }
-                }
-            }
-            else
-            {
-                try { hookLease.Completed.Wait(); }
-                finally
-                {
-                    lock (s_lifecycleWaitGraphGate)
-                        s_lifecycleWaitGraph.Remove(caller);
                 }
             }
         }
@@ -1896,7 +1950,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             deferredDisposal = lease.DeferredDisposal;
             lease.DeferredDisposal = null;
         }
-        lease.Completed.Set();
+        // The lease's waits leave the graph before its waiters wake.
+        lease.Finish();
         if (deferredDisposal is not null)
         {
             // A cycle-broken Dispose call has no synchronous caller left to
@@ -2210,6 +2265,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     internal Action? AfterHookLeaseReleasedForTesting { get; set; }
 
     /// <summary>
+    /// Test-only: runs on a thread whose wait for one of this VM's lifecycle
+    /// deliveries or hook leases has ended, before that thread removes its own
+    /// wait edge, so a test can hold it in the window between the owner's
+    /// release and the waiter's cleanup (#1183).
+    /// </summary>
+    internal Action? AfterLifecycleWaitWokenForTesting { get; set; }
+
+    /// <summary>
     /// Test-only: runs on the committing thread just before
     /// <see cref="CommitUnlessDisposing"/> takes <c>_gate</c>, so a test can
     /// publish Disposed from another thread in that window.
@@ -2298,11 +2361,18 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             }
             finally
             {
-                delivery.Completed.Set();
+                // The delivery's waits leave the graph before its waiters wake.
+                delivery.Finish();
             }
         }
     }
 
+    // Waits for the drainer to deliver a queued delivery, unless the wait
+    // would close a live wait-for cycle in the shared graph; the delivery then
+    // stays queued for that drainer (spec/02 §2.4, ADR-0117). The drainer never
+    // hands its queue to another thread: it drains until the queue is empty.
+    // So the drainer read here, while the delivery is unfinished, is the
+    // thread that delivers it.
     private void AwaitLifecycleDeliveryUnlessCyclic(LifecycleDelivery delivery)
     {
         if (delivery.Completed.IsSet) return;
@@ -2310,29 +2380,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         int owner;
         lock (_gate) owner = _lifecycleDeliveryDrainerThreadId;
         if (owner == 0 || owner == caller) return;
-        if (RegisterLifecycleWait(caller, owner)) return;
-        try { delivery.Completed.Wait(); }
-        finally
-        {
-            lock (s_lifecycleWaitGraphGate)
-                s_lifecycleWaitGraph.Remove(caller);
-        }
-    }
-
-    private static bool RegisterLifecycleWait(int caller, int owner)
-    {
-        lock (s_lifecycleWaitGraphGate)
-        {
-            s_lifecycleWaitGraph[caller] = owner;
-            var cursor = owner;
-            var visited = new HashSet<int>();
-            while (cursor != caller && visited.Add(cursor) &&
-                   s_lifecycleWaitGraph.TryGetValue(cursor, out var next))
-                cursor = next;
-            if (cursor != caller) return false;
-            s_lifecycleWaitGraph.Remove(caller);
-            return true;
-        }
+        _ = delivery.WaitUnlessCyclic(owner, caller, AfterLifecycleWaitWokenForTesting);
     }
 
     /// <summary>

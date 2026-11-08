@@ -177,13 +177,28 @@ construct/destruct hook is admitted, foreign `dispose()` publishes the terminal
 status but waits for that hook and its container action before running terminal
 cleanup. The hook rechecks terminal supersession before any post-hook container
 action, so disposed parents cannot begin new child work. If two active hooks
-cross-dispose their peers, the global lifecycle wait graph breaks the cycle by
+cross-dispose their peers, the flavor's wait-for graph breaks the cycle by
 deferring one VM's terminal cleanup to its admitted hook's completion; both
 hooks and both teardown paths still run exactly once. TypeScript's
 single-threaded event loop cannot form this foreign-thread wait. Swift keeps its
 documented nonthrowing disposal surface. Throwing/result-based flavors preserve
 the earliest already-propagating failure when deferred cleanup also fails;
 later cleanup failures never replace it (ADR-0126).
+
+In C#, Python, Swift, and Rust, lifecycle publication waits and hook-lease
+waits are recorded in the flavor's single wait-for graph, with its hub,
+container membership, and ownership waits (chapter 03 §4.1, ADR-0172). Each
+edge is keyed by the one delivery or hook lease that the caller waits for,
+never by the VM. A Rust status publication is a hub send, so it records a hub
+edge. A cycle that crosses these
+waits is therefore refused like any other: the wait that would close it takes
+the escape above. `dispose()` does not return before another thread's admitted
+hook, or another thread's delivery of the VM's `Disposed` publication,
+finishes, unless that wait would close a live cycle. A cycle is live only when
+every owner on it still holds its resource. The thread that finishes a hook or
+delivers a publication removes the edges that name it as that resource's
+owner before it wakes the waiters, so an ended wait never causes an early
+return or a deferred cleanup.
 
 When no hook is admitted on another thread, `dispose()` closes hook admission
 under the same guard before it disposes the first child or member. From then
