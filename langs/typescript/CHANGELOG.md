@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-066` conformance tests: a failing local collection subscriber does not
+  suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). TypeScript
+  already behaved this way.
 - `TreeSelection<TVM>`, an opt-in helper that keeps one current node per
   `HierarchicalVM` tree (#667, ADR-0164, HIER-033..HIER-040). Construct it on
   a root node. It exposes `current`, `canSelect(node)`, `select(node)`,

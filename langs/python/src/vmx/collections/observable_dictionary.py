@@ -13,6 +13,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps
+from vmx.collections._delivery import deliver_then_publish
 from vmx.collections.observable_list import ObservableList, ReadOnlyObservableList
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
@@ -430,11 +431,17 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     def _on_added(self, key1: TKey1, key2: TKey2, value: TValue, index: int) -> None:
         if self._disposed:
             return
-        # 1. Local granular event first.
-        self._added_subject.on_next((key1, key2, value))
-        # 2. Publish to hub (if present).
-        index = self._current_index(key1, key2, index)
-        self._publish_to_hub(CollectionChangedMessage.for_add(self, (key1, key2, value), index))
+        # Local granular event first, then the hub; a failing local subscriber
+        # does not suppress the hub message (ADR-0171). The index is read
+        # after local delivery, which may have moved the entry.
+        deliver_then_publish(
+            lambda: self._added_subject.on_next((key1, key2, value)),
+            lambda: self._publish_to_hub(
+                CollectionChangedMessage.for_add(
+                    self, (key1, key2, value), self._current_index(key1, key2, index)
+                )
+            ),
+        )
 
     def _current_index(self, key1: TKey1, key2: TKey2, index: int) -> int:
         """The entry's position now: a subscriber may have removed an entry or cleared."""
@@ -449,27 +456,32 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         if self._disposed:
             return
-        # 1. Local granular event first.
-        self._removed_subject.on_next((key1, key2, value))
-        # 2. Publish to hub (if present).
-        self._publish_to_hub(CollectionChangedMessage.for_remove(self, (key1, key2, value), -1))
+        # Local granular event first, then the hub (ADR-0171).
+        deliver_then_publish(
+            lambda: self._removed_subject.on_next((key1, key2, value)),
+            lambda: self._publish_to_hub(
+                CollectionChangedMessage.for_remove(self, (key1, key2, value), -1)
+            ),
+        )
 
     def _on_replaced(self, key1: TKey1, key2: TKey2, new_value: TValue, old_value: TValue) -> None:
         if self._disposed:
             return
-        # 1. Local granular event first.
-        self._replaced_subject.on_next((key1, key2, new_value, old_value))
-        # 2. Publish to hub (if present).
-        self._publish_to_hub(
-            CollectionChangedMessage.for_replace(
-                self, (key1, key2, new_value), (key1, key2, old_value), -1
-            )
+        # Local granular event first, then the hub (ADR-0171).
+        deliver_then_publish(
+            lambda: self._replaced_subject.on_next((key1, key2, new_value, old_value)),
+            lambda: self._publish_to_hub(
+                CollectionChangedMessage.for_replace(
+                    self, (key1, key2, new_value), (key1, key2, old_value), -1
+                )
+            ),
         )
 
     def _on_reset(self) -> None:
         if self._disposed:
             return
-        # 1. Local event first.
-        self._reset_subject.on_next(None)
-        # 2. Publish to hub (if present).
-        self._publish_to_hub(CollectionChangedMessage.for_reset(self))
+        # Local event first, then the hub (ADR-0171).
+        deliver_then_publish(
+            lambda: self._reset_subject.on_next(None),
+            lambda: self._publish_to_hub(CollectionChangedMessage.for_reset(self)),
+        )

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-066` conformance tests: Swift local collection publishers cannot fail,
+  so each committed change reaches the hub once (#1051, ADR-0171).
 - `TreeSelection<TModel, TVM>`, an opt-in helper that tracks one current
   node per hierarchical tree (#667, ADR-0164, HIER-033..HIER-040). Construct
   it on a root node. `canSelect(_:)` walks only `parent` links and `status`,

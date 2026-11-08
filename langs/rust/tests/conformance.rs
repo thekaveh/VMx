@@ -9,6 +9,7 @@ mod conformance {
     mod builders;
     mod capabilities;
     mod child_transition_helper;
+    mod collection_failing_local_subscriber;
     mod collection_lookup_clones;
     mod collections;
     mod command_decorators;

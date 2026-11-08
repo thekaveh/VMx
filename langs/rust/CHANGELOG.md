@@ -10,6 +10,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-066` conformance tests: a panicking local collection subscriber does
+  not suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). Rust
+  already behaved this way.
 - `TreeSelection<M>`, an opt-in helper that keeps one current node for the
   tree under a root `HierarchicalVm` (#667, ADR-0164, `HIER-033`..`HIER-040`).
   `TreeSelection::new(&root)` creates it. `can_select` walks parent links to

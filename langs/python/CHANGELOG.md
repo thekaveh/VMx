@@ -64,6 +64,10 @@ below for them.
 
 ### Fixed
 
+- `ServicedObservableCollection`, `KeyedServicedObservableCollection` and
+  `ObservableDictionary` now send the hub `CollectionChangedMessage` when a
+  local subscriber raises (#1051, ADR-0171, COL-066). The change stays
+  committed, and the first failure is re-raised after the hub send.
 - `ObservableDictionary`: `remove` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
