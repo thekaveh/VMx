@@ -202,6 +202,9 @@ below for them.
   `approve_errors` delivery opens no scope, so a concurrent `dispose()`
   returns at once. Its teardown waits until the delivery returns. Each thread
   keeps its own publication state and queue.
+  A failed settlement nested in an outer approval's notifications now keeps
+  the outer pre-publication window. An update from its `can_execute_changed`
+  observer is queued, as in C# and Rust.
 - `TokenPagedComposition`: a load that finds a terminal token when it starts now
   fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
   terminal token after the load command was admitted. The load then refetched

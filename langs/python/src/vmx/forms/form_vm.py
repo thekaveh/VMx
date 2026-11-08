@@ -558,7 +558,11 @@ class FormVM(Generic[TM]):
             if self._disposed:
                 self._drop_queue_after_disposal(caller)
                 return
-            outer = self._enter_publication(caller, pre_publishing=False)
+            # A failed settlement keeps an enclosing approval's window: only a
+            # nested on_approved delivery suspends it (spec/20 §5.5).
+            outer = self._enter_publication(
+                caller, pre_publishing=self._publication_of(caller).pre_publishing
+            )
         try:
             with contextlib.suppress(BaseException):
                 self._can_execute_trigger.on_next(None)

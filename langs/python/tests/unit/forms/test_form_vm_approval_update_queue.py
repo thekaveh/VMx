@@ -274,6 +274,48 @@ async def test_nested_publication_on_the_same_thread_replays_when_the_outer_scop
     assert form.model == Model("from-inner-reset")
 
 
+async def test_nested_failed_settlement_keeps_the_outer_window() -> None:
+    """A nested failed settlement does not suspend the outer window (spec/20 §5.5).
+
+    Only a nested approval's ``on_approved`` delivery suspends the outer
+    pre-publication window. An update from the nested failure's
+    ``can_execute_changed`` observer is therefore queued, as in C# and Rust.
+    """
+    persists = [0]
+
+    async def persister(_: Model) -> None:
+        persists[0] += 1
+        if persists[0] == 2:
+            raise BoomError("inner")
+
+    form = FormVM(Model("initial"), persister)
+    form.set_model(Model("edited"))
+    edges = [0]
+    inside_outer: list[Model] = []
+
+    def on_can_execute_changed(_: object) -> None:
+        edges[0] += 1
+        if edges[0] == 2:
+            # Outer settlement step 3, inside the outer window: drive a nested
+            # approval on this thread. Its persister fails without suspending.
+            inner = form.approve_async()
+            with pytest.raises(BoomError):
+                inner.send(None)
+            inside_outer.append(form.model)
+        elif edges[0] == 4:
+            # The nested failed settlement's step 3 notification.
+            form.set_model(Model("from-inner-failure"))
+
+    form.approve_command.can_execute_changed.subscribe(on_can_execute_changed)
+
+    await asyncio.wait_for(form.approve_async(), HANG_GUARD)
+
+    assert edges[0] >= 4
+    # The update joined the outer queue and replayed after on_approved.
+    assert inside_outer == [Model("edited")]
+    assert form.model == Model("from-inner-failure")
+
+
 def _start_blocked_reset_approval(
     persisted: list[Model] | None = None,
 ) -> tuple[FormVM[Model], Event, Thread, list[Model], list[BaseException]]:
