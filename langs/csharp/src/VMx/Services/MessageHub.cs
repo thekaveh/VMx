@@ -166,7 +166,11 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
                     if (outermost) _batchOwnerThreadId = 0;
                 }
 
-                if (outermost && _disposeRequested)
+                // The last batch owner or borrower to release the hub finishes
+                // a requested disposal; with a drainer active, the drain's end
+                // completes the subject (spec/03 §4.2 rule 3).
+                if (outermost && _disposeRequested &&
+                    _batchOwnerThreadId == 0 && _borrowedBatchDepth == 0)
                     shouldTerminateSubject = FinishDisposeLocked();
 
                 if (outermost && !_disposed && _pending.Count > 0 &&

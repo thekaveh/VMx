@@ -102,7 +102,10 @@ All notable changes to the C# flavor are documented here. The format is based on
   `Send` from inside a hub callback to a hub with an open borrowed scope now
   waits for that scope like any other `Send`, so it delivers before it returns
   (HUB-013). It enqueues without waiting only when its wait would close a
-  cycle.
+  cycle. After a borrower's `Dispose()`, the last of the batch owner and the
+  borrowers to release the hub completes `Messages`. The batch owner's exit no
+  longer completes it inside an open borrowed scope, and a borrower's exit no
+  longer completes it while the batch is still open (spec/03 §4.2 rule 3).
 - Fixed: a `Construct()`, `Destruct()` or `Reconstruct()` call, or its async
   form, that starts during a VM's inline dispose cascade now throws
   `StatusTransitionException(Disposed, operation)` (#1174, ADR-0175, spec/02
