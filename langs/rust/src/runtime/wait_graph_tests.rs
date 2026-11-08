@@ -808,3 +808,297 @@ fn a_drainer_stops_waiting_for_a_borrowed_scope_once_disposal_is_requested() {
     assert_eq!(completed_during_borrow, 0);
     assert_eq!(*completed_on.lock().unwrap(), vec![p_id]);
 }
+
+/// #1223 — the batch owner's nested `batch` waits for another thread's
+/// borrowed scope, with an edge, like any other batch (spec/03 §4.1, §4.2
+/// rule 3). O holds an `h` batch, and B borrows `h`. O's nested batch body
+/// starts only after B's borrowed scope exits.
+#[test]
+fn a_batch_owners_nested_batch_waits_for_a_borrowed_scope() {
+    let h = MessageHub::new();
+    let (seen, _seen) = deliveries(&h);
+    let o_in_batch = Arc::new(AtomicBool::new(false));
+    let b_borrowed = Arc::new(AtomicBool::new(false));
+    let b_body_done = Arc::new(AtomicBool::new(false));
+    let o = thread::spawn({
+        let h = h.clone();
+        let (o_in_batch, b_borrowed) = (Arc::clone(&o_in_batch), Arc::clone(&b_borrowed));
+        let b_body_done = Arc::clone(&b_body_done);
+        move || {
+            h.batch(|| {
+                o_in_batch.store(true, Ordering::SeqCst);
+                assert!(eventually(BOUND, || b_borrowed.load(Ordering::SeqCst)));
+                let nested_saw_exit = h.batch(|| {
+                    let saw_exit = b_body_done.load(Ordering::SeqCst);
+                    h.send(custom("o1"));
+                    saw_exit
+                });
+                h.send(custom("o2"));
+                nested_saw_exit
+            })
+        }
+    });
+    let o_id = o.thread().id();
+    let b = thread::spawn({
+        let h = h.clone();
+        move || {
+            assert!(eventually(BOUND, || o_in_batch.load(Ordering::SeqCst)));
+            h.borrow_for_testing(|| {
+                b_borrowed.store(true, Ordering::SeqCst);
+                h.send(custom("b1"));
+                // Hold the scope until O waits for it, or 500 ms.
+                eventually(Duration::from_millis(500), || {
+                    wait_registered_for_testing(o_id)
+                });
+                b_body_done.store(true, Ordering::SeqCst);
+            });
+        }
+    });
+    let deadline = Instant::now() + BOUND;
+    join_by(b, deadline, "the borrower");
+    let nested_saw_exit = join_by(o, deadline, "the batch owner");
+
+    assert!(
+        nested_saw_exit,
+        "the batch owner's nested batch body ran inside another thread's borrowed scope"
+    );
+    let names = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["b1", "o1", "o2"]);
+}
+
+/// #1223 — the borrower B waits for the batch owner O through `h3`. O's
+/// nested `h` batch would wait for B, which closes the cycle, so that wait is
+/// refused and the nested batch enters a borrowed scope (spec/03 §4.1).
+/// Neither thread hangs.
+#[test]
+fn a_batch_owners_cyclic_nested_batch_borrows() {
+    let h = MessageHub::new();
+    let h3 = MessageHub::new();
+    let (seen, _seen) = deliveries(&h);
+    let (seen3, _seen3) = deliveries(&h3);
+    let o_in_batch = Arc::new(AtomicBool::new(false));
+    let b_slot: Arc<Mutex<Option<ThreadId>>> = Arc::default();
+    let o = thread::spawn({
+        let (h, h3) = (h.clone(), h3.clone());
+        let (o_in_batch, b_slot) = (Arc::clone(&o_in_batch), Arc::clone(&b_slot));
+        move || {
+            let o_id = thread::current().id();
+            h3.batch(|| {
+                h.batch(|| {
+                    o_in_batch.store(true, Ordering::SeqCst);
+                    assert!(
+                        eventually(BOUND, || {
+                            b_slot
+                                .lock()
+                                .unwrap()
+                                .is_some_and(wait_registered_for_testing)
+                        }),
+                        "B never waited for O's h3 batch"
+                    );
+                    h.batch(|| {
+                        h.send(custom("o1"));
+                        h.test_is_borrower(o_id)
+                    })
+                })
+            })
+        }
+    });
+    let b = thread::spawn({
+        let (h, h3) = (h.clone(), h3.clone());
+        move || {
+            assert!(eventually(BOUND, || o_in_batch.load(Ordering::SeqCst)));
+            h.borrow_for_testing(|| h3.send(custom("b3")));
+        }
+    });
+    *b_slot.lock().unwrap() = Some(b.thread().id());
+    let deadline = Instant::now() + BOUND;
+    let nested_borrowed = join_by(o, deadline, "the batch owner");
+    join_by(b, deadline, "the borrower");
+
+    assert!(
+        nested_borrowed,
+        "the refused nested batch did not enter a borrowed scope"
+    );
+    assert_eq!(count(&seen, "o1"), 1);
+    assert_eq!(count(&seen3, "b3"), 1);
+}
+
+/// Runs `op` on a new thread T while `held` holds a hub owner open, and
+/// returns whether T returned before `held` was released. `hold` must signal
+/// `ready` once the owner is open and the hub is disposed or its disposal is
+/// requested, then wait for `release`.
+fn returns_while_held(
+    h: &MessageHub,
+    op: HubOp,
+    hold: impl FnOnce(&MessageHub, &AtomicBool, &AtomicBool) + Send + 'static,
+) -> bool {
+    let ready = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let t_returned = Arc::new(AtomicBool::new(false));
+    let owner = thread::spawn({
+        let h = h.clone();
+        let (ready, release) = (Arc::clone(&ready), Arc::clone(&release));
+        move || hold(&h, &ready, &release)
+    });
+    let t = thread::spawn({
+        let h = h.clone();
+        let (ready, t_returned) = (Arc::clone(&ready), Arc::clone(&t_returned));
+        move || {
+            assert!(eventually(BOUND, || ready.load(Ordering::SeqCst)));
+            op.run(&h, "t");
+            t_returned.store(true, Ordering::SeqCst);
+        }
+    });
+    let returned = eventually(BOUND, || t_returned.load(Ordering::SeqCst));
+    release.store(true, Ordering::SeqCst);
+    let deadline = Instant::now() + 2 * BOUND;
+    join_by(owner, deadline, "the owner");
+    join_by(t, deadline, "T");
+    returned
+}
+
+/// #1224 — O disposes `h` inside its own `h` batch and keeps the body open.
+/// A `send`, `batch` or `dispose` on the disposed hub from T is a no-op, or
+/// runs without a scope, and returns before O's body exits (spec/03 §3.3).
+#[test]
+fn a_call_on_a_hub_disposed_in_a_batch_does_not_wait_for_the_batch() {
+    for op in HubOp::ALL {
+        let h = MessageHub::new();
+        let (seen, _seen) = deliveries(&h);
+        let returned = returns_while_held(&h, op, |h, ready, release| {
+            h.batch(|| {
+                h.dispose();
+                ready.store(true, Ordering::SeqCst);
+                eventually(BOUND, || release.load(Ordering::SeqCst));
+            });
+        });
+        assert!(
+            returned,
+            "{op:?} on a disposed hub waited for the batch owner"
+        );
+        assert_eq!(count(&seen, "t"), 0, "{op:?}");
+    }
+}
+
+/// #1224 — B requests the disposal of `h` from a borrowed scope and keeps the
+/// scope open. A `send`, `batch` or `dispose` from T returns before the scope
+/// exits.
+#[test]
+fn a_call_on_a_hub_whose_disposal_a_borrower_requested_does_not_wait() {
+    for op in HubOp::ALL {
+        let h = MessageHub::new();
+        let (seen, _seen) = deliveries(&h);
+        let returned = returns_while_held(&h, op, |h, ready, release| {
+            h.borrow_for_testing(|| {
+                h.dispose();
+                ready.store(true, Ordering::SeqCst);
+                eventually(BOUND, || release.load(Ordering::SeqCst));
+            });
+        });
+        assert!(
+            returned,
+            "{op:?} on a disposing hub waited for the borrowed scope"
+        );
+        assert_eq!(count(&seen, "t"), 0, "{op:?}");
+    }
+}
+
+/// #1224 — T waits for O's `h` batch first. O then disposes `h` and keeps its
+/// body open. T's wait ends at the disposal, and T returns before O's body
+/// exits.
+#[test]
+fn a_waiting_call_returns_when_the_batch_owner_disposes_the_hub() {
+    for op in HubOp::ALL {
+        let h = MessageHub::new();
+        let (seen, _seen) = deliveries(&h);
+        let t_slot: Arc<Mutex<Option<ThreadId>>> = Arc::default();
+        let o_in_batch = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let t_returned = Arc::new(AtomicBool::new(false));
+        let o = thread::spawn({
+            let h = h.clone();
+            let (t_slot, o_in_batch) = (Arc::clone(&t_slot), Arc::clone(&o_in_batch));
+            let release = Arc::clone(&release);
+            move || {
+                h.batch(|| {
+                    o_in_batch.store(true, Ordering::SeqCst);
+                    assert!(
+                        eventually(BOUND, || {
+                            t_slot
+                                .lock()
+                                .unwrap()
+                                .is_some_and(wait_registered_for_testing)
+                        }),
+                        "T never waited for O's batch"
+                    );
+                    h.dispose();
+                    eventually(BOUND, || release.load(Ordering::SeqCst));
+                });
+            }
+        });
+        let t = thread::spawn({
+            let h = h.clone();
+            let t_returned = Arc::clone(&t_returned);
+            move || {
+                assert!(eventually(BOUND, || o_in_batch.load(Ordering::SeqCst)));
+                op.run(&h, "t");
+                t_returned.store(true, Ordering::SeqCst);
+            }
+        });
+        *t_slot.lock().unwrap() = Some(t.thread().id());
+        let returned = eventually(BOUND, || t_returned.load(Ordering::SeqCst));
+        release.store(true, Ordering::SeqCst);
+        let deadline = Instant::now() + 2 * BOUND;
+        join_by(o, deadline, "the batch owner");
+        join_by(t, deadline, "T");
+
+        assert!(
+            returned,
+            "{op:?} kept waiting for the batch owner after the disposal"
+        );
+        assert_eq!(count(&seen, "t"), 0, "{op:?}");
+    }
+}
+
+/// #1224 — a `batch` on a disposed hub runs its closure and returns its value,
+/// but owns nothing: a `send` from a third thread while the closure runs
+/// returns without waiting for it.
+#[test]
+fn a_batch_on_a_disposed_hub_runs_its_body_without_owning_the_hub() {
+    let h = MessageHub::new();
+    h.dispose();
+    let in_body = Arc::new(AtomicBool::new(false));
+    let sent = Arc::new(AtomicBool::new(false));
+    let t = thread::spawn({
+        let h = h.clone();
+        let (in_body, sent) = (Arc::clone(&in_body), Arc::clone(&sent));
+        move || {
+            h.batch(|| {
+                in_body.store(true, Ordering::SeqCst);
+                (eventually(BOUND, || sent.load(Ordering::SeqCst)), 42)
+            })
+        }
+    });
+    let sender = thread::spawn({
+        let h = h.clone();
+        move || {
+            assert!(eventually(BOUND, || in_body.load(Ordering::SeqCst)));
+            h.send(custom("s"));
+            sent.store(true, Ordering::SeqCst);
+        }
+    });
+    let deadline = Instant::now() + 2 * BOUND;
+    join_by(sender, deadline, "the sender");
+    let (send_returned_during_body, value) = join_by(t, deadline, "T");
+
+    assert_eq!(value, 42);
+    assert!(
+        send_returned_during_body,
+        "a send waited for a batch on a disposed hub"
+    );
+}

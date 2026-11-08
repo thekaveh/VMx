@@ -106,6 +106,13 @@ All notable changes to the C# flavor are documented here. The format is based on
   borrowers to release the hub completes `Messages`. The batch owner's exit no
   longer completes it inside an open borrowed scope, and a borrower's exit no
   longer completes it while the batch is still open (spec/03 §4.2 rule 3).
+- Fixed: the thread that owns a `MessageHub` batch now waits for another
+  thread's open borrowed scope before its nested `Batch` body runs (#1223,
+  ADR-0172). The wait records an edge to the borrower, as the owner's `Send`
+  and `Dispose()` already did. Before this fix, the nested body ran inside the
+  other thread's borrowed scope. When the wait would close a cycle, the
+  nested `Batch` enters a borrowed scope (spec/03 §4.1 and §4.2 rule 3).
+  Python and Swift already behaved this way.
 - Fixed: a `Construct()`, `Destruct()` or `Reconstruct()` call, or its async
   form, that starts during a VM's inline dispose cascade now throws
   `StatusTransitionException(Disposed, operation)` (#1174, ADR-0175, spec/02
