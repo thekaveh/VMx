@@ -334,6 +334,10 @@ the nested call completes its own state work and publishes once; the outer call
 performs no state work after its send returns. One message is published for each
 accepted unequal assignment.
 
+A `SetModel` nested in a preparation callback or an `ErrorsChanged` observer of
+another update commits at once, but its steps 8 to 10 wait for the outermost
+update on the thread (§5.4, *Nested updates*).
+
 The null/default hub keeps null-object behavior: the local edit transaction still
 settles and no exception is raised. A callback that fails during the transaction
 leaves the form unchanged (§5.4). Intentional publication of an equal/current
@@ -348,7 +352,10 @@ this order: mark the approval in flight, capture the model, raise
 `ApproveCommand.CanExecuteChanged` once, and only then invoke the persister. An
 edit made by an admission observer therefore races the persistence like any
 other edit, and an admission observer that disposes the form prevents the
-persister call.
+persister call. A nested approve call (§5.4) is admitted at once, but its
+`CanExecuteChanged` and its persister start wait for the outermost update. A
+`Dispose()` after admission but before the persister starts prevents the
+persister call (§10).
 
 While an approval is in flight:
 
@@ -513,12 +520,63 @@ replay runs the whole update again, preparation included.
 
 A callback may still re-enter the form from the thread that is preparing. If,
 by the time preparation completes, that re-entry has disposed the form or
-committed another update (a nested `SetModel`, deny, approval commit, or
-reset), the prepared result is stale: the outer call returns without committing
-or publishing, and the newest committed state stands. A nested update therefore
+committed another update (a nested `SetModel` or deny), the prepared result
+is stale: the outer call returns without committing or publishing, and the
+newest committed state stands. A nested update therefore
 never overwrites or is overwritten by the outer one it interrupted. Disposal's
 own effects (§10) still occur; the abandoned update adds no notification of its
 own.
+
+A nested approve call only admits the approval. Its persister starts after the
+outermost update, so its commit never interrupts a preparation.
+
+**Nested updates (spec v3.30, ADR-0180).** A call is *nested* when its thread
+is running a `SetModel` or deny and the call comes from a preparation callback
+of that update (an equality comparison, a validator, or the snapshotter of
+deny), or from an `ErrorsChanged` observer that the outermost update is
+delivering. Nested calls are `SetModel`, deny, `ApproveAsync`, and
+`ApproveCommand.Execute()`. The first `SetModel` or deny on the thread is the
+*outermost update*. A call from a `CanExecuteChanged` observer or a hub
+subscriber is not nested; it notifies at once (§5.2). A call from a settlement
+notification follows §5.3 and is not nested either. These rules apply:
+
+1. **State work at once.** A nested `SetModel` or deny prepares and commits at
+   once, under the rules above. A nested approve call is admitted or refused at
+   once (§5.3). A nested call inside a pre-publication window (§5.3), or one
+   that takes a refused-wait result (§5.5), is queued as a call and has no
+   notifications.
+1. **Queued notifications.** A nested call sends no notification before it
+   returns. It adds its `ErrorsChanged`, `CanExecuteChanged`, and hub messages
+   to the queue of the outermost update on its thread. The outermost update
+   adds its own notifications to the same queue.
+1. **Send.** The outermost update sends the queue before it returns, with no
+   form lock held. First it sends each `ErrorsChanged`, in commit order, inside
+   the update scope of its commit (§5.5). Then it sends the other
+   notifications in the order the calls committed or were admitted. Each
+   update keeps its §5.2 order.
+1. **Persister start.** The persister of a nested approval starts after the
+   outermost update sends the queue, and before that update returns. A flavor
+   that starts the command-path persister in a scheduled task schedules the
+   task at that point. The outermost update then replays its §5.5 queue. The
+   approval routes its outcome as §5.3 states when it settles: to the awaiter
+   of a nested `ApproveAsync`, or to `ApproveErrors` on the command path.
+1. **No wait.** A nested call never waits for another thread's publication
+   scope. While another thread holds one, the call takes the refused-wait
+   result of §5.5 for its kind.
+1. **Disposal.** A notification that a nested call queued is not sent once the
+   form is disposed. The outermost update checks for disposal before it sends
+   each one, as a queued call replays as a no-op after disposal (§5.5). The
+   outermost update's own notifications keep their §5.5 behavior. A nested
+   approval whose persister has not started does not start it (§10).
+
+A nested call therefore returns before its observers run, and all of its
+notifications arrive before the outermost update returns.
+
+**Limitation.** A callback that blocks until a nested approval settles never
+returns, because that approval's persister starts only after the callback
+returns. Examples are Python `asyncio.run(form.approve_async())` and C#
+`ApproveAsync().GetAwaiter().GetResult()` in a validator. Use the command path,
+or await the approval after the callback returns.
 
 Flavor notes:
 
@@ -527,6 +585,10 @@ Flavor notes:
   with the form unchanged and leaves no lock poisoned or held.
 - Swift validators and the injected `equals` cannot throw, so only the
   re-entrancy and disposal rules apply.
+- Rust `approve()` is synchronous. A nested `approve()` returns `Ok(())` once
+  it is admitted. Its deferred approval routes a failure to `approve_errors`,
+  as the command path does. A panic resumes from the outermost update after
+  its queue and replays, unless an earlier panic wins (#740).
 
 The approval reset of §5.1 already prepares before it commits and is unchanged.
 A `SetModel` or deny that one of its callbacks makes is queued (§5.3). This
@@ -539,8 +601,8 @@ thread, so no form call waits for another thread.
 
 **No delivery under a lock.** A form delivers no notification while it holds
 its state lock (§5.4), or another lock that a form call or `Dispose()` waits
-for. The one exception is an update nested in a preparation callback. When
-that update notifies is not yet decided (#1173).
+for. An update nested in a preparation callback queues its notifications for
+the outermost update, which sends them after it releases the lock (§5.4).
 
 **Publication scopes.** A *publication scope* is a span in which one thread,
 the *publisher*, delivers form notifications while other threads' form calls
@@ -629,9 +691,6 @@ state is the same:
 - A Swift `SetModel` or deny in its own thread's pre-publication window joins
   that thread's queue without waiting. C#, Python, and Rust first wait for
   another thread's scope. The call is queued either way.
-- A call nested in a preparation callback, while another thread holds a scope,
-  waits in C# and Python. Swift takes the refused result, and Rust proceeds
-  without waiting (#1173).
 - After a refused `Dispose()`, C# and Rust wake the scope waiters at once.
   Python and Swift waiters wake when the publisher's scope closes. Either way
   they find the form disposed.
@@ -755,9 +814,18 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   signal emission.
 - A `Dispose()` that lands *during* an in-flight persist suppresses the
   post-await state mutation and emissions (the persister itself, already
-  running, completes normally), including the settlement notifications of §5.3. A persister *failure* that lands after
-  `Dispose()` is likewise dropped — it is **not** re-surfaced on `ApproveErrors`
+  running, completes normally), including the settlement notifications of
+  §5.3. A persister *failure* that lands after `Dispose()` is likewise dropped — it is **not** re-surfaced on `ApproveErrors`
   (which has already completed).
+- A `Dispose()` after an approval's admission, but before its persister
+  starts, prevents the persister call (ADR-0180). This covers a disposal from
+  an admission observer (§5.3), a disposal before a nested approval's deferred
+  start (§5.4), and a disposal before a command-path persister task starts.
+  The approval then settles silently: no notification, no outcome on
+  `OnApproved` or `ApproveErrors`, and the awaiter of `ApproveAsync` completes
+  normally.
+- Notifications that nested calls queued for the outermost update (§5.4) are
+  not sent once the form is disposed.
 - `Dispose()` is idempotent.
 
 ## 11. Conformance
@@ -876,6 +944,14 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   later replays or unsettle the approval. After the last replay, the first
   replay failure reaches the approval's failure route once, and a failure that
   an `OnApproved` subscriber propagates wins over it (§5.3, §5.4).
+- `FORM-041` — A `SetModel` or deny nested in a validator, or a `SetModel` from
+  an `ErrorsChanged` observer, returns before its notifications. The outermost
+  update sends them, error maps first, then the rest in commit order, before
+  it returns (§5.4).
+- `FORM-042` — An approve call nested in a validator and followed by
+  `Dispose()` never calls the persister, and the queued notifications of nested
+  calls are dropped after disposal. A `Dispose()` before a scheduled
+  command-path persister starts prevents the call (§5.4, §10).
 
 `DISP-004` adds the cross-cutting assertion that repeated disposal completes
 owned form channels and commands at most once while preserving `FORM-014`.
