@@ -157,6 +157,10 @@ simplest and most common-sense approach chosen.
   neither the registration nor its errors are lost. Committing it at once in
   a second scope was rejected. `OnApproved` observers could then see another
   thread's edit, which ADR-0174 rule 7 forbids.
+- Decided under the owner's 2026-11-07 delegation: in its own thread's
+  pre-publication window, a Rust revalidation commits at once, as before. It
+  is not queued like `SetModel`. The registration is not a model edit, and
+  queueing it would change behavior that no ticket reports.
 - Decided under the owner's 2026-11-07 delegation: a refused update replays on
   the publisher, and its replay failure takes the publisher's failure route.
   This is ADR-0174 rule 6 applied to one more caller. The call already ran its

@@ -578,7 +578,8 @@ form. The registration takes effect at once, and its revalidation is an update.
 It waits like `SetModel`, delivers `errors_changed` in an update scope, and
 counts as a delivery outside a scope until it returns. When its wait is
 refused, the revalidation joins the publisher's queue and replays there as a
-new revalidation (#1231).
+new revalidation (#1231). In its own thread's pre-publication window, the
+revalidation commits at once, as before.
 
 **Refused waits.** A wait that would close a live cycle is refused, and the
 call does not wait. No call is lost:
