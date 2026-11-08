@@ -229,8 +229,10 @@ func releaseMembershipWaiters(of container: AnyObject) {
 /// without holding a per-subject send lock; this custom Subject mirrors that
 /// concurrency contract in Swift. Drop-in replacement for `PassthroughSubject`
 /// on the per-VM `propertyChangedSubject` and on every `FormVM` channel
-/// (ADR-0174). Subscribers receive each value in subscription order, as with
-/// `PassthroughSubject`; two concurrent `send(_:)` calls are not ordered.
+/// (ADR-0174). One `send(_:)` delivers to subscribers in subscription order;
+/// two concurrent `send(_:)` calls are not ordered. Like `PassthroughSubject`,
+/// it honors each subscriber's demand: a value that arrives while a
+/// subscriber has no outstanding demand is dropped for that subscriber.
 final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
     private final class TokenSubscription: Subscription {
         private weak var parent: VMxConcurrentSubject<Output, Failure>?
@@ -241,8 +243,7 @@ final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
             self.token = token
         }
         func request(_ demand: Subscribers.Demand) {
-            // Unlimited demand — mirrors PassthroughSubject's event-driven
-            // (non-backpressured) semantics for VMx property-change notifications.
+            parent?.addDemand(demand, token: token)
         }
         func cancel() {
             guard !cancelled else { return }
@@ -254,7 +255,9 @@ final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
     private final class Entry {
         let receiveValue: (Output) -> Subscribers.Demand
         let receiveCompletion: (Subscribers.Completion<Failure>) -> Void
+        // Both are guarded by the subject's `lock`.
         var cancelled: Bool = false
+        var demand: Subscribers.Demand = .none
         init(
             receiveValue: @escaping (Output) -> Subscribers.Demand,
             receiveCompletion: @escaping (Subscribers.Completion<Failure>) -> Void
@@ -275,9 +278,26 @@ final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
         let isFinished = finished
         lock.unlock()
         if isFinished { return }
-        for entry in snapshot where isLive(entry) {
-            _ = entry.receiveValue(value)
+        for entry in snapshot where claimDemand(entry) {
+            // No lock is held while the subscriber runs.
+            let more = entry.receiveValue(value)
+            if more > .none {
+                lock.lock()
+                if !entry.cancelled { entry.demand += more }
+                lock.unlock()
+            }
         }
+    }
+
+    /// Takes one unit of demand from a live entry under `lock`. Returns
+    /// `false`, so the value is dropped for that entry, when it was cancelled
+    /// or has no outstanding demand, as `PassthroughSubject` does.
+    private func claimDemand(_ entry: Entry) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !entry.cancelled, entry.demand > .none else { return false }
+        if entry.demand != .unlimited { entry.demand -= 1 }
+        return true
     }
 
     /// Reads `cancelled` under `lock`; `removeSubscriber` sets it there.
@@ -285,6 +305,16 @@ final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
         lock.lock()
         defer { lock.unlock() }
         return !entry.cancelled
+    }
+
+    /// Adds demand that a subscriber requested through its subscription.
+    fileprivate func addDemand(_ demand: Subscribers.Demand, token: UUID) {
+        guard demand > .none else { return }
+        lock.lock()
+        if let entry = entries.first(where: { $0.token == token })?.entry {
+            entry.demand += demand
+        }
+        lock.unlock()
     }
 
     public func send(completion: Subscribers.Completion<Failure>) {

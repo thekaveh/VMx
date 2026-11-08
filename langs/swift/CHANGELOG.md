@@ -71,9 +71,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   waits (#1168, ADR-0174). `onApproved`, `approveErrors`, `errorsChanged` and
   `canExecuteChanged` of `approveCommand` and `denyCommand` now deliver
   through `VMxConcurrentSubject`, which holds no lock while a sink runs, as
-  C# and Python do. A sink can therefore run on two threads at once. Sinks
-  still receive each value in subscription order. The public types of the
-  commands do not change, and other commands keep Combine delivery.
+  C# and Python do. A sink can therefore run on two threads at once, and a
+  sink that updates the form on each `canExecuteChanged` while another thread
+  edits it can recurse on its own thread. Sinks receive each value in
+  subscription order; the spec does not require this (open decision §2.5).
+  The public types of the commands do not change, and other commands keep
+  Combine delivery.
 - `FormVM` queues a `setModel` or deny that the approving thread makes from
   `resetOnApproved`, another callback of the approval's commit, or a
   settlement `errorsChanged` or `canExecuteChanged` sink (#1168, ADR-0174,
@@ -91,8 +94,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   preparation makes the outer call stale, so it is not queued. Each queued
   update now runs its validators once more, at call time.
 - `VMxConcurrentSubject`, the internal subject behind `ComponentVMBase`
-  property changes, now delivers in subscription order and reads a
-  subscription's cancelled flag under its lock.
+  property changes and the `FormVM` channels, now delivers in subscription
+  order and reads a subscription's cancelled flag under its lock. It also
+  honors subscriber demand, as `PassthroughSubject` does: a value sent while a
+  subscriber has no outstanding demand is dropped for that subscriber. Before,
+  it delivered every value, so a demand-limited subscriber broke. For example,
+  `for await` over `propertyChanged.values` or `errorsChanged.values` trapped
+  with "Received an output without requesting demand".
 - `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
   before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
   updated `keys2`. Before, an entry that a `keys1` subscriber added during
