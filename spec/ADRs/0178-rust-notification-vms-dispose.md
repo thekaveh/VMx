@@ -48,7 +48,8 @@ disposes each removed VM. The rules follow the other flavors and the Rust
   notification state, never the view model, so a kept command creates no
   reference cycle.
 - After disposal, `dismiss()`, `approve()`, `reject()` and `advance_by_ms()`
-  are inert. The lifespan clock stops, as the other flavors cancel the timer.
+  are inert. The auto-dismiss timer stops, as the other flavors cancel their
+  auto-dismiss timer. The remaining-time values need not match across flavors.
 - Decided under the owner's 2026-11-07 delegation: after disposal,
   `is_resolved()` keeps the value it had at disposal and no longer reads the
   hub. The other flavors release their pending subscription at disposal, so a

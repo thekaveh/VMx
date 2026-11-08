@@ -147,7 +147,9 @@ impl NotificationState {
     /// Reports whether the lifespan clock must stop: the VM is resolved or
     /// disposed.
     fn is_inert(&self) -> bool {
-        lock(&self.flags).disposed || self.is_resolved()
+        // Release the flags lock before is_resolved() takes it again.
+        let disposed = lock(&self.flags).disposed;
+        disposed || self.is_resolved()
     }
 
     /// Advances the clock and returns the remaining lifespan.
@@ -325,6 +327,9 @@ impl ConfirmationVm {
     }
 
     /// Returns the hub's current reaction for this confirmation.
+    ///
+    /// This reads the hub even after [`Self::dispose`], so it can report a
+    /// reaction that arrived after disposal while `is_resolved()` stays frozen.
     pub fn reaction(&self) -> NotificationReaction {
         let state = &self.notification_vm.state;
         state.hub.reaction(state.notification.id)
