@@ -4,16 +4,18 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import stat
 import sys
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from zipfile import BadZipFile, ZipFile
 
 REPO_URL = "https://github.com/thekaveh/VMx"
+REPO_ROOT = Path(__file__).resolve().parents[1]
 FRAMEWORKS = {"net8.0", ".NETStandard2.0"}
 _CORE_PROPERTIES = re.compile(
     r"^package/services/metadata/core-properties/(?:[0-9a-f]+|nuget)\.psmdcp$"
@@ -47,9 +49,20 @@ README_IMAGE_HOSTS = {"raw.githubusercontent.com"}
 README_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif")
 _FENCED_CODE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
-_HTML_TARGET = re.compile(
-    r"""<(img|a|source)\b[^>]*?\b(?:src|href|srcset)\s*=\s*["']([^"']+)["']""", re.IGNORECASE
+# nuget.org renders package READMEs with Markdig, and NuGet's list of supported
+# Markdown features has no raw HTML. Match the CommonMark raw HTML forms: open
+# and closing tags, comments, processing instructions, declarations and CDATA.
+# An autolink such as <https://...> is not a tag, because ':' cannot follow a
+# tag name.
+_TAG_NAME = r"[A-Za-z][A-Za-z0-9-]*"
+_ATTRIBUTE = r"""\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?"""
+_RAW_HTML = re.compile(
+    rf"(?<!\\)<(?:{_TAG_NAME}(?:{_ATTRIBUTE})*\s*/?>|/{_TAG_NAME}\s*>"
+    r"|!--.*?-->|\?.*?\?>|![A-Za-z][^>]*>|!\[CDATA\[.*?\]\]>)",
+    re.DOTALL,
 )
+# A CommonMark autolink; not the <...> form of an inline link destination.
+_AUTOLINK = re.compile(r"(?<!\\)(?<!\]\()<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*)>")
 # An optional "...", '...' or (...) title after an inline destination (CommonMark).
 _TITLE = re.compile(r"""\s+(?:"[^"]*"|'[^']*'|\([^)]*\))""")
 _REFERENCE_LABEL = re.compile(r"\[([^\]]*)\]")
@@ -159,26 +172,74 @@ def _inline_targets(
     return targets
 
 
-def validate_readme(text: str, package_id: str) -> list[str]:
-    """Return errors for a packaged README that would not render outside the repository."""
+def _repository_path(url: str) -> tuple[list[str], bool] | None:
+    """Map a URL to a path on this repository's main branch.
+
+    Return the path segments and whether they must name a directory, or None
+    when the URL does not point into the repository's main branch.
+    """
+    parts = urlsplit(url)
+    host = parts.netloc.lower()
+    segments = [unquote(segment) for segment in parts.path.split("/")[1:]]
+    if len(segments) < 2 or [s.casefold() for s in segments[:2]] != ["thekaveh", "vmx"]:
+        return None
+    rest = segments[2:]
+    if host == "github.com" and rest[:2] in (["blob", "main"], ["tree", "main"], ["raw", "main"]):
+        path, directory = rest[2:], rest[0] == "tree"
+    elif host == "raw.githubusercontent.com" and rest[:1] == ["main"]:
+        path, directory = rest[1:], False
+    else:
+        return None
+    return [segment for segment in path if segment], directory
+
+
+def _repository_path_exists(repo_root: Path, segments: list[str], *, directory: bool) -> bool:
+    """Return whether the segments name an entry with exactly that spelling.
+
+    GitHub paths are case-sensitive, so each segment must match a directory
+    entry exactly, even on a case-insensitive file system.
+    """
+    current = repo_root
+    for segment in segments:
+        try:
+            names = {entry.name for entry in os.scandir(current)}
+        except OSError:
+            return False
+        if segment not in names:
+            return False
+        current = current / segment
+    return current.is_dir() if directory else current.is_file()
+
+
+def validate_readme(text: str, package_id: str, *, repo_root: Path = REPO_ROOT) -> list[str]:
+    """Return errors for a packaged README that would not render outside the repository.
+
+    A URL into this repository's main branch must name a path that exists in
+    repo_root, the checked-out tree. A published README cannot change, so a
+    dangling path there would stay broken on nuget.org.
+    """
     errors: list[str] = []
     first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
     if first_line != f"# {package_id}":
         errors.append(f"README must open with the heading '# {package_id}'")
     prose = _INLINE_CODE.sub("", _FENCED_CODE.sub("", text))
+    for match in _RAW_HTML.finditer(prose):
+        tag = " ".join(match.group().split())
+        errors.append(f"README uses raw HTML, which nuget.org does not render: {tag}")
     definitions = {
         _label(label): url for label, url in reversed(_REFERENCE_DEFINITION.findall(prose))
     }
     uses: dict[str, set[bool]] = {}
-    targets = _inline_targets(_REFERENCE_DEFINITION.sub("", prose), definitions, uses)
-    targets += [(tag.lower() != "a", url) for tag, url in _HTML_TARGET.findall(prose)]
+    body = _REFERENCE_DEFINITION.sub("", prose)
+    targets = _inline_targets(body, definitions, uses)
+    targets += [(False, url) for url in _AUTOLINK.findall(body)]
     # A definition gets the rules of each way it is used; an unused one is a link.
     targets += [
         (is_image, url)
         for label, url in definitions.items()
         for is_image in sorted(uses.get(label, {False}))
     ]
-    for is_image, url in targets:
+    for is_image, url in dict.fromkeys(targets):
         kind = "image" if is_image else "link"
         if url.startswith("#") and not is_image:
             continue
@@ -190,6 +251,11 @@ def validate_readme(text: str, package_id: str) -> list[str]:
             errors.append(f"README image host is not allowed: {url}")
         elif is_image and not parts.path.lower().endswith(README_IMAGE_SUFFIXES):
             errors.append(f"README image must be PNG, JPEG, or GIF: {url}")
+        repository_path = _repository_path(url)
+        if repository_path and not _repository_path_exists(
+            repo_root, repository_path[0], directory=repository_path[1]
+        ):
+            errors.append(f"README {kind} names a path missing from the checked-out tree: {url}")
     return errors
 
 
@@ -282,7 +348,12 @@ def _validate_nuspec(
 
 
 def validate_package_pair(
-    package_dir: Path, package_id: str, version: str, vmx_floor: str | None
+    package_dir: Path,
+    package_id: str,
+    version: str,
+    vmx_floor: str | None,
+    *,
+    repo_root: Path = REPO_ROOT,
 ) -> list[str]:
     """Return contract errors for one main/symbol package pair."""
     errors: list[str] = []
@@ -322,7 +393,7 @@ def validate_package_pair(
                     except UnicodeDecodeError:
                         errors.append(f"{archive.name}: README.md is not UTF-8")
                     else:
-                        for error in validate_readme(readme, package_id):
+                        for error in validate_readme(readme, package_id, repo_root=repo_root):
                             errors.append(f"{archive.name}: {error}")
                 nuspec = f"{package_id}.nuspec"
                 if nuspec in paths:
@@ -356,10 +427,15 @@ def discover_expected(project_root: Path) -> dict[str, tuple[str, str | None]]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    repo = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package-dir", type=Path, required=True)
-    parser.add_argument("--project-root", type=Path, default=repo / "langs" / "csharp" / "src")
+    parser.add_argument("--project-root", type=Path, default=REPO_ROOT / "langs" / "csharp" / "src")
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=REPO_ROOT,
+        help="checked-out tree that README URLs into the main branch must resolve against",
+    )
     args = parser.parse_args(argv)
     expected = discover_expected(args.project_root)
     if not expected:
@@ -371,7 +447,9 @@ def main(argv: list[str] | None = None) -> int:
     errors = [
         error
         for package_id, (version, vmx_floor) in expected.items()
-        for error in validate_package_pair(args.package_dir, package_id, version, vmx_floor)
+        for error in validate_package_pair(
+            args.package_dir, package_id, version, vmx_floor, repo_root=args.repo_root
+        )
     ]
     if errors:
         for error in errors:
