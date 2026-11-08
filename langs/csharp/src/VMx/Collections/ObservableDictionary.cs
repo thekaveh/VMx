@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.ExceptionServices;
 using VMx.Messages;
 using VMx.Services;
 
@@ -461,16 +462,12 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
 
     private void OnAdded(TKey1 key1, TKey2 key2, TValue value, int index)
     {
-        // 1. Raise granular local event first.
-        ItemAdded?.Invoke(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value));
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Add,
-            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value)));
-        // 2. Publish to hub (if present).
-        _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForAdd(
-            this,
-            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value),
-            CurrentIndex(key1, key2, index)));
+        var entry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value);
+        Notify(
+            () => ItemAdded?.Invoke(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value)),
+            new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, entry),
+            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForAdd(
+                this, entry, CurrentIndex(key1, key2, index)));
     }
 
     // The entry's position now: a handler may have removed an entry or cleared.
@@ -484,41 +481,50 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
 
     private void OnRemoved(TKey1 key1, TKey2 key2, TValue value)
     {
-        // 1. Raise granular local event first.
-        ItemRemoved?.Invoke(this, new DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>(key1, key2, value));
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Remove,
-            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value)));
-        // 2. Publish to hub (if present).
-        _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(
-            this,
-            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value),
-            -1));
+        var entry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value);
+        Notify(
+            () => ItemRemoved?.Invoke(this, new DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>(key1, key2, value)),
+            new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, entry),
+            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(this, entry, -1));
     }
 
     private void OnReplaced(TKey1 key1, TKey2 key2, TValue newValue, TValue oldValue)
     {
-        // 1. Raise granular local event first.
-        ItemReplaced?.Invoke(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue));
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Replace,
-            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue),
-            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue)));
-        // 2. Publish to hub (if present).
-        _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(
-            this,
-            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue),
-            new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue),
-            -1));
+        var newEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue);
+        var oldEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue);
+        Notify(
+            () => ItemReplaced?.Invoke(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue)),
+            new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, newEntry, oldEntry),
+            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(this, newEntry, oldEntry, -1));
     }
 
     private void OnReset()
     {
-        // 1. Raise local events first.
-        Reset?.Invoke(this, EventArgs.Empty);
-        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Reset));
-        // 2. Publish to hub (if present).
-        _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReset(this));
+        Notify(
+            () => Reset?.Invoke(this, EventArgs.Empty),
+            new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset),
+            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReset(this));
+    }
+
+    // Raises the granular event, then CollectionChanged, then sends the hub
+    // message (if a hub is present). A throwing local handler skips neither the
+    // later local event nor the hub message for the committed change; the
+    // first failure is rethrown after publication (spec/01 §1.4, ADR-0171).
+    private void Notify(
+        Action granular,
+        NotifyCollectionChangedEventArgs args,
+        Func<CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>> message)
+    {
+        ExceptionDispatchInfo? firstFailure = null;
+        try { granular(); }
+        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
+        try { CollectionChanged?.Invoke(this, args); }
+        catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+        if (_hub is not null)
+        {
+            try { _hub.Send(message()); }
+            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+        }
+        firstFailure?.Throw();
     }
 }

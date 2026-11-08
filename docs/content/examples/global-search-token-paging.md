@@ -17,10 +17,15 @@ Global all-notes search is the scenario path that demonstrates
   their continuation. The Python showcase then refreshes for the edited term.
 - Load More is not available while a refresh runs. A call made during a
   refresh does nothing, so the results never mix two terms.
+- In Swift and Rust, a load that passed its check just before a refresh began
+  can still start during that refresh, and the composition then discards the
+  refresh. When the results then show an older term than the refresh fetched,
+  the view model searches again.
 - The search explicitly owns every lifecycle-bearing result VM it creates. This
   includes results that are later replaced, equality-suppressed, or returned by
   stale asynchronous work.
-- C#, Python, TypeScript, and Swift use the same conceptual flow.
+- C#, Python, TypeScript, Swift, and the Rust TUI search use the same
+  conceptual flow and follow the same term and refresh rules.
 
 ## 8.6.2. Where It Lives
 
@@ -32,13 +37,16 @@ Global all-notes search is the scenario path that demonstrates
   `viewmodels/globalSearchVM.ts` in the React flagship
 - Swift:
   `Sources/NotesShowcaseCore/ViewModels/` in the Swift flagship core target
+- Rust:
+  `GlobalSearchVm` in `src/viewmodels.rs` of the Rust TUI companion
 
 Use the per-flavor READMEs and source tree for the exact repository method names
 and host wiring:
 [C#](../../../examples/csharp/avalonia/NotesShowcase/README.md),
 [Python](../../../examples/python/textual/notes_showcase/README.md),
 [TypeScript](../../../examples/typescript/react/notes-showcase/README.md),
-[Swift](../../../examples/swift/notes-showcase/README.md).
+[Swift](../../../examples/swift/notes-showcase/README.md),
+[Rust](../../../examples/rust/README.md).
 
 ## 8.6.3. Result Ownership
 
@@ -51,14 +59,16 @@ late result produced by already-running asynchronous work.
 
 This local ownership boundary prevents refresh, same-page equality suppression,
 or superseded fetches from making a constructed result unreachable before its
-lifecycle closes. Rust's TUI search stores cloned `NoteModel` values rather than
-lifecycle-bearing result VMs, so it does not need this registry.
+lifecycle closes. Rust's TUI search stores `SearchHit` values, each a cloned
+`NoteModel` with the term that found it, rather than lifecycle-bearing result
+VMs, so it does not need this registry.
 
 ## 8.6.4. Token Types
 
 The token is opaque, and `null` / `None` / `nil` both requests the first page
 and ends paging. The four showcases use a private cursor record. It holds the
-search term and the repository's string offset. For an integer offset or page
+search term and the repository's string offset. The Rust TUI search uses a
+`SearchCursor` with the term and a `usize` offset. For an integer offset or page
 cursor, C# needs a token type that can hold `null`: use `int?`, where `0` is a
 valid cursor, rather than `int`, which cannot say "no next page". With
 `int`, the `TokenPagedComposition` constructor throws

@@ -996,14 +996,20 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> 
 }
 
 impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M> {
-    /// Returns [`HierarchicalVm::children`], which tree traversal such as
-    /// `walk` and `find` uses.
+    /// Returns [`HierarchicalVm::children`].
     ///
     /// # Panics
     ///
     /// Panics under the same conditions as [`HierarchicalVm::children`].
     fn children_nodes(&self) -> Vec<Self> {
         self.children()
+    }
+
+    /// Returns [`HierarchicalVm::try_children`], which [`walk`],
+    /// [`walk_expanded`] and [`find`] use. Invalid factory output returns the
+    /// error and leaves this node unmaterialized and retryable (ADR-0170).
+    fn try_children_nodes(&self) -> VmxResult<Vec<Self>> {
+        self.try_children()
     }
 }
 
@@ -1098,46 +1104,65 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
 }
 
 /// Returns a depth-first pre-order snapshot rooted at `root`.
-pub fn walk<T: TreeNode>(root: &T) -> Vec<T> {
+///
+/// # Errors
+///
+/// Returns the error of [`TreeNode::try_children_nodes`], such as
+/// [`VmxError::InvalidArgument`] for a [`HierarchicalVm`] whose lazy children
+/// factory returns structurally invalid output (spec/13 §6, ADR-0170). That
+/// node stays unmaterialized, and a later walk retries the factory.
+pub fn walk<T: TreeNode>(root: &T) -> VmxResult<Vec<T>> {
     let mut nodes = vec![root.clone()];
-    for child in root.children_nodes() {
-        nodes.extend(walk(&child));
+    for child in root.try_children_nodes()? {
+        nodes.extend(walk(&child)?);
     }
-    nodes
+    Ok(nodes)
 }
 
 /// Returns the first depth-first node matching `predicate`.
-pub fn find<T: TreeNode, F>(root: &T, predicate: F) -> Option<T>
+///
+/// # Errors
+///
+/// Returns the error of [`TreeNode::try_children_nodes`], as [`walk`] does,
+/// when the search reaches a node whose children fail to load before it finds
+/// a match.
+pub fn find<T: TreeNode, F>(root: &T, predicate: F) -> VmxResult<Option<T>>
 where
     F: Fn(&T) -> bool,
 {
     find_inner(root, &predicate)
 }
 
-fn find_inner<T: TreeNode, F>(root: &T, predicate: &F) -> Option<T>
+fn find_inner<T: TreeNode, F>(root: &T, predicate: &F) -> VmxResult<Option<T>>
 where
     F: Fn(&T) -> bool,
 {
     if predicate(root) {
-        return Some(root.clone());
+        return Ok(Some(root.clone()));
     }
-    for child in root.children_nodes() {
-        if let Some(found) = find_inner(&child, predicate) {
-            return Some(found);
+    for child in root.try_children_nodes()? {
+        if let Some(found) = find_inner(&child, predicate)? {
+            return Ok(Some(found));
         }
     }
-    None
+    Ok(None)
 }
 
 /// Returns a depth-first snapshot while skipping collapsed descendants.
-pub fn walk_expanded<T: TreeNode>(root: &T) -> Vec<T> {
+///
+/// # Errors
+///
+/// Returns the error of [`TreeNode::try_children_nodes`], as [`walk`] does,
+/// for a descended node whose children fail to load. A collapsed node's
+/// children are not read.
+pub fn walk_expanded<T: TreeNode>(root: &T) -> VmxResult<Vec<T>> {
     let mut nodes = vec![root.clone()];
     if root.expandable().is_none_or(Expandable::is_expanded) {
-        for child in root.children_nodes() {
-            nodes.extend(walk_expanded(&child));
+        for child in root.try_children_nodes()? {
+            nodes.extend(walk_expanded(&child)?);
         }
     }
-    nodes
+    Ok(nodes)
 }
 
 #[cfg(test)]

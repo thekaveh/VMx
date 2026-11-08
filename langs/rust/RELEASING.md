@@ -99,8 +99,11 @@ Before publication, Rust 1.88 and stable jobs independently verify:
   lifecycle transitions, and command execution.
 
 A separate gate enforces 100% five-flavor conformance coverage and Rust fixture
-sync. The protected publish job repeats ancestry, version, package, and local
-consumer checks before either bootstrap or OIDC authentication.
+sync. Another runs `cargo audit --deny warnings` on `langs/rust/Cargo.lock`.
+The `release-metadata` preflight checks versions, tags, and release notes. The
+protected publish job waits for all of these jobs. It repeats ancestry,
+version, package, and local consumer checks before either bootstrap or OIDC
+authentication.
 
 After crates.io accepts the version, Rust 1.88 and stable consumers poll both
 crates.io and docs.rs, execute `cargo add vmx-rs@=X.Y.Z` in fresh projects, and

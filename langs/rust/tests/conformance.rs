@@ -9,6 +9,7 @@ mod conformance {
     mod builders;
     mod capabilities;
     mod child_transition_helper;
+    mod collection_failing_local_subscriber;
     mod collection_lookup_clones;
     mod collections;
     mod command_decorators;
@@ -51,6 +52,7 @@ mod conformance {
     mod reconstruct_command_parity;
     mod reverse_destruct_order;
     mod search_filter;
+    mod selection_transactions;
     mod subscribe_value;
     mod threading;
     mod token_clone_reentry;

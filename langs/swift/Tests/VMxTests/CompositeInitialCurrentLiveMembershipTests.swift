@@ -3,9 +3,9 @@
 //
 // The initial-current selector's pick is assigned through a non-raising
 // validated assignment (spec/06 §3.2): a pick that is no longer a member
-// when the construct walk assigns it is a silent no-op, and a contained
-// pick becomes `current` even when the walk resumes on a thread that holds
-// the membership transaction.
+// when the construct walk assigns it is a silent no-op. When the walk resumes
+// on a thread inside its own uncommitted membership transaction, the
+// assignment is also a silent no-op (spec/06 §4.3 rule 4, ADR-0173).
 //
 
 import Combine
@@ -95,7 +95,11 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
         XCTAssertEqual(currentChanges(), 0)
     }
 
-    func testContainedPickIsSelectedWhenTheWalkResumesOnTheAddingThread() throws {
+    /// The walk resumes on the adding thread before that add admits its child.
+    /// Under ADR-0173 rule 4 the assignment there is a silent no-op, so the
+    /// composite reaches Constructed with no current child. (#705 selected the
+    /// pick by joining the add's transaction; ADR-0173 replaced the join.)
+    func testWalkResumingInsideTheAddersUncommittedTransactionIsANoOp() throws {
         let hub = MessageHub()
         let dispatcher = ManualDispatcher()
         let lateStarted = DispatchSemaphore(value: 0)
@@ -147,7 +151,8 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
         }
 
         XCTAssertEqual(composite.status, .constructed)
-        XCTAssertTrue(composite.current === picked)
-        XCTAssertEqual(currentChanges(), 1)
+        XCTAssertNil(composite.current)
+        XCTAssertEqual(currentChanges(), 0)
+        XCTAssertTrue(composite.canSelectComponent(picked))
     }
 }

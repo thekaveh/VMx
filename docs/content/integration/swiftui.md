@@ -153,6 +153,8 @@ do {
 
 A non-child `current` assignment likewise has a throwing companion
 (`setCurrent(_:) throws`, throwing `CompositeMembershipError`); see ADR-0053 §2.2.
+It also throws for a child while disposal of the composite is pending, and for
+any value inside the caller's own uncommitted membership transaction (ADR-0173).
 
 ## 9.12.5. Fuller example
 

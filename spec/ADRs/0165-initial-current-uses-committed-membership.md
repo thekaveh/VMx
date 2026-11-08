@@ -86,3 +86,11 @@ assignment. The other flavors have open gaps, recorded in chapter 06 §3.2:
   released before publication (§4.2).
 - The destruct path still uses the strict clear. Its overlap with a foreign
   transaction is a separate defect.
+
+Note (2026-11-07): ADR-0173 extends these rules to every selection path and
+fixes the destruct clear. The destruct clear opens no transaction, never
+waits, holds the publication lease and is never refused (#1144, #1201). ADR-0173
+also closes the §3 gaps in TypeScript, Swift and Rust (#1149, #1150, #1151), so
+chapter 06 §3.2 lists none. It adds population to rule 1 (#1148). On the
+thread that owns an uncommitted transaction of the composite, the walk's
+assignment is a silent no-op.

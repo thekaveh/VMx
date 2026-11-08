@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-066` conformance tests: Swift local collection publishers cannot fail,
+  so each committed change reaches the hub once (#1051, ADR-0171).
 - `TreeSelection<TModel, TVM>`, an opt-in helper that tracks one current
   node per hierarchical tree (#667, ADR-0164, HIER-033..HIER-040). Construct
   it on a root node. `canSelect(_:)` walks only `parent` links and `status`,
@@ -65,12 +67,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `walk(_:)`, `walkExpanded(_:)` and `find(_:where:)` no longer trap when they
+  reach a `HierarchicalVM` whose lazy children factory returns invalid output
+  (#1060, ADR-0170, spec/13 §6.1). They are now `throws` and throw
+  `HierarchyError.invalidFactoryOutput`, so callers write `try`. The node
+  keeps no children cache, and a later walk retries the factory. The
+  `children` accessor and `isLeaf` still trap on such output.
 - `TokenPagedComposition`: a load that finds a terminal token when it starts now
   fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
   terminal token after the load command was admitted. The load then refetched
   page 1 and appended it again, and `hasMore` stayed true. The load now changes
   nothing and does not supersede an in-flight refresh.
-
+- `CompositeVM` selection follows ADR-0173 (spec/06 §4.3, #1145, #1150,
+  #1201). No selection path opens, joins or waits for a membership
+  transaction. The `current` setter, `setCurrent(_:)`, `selectComponent(_:)`,
+  `deselectComponent(_:)`, the child `select()`/`deselect()` paths, the
+  construct walk's assignment and the destruct clear commit under the shared
+  lane and the membership gate, so they no longer wait for another thread's
+  add, insert, removal or transfer. Before, a selection or a construct whose
+  hook waited for that thread could stall until a timeout.
+- `CompositeVM`: a child that an add, insert, replacement or population
+  attached but has not admitted is not a member (ADR-0173 rule 2).
+  `setCurrent(_:)` throws, and `canSetCurrent(_:)` and
+  `canSelectComponent(_:)` return `false`. The walk no longer selects such a
+  child. A moved child is admitted after its old parent's detach commit, so
+  its `isCurrent` flag matches the destination's `current` (`COMP-006`).
+- `CompositeVM`: while disposal is requested or deferred, a non-`nil`
+  selection is refused and a `nil` clear still commits (ADR-0173 rule 3).
+  The refusal also covers re-assigning the child that is already current, as
+  in C# and Python. After `Disposed`, selection stays inert, also inside the
+  composite's own hook, and `canSetCurrent(_:)` returns `true` for that
+  inert assignment of a member or `nil`.
+- `CompositeVM`: on the thread whose own membership transaction has not
+  committed yet, every selection call is refused and the walk's assignment
+  is a silent no-op (ADR-0173 rule 4). From the commit on, including the
+  add's `collectionChanged` delivery, that thread can select, for example
+  the child it just added. A construct walk that resumes inside the adding
+  thread's uncommitted add now leaves `current` `nil` (#705).
+- `CompositeVM`: `dispose()` from a thread that is publishing a selection
+  returns at once (ADR-0173 rule 5). The disposal runs when the publication
+  and any open transaction end, and the deferral stays set until `dispose()`
+  admits it.
+- `CompositeVM`: a detach clears `current` only while the detached child is
+  still current, so a selection made after a transfer's detach stays
+  (ADR-0173 rule 6). `remove`, `removeAt` and `clear` commit the clear in the
+  same section as the detach.
+- `CompositeVM` with `asyncSelection(true)`: the walk's assignment is
+  synchronous, so the composite reaches `Constructed` with its pick current
+  (ADR-0173 rule 7). The setter validates at call time and its delivery
+  validates again.
+- `CompositeVM.destruct()` always clears `current` (`COMP-005`, ADR-0173
+  rule 8). Before, a destruct inside the composite's own transaction, or
+  while disposal was deferred, skipped the clear without an error and
+  reached `Destructed` with `current` still set. The clear also commits
+  after the composite has published `Disposed`, as in C# and Python, for
+  example when another thread's dispose, or the subclass's own destruct
+  hook, disposes the composite while the destruct still runs.
+- `CompositeVM` refusals use the existing channels: `setCurrent(_:)`,
+  `selectComponent(_:)` and `deselectComponent(_:)` throw
+  `CompositeMembershipError`, the `current` setter traps (ADR-0009), and
+  `selectChild`/`deselectChild` are silent no-ops. The error's
+  `description` now names the reason. For a non-member it reads "Cannot set
+  current to 'X' in composite 'Y': not an admitted child of the composite."
+  instead of "Cannot set current to 'X': not a child of composite 'Y'."
 - `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
   before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
   updated `keys2`. Before, an entry that a `keys1` subscriber added during
@@ -257,8 +316,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `addChild` returns `.failure`, `reparentChild` throws the error, and
   `attachMany` records an `attachmentFailed` rejection and continues the batch.
   `removeChild` also returns `.failure(.invalidFactoryOutput)` (#737). The
-  `children` accessor and `isLeaf` still trap on such output, and so do
-  `walk`, `walkExpanded` and `find`, which read `children`.
+  `children` accessor and `isLeaf` still trap on such output.
 
 - A user object whose `deinit` calls back into the VMx primitive that drops
   it no longer deadlocks or traps. `MessageHub` releases delivered and dropped

@@ -159,6 +159,14 @@ export class ForwardingComponentVM<M> extends ComponentVMBase implements ICompon
     if (this._wrapped instanceof ComponentVMBase) this._wrapped._setIsCurrent(value);
   }
 
+  override _commitIsCurrent(value: boolean): boolean {
+    return this._wrapped instanceof ComponentVMBase && this._wrapped._commitIsCurrent(value);
+  }
+
+  override _publishIsCurrent(): void {
+    if (this._wrapped instanceof ComponentVMBase) this._wrapped._publishIsCurrent();
+  }
+
   canConstruct(): boolean { return this._wrapped.canConstruct(); }
   construct(): void { this._wrapped.construct(); }
   canDestruct(): boolean { return this._wrapped.canDestruct(); }
