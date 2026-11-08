@@ -270,10 +270,10 @@ released versions and the spec version each implements.
 
 ### 6.3 Conformance catalog
 
-`spec/` holds 24 chapters, 177 ADRs, 4 JSON fixtures, and the conformance
+`spec/` holds 24 chapters, 178 ADRs, 4 JSON fixtures, and the conformance
 catalog in `spec/12-conformance.md`. All five flavors implement its
-448 library conformance IDs, and the four UI-backed flagship apps cover
-5 additional THEME scenario IDs, for **453 total**. Rust has no UI scenario
+449 library conformance IDs, and the four UI-backed flagship apps cover
+5 additional THEME scenario IDs, for **454 total**. Rust has no UI scenario
 suite yet.
 `tools/check-conformance-coverage.py` enforces full catalog coverage, and
 [Specification & Conformance](docs/content/specification-conformance.md)
@@ -346,8 +346,8 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 177 ADRs,
-  4 fixtures, and the 453-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 178 ADRs,
+  4 fixtures, and the 454-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical
   documentation audit reports.
