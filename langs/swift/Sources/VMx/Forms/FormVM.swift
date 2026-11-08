@@ -45,8 +45,15 @@ public final class FormVM<Model> {
     private var commitGeneration: UInt64 = 0
     private var activeMutations = 0
     private var mutationTeardownPending = false
-    private var approvalPrePublishing = false
-    private var deferredApprovalModels: [Model] = []
+    // Updates during approval publication (§5.3, ADR-0174): the approving
+    // thread from the start of the post-persist commit until `onApproved`
+    // delivery starts, or 0. A `setModel` or deny on that thread prepares,
+    // then joins `deferredUpdates` instead of committing, and replays after
+    // the publication scope ends. `deferredGeneration` advances on each
+    // enqueue, so a queued nested update also makes a preparation stale.
+    private var approvalPrePublishingThread: UInt64 = 0
+    private var deferredUpdates: [DeferredUpdate] = []
+    private var deferredGeneration: UInt64 = 0
     // Single-flight admission (§5.3, ADR-0143): set when an approval is
     // admitted and cleared when it settles, both under `stateGate`. The gate
     // is never held while the persister runs or observers are notified.
@@ -68,8 +75,7 @@ public final class FormVM<Model> {
     // consumer callbacks. This counts those frames on the thread that holds
     // the gate. A call nested in one of them queues its notifications in
     // `pendingNotices`, and the outermost frame delivers them after it
-    // releases the gate. Another thread's sink may wait for the gate while
-    // it holds Combine's delivery lock.
+    // releases the gate, because another thread's sink may wait for the gate.
     private var preparationDepth = 0
     private var pendingNotices = Notices()
     // The thread that sends error maps inside its open publication scopes in
@@ -91,13 +97,20 @@ public final class FormVM<Model> {
     private var _errors: [String: String]
 
     // ── Reactive channels (sealed) ────────────────────────────────────────────
+    //
+    // Every channel, and `canExecuteChanged` of both commands, delivers
+    // through `VMxConcurrentSubject`, which holds no lock while a sink runs
+    // (#1168, ADR-0174 §2.1). A sink that updates or disposes the form can
+    // then wait for another thread's publication scope without blocking that
+    // thread's next send, as in C# and Python. One sink can run on two
+    // threads at once.
 
-    private let _onApproved = PassthroughSubject<Model, Never>()
-    private let _approveErrors = PassthroughSubject<Error, Never>()
-    private let _errorsChanged = PassthroughSubject<[String: String], Never>()
+    private let _onApproved = VMxConcurrentSubject<Model, Never>()
+    private let _approveErrors = VMxConcurrentSubject<Error, Never>()
+    private let _errorsChanged = VMxConcurrentSubject<[String: String], Never>()
     /// Fires when `isDirty` transitions in strict mode; wired as a trigger on
     /// `approveCommand` so that subscribers to `canExecuteChanged` are notified.
-    private let _approveCanExecSubject = PassthroughSubject<Void, Never>()
+    private let _approveCanExecSubject = VMxConcurrentSubject<Void, Never>()
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -230,15 +243,16 @@ public final class FormVM<Model> {
     /// call commits and publishes nothing, and the newest committed state
     /// stands. The notifications of an update made from such a callback are
     /// delivered after this call releases the form's state lock (#1057).
+    ///
+    /// Called on the approving thread from `resetOnApproved`, another
+    /// callback of the approval's commit, or a settlement `errorsChanged` or
+    /// `canExecuteChanged` sink, the call prepares, then is queued and
+    /// returns without changing the form. It replays after `onApproved` is
+    /// delivered (§5.3, ADR-0174).
     public func setModel(_ newModel: Model) {
         stateGate.lock()
         awaitForeignApprovalLocked()
         guard !_disposed else {
-            stateGate.unlock()
-            return
-        }
-        if approvalPrePublishing {
-            deferredApprovalModels.append(newModel)
             stateGate.unlock()
             return
         }
@@ -259,7 +273,10 @@ public final class FormVM<Model> {
         // re-entrant `stateGate`, which keeps updates serialized, and change
         // no form state.
         let base = updateBaseLocked()
-        guard !equals(base.model, newModel) else { return }
+        let queued = queuesUpdatesLocked
+        // A queued call is never skipped for equality: earlier queued calls
+        // can change the live model before it replays (§5.3).
+        guard !equals(base.model, newModel) || queued else { return }
         let wasDirty = !equals(base.model, base.snapshot)
         let nextErrors = Self.validate(
             newModel,
@@ -272,6 +289,11 @@ public final class FormVM<Model> {
         let canExecuteChanged =
             (strict && nextDirty != wasDirty) || nextErrors.isEmpty != wasValid
 
+        if queued {
+            // The call-time preparation is discarded; the replay prepares again.
+            enqueueLocked(.setModel(newModel), preparedAgainst: base)
+            return
+        }
         // Commit in one step, unless a re-entrant callback made the prepared
         // result stale.
         guard beginCommitLocked(base) else { return }
@@ -334,7 +356,8 @@ public final class FormVM<Model> {
         denyCommand = RelayCommand(
             task: { [weak self] in self?.performDeny() },
             predicate: nil,
-            triggers: []
+            triggers: [],
+            concurrentDelivery: true
         )
         approveCommand = RelayCommand(
             task: { [weak self] in
@@ -345,7 +368,8 @@ public final class FormVM<Model> {
             predicate: { [weak self] in
                 self?.canApprove() ?? false
             },
-            triggers: [_approveCanExecSubject.eraseToAnyPublisher()]
+            triggers: [_approveCanExecSubject.eraseToAnyPublisher()],
+            concurrentDelivery: true
         )
     }
 
@@ -375,6 +399,7 @@ public final class FormVM<Model> {
         // callbacks run under the re-entrant `stateGate`, which keeps updates
         // serialized, and change no form state.
         let base = updateBaseLocked()
+        let queued = queuesUpdatesLocked
         let nextModel = snapshotter(base.snapshot)
         let nextErrors = Self.validate(
             nextModel,
@@ -389,6 +414,12 @@ public final class FormVM<Model> {
         let canExecuteChanged =
             (strict && nextDirty != wasDirty) || nextValid != wasValid
 
+        if queued {
+            // Queued like `setModel` (§5.3): `onApproved` observers never see
+            // a revert that a settlement observer requests.
+            enqueueLocked(.deny, preparedAgainst: base)
+            return
+        }
         // Commit in one step, unless a re-entrant callback made the prepared
         // revert stale: a form disposed meanwhile is not reverted and
         // publishes no deny message.
@@ -490,12 +521,20 @@ public final class FormVM<Model> {
         }
     }
 
-    /// The committed state an update prepares against (§5.4).
+    /// The committed state an update prepares against (§5.4). `queued`
+    /// is the queue generation (§5.3).
     private struct UpdateBase {
         let generation: UInt64
+        let queued: UInt64
         let model: Model
         let snapshot: Model
         let errors: [String: String]
+    }
+
+    /// An update queued during an approval's pre-publication window (§5.3).
+    private enum DeferredUpdate {
+        case setModel(Model)
+        case deny
     }
 
     /// Reads the committed state for an update to prepare against. The caller
@@ -503,6 +542,7 @@ public final class FormVM<Model> {
     private func updateBaseLocked() -> UpdateBase {
         UpdateBase(
             generation: commitGeneration,
+            queued: deferredGeneration,
             model: _model,
             snapshot: _snapshot,
             errors: _errors
@@ -515,9 +555,50 @@ public final class FormVM<Model> {
     /// committed another update, while it was prepared; it is then dropped.
     /// Otherwise this advances the generation for the commit that follows.
     private func beginCommitLocked(_ base: UpdateBase) -> Bool {
-        guard !_disposed, commitGeneration == base.generation else { return false }
+        guard isCurrentLocked(base) else { return false }
         commitGeneration &+= 1
         return true
+    }
+
+    /// `false` when, since `base` was read, the form was disposed or another
+    /// update was committed or queued (§5.3, §5.4). The caller holds
+    /// `stateGate`.
+    private func isCurrentLocked(_ base: UpdateBase) -> Bool {
+        !_disposed && commitGeneration == base.generation && deferredGeneration == base.queued
+    }
+
+    /// `true` on the approving thread inside an approval's pre-publication
+    /// window (§5.3). The caller holds `stateGate`.
+    private var queuesUpdatesLocked: Bool {
+        approvalPrePublishingThread != 0 && approvalPrePublishingThread == Self.currentThread
+    }
+
+    /// Queues an update prepared against `base`, unless a re-entrant callback
+    /// disposed the form or made another update meanwhile (§5.3 rule 2). The
+    /// caller holds `stateGate`.
+    private func enqueueLocked(_ update: DeferredUpdate, preparedAgainst base: UpdateBase) {
+        guard isCurrentLocked(base) else { return }
+        deferredUpdates.append(update)
+        deferredGeneration &+= 1
+    }
+
+    /// Takes the queued updates. The caller holds `stateGate`.
+    private func takeDeferredUpdatesLocked() -> [DeferredUpdate] {
+        let updates = deferredUpdates
+        deferredUpdates.removeAll()
+        return updates
+    }
+
+    /// Replays queued updates in call order, each as a new call (§5.3 rule
+    /// 4): admission and preparation run again on the state at replay time,
+    /// so a call replayed after disposal does nothing.
+    private func replay(_ updates: [DeferredUpdate]) {
+        for update in updates {
+            switch update {
+            case .setModel(let model): setModel(model)
+            case .deny: performDeny()
+            }
+        }
     }
 
     /// The model captured by an admitted approval.
@@ -593,7 +674,7 @@ public final class FormVM<Model> {
         do {
             publication = try commitApproval(captured)
         } catch {
-            settleFailedApproval()
+            settleFailedApproval(replayingCommitQueue: true)
             throw error
         }
         guard let publication else { return }
@@ -602,13 +683,22 @@ public final class FormVM<Model> {
 
     /// Settles a failed approval: clears the in-flight mark, then raises
     /// `canExecuteChanged` once unless the form was disposed meanwhile.
-    private func settleFailedApproval() {
-        let disposed = withStateGate { () -> Bool in
+    ///
+    /// Only a failed post-persist commit passes `replayingCommitQueue`: the
+    /// updates that commit queued then replay, before the caller routes the
+    /// failure (§5.3 rule 4). They are taken with the mark cleared, before
+    /// another approval can be admitted. A persister failure has no window,
+    /// and it must not take the queue: this approval may have been admitted
+    /// during another thread's settlement, and that queue belongs to the
+    /// other approval, which replays it on its own thread.
+    private func settleFailedApproval(replayingCommitQueue: Bool = false) {
+        let (disposed, deferred) = withStateGate { () -> (Bool, [DeferredUpdate]) in
             approvalInFlight = false
-            return _disposed
+            return (_disposed, replayingCommitQueue ? takeDeferredUpdatesLocked() : [])
         }
         guard !disposed else { return }
         _approveCanExecSubject.send(())
+        replay(deferred)
     }
 
     /// Values an approval publishes once its state is committed.
@@ -621,11 +711,29 @@ public final class FormVM<Model> {
     /// mark, and marks this thread as the approval publisher. Returns `nil`
     /// when disposal suppressed the commit. A failed reset throws with the
     /// mark still set, for `settleFailedApproval` to clear.
+    ///
+    /// The pre-publication window opens before the commit's callbacks run, so
+    /// a `setModel` or deny from `resetOnApproved`, the snapshotter, or a
+    /// validator is queued and publishes nothing under the gate (§5.1, §5.3).
     private func commitApproval(_ captured: Model) throws -> ApprovalPublication? {
         stateGate.lock()
         defer { stateGate.unlock() }
         awaitForeignApprovalLocked()
-        guard let publication = try completeApproval(captured) else {
+        approvalPrePublishingThread = Self.currentThread
+        let committed: ApprovalPublication?
+        do {
+            committed = try completeApproval(captured)
+        } catch {
+            // The window ends with the failure; `settleFailedApproval`
+            // replays what the commit queued.
+            approvalPrePublishingThread = 0
+            throw error
+        }
+        guard let publication = committed else {
+            // Disposal suppressed the commit, and a replay after disposal
+            // does nothing.
+            approvalPrePublishingThread = 0
+            deferredUpdates.removeAll()
             approvalInFlight = false
             return nil
         }
@@ -633,12 +741,11 @@ public final class FormVM<Model> {
         // below sees an idle form and may start the next approval (§5.3).
         approvalInFlight = false
         enterPublicationLocked()
-        approvalPrePublishing = true
         return publication
     }
 
     /// Delivers a committed approval without holding `stateGate`, then admits
-    /// waiting threads and replays models deferred during pre-publication.
+    /// waiting threads and replays the updates queued during pre-publication.
     /// Settlement order (§5.3): `errorsChanged` when the commit changed the
     /// error map, one `canExecuteChanged`, then `onApproved`.
     private func publishApproval(_ publication: ApprovalPublication) {
@@ -651,14 +758,24 @@ public final class FormVM<Model> {
         // strict-mode change made by the commit.
         _approveCanExecSubject.send(())
         guard !isDisposed else { return }
-        withStateGate { approvalPrePublishing = false }
+        // The window ends when `onApproved` delivery starts: an update from
+        // an `onApproved` sink is an ordinary update.
+        withStateGate { approvalPrePublishingThread = 0 }
         _onApproved.send(publication.approved)
     }
 
+    /// Ends the approval's publication scope and replays its queue (§5.3
+    /// rule 4). The queue is taken before the scope closes, so another
+    /// thread's approval, which waits for the scope, cannot add to it. A
+    /// Swift approval commits from its own task after awaiting the persister,
+    /// so its scope never nests in another scope on this thread.
     private func finishApprovalPublication() {
-        withStateGate { approvalPrePublishing = false }
+        let deferred = withStateGate { () -> [DeferredUpdate] in
+            approvalPrePublishingThread = 0
+            return takeDeferredUpdatesLocked()
+        }
         exitPublication()
-        drainDeferredApprovalModels()
+        replay(deferred)
     }
 
     /// Marks this thread as the publisher. The caller holds `stateGate` after
@@ -748,15 +865,6 @@ public final class FormVM<Model> {
             approved: captured,
             errors: errorsChanged ? committedErrors : nil
         )
-    }
-
-    private func drainDeferredApprovalModels() {
-        let deferred = withStateGate { () -> [Model] in
-            let models = deferredApprovalModels
-            deferredApprovalModels.removeAll()
-            return models
-        }
-        for model in deferred { setModel(model) }
     }
 
     private func canApprove() -> Bool {
