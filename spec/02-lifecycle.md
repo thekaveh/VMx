@@ -383,6 +383,22 @@ ensures no orphaned `IDisposable` resources are left behind. A `GroupVM` or
 `CompositeVM` built with the `Reverse` destruct order disposes its children
 last child first (§6, ADR-0161).
 
+The order of the parent's `Disposed` publication depends on the hooks that run
+when `dispose()` starts (ADR-0179). A *foreign dispose* is a `dispose()` call
+while a construct or destruct hook of the parent is admitted on another thread
+(§2.4).
+
+- **Not foreign.** The parent disposes its children inline, under the rules of
+  §7.2. Every child reaches `Disposed` before the parent publishes `Disposed`
+  (`LIFE-013`). A dispose from the hook's own thread is not foreign.
+- **Foreign.** The parent publishes `Disposed` first. It then waits for the
+  hook, or defers its terminal cleanup to the hook's completion when the wait
+  would close a cycle (§2.4). After that, it disposes its children, before its
+  subclass dispose hook runs (`LIFE-015`).
+
+TypeScript runs its hooks on one thread, so a foreign dispose cannot occur
+there.
+
 Once disposal begins, a failure cannot abort the remaining terminal work.
 Every child is attempted in deterministic order before the parent completes
 its subclass hook, owned-resource cleanup, stream completion, and command
@@ -411,9 +427,13 @@ and Swift, and `own_member` in Rust (ADR-0162). Registration returns the member
 in C#, Python, TypeScript and Swift; Rust returns a `VmxResult<()>`.
 
 `dispose()` stops waiting for a pending child walk, then disposes the
-registered members in registration order before the parent publishes
-`Disposed`. Each member disposes its own children first, so the cascade stays
-depth-first (`LIFE-018`). A container disposes its children before its members.
+registered members in registration order. Each member disposes its own
+children first, so the cascade stays depth-first (`LIFE-018`). A container
+disposes its children before its members. The members follow the two orders of
+§7 (ADR-0179). For a dispose that is not foreign, every member reaches
+`Disposed` before the parent publishes `Disposed`. For a foreign dispose, the
+parent publishes `Disposed` first, waits for the hook (§2.4, `LIFE-015`), and
+then disposes the members before its subclass dispose hook.
 Member disposal is best-effort, as in §7: every member is attempted, and the
 first failure is reported after the parent's mandatory teardown. Swift
 disposal does not throw, so Swift attempts every member and reports nothing. A
@@ -421,16 +441,15 @@ member registered once the parent's disposal has started, or after it reached
 `Disposed`, is disposed at once. While the member cascade runs, any further
 `dispose()` of the parent returns at once without waiting and does nothing,
 whether it is re-entrant on the same thread or comes from another thread. The
-first call finishes the cascade and publishes `Disposed` only after the
-members, so a caller that returns early can observe the parent before it is
-`Disposed`. Registering the view-model itself is a usage error:
-`InvalidOperationException` in C#, `RuntimeError` in Python, `Error` in
-TypeScript, a trap in Swift (ADR-0009), and `VmxError::OwnershipCycle` in Rust.
-Member disposal follows the admitted-hook rule of §2.4 (`LIFE-015`) in the same
-way as the container cascade. It also follows the cascade rule of §7.2: a
-member dispose hook that calls `construct()` or `destruct()` on its leaf gets
-the lifecycle error, and the leaf commits no status other than `Disposed`
-(`LIFE-021`).
+first call finishes the cascade. For a dispose that is not foreign, it
+publishes `Disposed` only after the members, so a caller that returns early can
+observe the parent before it is `Disposed`. Registering the view-model itself
+is a usage error: `InvalidOperationException` in C#, `RuntimeError` in Python,
+`Error` in TypeScript, a trap in Swift (ADR-0009), and
+`VmxError::OwnershipCycle` in Rust. Member disposal also follows the cascade
+rule of §7.2: a member dispose hook that calls `construct()` or `destruct()` on
+its leaf gets the lifecycle error, and the leaf commits no status other than
+`Disposed` (`LIFE-021`).
 
 A member is not a container child. It has no parent link and no selection
 state, and registration does not construct it. A leaf that wants reverse
@@ -505,8 +524,8 @@ directly.
   child (`LIFE-016`), rolls the parent back on a child failure (`LIFE-017`),
   destructs in the order the caller passes (`LIFE-019`) and joins a child in
   transit (`LIFE-020`) (§6.1)
-- depth-first member disposal before the parent publishes `Disposed`
-  (`LIFE-018`, §7.1)
+- depth-first member disposal before the parent publishes `Disposed`, for a
+  dispose that is not foreign (`LIFE-018`, §7.1)
 - the inline dispose cascade: a lifecycle call that starts during it fails
   with the `Disposed` error and publishes nothing, and no status other than
   `Disposed` commits once it has started (`LIFE-021`, §7.2)
