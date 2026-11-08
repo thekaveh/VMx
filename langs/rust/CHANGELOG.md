@@ -107,6 +107,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
   now changes nothing and does not supersede an in-flight refresh. The ad hoc
   `load_more(loader)` call is unchanged.
 
+- A `FormVm` approval started from another approval's settlement notification
+  now runs its approval subscribers with model edits applied at once (#1160).
+  Before, the outer approval's pre-publication window stayed active, so those
+  subscribers' edits were deferred until the outer approval ended. Each
+  settlement now saves the enclosing pre-publication state, clears it before
+  its subscribers run and restores it when it ends, as C# and Python do. Edits
+  made by the outer notification still wait for the outer subscribers.
 - `CompositeVm`, `GroupVm` and `AggregateVm1`…`AggregateVm6` no longer dispose
   their children while their admitted construct or destruct hook runs on another
   thread (#1062, LIFE-015). The child cascade now runs at the hook boundary of

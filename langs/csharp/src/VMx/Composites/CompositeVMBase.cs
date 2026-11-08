@@ -475,6 +475,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <summary>Test-only access to the late-child start claims.</summary>
     internal LateChildStarts LateStartsForTesting => _lateStarts;
 
+    /// <summary>Whether a thread holds this container's membership transaction.</summary>
+    internal bool MembershipTransactionActiveForTesting
+    {
+        get { lock (_membershipGate) return _membershipTransactionActive; }
+    }
+
     // ── INotifyCollectionChanged ──────────────────────────────────────────────
     /// <inheritdoc/>
     public event NotifyCollectionChangedEventHandler? CollectionChanged;
@@ -882,33 +888,35 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     public bool Remove(VM item)
     {
         BeginMembershipTransaction();
+        bool found;
         try
         {
             int idx;
-            VM removed;
-            bool wasCurrent;
+            VM removed = default!;
+            var wasCurrent = false;
             var previousFlagChanged = false;
             lock (CompositeCurrentChangeCoordinator.Gate)
             {
                 lock (_membershipGate)
-                    idx = _children.FindIndex(candidate => ReferenceEquals(candidate, item));
-                if (idx < 0)
                 {
-                    EndMembershipTransaction();
-                    return false;
+                    idx = _children.FindIndex(candidate => ReferenceEquals(candidate, item));
+                    found = idx >= 0;
+                    if (found) (removed, wasCurrent) = RemoveAtLocked(idx);
                 }
-                lock (_membershipGate)
-                    (removed, wasCurrent) = RemoveAtLocked(idx);
                 if (wasCurrent) previousFlagChanged = removed.CommitIsCurrent(false);
             }
-            PublishEvery(
-                () =>
-                {
-                    if (wasCurrent)
-                        FinishCurrentChange(removed, null, previousFlagChanged, false);
-                },
-                () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Remove, removed, idx)));
+            // A non-child ends the transaction below, after the lane is
+            // released: ending it can run a deferred disposal, whose cascade
+            // must not hold the shared lane (spec/06 §4.2, #1147).
+            if (found)
+                PublishEvery(
+                    () =>
+                    {
+                        if (wasCurrent)
+                            FinishCurrentChange(removed, null, previousFlagChanged, false);
+                    },
+                    () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Remove, removed, idx)));
         }
         catch
         {
@@ -916,7 +924,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             throw;
         }
         EndMembershipTransaction();
-        return true;
+        return found;
     }
 
     /// <inheritdoc/>
