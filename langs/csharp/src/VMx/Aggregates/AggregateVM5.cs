@@ -24,6 +24,8 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
     where VM5 : class, IComponentVM
 {
     private readonly IParentCompositeVM _aggregateParent;
+    // Set by the first Dispose(); a later or re-entrant call returns at once.
+    private int _disposeRequested;
     private readonly Func<VM1> _factory1;
     private readonly Func<VM2> _factory2;
     private readonly Func<VM3> _factory3;
@@ -141,23 +143,22 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
 
     /// <summary>
     /// Dispose cascade (LIFE-013): dispose each component slot depth-first, then self.
+    /// The slots are disposed at the base's admitted-hook boundary (LIFE-015): a
+    /// foreign disposal publishes Disposed and disposes no slot while this
+    /// aggregate's hook runs. The slot snapshot is taken when the cascade starts,
+    /// under the slot lock, so it holds the slots that the last finished slot
+    /// replacement committed (spec/08 §4, #1166). A further call is a no-op.
     /// </summary>
+#pragma warning disable CA2215 // DisposeWithChildrenFrom runs the base disposal at its hook-lease boundary (LIFE-015).
     public override void Dispose()
+#pragma warning restore CA2215
     {
-        lock (_aggregateParent)
+        if (Interlocked.Exchange(ref _disposeRequested, 1) != 0) return;
+        DisposeWithChildrenFrom(() =>
         {
-            // Abandon a pending child walk first, so a disposed slot does not
-            // roll this aggregate back before its own Disposed (#755).
-            AbandonChildTransition();
-            var firstError = DisposeChildren(
-                [_component1, _component2, _component3, _component4, _component5]);
-            try { base.Dispose(); }
-            catch (Exception error)
-            {
-                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-            }
-            firstError?.Throw();
-        }
+            lock (_aggregateParent)
+                return [_component1, _component2, _component3, _component4, _component5];
+        });
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────
