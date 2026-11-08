@@ -79,6 +79,11 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: `CompositeVM.Remove` of an item that is not a child now ends its
+  membership transaction after it releases the shared coordination lane
+  (#1147). Before, a deferred `Dispose()` that waited for that transaction ran
+  its whole cascade under the lane. A `Current` change on any other composite
+  then waited for the cascade, and a child hook that made one deadlocked it.
 - Fixed: `ObservableDictionary`: `Remove` and `Clear` now update `Keys2`
   before `Keys1`, as `Add` does (#1075). A `Keys1` subscriber now sees the
   updated `Keys2`. Before, an entry that a `Keys1` subscriber added during
