@@ -68,8 +68,7 @@ model.
 - While a construct or destruct hook of the VM runs on another thread, the VM
   publishes `Disposed` first and waits for that hook. After the hook returns,
   the VM disposes its children and members, before its subclass hook
-  (`LIFE-015`, spec 02 §2.4, §7.1). C# fixed aggregates do not follow this rule
-  yet.
+  (`LIFE-015`, spec 02 §2.4, §7.1).
 - With no hook running on another thread, the VM disposes its children and
   members inline, before it publishes `Disposed`. A `construct()`,
   `destruct()`, or `reconstruct()` call that starts during that cascade fails
