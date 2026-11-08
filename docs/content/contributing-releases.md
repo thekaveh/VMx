@@ -300,8 +300,9 @@ backend and installs/smokes the wheel from `dist/` before the irreversible PyPI
 action, then repeats the consumer check from the public registry.
 
 Live channels: PyPI for Python, npm for the TypeScript core and the React
-adapter (`typescript-v*` and `react-v*` tags, npm trusted publishing), and
-repository tags for Swift through SwiftPM. The NuGet (C#) and crates.io (Rust)
+adapter (`typescript-v*` and `react-v*` tags), and repository tags for Swift
+through SwiftPM. A one-time npm bootstrap token published both npm packages.
+No npm trusted publish has succeeded yet. The NuGet (C#) and crates.io (Rust)
 channels are prepared but unpublished.
 
 Each registry channel's protected environment restricts deployments to its tag
@@ -326,7 +327,8 @@ Use this sequence for every flavor:
    (`git tag -a "<tag>" -m "<package> <version>" origin/main`) on the verified
    `main` commit. For Swift, create the paired semantic `vX.Y.Z` tag on the same
    commit. For C# companion packages, use their package-specific tag prefixes.
-   Python release-please tags are lightweight; the workflow accepts both.
+   This includes Python, because release-please creates no tags. Older
+   lightweight Python tags stay valid.
 1. Monitor the matching release workflow, approve its protected environment
    only after the pre-publish jobs identify the expected artifact, and do not
    bypass a failed gate.
