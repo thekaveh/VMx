@@ -38,17 +38,21 @@ one rule, and the simplest common-sense form is chosen. No flavor needs a code
 change.
 
 - `Add`, `Remove`, `Clear`, and an indexer or `set` insert change the entries
-  and `Count` first. Then both key views change, and each view notifies its own
-  subscribers. Then the dictionary raises its own events and sends the hub
+  and `Count` first. Then each key view that changes notifies its own
+  subscribers. A view changes only when a distinct key first appears or last
+  disappears. Then the dictionary raises its own events and sends the hub
   message.
 - The order of the `Keys1` and `Keys2` notifications is not specified. A
   key-view handler reads the updated entries, the updated `Count`, and its own
   updated view. It must not rely on the other view.
-- A dictionary-event handler and a hub subscriber read both views in their
-  updated state.
+- A dictionary-event handler and a hub subscriber read both views updated for
+  that mutation.
 - A value replacement at an existing key pair changes no key view.
 - A nested mutation from a key-view handler follows the same order. No single
-  global order of nested and outer events is required, as in §2.13.
+  global order of nested and outer events is required, as in §2.13. During a
+  nested mutation, a view can still lack the change of the outer mutation. The
+  outer change shows in that view when the outer mutation completes. `COL-067`
+  tests only mutations that are not nested.
 - `COL-067` is normative. C#, Python, TypeScript and Swift record the state in
   handlers on both views, on the dictionary events and on the hub. Rust records
   the state in a hub subscriber that reads the `keys1()` and `keys2()`

@@ -10,9 +10,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `COL-067` conformance tests: a hub subscriber of `ObservableMultiDictionary`
-  reads the updated entries, count, `keys1()` and `keys2()` snapshots on add,
-  insert, remove and clear (#1176, ADR-0177). Rust already behaved this way.
+- `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
+  `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
+  `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
+  already behaved this way.
 - `COL-066` conformance tests: a panicking local collection subscriber does
   not suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). Rust
   already behaved this way.

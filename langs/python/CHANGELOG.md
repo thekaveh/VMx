@@ -14,10 +14,11 @@ below for them.
 
 ### Added
 
-- `COL-067` conformance tests: an `ObservableDictionary` mutation changes the
-  entries and `count`, then `keys1` and `keys2`, then emits the dictionary
-  events and sends the hub message (#1176, ADR-0177). The order of the two
-  key-view notifications is not specified. Python already behaved this way.
+- `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
+  mutation changes the entries and `count` first. Then it changes `keys1` and
+  `keys2`, emits the dictionary events and sends the hub message. The order of
+  the two key-view notifications is not specified. Python already behaved this
+  way.
 - `ExpandableState.expand_command`, `collapse_command` and
   `toggle_expansion_command` (#660, ADR-0159, EXP-006..008). Each command's
   predicate is the matching `can_*` check, its task calls the verb, and its

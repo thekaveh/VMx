@@ -707,18 +707,21 @@ or identifier-view UIs without walking the full dictionary.
 pair change the dictionary in this order (ADR-0177):
 
 1. The entries and `Count` change.
-1. `Keys1` and `Keys2` change. Each view notifies its own subscribers.
+1. Each key view that changes notifies its own subscribers. A view changes only
+   when a distinct key first appears or last disappears.
 1. The dictionary raises its own events, then sends the hub message (§4.6).
 
 The order of the `Keys1` and `Keys2` notifications is not specified. A handler
 on one key view reads the updated entries, the updated `Count`, and its own
 updated view. It must not rely on the state of the other view. A handler on a
-dictionary event, and a hub subscriber, read both views in their updated state.
-A value replacement at an existing key pair changes no key view.
+dictionary event, and a hub subscriber, read both views updated for that
+mutation. A value replacement at an existing key pair changes no key view.
 
 If a key-view handler changes the dictionary, the nested mutation follows the
 same order. The outer mutation then completes its remaining steps. No single
-global order of nested and outer events is required.
+global order of nested and outer events is required. During a nested mutation,
+a view can still lack the change of the outer mutation. The outer change shows
+in that view when the outer mutation completes.
 
 Open Rust gap: Rust `ObservableMultiDictionary` requires a `MessageHub` at
 construction. `keys1()` and `keys2()` return `Vec` snapshots, not live
@@ -1067,8 +1070,8 @@ list-compatible keyed-collection mutation before any downstream view logic.
 `COL-001` through `COL-067` and `AGCH-001` through `AGCH-010` in
 `12-conformance.md`. Applicable ADRs:
 ADR-0024, ADR-0096, ADR-0097, and ADR-0171 (§2), ADR-0026 and ADR-0089 (§3),
-ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085 (shared Move
-semantics), and ADR-0098 (§9).
+ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085
+(shared Move semantics), and ADR-0098 (§9).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public
 collection, paging, batch, aggregate, and projection helpers that expose
