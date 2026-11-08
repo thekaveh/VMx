@@ -103,6 +103,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   nothing. `selectComponent` no longer goes through the `current` setter, as
   in C# and Swift. A subclass that overrides that setter no longer sees these
   selections.
+- A child's `select()` no longer makes a member current that is not
+  `Constructed` (spec/05 §6, spec/06 §3.1, #1229). Before, `selectChild`
+  checked only membership, so `select()` on a `Destructed` member selected it.
+  Now the call does nothing, as for a non-member and as in Swift and Rust. C#
+  also refuses it, with its `SelectComponent` exception. Inside the caller's
+  own uncommitted transaction it still throws the transaction error. An
+  `asyncSelection(true)` delivery checks `Constructed` again and drops such a
+  child.
 - A lifecycle call during the inline dispose cascade now fails (#1174,
   #1167, ADR-0175, LIFE-021). A container disposes its children, and a leaf
   its members, before it publishes `Disposed`.

@@ -9,6 +9,9 @@
 // The asynchronous selectComponent delivery checks Constructed again (spec/06
 // §3.1 and §4.3 rule 7; #1220). TypeScript runs on one thread, so a
 // synchronous selection has no window between its check and its commit.
+//
+// A child's select() silently refuses a member that is not Constructed, and
+// its asynchronous delivery checks again (spec/05 §6, spec/06 §3.1; #1229).
 
 import { describe, expect, it } from "vitest";
 import type { SchedulerLike } from "rxjs";
@@ -203,5 +206,99 @@ describe("the Constructed check of an asynchronous selectComponent (#1220)", () 
 
     expect(sut.current).toBe(vm);
     expect(vm.isCurrent).toBe(true);
+  });
+});
+
+describe("select() on a member that is not Constructed (#1229)", () => {
+  function queued() {
+    const fg = new DeferredScheduler();
+    const dispatcher: IDispatcher = new RxDispatcher(
+      fg as unknown as SchedulerLike,
+      RxDispatcher.immediate().background,
+    );
+    const a = leaf("a", () => {}, dispatcher);
+    const sut = composite([a], { dispatcher, asyncSelection: true });
+    sut.construct();
+    fg.runAll();
+    return { a, sut, fg };
+  }
+
+  it("selects nothing for a destructed member", () => {
+    const a = leaf("a");
+    const changes: Array<string | null> = [];
+    const sut = composite([a], { changes });
+    sut.construct();
+    a.destruct();
+
+    a.select();
+
+    expect(sut.current).toBeNull();
+    expect(a.isCurrent).toBe(false);
+    expect(changes).toEqual([]);
+  });
+
+  it("selects nothing for a destructed member with asynchronous selection", () => {
+    const { a, sut, fg } = queued();
+    a.destruct();
+
+    a.select();
+    fg.runAll();
+
+    expect(sut.current).toBeNull();
+    expect(a.isCurrent).toBe(false);
+  });
+
+  it("drops a delivery for a member destructed after the call", () => {
+    const { a, sut, fg } = queued();
+
+    a.select();
+    a.destruct();
+    fg.runAll();
+
+    expect(a.status).toBe(S.Destructed);
+    expect(sut.current).toBeNull();
+    expect(a.isCurrent).toBe(false);
+  });
+
+  it("still reports the transaction error inside the caller's own transaction", () => {
+    const a = leaf("a");
+    const sut = composite([a]);
+    sut.construct();
+    a.destruct();
+    let caught: unknown = null;
+    const replacement = leaf("replacement", () => {
+      try {
+        a.select();
+      } catch (error) {
+        caught = error;
+      }
+    });
+    const b = leaf("b");
+    sut.add(b);
+    sut.setAt(1, replacement);
+
+    expect(String(caught)).toContain("transaction is already in progress");
+    expect(sut.current).toBeNull();
+  });
+
+  it("makes a Constructed member current", () => {
+    const a = leaf("a");
+    const sut = composite([a]);
+    sut.construct();
+
+    a.select();
+
+    expect(sut.current).toBe(a);
+    expect(a.isCurrent).toBe(true);
+  });
+
+  it("makes a Constructed member current with asynchronous selection", () => {
+    const { a, sut, fg } = queued();
+
+    a.select();
+    fg.runAll();
+
+    expect(sut.current).toBe(a);
+    expect(a.isCurrent).toBe(true);
   });
 });

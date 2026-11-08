@@ -125,7 +125,12 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   selectChild(vm: ComponentVMBase): void {
     for (const child of this._children) {
       if (child === vm) {
-        this._setCurrent(child, this.#asyncSelection);
+        // A member that is not Constructed is refused as silently as a
+        // non-member (spec/05 §6, spec/06 §3.1, #1229). Inside its own
+        // uncommitted transaction the caller still gets rule 4's error, and
+        // an asynchronous delivery checks Constructed again.
+        if (child.status !== ConstructionStatus.Constructed && !this.#uncommitted) return;
+        this._setCurrent(child, this.#asyncSelection, true);
         return;
       }
     }
@@ -852,8 +857,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
    * The call opens no membership transaction. It validates now and raises
    * as the synchronous setter does, also with `asyncSel`; the asynchronous
    * delivery validates again and drops silently when no longer valid.
-   * `requireConstructed` (`selectComponent`) makes the delivery also drop a
-   * child that is no longer Constructed (#1220).
+   * `requireConstructed` (`selectComponent` and `selectChild`) makes the
+   * delivery also drop a child that is no longer Constructed (#1220, #1229).
    */
   protected _setCurrent(value: VM | null, asyncSel: boolean, requireConstructed = false): void {
     // Rule 4: the caller owns an uncommitted transaction of this composite.
@@ -884,8 +889,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   /**
    * Rule 7: an asynchronous delivery revalidates and drops silently. A
-   * `selectComponent` delivery also requires a Constructed child (spec/06
-   * §3.1).
+   * `selectComponent` or `selectChild` delivery also requires a Constructed
+   * child (spec/06 §3.1).
    */
   #deliverSelection(value: VM | null, requireConstructed: boolean): void {
     if (this.#uncommitted || this.status === ConstructionStatus.Disposed) return;
