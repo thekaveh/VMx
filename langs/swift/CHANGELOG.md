@@ -65,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `walk(_:)`, `walkExpanded(_:)` and `find(_:where:)` no longer trap when they
+  reach a `HierarchicalVM` whose lazy children factory returns invalid output
+  (#1060, ADR-0170, spec/13 §6.1). They are now `throws` and throw
+  `HierarchyError.invalidFactoryOutput`, so callers write `try`. The node
+  keeps no children cache, and a later walk retries the factory. The
+  `children` accessor and `isLeaf` still trap on such output.
 - `TokenPagedComposition`: a load that finds a terminal token when it starts now
   fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
   terminal token after the load command was admitted. The load then refetched
@@ -308,8 +314,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `addChild` returns `.failure`, `reparentChild` throws the error, and
   `attachMany` records an `attachmentFailed` rejection and continues the batch.
   `removeChild` also returns `.failure(.invalidFactoryOutput)` (#737). The
-  `children` accessor and `isLeaf` still trap on such output, and so do
-  `walk`, `walkExpanded` and `find`, which read `children`.
+  `children` accessor and `isLeaf` still trap on such output.
 
 - A user object whose `deinit` calls back into the VMx primitive that drops
   it no longer deadlocks or traps. `MessageHub` releases delivered and dropped

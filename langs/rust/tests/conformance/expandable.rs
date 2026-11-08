@@ -115,6 +115,7 @@ fn walk_expanded_skips_collapsed_descendants() {
     root.add_child(b.clone());
 
     let names = walk_expanded(&root)
+        .unwrap()
         .into_iter()
         .map(|node| node.model())
         .collect::<Vec<_>>();
@@ -123,6 +124,7 @@ fn walk_expanded_skips_collapsed_descendants() {
 
     b.expansion().unwrap().expand();
     let names = walk_expanded(&root)
+        .unwrap()
         .into_iter()
         .map(|node| node.model())
         .collect::<Vec<_>>();

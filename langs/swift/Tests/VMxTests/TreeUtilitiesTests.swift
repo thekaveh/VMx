@@ -37,7 +37,7 @@ final class TreeUtilitiesTests: XCTestCase {
         try root.construct()   // cascades to inner (no-op) and leaf3
 
         // DFS pre-order: root → inner → leaf1 → leaf2 → leaf3
-        XCTAssertEqual(walk(root).map(\.name), ["root", "inner", "leaf1", "leaf2", "leaf3"])
+        XCTAssertEqual(try walk(root).map(\.name), ["root", "inner", "leaf1", "leaf2", "leaf3"])
     }
 
     /// UTIL-002 — walk skips nil aggregate slots; only populated components appear.
@@ -53,11 +53,11 @@ final class TreeUtilitiesTests: XCTestCase {
             .build()
 
         // Before construct: all three slots are nil — walk yields only the root.
-        XCTAssertEqual(walk(agg).map(\.name), ["agg"])
+        XCTAssertEqual(try walk(agg).map(\.name), ["agg"])
 
         // After construct: every populated slot appears in declaration order.
         try agg.construct()
-        XCTAssertEqual(walk(agg).map(\.name), ["agg", "c1", "c2", "c3"])
+        XCTAssertEqual(try walk(agg).map(\.name), ["agg", "c1", "c2", "c3"])
     }
 
     /// UTIL-002 — an AggregateVM6's sixth slot is reachable by walk (parity with
@@ -72,7 +72,7 @@ final class TreeUtilitiesTests: XCTestCase {
             .component4 { leaves[3] }.component5 { leaves[4] }.component6 { leaves[5] }
             .build()
         try agg.construct()
-        XCTAssertEqual(walk(agg).map(\.name), ["agg6", "c1", "c2", "c3", "c4", "c5", "c6"])
+        XCTAssertEqual(try walk(agg).map(\.name), ["agg6", "c1", "c2", "c3", "c4", "c5", "c6"])
     }
 
     /// UTIL-003 — find returns the first matching node and short-circuits.
@@ -99,7 +99,7 @@ final class TreeUtilitiesTests: XCTestCase {
 
         // find visits in DFS pre-order: root, agg, c1, c2 — then stops.
         var visited: [String] = []
-        let result = find(root) { node in
+        let result = try find(root) { node in
             visited.append(node.name)
             return node.name == "c2"
         }
@@ -110,7 +110,7 @@ final class TreeUtilitiesTests: XCTestCase {
         XCTAssertFalse(visited.contains("c3"), "c3 must not be visited after c2 matched")
 
         // When nothing matches, nil is returned and all nodes are visited.
-        let missing = find(root) { $0.name == "ghost" }
+        let missing = try find(root) { $0.name == "ghost" }
         XCTAssertNil(missing)
     }
 }
