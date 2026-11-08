@@ -866,6 +866,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ComponentV
         self.core.set_current_flag(is_current);
     }
 
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        self.core.commit_current_flag(is_current)
+    }
+
+    fn publish_current_flag(&self, _is_current: bool) {
+        self.core.publish_current_flag();
+    }
+
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.core.when_settled(callback)
     }
@@ -1168,6 +1176,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ReadonlyCo
 
     fn set_current_flag(&self, is_current: bool) {
         self.inner.core.set_current_flag(is_current);
+    }
+
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        self.inner.core.commit_current_flag(is_current)
+    }
+
+    fn publish_current_flag(&self, _is_current: bool) {
+        self.inner.core.publish_current_flag();
     }
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {

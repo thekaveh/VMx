@@ -271,12 +271,36 @@ pub(crate) enum MembershipDisposeDisposition {
     Inactive,
     Owned,
     Foreign,
+    /// This thread holds a current-publication lease (spec/06 §4.3 rule 5).
+    /// The disposal is deferred before any wait for a foreign transaction.
+    PublishingThread,
 }
+
+type DeferredDispose = Box<dyn FnOnce() -> VmxResult<()> + Send>;
 
 struct MembershipTransactionState {
     owner: Option<ThreadId>,
     finishing_owner: Option<ThreadId>,
-    deferred_dispose: Option<Box<dyn FnOnce() -> VmxResult<()> + Send>>,
+    deferred_dispose: Option<DeferredDispose>,
+    /// One entry per active current-publication lease, by holding thread.
+    /// Leases nest, so a thread can appear more than once.
+    publishers: Vec<ThreadId>,
+    /// Deferred disposals taken for running that have not returned yet. The
+    /// deferral stays visible until the disposal admits itself.
+    running_deferred: usize,
+}
+
+impl MembershipTransactionState {
+    /// Takes the deferred disposal when nothing holds it back: no open or
+    /// finishing transaction and no publication lease.
+    fn take_runnable_deferred(&mut self) -> Option<DeferredDispose> {
+        if self.owner.is_some() || self.finishing_owner.is_some() || !self.publishers.is_empty() {
+            return None;
+        }
+        let action = self.deferred_dispose.take()?;
+        self.running_deferred += 1;
+        Some(action)
+    }
 }
 
 pub(crate) struct MembershipTransactionControl {
@@ -291,6 +315,8 @@ impl MembershipTransactionControl {
                 owner: None,
                 finishing_owner: None,
                 deferred_dispose: None,
+                publishers: Vec::new(),
+                running_deferred: 0,
             }),
             ready: Condvar::new(),
         }
@@ -313,6 +339,9 @@ impl MembershipTransactionControl {
     pub(crate) fn dispose_disposition(&self) -> MembershipDisposeDisposition {
         let current = thread::current().id();
         let state = lock(&self.state);
+        if state.publishers.contains(&current) {
+            return MembershipDisposeDisposition::PublishingThread;
+        }
         match (state.owner, state.finishing_owner) {
             (Some(owner), _) if owner == current => MembershipDisposeDisposition::Owned,
             (Some(_), _) => MembershipDisposeDisposition::Foreign,
@@ -331,6 +360,65 @@ impl MembershipTransactionControl {
 
     pub(crate) fn has_deferred_dispose(&self) -> bool {
         lock(&self.state).deferred_dispose.is_some()
+    }
+
+    /// Reports a deferred disposal that is recorded or running but has not
+    /// admitted itself yet (spec/06 §4.3 rule 5).
+    pub(crate) fn disposal_deferred(&self) -> bool {
+        let state = lock(&self.state);
+        state.deferred_dispose.is_some() || state.running_deferred > 0
+    }
+
+    /// Records `action` as the deferred disposal while another thread holds
+    /// a current-publication lease, and returns `None`. The last lease to end
+    /// runs it. Returns `action` when no lease is active. The check and the
+    /// record are one step, so a lease cannot end in between.
+    pub(crate) fn defer_while_publishing<F>(&self, action: F) -> Option<F>
+    where
+        F: FnOnce() -> VmxResult<()> + Send + 'static,
+    {
+        let mut state = lock(&self.state);
+        if state.publishers.is_empty() {
+            return Some(action);
+        }
+        if state.deferred_dispose.is_none() {
+            state.deferred_dispose = Some(Box::new(action));
+        }
+        None
+    }
+
+    /// Begins a current-publication lease on this thread (spec/06 §4.3
+    /// rule 5). Callers begin it while they hold the membership gate that
+    /// committed the change, so a disposal that checks under the gate sees it.
+    pub(crate) fn begin_publication(self: &Arc<Self>) -> PublicationLease {
+        lock(&self.state).publishers.push(thread::current().id());
+        PublicationLease {
+            control: Some(Arc::clone(self)),
+        }
+    }
+
+    fn end_publication(&self) -> VmxResult<()> {
+        let current = thread::current().id();
+        let action = {
+            let mut state = lock(&self.state);
+            if let Some(index) = state.publishers.iter().rposition(|id| *id == current) {
+                state.publishers.swap_remove(index);
+            }
+            state.take_runnable_deferred()
+        };
+        self.run_deferred(action)
+    }
+
+    fn run_deferred(&self, action: Option<DeferredDispose>) -> VmxResult<()> {
+        let Some(action) = action else {
+            return Ok(());
+        };
+        let outcome = catch_unwind(AssertUnwindSafe(action));
+        lock(&self.state).running_deferred -= 1;
+        match outcome {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 
     /// Waits until no membership transaction is active (ADR-0122), unless the
@@ -369,22 +457,43 @@ impl MembershipTransactionControl {
             state.finishing_owner = Some(current);
             // The finishing thread holds the transaction until it clears.
             waits().acquire(self.resource(), current);
-            state.deferred_dispose.take()
+            // An active publication lease keeps the disposal deferred; the
+            // last lease to end runs it (spec/06 §4.3 rule 5).
+            if state.publishers.is_empty() {
+                let action = state.deferred_dispose.take();
+                if action.is_some() {
+                    state.running_deferred += 1;
+                }
+                action
+            } else {
+                None
+            }
         };
         let outcome = action.map(|action| catch_unwind(AssertUnwindSafe(action)));
-        let mut state = lock(&self.state);
-        state.finishing_owner = None;
-        waits().release(self.resource());
-        // Only now may a new transaction begin, so its owner record cannot be
-        // released above.
-        active.store(false, Ordering::Release);
-        self.ready.notify_all();
-        drop(state);
-        match outcome {
+        let late = {
+            let mut state = lock(&self.state);
+            if outcome.is_some() {
+                state.running_deferred -= 1;
+            }
+            state.finishing_owner = None;
+            waits().release(self.resource());
+            // Only now may a new transaction begin, so its owner record cannot be
+            // released above.
+            active.store(false, Ordering::Release);
+            self.ready.notify_all();
+            // A lease that ended while this thread was finishing left the
+            // deferred disposal for it.
+            state.take_runnable_deferred()
+        };
+        // Run the late disposal before re-raising a panic from the first one,
+        // so its deferral does not stay recorded as running.
+        let late_result = self.run_deferred(late);
+        let result = match outcome {
             Some(Ok(result)) => result,
             Some(Err(payload)) => resume_unwind(payload),
             None => Ok(()),
-        }
+        };
+        result.and(late_result)
     }
 }
 
@@ -393,6 +502,39 @@ impl Drop for MembershipTransactionControl {
         // A transaction that never finished must not leave its owner behind
         // for a later control at the same address.
         waits().release(self.resource());
+    }
+}
+
+/// A current-publication lease (spec/06 §4.3 rule 5). While it is active,
+/// a disposal of the composite is deferred. Ending the last lease runs a
+/// deferred disposal when no membership transaction is open. Dropping the
+/// lease without [`PublicationLease::finish`], as on a panic, ends it too.
+pub(crate) struct PublicationLease {
+    control: Option<Arc<MembershipTransactionControl>>,
+}
+
+impl PublicationLease {
+    /// Ends the lease and returns the result of a deferred disposal that it
+    /// ran.
+    pub(crate) fn finish(mut self) -> VmxResult<()> {
+        match self.control.take() {
+            Some(control) => control.end_publication(),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for PublicationLease {
+    fn drop(&mut self) {
+        if let Some(control) = self.control.take() {
+            if thread::panicking() {
+                // Never panic while unwinding: a failing deferred disposal is
+                // dropped here.
+                let _ = catch_unwind(AssertUnwindSafe(|| control.end_publication()));
+            } else {
+                let _ = control.end_publication();
+            }
+        }
     }
 }
 
@@ -2271,6 +2413,26 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     }
     /// Updates the node's container-owned current flag.
     fn set_current_flag(&self, _is_current: bool) {}
+    /// Commits the container-owned current flag without publishing it, and
+    /// reports whether [`VmNode::publish_current_flag`] must run.
+    ///
+    /// A container commits the flag under its membership gate, so two
+    /// selections that commit in turn leave the flags in commit order
+    /// (spec/06 §4.3). It publishes after releasing the gate. Built-in view
+    /// models commit silently here and return whether the flag changed;
+    /// wrapper nodes should forward both methods. The default commits nothing
+    /// and returns `true`, so `publish_current_flag` sets the flag through
+    /// [`VmNode::set_current_flag`].
+    #[doc(hidden)]
+    fn commit_current_flag(&self, _is_current: bool) -> bool {
+        true
+    }
+    /// Publishes a flag that [`VmNode::commit_current_flag`] committed. The
+    /// default calls [`VmNode::set_current_flag`].
+    #[doc(hidden)]
+    fn publish_current_flag(&self, is_current: bool) {
+        self.set_current_flag(is_current);
+    }
     /// Reports whether the node is current in its container.
     fn is_current(&self) -> bool {
         false
@@ -4590,6 +4752,23 @@ impl<D: Dispatcher> ComponentCore<D> {
         if let Some(parent) = parent.filter(|parent| parent.supports_child_selection()) {
             let _ = parent.deselect(id);
         }
+    }
+
+    /// Commits the current flag without publishing it; returns whether it
+    /// changed (spec/06 §4.3).
+    pub(crate) fn commit_current_flag(&self, selected: bool) -> bool {
+        let mut inner = lock(&self.inner);
+        if inner.selected == selected {
+            false
+        } else {
+            inner.selected = selected;
+            true
+        }
+    }
+
+    /// Publishes the change of a flag that `commit_current_flag` committed.
+    pub(crate) fn publish_current_flag(&self) {
+        self.notify_property_changed("is_current");
     }
 
     pub(crate) fn set_current_flag(&self, selected: bool) {
