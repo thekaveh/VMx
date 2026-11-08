@@ -254,12 +254,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   status and releases its in-flight guard. A background VM therefore rejects a
   reentrant transition from an observer of its terminal status, as a
   synchronous VM does.
-- When a container's deferred continuation fails, the container rolls back and
-  the error comes from the dispatcher work that settled the child, as for a
-  throwing background hook (VMX-049). Examples: a throwing `current` selector,
-  or a synchronous sibling whose construct throws after a background child.
-  Before, rxjs reported the error as an unhandled subscriber error. A container
-  whose children are all synchronous still throws from `construct()`.
+- When a container's deferred continuation fails, the container rolls back
+  (VMX-049). Examples: a throwing `current` selector, or a synchronous sibling
+  whose construct throws after a background child. The error follows the #1053
+  rule in this list. On a shared `queueScheduler`, the outermost background
+  `construct()` or `destruct()` in the flush throws it after the flush drains.
+  Otherwise a foreground action throws it after the queued lifecycle actions
+  have run. With separate schedulers, a background hook failure throws on the
+  background, but this error does not. Before, rxjs reported the error as an
+  unhandled subscriber error. A container whose children are all synchronous
+  still throws from `construct()`.
 - `FilteredCompositeVM.setPredicate` restores the previous predicate when the
   new one throws, so later source changes keep using the working predicate.
 - `CompositeVM` and `GroupVM` `insert`/`removeAt`/`setAt` reject a
