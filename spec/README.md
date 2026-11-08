@@ -29,7 +29,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (449 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (451 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 - `14-capabilities.md` — 22 opt-in capability micro-interfaces.
 - `15-derived-properties.md` — `DerivedProperty<TValue>` N-source computed values.

@@ -129,15 +129,6 @@ per-VM `propertyChanged` subject and `AggregateChangeStream` store observers in
 dictionaries, so their order is unspecified. The other flavors deliver in
 subscription order.
 
-### 2.6. `SetModel` while approval publishes
-
-`spec/20-form-vm.md` and FORM-034 cover `SetModel` during approval, and all
-flavors pass. The spec does not describe the pre-publication window of a
-successful approval. There every flavor queues a `SetModel` call and replays
-it after publication. C#, Python and Swift queue only a call on the approving
-thread and block a call from another thread; Rust queues calls from any
-thread.
-
 ### 2.7. Initial-current selector input after late adds
 
 With auto-construct on, a child added while a container is `Constructing` is
