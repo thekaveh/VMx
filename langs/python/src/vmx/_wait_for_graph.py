@@ -6,12 +6,14 @@ cycle is refused, and the caller takes its own escape, or raises its own error,
 instead of waiting (spec/03 §4.1, ADR-0172). These waits record here:
 container membership transactions (ADR-0153, #1059), child ownership locks
 (#1155), message hub batch, drain and borrowed-scope waits (#1157, #1179),
-and lifecycle publication and hook-lease waits (#1182, #1202). C# keeps the
-counterpart in ``VMx.Internal.WaitForGraph``.
+lifecycle publication and hook-lease waits (#1182, #1202), and ``FormVM``
+publication-scope waits (#1170, ADR-0176). C# keeps the counterpart in
+``VMx.Internal.WaitForGraph``.
 
 An edge names the waiting thread and one resource instance: a container's
-membership gate, a child's ownership lock, a hub, one lifecycle publication
-or one hook lease. It finds the resource's owner in one of two ways.
+membership gate, a child's ownership lock, a hub, one lifecycle publication,
+one hook lease or one form's publication scope. It finds the resource's owner
+in one of two ways.
 
 - **Resource-named edge** (:meth:`_WaitForGraph.try_begin_wait`). The owner
   is looked up in the recorded holders when a cycle is checked. The holder
@@ -23,14 +25,16 @@ or one hook lease. It finds the resource's owner in one of two ways.
 - **Owner-named edge** (:meth:`_WaitForGraph.try_begin_owner_wait`). The edge
   names the owner thread when the wait starts. A hub has several owners (the
   batch owner, the drainer and any borrowers), so it names the one that the
-  caller waits for. Before the hub wakes its waiters, the releasing thread
-  calls :meth:`_WaitForGraph.release_waiters` with the hub's remaining owners.
-  That removes every edge that names a former owner (#1181).
+  caller waits for. A form's publication scope can have two publishers, so
+  it names one of them. Before the hub or form wakes its waiters, the
+  releasing thread calls :meth:`_WaitForGraph.release_waiters` with the
+  remaining owners. That removes every edge that names a former owner (#1181).
 
 A waiting thread has at most one edge, because it blocks in one wait at a
-time. Callers may hold a container gate, an ownership lock, a hub gate or a
-VM's lifecycle lock when they call in. The graph never takes another lock and
-runs no consumer code, so its lock is always the last one taken.
+time. Callers may hold a container gate, an ownership lock, a hub gate, a
+VM's lifecycle lock or a form's state lock when they call in. The graph never
+takes another lock and runs no consumer code, so its lock is always the last
+one taken.
 """
 
 from __future__ import annotations

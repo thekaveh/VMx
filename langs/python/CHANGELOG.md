@@ -186,6 +186,22 @@ below for them.
   the publication scope, and while the post-persist commit runs its approve is
   refused and the reset overwrites its `set_model`. Each queued update calls
   the validators once more, at call time.
+- A `FormVM` wait for another thread's publication scope now records an edge
+  in `vmx._wait_for_graph.WAITS` (spec/20 §5.5, ADR-0176, #1170). Before, a
+  form observer that sent on a hub could deadlock with that hub's drainer.
+  This happened when the drainer's subscriber called `set_model`, deny or
+  `dispose()` on the same form. Now the wait that would close the cycle is
+  refused. A refused `set_model` or deny prepares, joins the publisher's
+  queue, and returns before it takes effect. The publisher replays it when its
+  scope ends. A refused `dispose()` marks the form disposed and returns, and
+  the publisher runs the teardown when its scope ends. A refused approve call
+  is admitted, and a refused settlement commits in its own scope. A wait that
+  closes no cycle still blocks. `set_model` and deny now deliver
+  `errors_changed` in an update scope, and `can_execute_changed` after it. No
+  form notification is delivered while the form holds its state lock. The
+  `approve_errors` delivery opens no scope, so a concurrent `dispose()`
+  returns at once. Its teardown waits until the delivery returns. Each thread
+  keeps its own publication state and queue.
 - `ObservableDictionary`: `remove` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
