@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 446 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 447 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -282,6 +282,37 @@ construct hook runs exactly once
 parent then publishes `Constructed`
 
 > Normatively defined in `02-lifecycle.md §6.1`.
+
+### LIFE-021 — A lifecycle call during the inline dispose cascade fails
+
+**Given** a container `box` (`CompositeVM`, `GroupVM`, and `AggregateVM1`, each
+in turn) on an inline dispatcher that holds child `c1`, with no hook running on
+another thread (an aggregate is constructed once first, so that `c1` exists)
+**And** `c1`'s dispose hook calls `box.construct()` while
+`box.Status == Destructed`, or `box.destruct()` while
+`box.Status == Constructed`, and records the error it catches
+**And** a hub subscriber records each `ConstructionStatusChangedMessage` of
+`box`
+**When** `box.dispose()` is called
+**Then** the recorded error is the one that the same call raises on a
+`Disposed` VM: a `StatusTransitionError` / `StatusTransitionException` that
+names `Disposed` and the attempted operation, or `VmxError::Disposed` in Rust
+**And** no construct or destruct hook of `box` runs, and the aggregate's slot
+factory is not called again
+**And** the subscriber records only `Disposed` for `box`
+**And** when `dispose()` returns, `box` and every child or slot it holds are
+`Disposed`, and each child publishes `Disposed` once
+**And** `box.construct()` from `Constructed` and `box.reconstruct()` from
+`Constructed`, called from `c1`'s dispose hook, fail in the same way
+**And** for a leaf VM with one member registered through the member-disposal
+helper, a `construct()` of the leaf from the member's dispose hook fails in the
+same way, runs no leaf hook, and the leaf publishes only `Disposed`
+**And** for a background leaf VM with one member, whose construct hook has run
+and whose `Constructed` commit is queued on a manual foreground scheduler,
+draining that scheduler from the member's dispose hook publishes no
+`Constructed`: after its `Constructing`, the leaf publishes only `Disposed`
+
+> Normatively defined in `02-lifecycle.md §7.2`. See ADR-0175.
 
 ______________________________________________________________________
 
