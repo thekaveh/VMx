@@ -505,4 +505,115 @@ public class BorrowedScopeWaitCycleTests
         else addError.Should().BeOfType<InvalidOperationException>();
         h.Dispose();
     }
+
+    private static bool IsWaiting(ref int thread) =>
+        Volatile.Read(ref thread) != 0 && WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref thread));
+
+    // #1223: the batch owner's nested Batch waits for another thread's
+    // borrowed scope with an edge, like any other Batch (spec/03 §4.1, §4.2
+    // rule 3). O batch-owns h, and its body sends on h2, which B batch-owns,
+    // so B's h batch borrows h. B disposes h2, which releases O. O's nested
+    // batch body starts only after B's borrowed scope exits.
+    [Fact]
+    public async Task Batch_Owners_Nested_Batch_Waits_For_A_Borrowed_Scope()
+    {
+        var h = new MessageHub();
+        var h2 = new MessageHub();
+        var o = 0;
+        var borrowDone = false;
+        bool? nestedSawExit = null;
+        var tags = new ConcurrentQueue<string>();
+        using var log = h.Messages.OfType<Stub>().Subscribe(m => tags.Enqueue(m.Tag));
+        using var bOwnsH2 = new ManualResetEventSlim(false);
+        var b = Run(() => h2.Batch(() =>
+        {
+            bOwnsH2.Set();
+            SpinWait.SpinUntil(() => IsWaiting(ref o), HangGuard).Should().BeTrue("O waits for B's h2 batch");
+            h.Batch(() =>
+            {
+                h.Send(new Stub("b1"));
+                h2.Dispose();
+                // Hold the borrowed scope until O waits for it, or 500 ms.
+                SpinWait.SpinUntil(() => IsWaiting(ref o), TimeSpan.FromMilliseconds(500));
+                Volatile.Write(ref borrowDone, true);
+            });
+        }));
+        bOwnsH2.Wait(HangGuard).Should().BeTrue();
+        var oTask = Run(() =>
+        {
+            Volatile.Write(ref o, Environment.CurrentManagedThreadId);
+            h.Batch(() =>
+            {
+                h2.Send(new Stub("x"));
+                h.Batch(() =>
+                {
+                    nestedSawExit = Volatile.Read(ref borrowDone);
+                    h.Send(new Stub("o1"));
+                });
+                h.Send(new Stub("o2"));
+            });
+        });
+
+        await FinishWithin(Task.WhenAll(b, oTask), "the nested batch waits for the borrowed scope and then runs");
+        nestedSawExit.Should().BeTrue("the batch owner's nested batch must not run inside another thread's borrowed scope");
+        tags.Should().Equal("b1", "o1", "o2");
+        h.Dispose();
+    }
+
+    // #1223: the borrower B waits for the batch owner O through h3. O's
+    // nested h batch would wait for B, which closes the cycle, so that wait is
+    // refused and the nested batch enters a borrowed scope (spec/03 §4.1).
+    // Neither thread hangs.
+    [Fact]
+    public async Task Batch_Owners_Cyclic_Nested_Batch_Borrows()
+    {
+        var h = new MessageHub();
+        var h2 = new MessageHub();
+        var h3 = new MessageHub();
+        int o = 0, b = 0;
+        bool? nestedBorrowed = null;
+        var o1 = 0;
+        var b3 = 0;
+        using var r1 = h.Messages.OfType<Stub>().Where(m => m.Tag == "o1").Subscribe(_ => Interlocked.Increment(ref o1));
+        using var r3 = h3.Messages.OfType<Stub>().Where(m => m.Tag == "b3").Subscribe(_ => Interlocked.Increment(ref b3));
+        using var bOwnsH2 = new ManualResetEventSlim(false);
+        var bTask = Run(() =>
+        {
+            Volatile.Write(ref b, Environment.CurrentManagedThreadId);
+            h2.Batch(() =>
+            {
+                bOwnsH2.Set();
+                SpinWait.SpinUntil(() => IsWaiting(ref o), HangGuard).Should().BeTrue("O waits for B's h2 batch");
+                h.Batch(() =>
+                {
+                    h2.Dispose();
+                    // Waits for O's h3 batch, unless that wait closes a cycle.
+                    h3.Send(new Stub("b3"));
+                });
+            });
+        });
+        bOwnsH2.Wait(HangGuard).Should().BeTrue();
+        var oTask = Run(() =>
+        {
+            var self = Environment.CurrentManagedThreadId;
+            Volatile.Write(ref o, self);
+            h3.Batch(() => h.Batch(() =>
+            {
+                h2.Send(new Stub("x"));
+                SpinWait.SpinUntil(() => IsWaiting(ref b), HangGuard).Should().BeTrue("B waits for O's h3 batch");
+                h.Batch(() =>
+                {
+                    nestedBorrowed = h.IsBorrowerForTesting(self);
+                    h.Send(new Stub("o1"));
+                });
+            }));
+        });
+
+        await FinishWithin(Task.WhenAll(bTask, oTask), "a refused nested batch borrows instead of hanging");
+        nestedBorrowed.Should().BeTrue("the refused nested batch enters a borrowed scope");
+        Volatile.Read(ref o1).Should().Be(1);
+        Volatile.Read(ref b3).Should().Be(1);
+        h.Dispose();
+        h3.Dispose();
+    }
 }

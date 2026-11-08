@@ -59,7 +59,7 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
                     // A borrowed body enqueues for the drain at the borrowed
                     // scope's exit.
                     if (_borrowers.ContainsKey(caller)) break;
-                    var owner = ConflictingOwnerLocked(caller, includeBorrowers: true);
+                    var owner = ConflictingOwnerLocked(caller);
                     if (owner == 0) break;
                     // Only a wait that would close a live wait-for cycle, across
                     // hubs or through a lifecycle, container membership or
@@ -105,12 +105,13 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
             {
                 while (!_disposed && !_disposeRequested)
                 {
-                    // A batch inside a borrowed body nests in that borrow. The
-                    // batch owner's own nested batch does not wait for a
-                    // borrowed scope.
+                    // A batch inside a borrowed body nests in that borrow.
+                    // Every other batch, the batch owner's nested batch too,
+                    // waits for a foreign owner, and a borrowed scope is one
+                    // (spec/03 §4.1, §4.2 rule 3, #1223).
                     var owner = _borrowers.ContainsKey(caller)
                         ? 0
-                        : ConflictingOwnerLocked(caller, includeBorrowers: _batchOwnerThreadId != caller);
+                        : ConflictingOwnerLocked(caller);
                     if (_borrowers.ContainsKey(caller) ||
                         (owner != 0 && WaitForOwnerLocked(caller, owner, ref waiting)))
                     {
@@ -354,7 +355,7 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
                     // last borrowed scope to finish.
                     var owner = _borrowers.ContainsKey(caller)
                         ? 0
-                        : ConflictingOwnerLocked(caller, includeBorrowers: true);
+                        : ConflictingOwnerLocked(caller);
                     if (_borrowers.ContainsKey(caller) ||
                         (owner != 0 && WaitForOwnerLocked(caller, owner, ref waiting)))
                     {
@@ -380,13 +381,19 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
     // The one owner that a wait by caller names (spec/03 §4.1 rule 2): the
     // batch owner, then the drainer, then a borrower other than the caller.
     // Returns 0 when no other thread owns the hub.
-    private int ConflictingOwnerLocked(int caller, bool includeBorrowers)
+    private int ConflictingOwnerLocked(int caller)
     {
         if (_batchOwnerThreadId != 0 && _batchOwnerThreadId != caller)
             return _batchOwnerThreadId;
         if (_drainerThreadId != 0 && _drainerThreadId != caller)
             return _drainerThreadId;
-        return includeBorrowers ? ForeignBorrowerLocked(caller) : 0;
+        return ForeignBorrowerLocked(caller);
+    }
+
+    // Test-only seam: whether thread has an open borrowed scope on this hub.
+    internal bool IsBorrowerForTesting(int thread)
+    {
+        lock (_gate) return _borrowers.ContainsKey(thread);
     }
 
     private int ForeignBorrowerLocked(int caller)

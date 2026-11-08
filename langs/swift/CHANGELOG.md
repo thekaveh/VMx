@@ -67,6 +67,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `MessageHub.batch` called by a borrower on a disposed hub now runs its body
+  with no new borrowed scope (#1230, spec/03 §3.3, §4.2 rule 3). C#, Python
+  and Rust already did this. Before, the call nested another borrowed scope.
+  Only the borrower's own outer exit could finish the disposal, so no other
+  thread saw a difference.
 - `replaceResult(at:with:)` and `replace(at:with:)` keep the replaced child
   owned until the commit (#1219). The commit now frees the child and clears
   `current` in one locked section, as `removeAt` does. Before, the method

@@ -108,6 +108,13 @@ public final class MessageHub: TransactionalMessageHubProtocol {
     // remains, before the waiter ends its own edge. Called under `gate`.
     internal var onWaitEndedForTesting: (() -> Void)?
 
+    /// Test-only seam: the number of open borrowed batch scopes on this hub.
+    internal var borrowedScopeDepthForTesting: Int {
+        gate.lock()
+        defer { gate.unlock() }
+        return borrowedBatchDepth
+    }
+
     public init() {
         self.diagnosticHandler = nil
     }
@@ -158,7 +165,9 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         var entered = false
         var borrowed = false
         gate.lock()
-        if borrowedBatchOwners[caller] != nil {
+        // On a disposed hub a borrower's body runs with no new scope, as in
+        // C#, Python and Rust (#1230).
+        if !disposed, borrowedBatchOwners[caller] != nil {
             borrowedBatchDepth += 1
             borrowedBatchOwners[caller, default: 0] += 1
             borrowed = true

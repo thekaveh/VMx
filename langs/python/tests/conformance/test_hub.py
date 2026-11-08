@@ -1055,3 +1055,94 @@ def test_a_drainer_with_queued_messages_releases_the_drain_on_a_cycle() -> None:
     assert early == []
     assert log_when_d_send_returned == [("m1", "D")]
     assert h_log == [("m1", "D"), ("m2", "B")]
+
+
+@pytest.mark.conformance("HUB-013")
+def test_a_batch_owners_nested_batch_waits_for_a_borrowed_scope() -> None:
+    # #1223. The batch owner's nested batch waits for another thread's
+    # borrowed scope with an edge, like any other batch (spec/03 §4.1, §4.2
+    # rule 3), as in C#, Swift and Rust. O batch-owns h, and its body sends on
+    # h2, which B batch-owns, so B's h batch borrows h. B disposes h2, which
+    # releases O. O's nested batch body starts only after B's borrow exits.
+    h, h2 = _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    h_log = _thread_log(h)
+    b_owns_h2 = Event()
+    borrow_done = Event()
+    nested_saw_exit: list[bool] = []
+
+    def b_body() -> None:
+        with h2.batch():
+            b_owns_h2.set()
+            wait_until_waiting(threads.ident("O"))
+            with h.batch():
+                h.send(_make_msg("b1"))
+                h2.dispose()
+                # Hold the borrowed scope until O waits for it, or 500 ms.
+                try:
+                    wait_until_waiting(threads.ident("O"), timeout=0.5)
+                except TimeoutError:
+                    pass
+                borrow_done.set()
+
+    def o_body() -> None:
+        with h.batch():
+            h2.send(_make_msg("x"))
+            with h.batch():
+                nested_saw_exit.append(borrow_done.is_set())
+                h.send(_make_msg("o1"))
+            h.send(_make_msg("o2"))
+
+    threads.start("B", b_body)
+    assert b_owns_h2.wait(HANG_GUARD)
+    threads.start("O", o_body)
+    threads.join_all()
+
+    assert errors == []
+    assert nested_saw_exit == [True]
+    assert [name for name, _ in h_log] == ["b1", "o1", "o2"]
+
+
+@pytest.mark.conformance("HUB-013")
+def test_a_batch_owners_cyclic_nested_batch_borrows(monkeypatch: pytest.MonkeyPatch) -> None:
+    # #1223. The borrower B waits for the batch owner O through h3. O's nested
+    # h batch would wait for B, which closes the cycle, so that wait is
+    # refused and the nested batch enters a borrowed scope (spec/03 §4.1), as
+    # in C#, Swift and Rust. Neither thread hangs.
+    seam = WaitDecisions(monkeypatch)
+    h, h2, h3 = _fresh_hub(), _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    h_log = _thread_log(h)
+    h3_log = _thread_log(h3)
+    b_owns_h2 = Event()
+    nested_borrowed: list[bool] = []
+
+    def b_body() -> None:
+        with h2.batch():
+            b_owns_h2.set()
+            wait_until_waiting(threads.ident("O"))
+            with h.batch():
+                h2.dispose()
+                # Waits for O's h3 batch, unless that wait closes a cycle.
+                h3.send(_make_msg("b3"))
+
+    def o_body() -> None:
+        with h3.batch(), h.batch():
+            h2.send(_make_msg("x"))
+            wait_until_waiting(threads.ident("B"))
+            decided = len(seam.decisions(threads.ident("O")))
+            with h.batch():
+                nested_borrowed.append(seam.decisions(threads.ident("O"))[decided:] == [False])
+                h.send(_make_msg("o1"))
+
+    threads.start("B", b_body)
+    assert b_owns_h2.wait(HANG_GUARD)
+    threads.start("O", o_body)
+    threads.join_all()
+
+    assert errors == []
+    assert nested_borrowed == [True]
+    assert h_log == [("o1", "B")]
+    assert h3_log == [("b3", "B")]

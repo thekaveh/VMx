@@ -900,9 +900,15 @@ impl MessageHubInner {
         !self.borrowers.is_empty()
     }
 
-    /// The one owner that `current` waits for: the batch owner, then the
-    /// drainer, then a borrower other than `current` (spec/03 §4.1 rule 2).
+    /// The one owner that a `send`, `batch` or `dispose` by `current` waits
+    /// for: the batch owner, then the drainer, then a borrower other than
+    /// `current` (spec/03 §4.1 rule 2). `None` once the hub is disposed or its
+    /// disposal is requested: such a call is a no-op, or runs without a
+    /// scope, so it never waits (spec/03 §3.3, #1224).
     fn foreign_owner(&self, current: ThreadId) -> Option<ThreadId> {
+        if self.disposed || self.dispose_requested {
+            return None;
+        }
         self.batch_owner
             .filter(|owner| *owner != current)
             .or_else(|| self.draining_owner.filter(|owner| *owner != current))
@@ -1181,7 +1187,9 @@ impl MessageHub {
     /// batch, drain or a borrowed scope. A borrower's own send does not wait,
     /// and it enqueues for the drain at the last borrowed scope's exit. A wait
     /// that would close a wait-for cycle is refused, and the send enqueues for
-    /// the active owner (spec/03 §4, §4.2, ADR-0119, ADR-0172).
+    /// the active owner (spec/03 §4, §4.2, ADR-0119, ADR-0172). A send to a
+    /// disposed hub, or to one whose disposal is requested, is a no-op, so it
+    /// never waits (spec/03 §3.3, #1224).
     fn wait_to_publish(&self, current: ThreadId) -> MutexGuard<'_, MessageHubInner> {
         let mut inner = lock(&self.inner.state);
         if inner.is_borrower(current) {
@@ -1216,14 +1224,20 @@ impl MessageHub {
     /// Wakes this hub's waiters. Edges that name a thread no longer holding the
     /// hub's batch, drain or a borrowed scope are removed first, so a woken
     /// waiter's stale edge cannot close a cycle (spec/03 §4.1 rule 4).
+    /// Once the hub is disposed or its disposal is requested, every edge
+    /// goes: no waiter waits for it again.
     fn wake(&self, inner: &mut MessageHubInner) {
         if inner.waiters > 0 {
-            let holders = inner
-                .batch_owner
-                .into_iter()
-                .chain(inner.draining_owner)
-                .chain(inner.borrowers.iter().map(|(borrower, _)| *borrower))
-                .collect::<Vec<_>>();
+            let holders = if inner.disposed || inner.dispose_requested {
+                Vec::new()
+            } else {
+                inner
+                    .batch_owner
+                    .into_iter()
+                    .chain(inner.draining_owner)
+                    .chain(inner.borrowers.iter().map(|(borrower, _)| *borrower))
+                    .collect::<Vec<_>>()
+            };
             waits().release_waiters(Resource::MessageHub(self.identity()), &holders);
         }
         self.inner.ready.notify_all();
@@ -1261,12 +1275,12 @@ impl MessageHub {
     {
         let current = thread::current().id();
         let mut inner = lock(&self.inner.state);
-        // A borrower nests another borrowed scope, and the batch owner nests
-        // its own batch; neither waits (spec/03 §4.2 rule 3).
+        // A borrower nests another borrowed scope without waiting (spec/03
+        // §4.2 rule 3). Every other batch, the batch owner's nested batch
+        // too, waits for a foreign owner, and a borrowed scope is one; a
+        // refused wait borrows (§4.1, #1223).
         let borrowed = if inner.is_borrower(current) {
             true
-        } else if inner.batch_owner == Some(current) {
-            false
         } else {
             loop {
                 let Some(owner) = inner.foreign_owner(current) else {
@@ -1279,6 +1293,13 @@ impl MessageHub {
                 }
             }
         };
+        // A batch on a disposed hub, or on one whose disposal is requested,
+        // runs its body without a scope: it owns nothing that another call
+        // could wait for, and its sends are no-ops (spec/03 §3.3, #1224).
+        if inner.disposed || inner.dispose_requested {
+            drop(inner);
+            return transaction();
+        }
         // The scope opens under the lock that decided it.
         if borrowed {
             inner.enter_borrow(current);
@@ -1511,6 +1532,11 @@ impl MessageHub {
     pub fn dispose(&self) {
         let current = thread::current().id();
         let mut inner = lock(&self.inner.state);
+        // A disposed hub, or one whose disposal is already requested, needs
+        // nothing more, so the call returns without a wait (#1224).
+        if inner.disposed || inner.dispose_requested {
+            return;
+        }
         // The drainer and a borrower record terminal intent: the drain or the
         // last borrowed scope's exit finishes the disposal (spec/03 §4.2
         // rule 3).
@@ -1527,6 +1553,11 @@ impl MessageHub {
                 self.wake(&mut inner);
                 return;
             }
+        }
+        // Another thread disposed the hub, or requested its disposal, while
+        // this call waited.
+        if inner.disposed || inner.dispose_requested {
+            return;
         }
         let completions = Self::finish_dispose(&mut inner);
         self.wake(&mut inner);
@@ -5035,6 +5066,11 @@ impl MessageHub {
 
     pub(crate) fn test_draining_owner(&self) -> Option<ThreadId> {
         lock(&self.inner.state).draining_owner
+    }
+
+    /// Whether `thread` has an open borrowed scope on this hub.
+    pub(crate) fn test_is_borrower(&self, thread: ThreadId) -> bool {
+        lock(&self.inner.state).is_borrower(thread)
     }
 
     /// Runs `body` in a borrowed scope of this hub on the current thread, as

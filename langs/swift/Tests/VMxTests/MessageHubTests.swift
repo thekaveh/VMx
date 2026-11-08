@@ -944,4 +944,227 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
         XCTAssertEqual(completed.value.map(\.1), [false], "h completed inside D's in-flight delivery")
         subscription.cancel()
     }
+
+    /// #1223. The batch owner's nested batch waits for another thread's
+    /// borrowed scope with an edge, like any other batch (spec/03 §4.1, §4.2
+    /// rule 3), as in C#, Python and Rust. O batch-owns h, and its body sends
+    /// on h2, which B batch-owns, so B's h batch borrows h. B disposes h2,
+    /// which releases O. O's nested batch body starts only after B's borrowed
+    /// scope exits.
+    func testABatchOwnersNestedBatchWaitsForABorrowedScope() {
+        let h = MessageHub()
+        let h2 = MessageHub()
+        let timeout: TimeInterval = 5
+        let o = BorrowBox<UInt64>(0)
+        let oWaiting = DispatchSemaphore(value: 0)
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            if accepted, caller == o.value { oWaiting.signal() }
+        }
+        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
+        func msg(_ name: String) -> PropertyChangedMessage {
+            PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: name)
+        }
+        let names = BorrowBox<[String]>([])
+        let subscription = h.messages.sink { message in
+            guard let name = (message as? PropertyChangedMessage)?.propertyName else { return }
+            names.mutate { $0.append(name) }
+        }
+        defer { subscription.cancel() }
+        let bOwnsH2 = DispatchSemaphore(value: 0)
+        let bDone = DispatchSemaphore(value: 0)
+        let oDone = DispatchSemaphore(value: 0)
+        let borrowDone = BorrowBox(false)
+        let nestedSawExit = BorrowBox<Bool?>(nil)
+        Thread.detachNewThread {
+            try? h2.batch {
+                bOwnsH2.signal()
+                XCTAssertEqual(
+                    oWaiting.wait(timeout: .now() + timeout), .success,
+                    "O never waited for B's h2 batch"
+                )
+                try? h.batch {
+                    h.send(msg("b1"))
+                    h2.dispose()
+                    // Hold the borrowed scope until O waits for it, or 500 ms.
+                    _ = oWaiting.wait(timeout: .now() + 0.5)
+                    borrowDone.value = true
+                }
+            }
+            bDone.signal()
+        }
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        Thread.detachNewThread {
+            o.value = ThreadWaitGraph.currentThread
+            try? h.batch {
+                h2.send(msg("x"))
+                try? h.batch {
+                    nestedSawExit.value = borrowDone.value
+                    h.send(msg("o1"))
+                }
+                h.send(msg("o2"))
+            }
+            oDone.signal()
+        }
+
+        XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "B hung")
+        XCTAssertEqual(oDone.wait(timeout: .now() + timeout), .success, "O hung")
+        XCTAssertEqual(
+            nestedSawExit.value, true,
+            "the batch owner's nested batch ran inside another thread's borrowed scope"
+        )
+        XCTAssertEqual(names.value, ["b1", "o1", "o2"])
+    }
+
+    /// #1223. The borrower B waits for the batch owner O through h3. O's
+    /// nested h batch would wait for B, which closes the cycle, so that wait
+    /// is refused and the nested batch enters a borrowed scope (spec/03 §4.1),
+    /// as in C#, Python and Rust. Neither thread hangs.
+    func testABatchOwnersCyclicNestedBatchBorrows() {
+        let h = MessageHub()
+        let h2 = MessageHub()
+        let h3 = MessageHub()
+        let timeout: TimeInterval = 5
+        let o = BorrowBox<UInt64>(0)
+        let b = BorrowBox<UInt64>(0)
+        let oWaiting = DispatchSemaphore(value: 0)
+        let bWaiting = DispatchSemaphore(value: 0)
+        let oRefusals = BorrowBox(0)
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            if caller == o.value {
+                if accepted { oWaiting.signal() } else { oRefusals.mutate { $0 += 1 } }
+            }
+            if accepted, caller == b.value { bWaiting.signal() }
+        }
+        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
+        func msg(_ name: String) -> PropertyChangedMessage {
+            PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: name)
+        }
+        func counter(_ hub: MessageHub, _ name: String, _ box: BorrowBox<Int>) -> AnyCancellable {
+            hub.messages.sink { message in
+                if (message as? PropertyChangedMessage)?.propertyName == name { box.mutate { $0 += 1 } }
+            }
+        }
+        let o1 = BorrowBox(0)
+        let b3 = BorrowBox(0)
+        let subscriptions = [counter(h, "o1", o1), counter(h3, "b3", b3)]
+        defer { subscriptions.forEach { $0.cancel() } }
+        let bOwnsH2 = DispatchSemaphore(value: 0)
+        let bDone = DispatchSemaphore(value: 0)
+        let oDone = DispatchSemaphore(value: 0)
+        let nestedRefused = BorrowBox<Bool?>(nil)
+        Thread.detachNewThread {
+            b.value = ThreadWaitGraph.currentThread
+            try? h2.batch {
+                bOwnsH2.signal()
+                XCTAssertEqual(
+                    oWaiting.wait(timeout: .now() + timeout), .success,
+                    "O never waited for B's h2 batch"
+                )
+                try? h.batch {
+                    h2.dispose()
+                    // Waits for O's h3 batch, unless that wait closes a cycle.
+                    h3.send(msg("b3"))
+                }
+            }
+            bDone.signal()
+        }
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        Thread.detachNewThread {
+            o.value = ThreadWaitGraph.currentThread
+            try? h3.batch {
+                try? h.batch {
+                    h2.send(msg("x"))
+                    XCTAssertEqual(
+                        bWaiting.wait(timeout: .now() + timeout), .success,
+                        "B never waited for O's h3 batch"
+                    )
+                    let refusalsBefore = oRefusals.value
+                    try? h.batch {
+                        nestedRefused.value = oRefusals.value == refusalsBefore + 1
+                        h.send(msg("o1"))
+                    }
+                }
+            }
+            oDone.signal()
+        }
+
+        XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "B hung")
+        XCTAssertEqual(oDone.wait(timeout: .now() + timeout), .success, "O hung")
+        XCTAssertEqual(nestedRefused.value, true, "the nested batch did not take the refused-wait borrow")
+        XCTAssertEqual(o1.value, 1)
+        XCTAssertEqual(b3.value, 1)
+    }
+
+    /// #1230. A borrower's batch on a disposed hub runs its body with no new
+    /// borrowed scope, as in C#, Python and Rust (spec/03 §3.3, §4.2 rule 3).
+    /// O batch-owns h, and its body sends on h2, which B batch-owns, so B's
+    /// h batch borrows h. B disposes h in the borrowed body and then calls
+    /// `batch`. B releases O, so h completes once, at B's outer exit.
+    func testABorrowersBatchOnADisposedHubOpensNoScope() {
+        let h = MessageHub()
+        let h2 = MessageHub()
+        let timeout: TimeInterval = 5
+        let o = BorrowBox<UInt64>(0)
+        let b = BorrowBox<UInt64>(0)
+        let oWaiting = DispatchSemaphore(value: 0)
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            if accepted, caller == o.value { oWaiting.signal() }
+        }
+        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
+        let completedOn = BorrowBox<[UInt64]>([])
+        let subscription = h.messages.sink(
+            receiveCompletion: { _ in
+                let thread = ThreadWaitGraph.currentThread
+                completedOn.mutate { $0.append(thread) }
+            },
+            receiveValue: { _ in }
+        )
+        defer { subscription.cancel() }
+        let bOwnsH2 = DispatchSemaphore(value: 0)
+        let oReturned = DispatchSemaphore(value: 0)
+        let bDone = DispatchSemaphore(value: 0)
+        let oDone = DispatchSemaphore(value: 0)
+        let depthBefore = BorrowBox<Int?>(nil)
+        let depthInBody = BorrowBox<Int?>(nil)
+        let oReturnedInBorrow = BorrowBox<Bool?>(nil)
+        let completedBeforeBExit = BorrowBox<[UInt64]?>(nil)
+        Thread.detachNewThread {
+            b.value = ThreadWaitGraph.currentThread
+            try? h2.batch {
+                bOwnsH2.signal()
+                XCTAssertEqual(
+                    oWaiting.wait(timeout: .now() + timeout), .success,
+                    "O never waited for B's h2 batch"
+                )
+                try? h.batch {
+                    h.dispose()
+                    depthBefore.value = h.borrowedScopeDepthForTesting
+                    try? h.batch { depthInBody.value = h.borrowedScopeDepthForTesting }
+                    // Releasing h2 lets O's h batch exit inside this borrow.
+                    h2.dispose()
+                    oReturnedInBorrow.value = oReturned.wait(timeout: .now() + timeout) == .success
+                    completedBeforeBExit.value = completedOn.value
+                }
+            }
+            bDone.signal()
+        }
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        Thread.detachNewThread {
+            o.value = ThreadWaitGraph.currentThread
+            try? h.batch {
+                h2.send(PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: "x"))
+            }
+            oReturned.signal()
+            oDone.signal()
+        }
+
+        XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "B hung")
+        XCTAssertEqual(oDone.wait(timeout: .now() + timeout), .success, "O hung")
+        XCTAssertEqual(depthBefore.value, 1)
+        XCTAssertEqual(depthInBody.value, 1, "the batch on the disposed hub opened a borrowed scope")
+        XCTAssertEqual(oReturnedInBorrow.value, true, "O's h batch did not exit inside B's borrow")
+        XCTAssertEqual(completedBeforeBExit.value, [], "h completed before B's outer borrowed scope exited")
+        XCTAssertEqual(completedOn.value, [b.value], "h did not complete once, at B's outer exit")
+        XCTAssertEqual(h.borrowedScopeDepthForTesting, 0)
+    }
 }
