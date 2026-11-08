@@ -841,8 +841,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         lock (_membershipGate)
         {
             ReleaseMembershipTransactionLocked();
+            // The deferral stays set until Dispose admits it, so no other
+            // thread's structural change is admitted between this release and
+            // Dispose (#1153, the CompositeVM twin of #1064).
             dispose = _disposeDeferred;
-            _disposeDeferred = false;
         }
         if (dispose)
         {
