@@ -64,6 +64,33 @@ below for them.
 
 ### Fixed
 
+- A `construct()`, `destruct()` or `reconstruct()` call that starts during a
+  view-model's inline dispose cascade now raises
+  `StatusTransitionError(DISPOSED, operation)` (ADR-0175, spec/02 §7.2,
+  LIFE-021, #1174). The cascade is the part of `dispose()` that disposes the
+  children of a `CompositeVM`, `GroupVM` or `AggregateVM1`…`AggregateVM6`, or
+  the `_own_member` members of a leaf, before the view-model publishes
+  `DISPOSED`. The check runs before the idempotent no-op, so `construct()`
+  from `CONSTRUCTED` also raises. The call publishes nothing, runs no hook and
+  calls no slot factory. Before, it published `CONSTRUCTING` or `DESTRUCTING`,
+  ran no hook and returned.
+- A transition whose hook returned before a concurrent `dispose()` started
+  its inline cascade no longer publishes `CONSTRUCTED` or `DESTRUCTED` over
+  disposed children or members (#1167). Once `dispose()` has started, the
+  settled commit, the rollback after a failed hook or child walk, the restore
+  after a failed transient publication, a commit that a background
+  transition queued on the foreground, and the construct phase of
+  `reconstruct()` publish nothing. The call returns without a supersession
+  error; a hook or walk failure that was already propagating still
+  propagates.
+- A container's child walk stops once a foreign `dispose()` has published
+  `DISPOSED` (#1163, spec/02 §2.4, LIFE-015). Before, a `CompositeVM`,
+  `GroupVM`, `AggregateVM1`…`AggregateVM6` or `_transition_children` walk
+  still constructed or destructed the remaining children and ran the
+  `current` selector, the `on_destruct` callback or `after` while the
+  disposing thread waited for the hook. A child whose transition started
+  before the dispose still finishes it. The walk's future then completes
+  without error, as in C#, Swift and Rust.
 - `FormVM` queues every `set_model` and deny that the approving thread makes in
   an approval's pre-publication window and replays them after `on_approved`
   (spec/20 §5.3, ADR-0174, FORM-039, FORM-040, #1168, #1050). The window now

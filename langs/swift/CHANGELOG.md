@@ -67,6 +67,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `construct()`, `destruct()` or `reconstruct()` call that starts during a
+  view-model's inline dispose cascade now throws
+  `StatusTransitionError(currentStatus: .disposed, …)` (ADR-0175, LIFE-021,
+  spec/02 §7.2, #1174). The cascade is the part of `dispose()` that disposes
+  the children of a `CompositeVM`, `GroupVM` or `AggregateVM1`…`AggregateVM6`,
+  or the members a leaf registered with `ownMember(_:)`, before the VM
+  publishes `.disposed`. The check runs before the idempotent no-op, so
+  `construct()` from `.constructed` also throws. Before, the call published
+  `.constructing` or `.destructing`, ran no hook and returned, so subscribers
+  saw a transient status that ended only at `.disposed`. A child's or
+  member's dispose hook, a subscriber and another thread all get the error.
+  `canConstruct()`, `canDestruct()` and `canReconstruct()` are unchanged.
+- Once the inline dispose cascade has started, no status other than
+  `.disposed` commits (ADR-0175, #1167). A transition whose hook returned
+  before the cascade no longer publishes `.constructed` or `.destructed`, or
+  its rollback, over children the cascade disposed. This also drops a
+  background commit queued on the foreground and drained during the cascade,
+  a deferred child-walk completion and its commit-time seal, and the
+  construct phase of `reconstruct()`. The superseded call returns without an
+  error, as a call that `.disposed` superseded does, and a hook or child
+  failure that was already propagating still propagates.
 - `GroupVM` refuses another thread's add, insert, removal or transfer as
   disposal in progress while a deferred `dispose()` is handed off (#1153,
   spec/06 §4.2, spec/07). A `dispose()` inside the caller's own membership

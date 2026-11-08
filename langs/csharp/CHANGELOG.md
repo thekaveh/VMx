@@ -79,6 +79,42 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: a `Construct()`, `Destruct()` or `Reconstruct()` call, or its async
+  form, that starts during a VM's inline dispose cascade now throws
+  `StatusTransitionException(Disposed, operation)` (#1174, ADR-0175, spec/02
+  §7.2, LIFE-021). The inline cascade is the part of the first `Dispose()`
+  that disposes the children of a `CompositeVM`, `GroupVM` or
+  `AggregateVM1`–`AggregateVM6`, or the members that a leaf registered with
+  `OwnMember`, while no hook of the VM runs on another thread. The check runs
+  before the idempotent no-op, so `Construct()` from `Constructed` also
+  throws. The call publishes no status and runs no hook. Before, a composite
+  or group published `Constructing` or `Destructing`, ran no hook and
+  returned, and an aggregate ran its hook. `CanConstruct()`, `CanDestruct()`
+  and `CanReconstruct()` still read `Status`.
+- Fixed: once the inline dispose cascade has started, a VM commits no status
+  other than `Disposed` (#1167, ADR-0175, LIFE-021). A transition whose hook
+  returned before a `Dispose()` on another thread started the cascade no
+  longer publishes `Constructed` or `Destructed` over its disposed children or
+  members. The same applies to its rollback after a failure, to the restore
+  after a failed publication, to the `Constructed` or `Destructed` commit that
+  a background transition queued on the foreground, and to the construct
+  phase of `Reconstruct()`. Such a call returns as a call that disposal
+  superseded: it raises no error of its own, and a hook failure still
+  propagates.
+- Fixed: `AggregateVM1`–`AggregateVM6` dispose their slots at the same hook
+  boundary as `CompositeVM` and `GroupVM` (#1166, LIFE-015). A `Dispose()` on
+  another thread while the aggregate's construct or destruct hook runs now
+  publishes `Disposed` first and disposes no slot until the hook returns.
+  Before, it disposed the slots during the hook, so `Destruct()` threw
+  `InvalidOperationException` and the aggregate published `Constructed` before
+  `Disposed`, or it waited for the construct hook and the aggregate published
+  `Constructed` first. A `Construct()` racing `Dispose()`, and two aggregates
+  whose slot factories dispose each other, no longer deadlock. The slot
+  snapshot is taken when the cascade starts, and a further `Dispose()` call
+  during the cascade does nothing. A slot replacement checks for disposal and
+  assigns its slots in one step under the lifecycle lock, so a concurrent
+  `Dispose()` never leaves a slot committed to a disposed aggregate (spec/08
+  §4, AGG-007).
 - Fixed: `ServicedObservableCollection<T>`,
   `KeyedServicedObservableCollection<TKey, TItem>` and `ObservableDictionary`
   now send the hub `CollectionChangedMessage` when a local handler throws

@@ -1,4 +1,4 @@
-"""Conformance tests: LIFE-001..020.
+"""Conformance tests: LIFE-001..021.
 
 Every LIFE id in this file drives a real ``ComponentVM`` instance and asserts
 its own normative behavior directly — transition sequence, emitted
@@ -12,7 +12,8 @@ LIFE-013 (the composite disposal cascade) is exercised by
 ``test_composite_vm.py::test_LIFE_013_dispose_cascades_depth_first`` — its
 natural home is the composite suite, so it is not duplicated here. LIFE-016..020
 (the child-transition helper and member disposal) live in
-``test_life_016_to_020_child_transition_helper.py``.
+``test_life_016_to_020_child_transition_helper.py``, and LIFE-021 (the inline
+dispose cascade) lives in ``test_life_021_inline_dispose_cascade.py``.
 """
 
 from __future__ import annotations

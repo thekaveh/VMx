@@ -40,6 +40,7 @@ from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
 from vmx.forwarding.component import ForwardingComponentVM
+from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -992,8 +993,9 @@ def test_LIFE_015_aggregate_slot_cascade_waits_for_admitted_hook(arity: int, pha
 @pytest.mark.conformance("LIFE-015")
 def test_LIFE_015_no_aggregate_hook_is_admitted_during_its_slot_cascade(arity: int) -> None:
     """LIFE-015 for AggregateVMN: no hook of the aggregate is admitted while
-    its slot cascade runs. A construct() from a slot's dispose hook creates no
-    slot, and the aggregate ends Disposed with no Constructed slot left."""
+    its slot cascade runs. A construct() from a slot's dispose hook fails with
+    the Disposed error (LIFE-021, ADR-0175), creates no slot, and the aggregate
+    ends Disposed with no Constructed slot left."""
     hub = _hub()
     log: list[str] = []
     created: list[_SlotCleanupProbe] = []
@@ -1025,7 +1027,11 @@ def test_LIFE_015_no_aggregate_hook_is_admitted_during_its_slot_cascade(arity: i
 
     aggregate.dispose()
 
-    assert construct_errors == []
+    assert len(construct_errors) == 1
+    error = construct_errors[0]
+    assert isinstance(error, StatusTransitionError)
+    assert error.current_status is ConstructionStatus.DISPOSED
+    assert error.attempted_operation == "construct"
     assert len(created) == arity, "no hook ran, so no candidate was created"
     assert aggregate.components() == slots
     assert all(slot.status is ConstructionStatus.DISPOSED for slot in created)

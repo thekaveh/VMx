@@ -126,6 +126,34 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The inline dispose cascade follows ADR-0175 (spec/02 §7.2, `LIFE-021`,
+  #1174, #1167). Once `dispose()` closes hook admission and starts disposing
+  children or members, `construct()`, `destruct()` and `reconstruct()` return
+  `VmxError::Disposed` before the idempotent no-op and the legality check.
+  So `construct()` from `Constructed` and `reconstruct()` from `Destructed`
+  now fail too. The background form refuses in the same way, and a queued
+  background hook does not run. A transition whose hook returned before the
+  cascade started commits nothing more: no settled status, no rollback, no
+  queued foreground commit, no deferred child-walk completion, and no
+  construct phase of `reconstruct()`. The call returns the hook's own result;
+  a container or leaf `reconstruct()` whose destruct phase ended before the
+  cascade started returns `Ok(())`. The settled commit and its publication
+  now run under one guard, so a cascade that starts in between drops both.
+  `status()` can still read the transient or prior status until the cascade
+  publishes `Disposed`. Because the settled status now commits inside that
+  guard, it changes only after another thread's hub batch or drain ends: a
+  `construct()` from inside that batch or drain returns
+  `VmxError::ConcurrentOperation` instead of the idempotent `Ok(())`, and a
+  subscriber that holds the hub while it waits for the status to settle
+  waits forever.
+- A leaf `ComponentVm` with `own_member` members disposes them at the same
+  admitted-hook boundary as a container's children (#1164, LIFE-015). A
+  `dispose()` from another thread while the leaf's construct or destruct hook
+  runs publishes `Disposed` first and disposes the members after the hook
+  returns. With no hook running on another thread, the members are still
+  disposed before `Disposed`. A leaf without members disposes as before. The
+  background construct and destruct paths and `reconstruct()` check closed
+  hook admission, as `transition_with_body` already did.
 - `walk`, `walk_expanded` and `find` no longer panic when they reach a
   `HierarchicalVm` whose lazy children factory returns invalid output (#1060,
   ADR-0170, spec/13 §6.1). `walk` and `walk_expanded` now return

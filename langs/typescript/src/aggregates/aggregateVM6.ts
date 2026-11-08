@@ -122,7 +122,7 @@ export class AggregateVM6<
     // transitions before the aggregate's own Disposed transition — a single
     // dispose-ordering rule across all aggregate arities.
     disposeBestEffort([
-      () => this._abandonChildTransition(),
+      () => this._beginDisposeCascade(),
       () => this.#component1?.dispose(),
       () => this.#component2?.dispose(),
       () => this.#component3?.dispose(),

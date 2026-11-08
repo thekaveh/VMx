@@ -6,6 +6,7 @@ using VMx.Composites;
 using VMx.Forwarding;
 using VMx.Lifecycle;
 using VMx.Messages;
+using VMx.Services;
 using VMx.Tests.Helpers;
 using Xunit;
 
@@ -473,6 +474,312 @@ public class AggregateVMConformanceTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*fixed aggregate slot*");
         aggregate.Component1.Should().BeSameAs(child);
         composite.Count.Should().Be(0);
+    }
+
+    // ── LIFE-015 (AggregateVMN) — slot cascade waits for the admitted hook ──
+
+    /// <summary>Builds an aggregate of the given arity whose slot N comes from <paramref name="slot"/>(N).</summary>
+    private static IComponentVM BuildAggregate(
+        int arity, string name, TestHub hub, Func<int, IComponentVM> slot)
+        => arity switch
+        {
+            1 => AggregateVM1<IComponentVM>.Builder()
+                .Name(name).Services(hub, NullDispatcher.Instance)
+                .Component1(() => slot(1))
+                .Build(),
+            2 => AggregateVM2<IComponentVM, IComponentVM>.Builder()
+                .Name(name).Services(hub, NullDispatcher.Instance)
+                .Component1(() => slot(1)).Component2(() => slot(2))
+                .Build(),
+            3 => AggregateVM3<IComponentVM, IComponentVM, IComponentVM>.Builder()
+                .Name(name).Services(hub, NullDispatcher.Instance)
+                .Component1(() => slot(1)).Component2(() => slot(2)).Component3(() => slot(3))
+                .Build(),
+            4 => AggregateVM4<IComponentVM, IComponentVM, IComponentVM, IComponentVM>.Builder()
+                .Name(name).Services(hub, NullDispatcher.Instance)
+                .Component1(() => slot(1)).Component2(() => slot(2)).Component3(() => slot(3))
+                .Component4(() => slot(4))
+                .Build(),
+            5 => AggregateVM5<IComponentVM, IComponentVM, IComponentVM, IComponentVM, IComponentVM>.Builder()
+                .Name(name).Services(hub, NullDispatcher.Instance)
+                .Component1(() => slot(1)).Component2(() => slot(2)).Component3(() => slot(3))
+                .Component4(() => slot(4)).Component5(() => slot(5))
+                .Build(),
+            6 => AggregateVM6<IComponentVM, IComponentVM, IComponentVM, IComponentVM, IComponentVM, IComponentVM>.Builder()
+                .Name(name).Services(hub, NullDispatcher.Instance)
+                .Component1(() => slot(1)).Component2(() => slot(2)).Component3(() => slot(3))
+                .Component4(() => slot(4)).Component5(() => slot(5)).Component6(() => slot(6))
+                .Build(),
+            _ => throw new ArgumentOutOfRangeException(nameof(arity)),
+        };
+
+    private static ComponentVM<string> BlockingSlot(
+        TestHub hub, string name, bool blockConstruct,
+        ManualResetEventSlim entered, ManualResetEventSlim release)
+    {
+        void Block()
+        {
+            entered.Set();
+            release.Wait(Liveness.HangGuard).Should().BeTrue();
+        }
+
+        var builder = ComponentVM<string>.Builder()
+            .Name(name).Services(hub, NullDispatcher.Instance).Model("m");
+        builder = blockConstruct ? builder.OnConstruct(Block) : builder.OnDestruct(Block);
+        return builder.Build();
+    }
+
+    private static ComponentVM<string> PlainSlot(TestHub hub, string name)
+        => ComponentVM<string>.Builder().Name(name).Services(hub, NullDispatcher.Instance).Model("m").Build();
+
+    private static System.Collections.Concurrent.ConcurrentQueue<string> RecordStatuses(TestHub hub)
+    {
+        var recorded = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        hub.Messages.Subscribe(message =>
+        {
+            if (message is ConstructionStatusChangedMessage changed)
+                recorded.Enqueue($"{changed.SenderName}:{changed.Status}");
+        });
+        return recorded;
+    }
+
+    private static Task<Exception?> OnOwnThread(Action action)
+        => Task.Factory.StartNew<Exception?>(
+            () => Record.Exception(action),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+    /// <summary>
+    /// LIFE-015 (#1166, case A): a foreign Dispose() of an aggregate whose
+    /// destruct hook waits on slot 1 publishes Disposed and disposes no slot
+    /// while the hook runs. After the hook returns, slot 1 publishes
+    /// Destructed and one Disposed, the aggregate publishes no Constructed,
+    /// and neither call throws.
+    /// </summary>
+    [Theory, Trait("Conformance", "LIFE-015")]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public async Task LIFE_015_Foreign_Dispose_During_Aggregate_Destruct_Hook_Waits(int arity)
+    {
+        using var hub = new TestHub();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var agg = BuildAggregate(arity, "agg", hub, n => n == 1
+            ? BlockingSlot(hub, "c1", blockConstruct: false, entered, release)
+            : PlainSlot(hub, $"c{n}"));
+        agg.Construct();
+        var c1 = ((IAggregateSlots)agg).EnumerateSlots().First();
+        var recorded = RecordStatuses(hub);
+
+        var destruct = OnOwnThread(agg.Destruct);
+        entered.Wait(Liveness.HangGuard).Should().BeTrue();
+        var dispose = OnOwnThread(agg.Dispose);
+        var disposedDuringHook = SpinWait.SpinUntil(
+            () => agg.Status == ConstructionStatus.Disposed, TimeSpan.FromSeconds(5));
+        // Give the disposal time to reach the slots if it would.
+        await Task.Delay(100);
+        var slotDuringHook = c1.Status;
+        release.Set();
+        disposedDuringHook.Should().BeTrue("the foreign disposal publishes Disposed while the hook runs");
+        slotDuringHook.Should().Be(ConstructionStatus.Destructing, "no slot is disposed while the hook runs");
+        await Task.WhenAll(destruct, dispose).WaitAsync(Liveness.HangGuard);
+
+        (await destruct).Should().BeNull();
+        (await dispose).Should().BeNull();
+        recorded.Where(entry => entry.StartsWith("c1:", StringComparison.Ordinal))
+            .Should().Equal("c1:Destructing", "c1:Destructed", "c1:Disposed");
+        recorded.Where(entry => entry.StartsWith("agg:", StringComparison.Ordinal))
+            .Should().Equal("agg:Destructing", "agg:Disposed");
+        ((IAggregateSlots)agg).EnumerateSlots()
+            .All(slot => slot.Status == ConstructionStatus.Disposed).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// LIFE-015 (#1166, case B): a foreign Dispose() of an aggregate whose
+    /// construct hook waits on slot 1 publishes Disposed while the hook runs.
+    /// After the hook returns, the slot the factory created is disposed once
+    /// and the aggregate publishes no Constructed.
+    /// </summary>
+    [Theory, Trait("Conformance", "LIFE-015")]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public async Task LIFE_015_Foreign_Dispose_During_Aggregate_Construct_Hook_Waits(int arity)
+    {
+        using var hub = new TestHub();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var agg = BuildAggregate(arity, "agg", hub, n => n == 1
+            ? BlockingSlot(hub, "c1", blockConstruct: true, entered, release)
+            : PlainSlot(hub, $"c{n}"));
+        var recorded = RecordStatuses(hub);
+
+        var construct = OnOwnThread(agg.Construct);
+        entered.Wait(Liveness.HangGuard).Should().BeTrue();
+        var dispose = OnOwnThread(agg.Dispose);
+        var disposedDuringHook = SpinWait.SpinUntil(
+            () => agg.Status == ConstructionStatus.Disposed, TimeSpan.FromSeconds(5));
+        release.Set();
+        disposedDuringHook.Should().BeTrue(
+            "the foreign disposal publishes Disposed without waiting on the aggregate's slot lock");
+        await Task.WhenAll(construct, dispose).WaitAsync(Liveness.HangGuard);
+
+        (await construct).Should().BeNull();
+        (await dispose).Should().BeNull();
+        recorded.Count(entry => entry == "c1:Disposed").Should().Be(1);
+        recorded.Should().NotContain("agg:Constructed");
+        ((IAggregateSlots)agg).EnumerateSlots()
+            .All(slot => slot.Status == ConstructionStatus.Disposed).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// LIFE-015 (#1166, case C): Construct() and a foreign Dispose() started
+    /// together never hang, and the aggregate always ends Disposed.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-015")]
+    public async Task LIFE_015_Aggregate_Construct_Dispose_Race_Never_Hangs()
+    {
+        var random = new Random(1166);
+        for (var iteration = 0; iteration < 200; iteration++)
+        {
+            using var hub = new TestHub();
+            var agg = BuildAggregate(1, "agg", hub, n => PlainSlot(hub, $"c{n}"));
+            var spins = random.Next(0, 400);
+            using var start = new ManualResetEventSlim();
+            var construct = OnOwnThread(() =>
+            {
+                start.Wait(Liveness.HangGuard);
+                agg.Construct();
+            });
+            var dispose = OnOwnThread(() =>
+            {
+                start.Wait(Liveness.HangGuard);
+                Thread.SpinWait(spins);
+                agg.Dispose();
+            });
+            start.Set();
+
+            var both = Task.WhenAll(construct, dispose);
+            (await Task.WhenAny(both, Task.Delay(TimeSpan.FromSeconds(3)))).Should().BeSameAs(both,
+                $"iteration {iteration} must not hang");
+            (await dispose).Should().BeNull();
+            agg.Status.Should().Be(ConstructionStatus.Disposed);
+            ((IAggregateSlots)agg).EnumerateSlots()
+                .All(slot => slot.Status == ConstructionStatus.Disposed).Should().BeTrue();
+        }
+    }
+
+    /// <summary>
+    /// LIFE-015 (#1166, case D): two aggregates whose slot factories dispose
+    /// each other from their construct hooks do not deadlock. Both Construct()
+    /// calls finish and both aggregates end Disposed.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-015")]
+    public async Task LIFE_015_Aggregates_Disposing_Each_Other_From_Construct_Hooks_Finish()
+    {
+        using var hub = new TestHub();
+        using var barrier = new Barrier(2);
+        IComponentVM? first = null;
+        IComponentVM? second = null;
+        first = BuildAggregate(1, "first", hub, n =>
+        {
+            barrier.SignalAndWait(Liveness.HangGuard).Should().BeTrue();
+            second!.Dispose();
+            return PlainSlot(hub, "first-c1");
+        });
+        second = BuildAggregate(1, "second", hub, n =>
+        {
+            barrier.SignalAndWait(Liveness.HangGuard).Should().BeTrue();
+            first.Dispose();
+            return PlainSlot(hub, "second-c1");
+        });
+
+        var constructFirst = OnOwnThread(first.Construct);
+        var constructSecond = OnOwnThread(second.Construct);
+        var both = Task.WhenAll(constructFirst, constructSecond);
+        (await Task.WhenAny(both, Task.Delay(TimeSpan.FromSeconds(5)))).Should().BeSameAs(both,
+            "a wait on the other aggregate's slot lock must not close a deadlock");
+
+        (await constructFirst).Should().BeNull();
+        (await constructSecond).Should().BeNull();
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    /// <summary>
+    /// AGG-007 (spec/08 §4, #1166): a foreign Dispose() that publishes Disposed
+    /// after the aggregate's slot replacement passed its preflight, but before
+    /// the slots are assigned, wins. No candidate is committed to the disposed
+    /// aggregate: none is a slot when Disposed is published or afterward, and
+    /// every candidate ends Disposed with no parent. The internal seam holds
+    /// the replacement just before its terminal check and slot assignment.
+    /// </summary>
+    [Theory, Trait("Conformance", "AGG-007")]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    [InlineData(3, true)]
+    [InlineData(4, false)]
+    [InlineData(5, true)]
+    [InlineData(6, false)]
+    [InlineData(6, true)]
+    public async Task Foreign_Dispose_Before_Slot_Assignment_Commits_No_Slot(int arity, bool reconstruct)
+    {
+        using var hub = new TestHub();
+        var candidates = new System.Collections.Concurrent.ConcurrentQueue<IComponentVM>();
+        var collect = false;
+        var agg = BuildAggregate(arity, "agg", hub, n =>
+        {
+            var slot = PlainSlot(hub, $"c{n}");
+            if (Volatile.Read(ref collect)) candidates.Enqueue(slot);
+            return slot;
+        });
+        if (reconstruct) agg.Construct();
+        Volatile.Write(ref collect, true);
+        IComponentVM[]? slotsAtDisposed = null;
+        hub.Messages.Subscribe(message =>
+        {
+            if (message is ConstructionStatusChangedMessage { SenderName: "agg", Status: ConstructionStatus.Disposed })
+                slotsAtDisposed = ((IAggregateSlots)agg).EnumerateSlots().ToArray();
+        });
+        using var inWindow = new ManualResetEventSlim();
+        var probe = (ComponentVMBase)agg;
+        probe.BeforeCommitUnlessDisposingForTesting = () =>
+        {
+            probe.BeforeCommitUnlessDisposingForTesting = null;
+            inWindow.Set();
+            // The construct hook holds its lease, so the foreign disposal
+            // publishes Disposed now and defers its slot cascade to the lease.
+            SpinWait.SpinUntil(() => agg.Status == ConstructionStatus.Disposed, Liveness.HangGuard)
+                .Should().BeTrue("the foreign disposal publishes Disposed while the hook runs");
+        };
+
+        var transition = OnOwnThread(reconstruct ? agg.Reconstruct : agg.Construct);
+        inWindow.Wait(Liveness.HangGuard).Should().BeTrue();
+        var dispose = OnOwnThread(agg.Dispose);
+        await Task.WhenAll(transition, dispose).WaitAsync(Liveness.HangGuard);
+
+        (await transition).Should().BeNull("a transition superseded by Disposed returns without error");
+        (await dispose).Should().BeNull();
+        agg.Status.Should().Be(ConstructionStatus.Disposed);
+        candidates.Should().HaveCount(arity);
+        slotsAtDisposed.Should().NotBeNull().And.NotIntersectWith(candidates,
+            "no candidate is a slot when the aggregate publishes Disposed");
+        ((IAggregateSlots)agg).EnumerateSlots().Should().NotIntersectWith(candidates,
+            "no slot is committed to a disposed aggregate (spec/08 §4)");
+        foreach (var candidate in candidates)
+        {
+            candidate.Status.Should().Be(ConstructionStatus.Disposed);
+            candidate.GetParent().Should().BeNull();
+        }
+        ((IAggregateSlots)agg).EnumerateSlots()
+            .All(slot => slot.Status == ConstructionStatus.Disposed).Should().BeTrue();
     }
 }
 #pragma warning restore CA1715

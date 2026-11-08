@@ -663,6 +663,19 @@ delivers its events through `VMxConcurrentSubject` (`FORM-039`, `FORM-040`).
 The catalog now contains 446 library IDs plus 5 scenario IDs.
 
 See ADR-0174 and chapter 20 §5.1, §5.3, and §5.4.
+
+v3.30.0 also defines lifecycle calls during the inline dispose cascade, in
+which a view-model disposes its children and members before it publishes
+`Disposed`. A `construct()`, `destruct()`, or `reconstruct()` call that starts
+during the cascade fails with the error of a call on a `Disposed` view-model,
+even where it would be a no-op. It publishes no status, runs no hook, and calls
+no slot factory. Once the cascade has started, no hook is admitted and no
+status other than `Disposed` commits. A transition that started earlier
+publishes nothing more and returns as a call that `Disposed` superseded. The
+member cascade follows the same rules (`LIFE-021`). The catalog now contains
+447 library IDs plus 5 scenario IDs.
+
+See ADR-0175 and chapter 02 §2.4, §7.1, and §7.2.
 v3.30.0 also makes a failing local subscriber leave the hub message intact. A
 hub-publishing collection or container that commits a change sends exactly one
 `CollectionChangedMessage` for it, even when a local subscriber fails. C# and
