@@ -56,6 +56,19 @@ M = TypeVar("M")
 
 _current_change_coordinator = RLock()
 
+# The kinds of _CompositeVMBase._apply_current_change (spec/06 §4.3).
+_CALL = "call"
+_DELIVERY = "delivery"
+_CLEAR = "clear"
+
+
+def _transaction_in_progress() -> RuntimeError:
+    return RuntimeError("container membership transaction is already in progress")
+
+
+def _selection_while_disposing() -> RuntimeError:
+    return RuntimeError("cannot select a child while the container is disposing")
+
 
 # ---------------------------------------------------------------------------
 # _CompositeVMBase
@@ -118,8 +131,18 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._membership_transaction_active: bool = False
         self._membership_transaction_owner: int | None = None
         # The child an in-flight add, insert or replacement attached and has
-        # not admitted yet; a rollback may still remove it (#1064).
+        # not admitted yet; a rollback may still remove it (#1064). Such a
+        # child is not a member for selection (spec/06 §4.3 rule 2, ADR-0173).
         self._pending_admission: VM | None = None
+        # The children an in-flight _attach_population attached and has not
+        # committed yet; like _pending_admission, not members for selection.
+        self._staged_population: tuple[VM, ...] | None = None
+        # Set while the open membership transaction is uncommitted: its
+        # rollback could still undo a staged attach, population or transfer
+        # detach. The owner thread's selection calls are refused in that
+        # window (spec/06 §4.3 rule 4). Cleared at the commit and when the
+        # transaction ends.
+        self._transaction_staged: bool = False
         self._membership_gate = RLock()
         # Start records of the children an auto-construct add attaches while
         # Constructing; the construct walk waits on them (spec/06 §5.1).
@@ -150,6 +173,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return self._current
 
     def select_child(self, vm: _ComponentVMBase) -> None:
+        self._raise_if_caller_owns_uncommitted_transaction()
         if isinstance(vm, _ComponentVMBase):
             # Use typed access via _set_current
             for child in self.snapshot():
@@ -158,6 +182,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     return
 
     def deselect_child(self, vm: _ComponentVMBase) -> None:
+        self._raise_if_caller_owns_uncommitted_transaction()
         if self.current is vm:
             self._set_current(None, async_sel=self._async_selection)
 
@@ -175,12 +200,17 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 raise RuntimeError("recorded parent does not contain child identity")
             child = self._children.pop(index)
             was_current = self._current is child
+            # The detach is staged until the transfer commits or rolls back
+            # (spec/06 §4.3 rule 4).
+            self._transaction_staged = True
 
         def commit() -> None:
             first_error: BaseException | None = None
+            with self._membership_gate:
+                self._transaction_staged = False
             try:
                 if was_current:
-                    self._apply_current_change(None, internal=True, only_replacing=child)
+                    self._apply_current_change(None, kind=_CLEAR, only_replacing=child)
             except BaseException as error:
                 first_error = error
             try:
@@ -242,17 +272,19 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     @current.setter
     def current(self, value: VM | None) -> None:
-        """Set current selection.
+        """Set current selection without a membership transaction (spec/06 §4.3).
 
-        - None is always legal.
-        - Non-None must be in children; raises ValueError otherwise.
-        - If async_selection is True, dispatches via foreground scheduler.
+        - None is legal, also while disposal is pending.
+        - Non-None must be an admitted child; raises ValueError otherwise.
+          A child that an add or population attached but has not admitted is
+          not a member yet.
+        - Non-None raises RuntimeError while disposal is pending.
+        - Any value raises RuntimeError inside the caller's own uncommitted
+          membership transaction.
+        - Another thread's membership transaction never fails or delays it.
+        - If async_selection is True, validates now, then dispatches via the
+          foreground scheduler; the delivery validates again.
         """
-        if value is not None and not any(child is value for child in self.snapshot()):
-            raise ValueError(
-                f"Cannot set current to '{getattr(value, 'name', value)!r}': "
-                "it is not a member of this composite."
-            )
         self._set_current(value, async_sel=self._async_selection)
 
     # ── Selection methods ─────────────────────────────────────────────────────
@@ -267,17 +299,33 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def deselect_component(self, vm: VM) -> None:
         """Deselect *vm*.  Raises if *vm* is not the current selection."""
-        if self.current is not vm:
-            raise ValueError(
-                f"Cannot deselect '{getattr(vm, 'name', vm)!r}': it is not the current selection."
-            )
+        with self._membership_gate:
+            # Every selection call fails inside the caller's own uncommitted
+            # transaction (spec/06 §4.3 rule 4).
+            if self._caller_owns_uncommitted_transaction_locked():
+                raise _transaction_in_progress()
+            if self._current is not vm:
+                raise ValueError(
+                    f"Cannot deselect '{getattr(vm, 'name', vm)!r}': "
+                    "it is not the current selection."
+                )
         self.current = None
 
     def can_select_component(self, vm: VM) -> bool:
-        """Return True iff *vm* is in children and Status == Constructed."""
-        return any(child is vm for child in self.snapshot()) and (
-            vm.status == ConstructionStatus.CONSTRUCTED
-        )
+        """Return True iff ``select_component(vm)`` would succeed now.
+
+        *vm* is an admitted child and Constructed, no disposal of this
+        composite is pending, and the caller is not inside its own uncommitted
+        membership transaction (spec/06 §3.1, ADR-0173).
+        """
+        if vm.status != ConstructionStatus.CONSTRUCTED:
+            return False
+        with self._membership_gate:
+            return (
+                not self._caller_owns_uncommitted_transaction_locked()
+                and not self._disposal_pending_locked()
+                and self._is_committed_member_locked(vm)
+            )
 
     # ── MutableSequence-like collection API ───────────────────────────────────
 
@@ -331,12 +379,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._children[index] = value
                 old._set_parent(None)
                 value._set_parent(self)
-                self._pending_admission = value
+                self._stage_admission_locked(value)
                 record = self._attach_late_start_locked(value)
             self._auto_construct_attached(value, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-                self._pending_admission = None
+                self._admit_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             with self._membership_gate:
@@ -367,7 +415,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
             def clear_current() -> None:
                 # Clears current only while it is still the replaced child.
-                self._apply_current_change(None, internal=True, only_replacing=old)
+                self._apply_current_change(None, kind=_CLEAR, only_replacing=old)
 
             def raise_commit_error() -> None:
                 if commit_error is not None:
@@ -430,12 +478,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._children.insert(index, item)
                 item._set_parent(self)
                 attached = True
-                self._pending_admission = item
+                self._stage_admission_locked(item)
                 record = self._attach_late_start_locked(item)
             self._auto_construct_attached(item, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-                self._pending_admission = None
+                self._admit_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             with self._membership_gate:
@@ -494,12 +542,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 item._set_parent(self)
                 idx = len(self._children) - 1
                 attached = True
-                self._pending_admission = item
+                self._stage_admission_locked(item)
                 record = self._attach_late_start_locked(item)
             self._auto_construct_attached(item, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-                self._pending_admission = None
+                self._admit_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             with self._membership_gate:
@@ -793,9 +841,19 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._complete_lifecycle_hook_after(walking)
 
     def _on_destruct(self) -> None:
-        """Set current=None then destruct all children in the destruct order."""
-        if self.current is not None:
-            self._set_current(None, async_sel=False)
+        """Set current=None then destruct all children in the destruct order.
+
+        The clear opens no membership transaction and is never refused, so it
+        also runs while another thread holds a transaction, inside this
+        composite's own transaction and while disposal is deferred
+        (spec/06 §5, ADR-0173).
+        """
+        self._apply_current_change(None, kind=_CLEAR)
+        if self._is_disposed():
+            # A disposal from the clear's callbacks ran when the lease ended.
+            # Like a C# walk whose owner is disposed, the walk destructs no
+            # child and the user on_destruct does not run after dispose (#735).
+            return
         self._complete_lifecycle_hook_after(
             self._transition_children(
                 _in_destruct_order(self.snapshot(), self._destruct_order),
@@ -874,6 +932,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def _end_membership_transaction(self, *, propagate_dispose_failure: bool = True) -> None:
         with self._membership_condition:
             self._release_membership_transaction_locked()
+            self._transaction_staged = False
             # The deferral stays set until dispose() admits it, so no transaction
             # or selection starts between this release and dispose() (#1064).
             dispose = self._dispose_deferred and self._active_current_publications == 0
@@ -922,7 +981,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         join_if_pending(self, child)
 
     def _attach_population(self, children: Iterable[VM]) -> None:
-        """Attach one factory population as an all-or-nothing transaction."""
+        """Attach one factory population as an all-or-nothing transaction.
+
+        Until the population commits, its candidates are not members for
+        selection: the ``current`` setter raises ValueError and the construct
+        walk's assignment ignores them (spec/06 §4.3, ADR-0173).
+        """
         candidates = list(children)
         if len({id(child._ownership_identity) for child in candidates}) != len(candidates):
             raise ValueError(
@@ -944,6 +1008,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 for child in candidates:
                     self._children.append(child)
                     child._set_parent(parent)
+                self._staged_population = tuple(candidates)
+                self._transaction_staged = True
 
             # Populate the complete snapshot before invoking any child hook,
             # but never execute user lifecycle hooks while holding the
@@ -959,6 +1025,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     self._maybe_auto_construct(child)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
+                self._admit_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             for child, original_status in reversed(
@@ -978,6 +1045,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                             compensation_error = error
                 if child._parent is parent:
                     child._set_parent(None)
+            # Every candidate is detached: none is left to select (rule 2).
+            with self._membership_gate:
+                self._staged_population = None
             for staged_transfer in reversed(transfers):
                 if staged_transfer is not None:
                     staged_transfer.rollback()
@@ -1022,138 +1092,135 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
+    def _stage_admission_locked(self, item: VM) -> None:
+        """Mark *item* attached but not admitted (spec/06 §4.3 rules 2 and 4)."""
+        self._pending_admission = item
+        self._transaction_staged = True
+
+    def _admit_locked(self) -> None:
+        """Admit the staged child or population (spec/06 §4.3 rules 2 and 4).
+
+        It becomes a member for selection before collection-changed
+        publishes, and the owner thread may select again.
+        """
+        self._pending_admission = None
+        self._staged_population = None
+        self._transaction_staged = False
+
+    def _disposal_pending_locked(self) -> bool:
+        return self._dispose_requested or self._dispose_deferred
+
+    def _is_committed_member_locked(self, value: VM) -> bool:
+        """Contained, and not staged by an add or population (rule 2)."""
+        staged = self._staged_population
+        return (
+            value is not self._pending_admission
+            and (staged is None or not any(child is value for child in staged))
+            and any(child is value for child in self._children)
+        )
+
+    def _caller_owns_uncommitted_transaction_locked(self) -> bool:
+        """The caller owns this composite's uncommitted transaction (rule 4)."""
+        return (
+            self._transaction_staged
+            and self._membership_transaction_active
+            and self._membership_transaction_owner == get_ident()
+        )
+
+    def _raise_if_caller_owns_uncommitted_transaction(self) -> None:
+        """Every selection call fails inside the caller's own uncommitted
+        transaction, also one that would change nothing (spec/06 §4.3 rule 4)."""
+        with self._membership_gate:
+            if self._caller_owns_uncommitted_transaction_locked():
+                raise _transaction_in_progress()
+
+    def _selection_refusal_locked(self, value: VM | None, *, disposed: bool) -> Exception | None:
+        """The refusal of a selection of *value*, or None (spec/06 §4.3 rules 2-4).
+
+        *disposed* keeps the post-dispose behavior: a null clear that would
+        change a disposed composite raises, as it always has (chapter 01 §4).
+        After Disposed, re-assigning the child that is already current changes
+        nothing and stays the no-op it always was; while disposal is only
+        requested or deferred, it is refused like any non-null selection
+        (rule 3).
+        """
+        if self._caller_owns_uncommitted_transaction_locked():
+            return _transaction_in_progress()
+        if value is None:
+            return _selection_while_disposing() if disposed and self._current is not None else None
+        if self._disposal_pending_locked():
+            return None if disposed and value is self._current else _selection_while_disposing()
+        if not self._is_committed_member_locked(value):
+            return ValueError(
+                f"Cannot set current to '{getattr(value, 'name', value)!r}': "
+                "it is not a member of this composite."
+            )
+        return None
+
     def _set_current(self, value: VM | None, *, async_sel: bool) -> None:
         """Apply the current change, optionally dispatching via foreground."""
-        if async_sel:
-            with self._membership_gate:
-                if self._membership_transaction_active:
-                    raise RuntimeError("container membership transaction is already in progress")
-                if value is not None and not any(child is value for child in self._children):
-                    raise ValueError(
-                        f"Cannot set current to '{getattr(value, 'name', value)!r}': "
-                        "not a member of this composite."
-                    )
-            captured = value
+        if not async_sel:
+            self._apply_current_change(value, kind=_CALL)
+            return
+        # The call validates now and raises as the synchronous setter does;
+        # the delivery validates again (spec/06 §4.3 rule 7).
+        disposed = self._is_disposed()
+        with self._membership_gate:
+            refusal = self._selection_refusal_locked(value, disposed=disposed)
+        if refusal is not None:
+            raise refusal
+        captured = value
 
-            def _dispatch(scheduler: SchedulerBase, state: object | None) -> None:
-                self._apply_current_change(captured, strict=False)
+        def _dispatch(scheduler: SchedulerBase, state: object | None) -> None:
+            self._apply_current_change(captured, kind=_DELIVERY)
 
-            self._dispatcher.foreground.schedule(_dispatch)
-        else:
-            self._apply_current_change(value)
+        self._dispatcher.foreground.schedule(_dispatch)
 
     def _apply_current_change(
         self,
         value: VM | None,
         *,
-        internal: bool = False,
-        strict: bool = True,
+        kind: str,
         only_replacing: VM | None = None,
     ) -> None:
-        """Synchronously update _current and fire notifications.
+        """Change ``current`` without a membership transaction (spec/06 §4.3).
 
-        With *only_replacing*, the change applies only while that child is
-        still current: a transaction clears the child it detached, never a
-        selection made after the detach (#1064).
+        Validation and the commit of ``current`` and both ``is_current`` flags
+        run under the coordination lane and the membership gate; another
+        thread's transaction neither fails nor delays it. The publication runs
+        after both are released, under the current-publication lease, so a
+        dispose from the callbacks is deferred until they return. *kind* is
+        ``_CALL`` (a refusal raises), ``_DELIVERY`` (an async delivery or the
+        walk's assignment: a refusal is a silent no-op) or ``_CLEAR`` (the
+        destruct or detach clear: never refused). With *only_replacing*, the
+        change applies only while that child is still current: a transaction
+        clears the child it detached, never a selection made after the detach
+        (#1064).
         """
-        # Async TOCTOU guard: with async selection the child may have been removed
-        # between _set_current's membership check and this deferred foreground
-        # delivery. Dropping silently upholds the spec/06 §3 invariant that a
-        # non-null current is always a member of the children collection.
-        with self._membership_gate:
-            if self._current is value:
-                return
-        owns_transaction = False
-        publication_active = False
-        changed = False
-        previous_flag_changed = False
-        value_flag_changed = False
-        try:
-            with _current_change_coordinator:
-                with self._membership_gate:
-                    inherited_transaction = (
-                        self._membership_transaction_active
-                        and self._membership_transaction_owner == get_ident()
-                    )
-                if not internal and not inherited_transaction:
-                    try:
-                        self._begin_membership_transaction()
-                    except RuntimeError:
-                        if not strict:
-                            return
-                        raise
-                    owns_transaction = True
-                with self._membership_gate:
-                    if value is not None and not any(child is value for child in self._children):
-                        if not strict:
-                            return
-                        raise ValueError(
-                            f"Cannot set current to '{getattr(value, 'name', value)!r}': "
-                            "not a member of this composite."
-                        )
-                    if self._current is value or (
-                        only_replacing is not None and self._current is not only_replacing
-                    ):
-                        return
-                    previous = self._current
-                    self._current = value
-                    changed = True
-                    previous_flag_changed = (
-                        previous._commit_is_current(False) if previous is not None else False
-                    )
-                    value_flag_changed = (
-                        value._commit_is_current(True) if value is not None else False
-                    )
-                    if owns_transaction:
-                        self._active_current_publications += 1
-                        self._current_publication_threads.append(get_ident())
-                        publication_active = True
-            if owns_transaction:
-                owns_transaction = False
-                self._end_membership_transaction()
-            if changed:
-                self._finish_current_change(
-                    previous,
-                    value,
-                    previous_flag_changed=previous_flag_changed,
-                    value_flag_changed=value_flag_changed,
-                )
-        finally:
-            if owns_transaction:
-                self._end_membership_transaction(
-                    propagate_dispose_failure=sys.exc_info()[0] is None
-                )
-            if publication_active:
-                self._end_current_publication(propagate_dispose_failure=sys.exc_info()[0] is None)
-
-    def _apply_selector_result(self, value: VM) -> None:
-        """Assign the Current(selector) result of a construct walk (#1064).
-
-        The non-raising validated assignment of spec/06 §3.2 (ADR-0165). It
-        opens no membership transaction, so another thread's open transaction
-        neither fails nor blocks it. Validation and the state commit run under
-        the coordination lane and the membership gate (spec/06 §4.2). The
-        assignment is a silent no-op while the composite is disposing. It is
-        also a no-op when *value* is not a committed member: not contained, or
-        attached by an add whose rollback could still remove it. A publication
-        lease defers any disposal until the callbacks return.
-        """
+        if kind == _CLEAR:
+            # A clear with nothing to clear skips the global lane.
+            with self._membership_gate:
+                if self._current is None:
+                    return
+        disposed = kind != _CLEAR and self._is_disposed()
         with _current_change_coordinator:
             with self._membership_gate:
+                if kind != _CLEAR:
+                    refusal = self._selection_refusal_locked(value, disposed=disposed)
+                    if refusal is not None:
+                        if kind == _CALL:
+                            raise refusal
+                        return
                 previous = self._current
-                if (
-                    value is previous
-                    or self._dispose_requested
-                    or self._dispose_deferred
-                    or value is self._pending_admission
-                    or not any(child is value for child in self._children)
+                if previous is value or (
+                    only_replacing is not None and previous is not only_replacing
                 ):
                     return
                 self._current = value
                 previous_flag_changed = (
                     previous._commit_is_current(False) if previous is not None else False
                 )
-                value_flag_changed = value._commit_is_current(True)
+                value_flag_changed = value._commit_is_current(True) if value is not None else False
                 self._active_current_publications += 1
                 self._current_publication_threads.append(get_ident())
         try:
@@ -1166,9 +1233,20 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         except BaseException:
             self._end_current_publication(propagate_dispose_failure=False)
             raise
-        # The walk calls this from an except clause, so sys.exc_info() cannot
-        # tell success from failure here.
+        # Callers such as the walk run inside an except clause, so
+        # sys.exc_info() cannot tell success from failure here.
         self._end_current_publication(propagate_dispose_failure=True)
+
+    def _apply_selector_result(self, value: VM) -> None:
+        """Assign the Current(selector) result of a construct walk (#1064).
+
+        The non-raising validated assignment of spec/06 §3.2 (ADR-0165,
+        ADR-0173). It is a silent no-op while the composite is disposing,
+        when *value* is not a committed member (not contained, or staged by an
+        add or population whose rollback could still remove it), and on a
+        thread that owns this composite's uncommitted transaction.
+        """
+        self._apply_current_change(value, kind=_DELIVERY)
 
     def _finish_current_change(
         self,
