@@ -123,6 +123,27 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The inline dispose cascade follows ADR-0175 (spec/02 §7.2, `LIFE-021`,
+  #1174, #1167). Once `dispose()` closes hook admission and starts disposing
+  children or members, `construct()`, `destruct()` and `reconstruct()` return
+  `VmxError::Disposed` before the idempotent no-op and the legality check.
+  So `construct()` from `Constructed` and `reconstruct()` from `Destructed`
+  now fail too. The background form refuses in the same way, and a queued
+  background hook does not run. A transition whose hook returned before the
+  cascade started commits nothing more: no settled status, no rollback, no
+  queued foreground commit, no deferred child-walk completion, and no
+  construct phase of `reconstruct()`. The call returns the hook's own result.
+  The settled commit and its publication now run under one guard, so a
+  cascade that starts in between drops both. `status()` can still read the
+  transient or prior status until the cascade publishes `Disposed`.
+- A leaf `ComponentVm` with `own_member` members disposes them at the same
+  admitted-hook boundary as a container's children (#1164, LIFE-015). A
+  `dispose()` from another thread while the leaf's construct or destruct hook
+  runs publishes `Disposed` first and disposes the members after the hook
+  returns. With no hook running on another thread, the members are still
+  disposed before `Disposed`. A leaf without members disposes as before. The
+  background construct and destruct paths and `reconstruct()` check closed
+  hook admission, as `transition_with_body` already did.
 - The `CompositeVm` construct walk's `Current(selector)` assignment follows
   ADR-0165 (#1151). It skips a child that an add, insert, replacement or
   population has attached but not admitted, skips while disposal is pending,
