@@ -228,8 +228,10 @@ func releaseMembershipWaiters(of container: AnyObject) {
 /// delegate invocations or reactivex/rxjs Subjects that invoke subscribers
 /// without holding a per-subject send lock; this custom Subject mirrors that
 /// concurrency contract in Swift. Drop-in replacement for `PassthroughSubject`
-/// on the per-VM `propertyChangedSubject`.
-private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
+/// on the per-VM `propertyChangedSubject` and on every `FormVM` channel
+/// (ADR-0174). Subscribers receive each value in subscription order, as with
+/// `PassthroughSubject`; two concurrent `send(_:)` calls are not ordered.
+final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
     private final class TokenSubscription: Subscription {
         private weak var parent: VMxConcurrentSubject<Output, Failure>?
         private let token: UUID
@@ -263,18 +265,26 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
     }
 
     private let lock = NSLock()
-    private var entries: [UUID: Entry] = [:]
+    // Kept in subscription order, so one sender delivers in that order.
+    private var entries: [(token: UUID, entry: Entry)] = []
     private var finished = false
 
     public func send(_ value: Output) {
         lock.lock()
-        let snapshot = Array(entries.values)
+        let snapshot = entries.map(\.entry)
         let isFinished = finished
         lock.unlock()
         if isFinished { return }
-        for entry in snapshot where !entry.cancelled {
+        for entry in snapshot where isLive(entry) {
             _ = entry.receiveValue(value)
         }
+    }
+
+    /// Reads `cancelled` under `lock`; `removeSubscriber` sets it there.
+    private func isLive(_ entry: Entry) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !entry.cancelled
     }
 
     public func send(completion: Subscribers.Completion<Failure>) {
@@ -284,10 +294,10 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
             return
         }
         if case .finished = completion { finished = true }
-        let snapshot = Array(entries.values)
+        let snapshot = entries.map(\.entry)
         if case .finished = completion { entries.removeAll() }
         lock.unlock()
-        for entry in snapshot where !entry.cancelled {
+        for entry in snapshot where isLive(entry) {
             entry.receiveCompletion(completion)
         }
     }
@@ -308,7 +318,7 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
         lock.lock()
         let alreadyFinished = finished
         if !alreadyFinished {
-            entries[token] = entry
+            entries.append((token: token, entry: entry))
         }
         lock.unlock()
         subscriber.receive(subscription: TokenSubscription(parent: self, token: token))
@@ -319,7 +329,8 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
 
     fileprivate func removeSubscriber(token: UUID) {
         lock.lock()
-        let removed = entries.removeValue(forKey: token)
+        let index = entries.firstIndex { $0.token == token }
+        let removed = index.map { entries.remove(at: $0).entry }
         removed?.cancelled = true
         lock.unlock()
         // The entry owns the subscriber; release it after `lock` (non-recursive)

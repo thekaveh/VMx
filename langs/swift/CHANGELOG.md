@@ -65,6 +65,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVM` no longer deadlocks when a `canExecuteChanged` sink on another
+  thread calls `setModel`, deny or `dispose()` while a successful approval is
+  published, or when an `onApproved` sink updates the form while such a sink
+  waits (#1168, ADR-0174). `onApproved`, `approveErrors`, `errorsChanged` and
+  `canExecuteChanged` of `approveCommand` and `denyCommand` now deliver
+  through `VMxConcurrentSubject`, which holds no lock while a sink runs, as
+  C# and Python do. A sink can therefore run on two threads at once. Sinks
+  still receive each value in subscription order. The public types of the
+  commands do not change, and other commands keep Combine delivery.
+- `FormVM` queues a `setModel` or deny that the approving thread makes from
+  `resetOnApproved`, another callback of the approval's commit, or a
+  settlement `errorsChanged` or `canExecuteChanged` sink (#1168, ADR-0174,
+  FORM-039, FORM-040). Before, a `setModel` from `resetOnApproved` committed
+  and delivered its notifications while the commit held the state lock. It
+  could deadlock with a sink on another thread, and the reset then overwrote
+  it, so the last `errorsChanged` map did not match `errors`. A deny from a
+  settlement sink committed at once, so `onApproved` observers saw the
+  reverted model. A queued call now runs its preparation (equality,
+  validators, and the snapshotter for deny) when it is called, changes and
+  publishes nothing, and replays in call order after `onApproved` is
+  delivered. After a failed reset, it replays after the failed settlement's
+  `canExecuteChanged` and before the failure is routed. A candidate equal to
+  the live model is still queued. A nested update made during that
+  preparation makes the outer call stale, so it is not queued. Each queued
+  update now runs its validators once more, at call time.
+- `VMxConcurrentSubject`, the internal subject behind `ComponentVMBase`
+  property changes, now delivers in subscription order and reads a
+  subscription's cancelled flag under its lock.
 - `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
   before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
   updated `keys2`. Before, an entry that a `keys1` subscriber added during
@@ -86,8 +114,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `canExecuteChanged` after the publication scope closes, as deny already did.
   `errorsChanged` is still sent inside the scope and keeps commit order across
   threads. This covers the notifications of `setModel`, deny and approval
-  admission. A `canExecuteChanged` sink that calls `setModel` can still deadlock
-  with a successful approval's settlement on another thread.
+  admission. The remaining deadlock, a `canExecuteChanged` sink that calls
+  `setModel` during a successful approval's settlement on another thread, is
+  fixed by the #1168 entry above.
 - A lifecycle publication that waits behind another thread's drain now waits on
   the thread that holds the turn (#1056). Before, a hand-off released only the
   next waiter's wait edge. Later waiters kept an edge to the old drainer, so the
