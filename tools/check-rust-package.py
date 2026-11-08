@@ -60,6 +60,7 @@ tests/conformance/background_child_settle.rs
 tests/conformance/builders.rs
 tests/conformance/capabilities.rs
 tests/conformance/child_transition_helper.rs
+tests/conformance/collection_failing_local_subscriber.rs
 tests/conformance/collection_lookup_clones.rs
 tests/conformance/collections.rs
 tests/conformance/command_decorators.rs
