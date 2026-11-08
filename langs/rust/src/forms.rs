@@ -124,51 +124,88 @@ fn error_updates(errors: BTreeMap<String, String>) -> BTreeMap<String, Option<St
 /// notifications that precede `OnApproved`, so its observers see the
 /// committed state.
 struct ApprovalPublication<M> {
-    /// Number of settlements publishing those notifications. It is a depth,
-    /// not a flag: an approval admitted by one of their observers settles
-    /// inside the outer publication and must not end it (ADR-0143).
-    pre_publishing: usize,
-    /// Per thread, the number of settlements still publishing, `OnApproved`
-    /// included. Only a thread's outermost settlement replays the deferred
-    /// edits (#1061). A nested approval started by an approval subscriber
-    /// leaves them until the outer subscribers have run. The depth is per
-    /// thread: another thread's settlement still replays when it ends.
-    publishing: Vec<(ThreadId, usize)>,
+    /// Per thread, the settlements still publishing, `OnApproved` included.
+    /// Only a thread's outermost settlement replays the deferred edits
+    /// (#1061). A nested approval started by an approval subscriber leaves
+    /// them until the outer subscribers have run. The depth is per thread:
+    /// another thread's settlement still replays when it ends.
+    publishing: Vec<PublishingThread>,
     deferred_models: Vec<M>,
+}
+
+/// One thread's entry in [`ApprovalPublication::publishing`].
+struct PublishingThread {
+    thread: ThreadId,
+    depth: usize,
+    /// Whether the thread's innermost settlement is publishing the
+    /// notifications that precede `OnApproved`. It is a flag, not a depth:
+    /// each settlement saves the enclosing value, clears the flag before its
+    /// subscribers run and restores it when it ends. A nested settlement's
+    /// subscribers therefore edit at once, even when the settlement started
+    /// in an outer settlement's notifications (#1160).
+    pre_publishing: bool,
 }
 
 impl<M> ApprovalPublication<M> {
     fn new() -> Self {
         Self {
-            pre_publishing: 0,
             publishing: Vec::new(),
             deferred_models: Vec::new(),
         }
     }
 
-    fn enter(&mut self, thread: ThreadId) {
-        match self
-            .publishing
+    /// Whether a settlement on any thread is publishing the notifications
+    /// that precede `OnApproved`.
+    fn pre_publishing(&self) -> bool {
+        self.publishing.iter().any(|entry| entry.pre_publishing)
+    }
+
+    fn entry(&mut self, thread: ThreadId) -> Option<&mut PublishingThread> {
+        self.publishing
             .iter_mut()
-            .find(|(owner, _)| *owner == thread)
-        {
-            Some((_, depth)) => *depth += 1,
-            None => self.publishing.push((thread, 1)),
+            .find(|entry| entry.thread == thread)
+    }
+
+    /// Starts one settlement on `thread`. Returns the enclosing settlement's
+    /// pre-publication flag, which [`leave`](Self::leave) restores.
+    fn enter(&mut self, thread: ThreadId) -> bool {
+        match self.entry(thread) {
+            Some(entry) => {
+                entry.depth += 1;
+                entry.pre_publishing
+            }
+            None => {
+                self.publishing.push(PublishingThread {
+                    thread,
+                    depth: 1,
+                    pre_publishing: false,
+                });
+                false
+            }
         }
     }
 
-    /// Ends one settlement on `thread`. Returns whether it was the thread's
-    /// outermost one.
-    fn leave(&mut self, thread: ThreadId) -> bool {
+    fn set_pre_publishing(&mut self, thread: ThreadId, pre_publishing: bool) {
+        if let Some(entry) = self.entry(thread) {
+            entry.pre_publishing = pre_publishing;
+        }
+    }
+
+    /// Ends one settlement on `thread` and restores the enclosing settlement's
+    /// pre-publication flag. Returns whether it was the thread's outermost
+    /// settlement.
+    fn leave(&mut self, thread: ThreadId, outer_pre_publishing: bool) -> bool {
         let Some(index) = self
             .publishing
             .iter()
-            .position(|(owner, _)| *owner == thread)
+            .position(|entry| entry.thread == thread)
         else {
             return true;
         };
-        self.publishing[index].1 -= 1;
-        if self.publishing[index].1 > 0 {
+        let entry = &mut self.publishing[index];
+        entry.pre_publishing = outer_pre_publishing;
+        entry.depth -= 1;
+        if entry.depth > 0 {
             return false;
         }
         self.publishing.swap_remove(index);
@@ -177,20 +214,23 @@ impl<M> ApprovalPublication<M> {
 }
 
 /// Counts one settlement in [`ApprovalPublication::publishing`] until it
-/// finishes, even when a notification observer panics.
+/// finishes, even when a notification observer panics, and then restores the
+/// enclosing settlement's pre-publication flag.
 struct ApprovalPublishingGuard<M> {
     publication: Arc<Mutex<ApprovalPublication<M>>>,
     thread: ThreadId,
+    outer_pre_publishing: bool,
     finished: bool,
 }
 
 impl<M> ApprovalPublishingGuard<M> {
     fn new(publication: Arc<Mutex<ApprovalPublication<M>>>) -> Self {
         let thread = thread::current().id();
-        lock(&publication).enter(thread);
+        let outer_pre_publishing = lock(&publication).enter(thread);
         Self {
             publication,
             thread,
+            outer_pre_publishing,
             finished: false,
         }
     }
@@ -201,7 +241,9 @@ impl<M> ApprovalPublishingGuard<M> {
     fn finish(mut self) -> Vec<M> {
         self.finished = true;
         let mut publication = lock(&self.publication);
-        if publication.leave(self.thread) && publication.pre_publishing == 0 {
+        if publication.leave(self.thread, self.outer_pre_publishing)
+            && !publication.pre_publishing()
+        {
             std::mem::take(&mut publication.deferred_models)
         } else {
             Vec::new()
@@ -212,25 +254,33 @@ impl<M> ApprovalPublishingGuard<M> {
 impl<M> Drop for ApprovalPublishingGuard<M> {
     fn drop(&mut self) {
         if !self.finished {
-            lock(&self.publication).leave(self.thread);
+            lock(&self.publication).leave(self.thread, self.outer_pre_publishing);
         }
     }
 }
 
+/// Marks this thread's settlement as publishing the notifications that
+/// precede `OnApproved`. Dropping the guard clears the mark, even when a
+/// notification observer panics.
 struct ApprovalPrePublicationGuard<M> {
     publication: Arc<Mutex<ApprovalPublication<M>>>,
+    thread: ThreadId,
 }
 
 impl<M> ApprovalPrePublicationGuard<M> {
     fn new(publication: Arc<Mutex<ApprovalPublication<M>>>) -> Self {
-        lock(&publication).pre_publishing += 1;
-        Self { publication }
+        let thread = thread::current().id();
+        lock(&publication).set_pre_publishing(thread, true);
+        Self {
+            publication,
+            thread,
+        }
     }
 }
 
 impl<M> Drop for ApprovalPrePublicationGuard<M> {
     fn drop(&mut self) {
-        lock(&self.publication).pre_publishing -= 1;
+        lock(&self.publication).set_pre_publishing(self.thread, false);
     }
 }
 
@@ -598,7 +648,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
         {
             let mut publication = lock(&self.approval_publication);
-            if publication.pre_publishing > 0 {
+            if publication.pre_publishing() {
                 publication.deferred_models.push(model);
                 return;
             }
