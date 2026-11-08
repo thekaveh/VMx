@@ -3,13 +3,14 @@
 // waits that another thread resolves (spec/03 §4.1, ADR-0172): message-hub
 // drain, batch and borrowed-scope ownership (spec/03, ADR-0119), container
 // membership transactions (#551), lifecycle publication turns and hook
-// leases, and child ownership gates (#1154). Each subsystem records its wait
+// leases, child ownership gates (#1154), and `FormVM` publication scopes
+// (spec/20 §5.5, ADR-0176). Each subsystem records its wait
 // before it blocks, so a cycle that crosses subsystems is visible (#703). The
 // subsystem whose wait would close the cycle takes its own escape instead of
 // waiting. No subsystem keeps a second graph.
 //
 // Each edge names the resource it waits on: a hub, a container, a lifecycle
-// publication, a hook lease or an ownership gate. A waiting thread has at
+// publication, a hook lease, an ownership gate or a form's publication scope. A waiting thread has at
 // most one edge. There are two edge kinds:
 //
 // - An owner-named edge (`beginWait`) names the owner thread when the wait
@@ -159,6 +160,17 @@ final class ThreadWaitGraph: @unchecked Sendable {
     func release(resource: ObjectIdentifier) {
         lock.lock()
         waitingOn = waitingOn.filter { $0.value.resource != resource }
+        lock.unlock()
+    }
+
+    /// Removes every edge that waits on `resource` and names `owner`. A
+    /// resource that several threads hold at once, such as a form's
+    /// publication scope, uses this: edges to the other holders stay, because
+    /// those holders still block their waiters. Used for owner-named edges
+    /// only.
+    func release(resource: ObjectIdentifier, owner: UInt64) {
+        lock.lock()
+        waitingOn = waitingOn.filter { $0.value.resource != resource || $0.value.owner != owner }
         lock.unlock()
     }
 }
