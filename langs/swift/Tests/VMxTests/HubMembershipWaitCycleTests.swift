@@ -205,7 +205,7 @@ final class HubMembershipWaitCycleTests: XCTestCase {
 
         assertFinished(outcome)
         guard outcome.stepTwoFinished && outcome.stepThreeFinished else { return }
-        XCTAssertNil(composite.current, "a selection that closes the cycle is dropped")
+        XCTAssertTrue(composite.current === member, "a selection commits without waiting (ADR-0173)")
         XCTAssertEqual(composite.count, 2)
     }
 
@@ -227,7 +227,7 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         assertFinished(outcome)
         guard outcome.stepTwoFinished && outcome.stepThreeFinished else { return }
         XCTAssertNil(thrown.value)
-        XCTAssertNil(composite.current, "a selection that closes the cycle is dropped")
+        XCTAssertTrue(composite.current === member, "a selection commits without waiting (ADR-0173)")
         XCTAssertEqual(composite.count, 2)
     }
 
@@ -474,25 +474,8 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         XCTAssertEqual(composite.snapshot().map(\.name), ["first", "second"])
     }
 
-    func testSetCurrentAfterReleasedDrainWaitsInsteadOfDropping() throws {
-        let hub = MessageHub()
-        let member = leaf(hub, "member")
-        let composite = try constructedComposite(hub, members: [member])
-        let added = leaf(hub, "added")
-        let thrown = Box<Error?>(nil)
-
-        let outcome = runAfterReleasedDrain(
-            hub: hub,
-            ownerStep: { _ = composite.addResult(added) },
-            operation: {
-                do { try composite.setCurrent(member) } catch { thrown.value = error }
-            }
-        )
-
-        XCTAssertTrue(outcome.ownerFinished && outcome.callerFinished)
-        XCTAssertNil(thrown.value)
-        XCTAssertTrue(composite.current === member, "no cycle exists, so the selection must apply")
-    }
+    // A selection registers no membership wait (spec/06 §4.3 rule 1,
+    // ADR-0173), so it has no released-drain case.
 
     func testRemoveAfterReleasedDrainWaitsInsteadOfRefusing() throws {
         let hub = MessageHub()

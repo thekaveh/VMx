@@ -847,7 +847,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let snapshot = loop {
             let _gate = lock(&self.membership_gate);
             match self.membership_transaction_control.dispose_disposition() {
-                MembershipDisposeDisposition::Owned => {
+                MembershipDisposeDisposition::Owned
+                | MembershipDisposeDisposition::PublishingThread => {
                     let deferred = self.clone();
                     self.membership_transaction_control
                         .defer_dispose(move || deferred.dispose());
@@ -1098,6 +1099,14 @@ impl<T: VmNode, D: Dispatcher> VmNode for GroupVm<T, D> {
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        self.core.commit_current_flag(is_current)
+    }
+
+    fn publish_current_flag(&self, _is_current: bool) {
+        self.core.publish_current_flag();
     }
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {

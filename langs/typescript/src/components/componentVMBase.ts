@@ -391,12 +391,26 @@ export abstract class ComponentVMBase {
   }
 
   _setIsCurrent(value: boolean): void {
+    if (this._commitIsCurrent(value)) this._publishIsCurrent();
+  }
+
+  /**
+   * Internal: commits the current flag without publishing it and reports
+   * whether it changed. A composite commits `current` and both flags before it
+   * publishes any of them (spec/06 §4.3 rule 1, ADR-0173).
+   */
+  _commitIsCurrent(value: boolean): boolean {
     // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
     // selection change on an already-disposed VM is a silent no-op (no
     // local or hub property-change emission), mirroring Swift (VMX-006).
-    if (this.#status === ConstructionStatus.Disposed) return;
-    if (this.#isCurrent === value) return;
+    if (this.#status === ConstructionStatus.Disposed) return false;
+    if (this.#isCurrent === value) return false;
     this.#isCurrent = value;
+    return true;
+  }
+
+  /** Internal: publishes a flag change that `_commitIsCurrent` reported. */
+  _publishIsCurrent(): void {
     this._notifyPropertyChanged("isCurrent");
   }
 
