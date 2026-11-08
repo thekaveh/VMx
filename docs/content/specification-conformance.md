@@ -23,7 +23,7 @@ implementation.
 
 The catalog contains:
 
-- 446 library IDs implemented by all five catalog-complete source flavors
+- 447 library IDs implemented by all five catalog-complete source flavors
 - 5 `THEME-00x` scenario IDs exercised by the flagship example apps
 - 451 total IDs in the published catalog
 

@@ -86,7 +86,7 @@ them from a VMx checkout until their first registry release.
 | Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                                    | v3.30.0     |
 | Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM          | v3.31.0     |
 | TypeScript    | [`@thekaveh/vmx` 3.30.0](https://www.npmjs.com/package/@thekaveh/vmx/v/3.30.0) on npm           | v3.31.0     |
-| React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.2      |
+| React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.3      |
 | C#            | Not yet published to NuGet                                                                      | v3.30.0     |
 | Rust          | Not yet published to crates.io                                                                  | v0.36.0     |
 
@@ -270,10 +270,10 @@ released versions and the spec version each implements.
 
 ### 6.3 Conformance catalog
 
-`spec/` holds 24 chapters, 170 ADRs, 4 JSON fixtures, and the conformance
+`spec/` holds 24 chapters, 173 ADRs, 4 JSON fixtures, and the conformance
 catalog in `spec/12-conformance.md`. All five flavors implement its
-446 library conformance IDs, and the four UI-backed flagship apps cover
-5 additional THEME scenario IDs, for **451 total**. Rust has no UI scenario
+447 library conformance IDs, and the four UI-backed flagship apps cover
+5 additional THEME scenario IDs, for **452 total**. Rust has no UI scenario
 suite yet.
 `tools/check-conformance-coverage.py` enforces full catalog coverage, and
 [Specification & Conformance](docs/content/specification-conformance.md)
@@ -346,8 +346,8 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 170 ADRs,
-  4 fixtures, and the 451-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 173 ADRs,
+  4 fixtures, and the 452-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical
   documentation audit reports.

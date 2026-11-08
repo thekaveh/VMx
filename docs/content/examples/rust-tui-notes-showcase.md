@@ -21,8 +21,9 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
   `PagedComposition`.
 - `NoteFormVm` uses strict `FormVm<NoteDraft>` validation with `save()` and
   `revert()` methods. The terminal app does not bind keys to them.
-- `GlobalSearchVm` pages the filtered projection of a `SearchableState` with
-  `TokenPagedComposition`.
+- `GlobalSearchVm` keeps its term in a `SearchableState` and pages repository
+  search results with `TokenPagedComposition`. Load More continues the term of
+  the loaded pages, as in the four flagships.
 - `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers.
 - `EditorModeVm` uses `DiscriminatorVm` for edit/preview switching.
 

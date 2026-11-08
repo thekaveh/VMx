@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `TokenPagedComposition`: a load that finds a terminal token when it
+  starts now fetches nothing (#1161, ADR-0169). A refresh or another load could
+  commit a terminal token after the load command was admitted. The load then
+  refetched page 1 and appended it again, and `HasMore` stayed true. The load
+  now changes nothing and does not supersede an in-flight refresh.
+
 - Added: the opt-in `TreeSelection<TModel, TVM>` helper (`VMx.Hierarchical`)
   holds one current node of a hierarchical tree (#667, ADR-0164,
   HIER-033..HIER-040). It is constructed on a root node and exposes `Current`,
@@ -73,6 +79,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: `ServicedObservableCollection<T>`,
+  `KeyedServicedObservableCollection<TKey, TItem>` and `ObservableDictionary`
+  now send the hub `CollectionChangedMessage` when a local handler throws
+  (#1051, ADR-0171, COL-066). The change stays committed, and the first
+  failure is rethrown after the hub send. In `ObservableDictionary`, a
+  throwing granular-event handler no longer skips `CollectionChanged`.
 - Fixed: `CompositeVMBase` selection opens no membership transaction
   (ADR-0173, spec/06 §4.3). The `Current` setter, `SelectComponent`,
   `DeselectComponent`, the child `Select` and `Deselect` paths and the

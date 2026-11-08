@@ -47,6 +47,12 @@ The important differences from manual recursive composites are:
 The family integrates directly with the tree walkers `walk` and
 `walk_expanded` (flavor-idiomatic spellings). See
 [Builders, Collections & Tree Utilities](../builders-collections-tree-utilities.md).
+When a walk reaches a node whose children factory returns invalid output, it
+reports the error and leaves the node retryable. Swift walks throw
+`HierarchyError.invalidFactoryOutput`, Rust walks return the error in a
+`VmxResult`, and the other flavors raise the `children` error. Only the Swift
+and Rust `children` and `isLeaf` / `is_leaf` accessors stop the process on such
+output (spec 13 §6.1).
 
 Every node needs the application hub and dispatcher. A node built without them
 publishes its tree and property messages to a private hub that no binding

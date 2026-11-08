@@ -243,8 +243,10 @@ git tag -a "<tag>" -m "<package> <version>" origin/main
 git push origin "<tag>"
 ```
 
-The release workflow also accepts the lightweight tags that release-please
-creates for Python. Never create a release tag from `develop`.
+This rule includes Python: release-please creates no tags or GitHub Releases
+(`skip-github-release: true`). Older Python tags such as `python-v3.23.1` are
+lightweight, because release-please created them. The release workflow still
+accepts both kinds. Never create a release tag from `develop`.
 
 **Immutability.** Tags and registry versions are immutable, even when a release
 fails before upload. Never move, delete, or recreate a release tag. Fix the

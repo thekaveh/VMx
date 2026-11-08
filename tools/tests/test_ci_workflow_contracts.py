@@ -173,6 +173,20 @@ def test_python_release_updates_the_compatibility_matrix() -> None:
     assert "x-release-please-version" in current
 
 
+def test_release_yml_alone_creates_the_python_github_release() -> None:
+    config = json.loads((REPO_ROOT / "release-please-config.json").read_text(encoding="utf-8"))
+    assert config["packages"]["langs/python"]["skip-github-release"] is True
+
+    release = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    notes = release.split("\n  python-release-notes:\n", 1)[1].split("\n  typescript:\n", 1)[0]
+    assert "    needs: python-verify-published\n" in notes
+    assert 'gh release create "$tag"' in notes
+
+    runbook = (REPO_ROOT / "langs/python/RELEASING.md").read_text(encoding="utf-8")
+    assert "skip-github-release: true" in runbook
+    assert "autorelease: tagged" in runbook
+
+
 def test_release_please_explicitly_targets_main_when_develop_is_default() -> None:
     workflow = (WORKFLOWS / "release-please.yml").read_text(encoding="utf-8")
 

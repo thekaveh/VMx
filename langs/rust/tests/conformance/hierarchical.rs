@@ -958,9 +958,9 @@ fn walk_expanded_honors_hierarchy_expansion_boundary() {
     let root = ExpandableHierarchy::expandable("root", false);
     root.add_child(ExpandableHierarchy::plain("child"));
 
-    assert_eq!(walk_expanded(&root).len(), 1);
+    assert_eq!(walk_expanded(&root).unwrap().len(), 1);
     root.expansion().unwrap().expand();
-    assert_eq!(walk_expanded(&root).len(), 2);
+    assert_eq!(walk_expanded(&root).unwrap().len(), 2);
 }
 
 /// HIER-013 — Composition with SearchableState filters materialized portion
