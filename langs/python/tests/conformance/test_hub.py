@@ -6,14 +6,14 @@ All other tests are implemented directly.
 
 from __future__ import annotations
 
-from threading import Barrier, Event, Lock, Thread
+from threading import Barrier, Condition, Event, Lock, Thread, current_thread, get_ident
 from typing import Any
 
 import pytest
 
-import vmx.services.message_hub as message_hub_module
 from tests.conformance.fixtures.loader import load
 from tests.liveness import HANG_GUARD
+from tests.wait_graph_seams import WaitDecisions, wait_until_waiting
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
 
@@ -451,38 +451,36 @@ def test_unrelated_hub_callback_send_waits_for_busy_target() -> None:
     target.dispose()
 
 
-def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit() -> None:
     batched = _fresh_hub()
     source = _fresh_hub()
     completed = Event()
     callback_entered = Event()
     about_to_send = Event()
-    wait_edge_registered = Event()
+    sender: list[int] = []
     errors: list[BaseException] = []
     batched.messages.subscribe(on_completed=completed.set)
 
-    original_register = message_hub_module._register_message_hub_wait
-
-    def register_wait(waiter: int, owner: int) -> bool:
-        closes_cycle = original_register(waiter, owner)
-        if not closes_cycle:
-            wait_edge_registered.set()
-        return closes_cycle
-
-    monkeypatch.setattr(message_hub_module, "_register_message_hub_wait", register_wait)
-
-    def dispose_batched(_: object) -> None:
+    def dispose_batched(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name != "outer":
+            return
         callback_entered.set()
-        if not about_to_send.wait(HANG_GUARD) or not wait_edge_registered.wait(HANG_GUARD):
-            errors.append(TimeoutError("cross-hub wait edge was not registered"))
+        try:
+            if not about_to_send.wait(HANG_GUARD):
+                raise TimeoutError("batch owner did not reach its cross-hub send")
+            # The batch owner's send waits for this drainer, with its edge in
+            # the shared wait-for graph, so disposing its batched hub here
+            # would close a cycle.
+            wait_until_waiting(sender[0])
+        except TimeoutError as error:
+            errors.append(error)
             return
         batched.dispose()
 
     source.messages.subscribe(dispose_batched)
 
     def own_batch_then_cross_send() -> None:
+        sender.append(get_ident())
         try:
             with batched.batch():
                 if not callback_entered.wait(HANG_GUARD):
@@ -504,3 +502,417 @@ def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit(
     assert errors == []
     assert completed.wait(HANG_GUARD)
     source.dispose()
+
+
+# ---------------------------------------------------------------------------
+# HUB-013 regressions — one wait-for graph and borrowed scopes (ADR-0172)
+# ---------------------------------------------------------------------------
+
+
+class _Threads:
+    """Named worker threads whose idents are known before their peers look."""
+
+    def __init__(self, errors: list[BaseException]) -> None:
+        self._errors = errors
+        self._threads: dict[str, Thread] = {}
+        self._idents: dict[str, int] = {}
+        self._registered = Condition()
+
+    def start(self, name: str, action: Any) -> Thread:
+        def run() -> None:
+            with self._registered:
+                self._idents[name] = get_ident()
+                self._registered.notify_all()
+            try:
+                action()
+            except BaseException as error:
+                self._errors.append(error)
+
+        thread = Thread(target=run, name=name, daemon=True)
+        self._threads[name] = thread
+        thread.start()
+        return thread
+
+    def ident(self, name: str) -> int:
+        with self._registered:
+            if not self._registered.wait_for(lambda: name in self._idents, HANG_GUARD):
+                raise TimeoutError(f"thread {name} did not start")
+            return self._idents[name]
+
+    def join_all(self) -> None:
+        _join_all(*self._threads.values())
+
+
+def _recording(errors: list[BaseException], callback: Any) -> Any:
+    """Record a subscriber's failure; the hub would only log it (HUB-007)."""
+
+    def run(message: PropertyChangedMessage[object]) -> None:
+        try:
+            callback(message)
+        except BaseException as error:
+            errors.append(error)
+            raise
+
+    return run
+
+
+def _join_all(*threads: Thread) -> None:
+    for thread in threads:
+        thread.join(3 * HANG_GUARD)
+    hung = [thread.name for thread in threads if thread.is_alive()]
+    assert hung == [], f"threads still waiting: {hung}"
+
+
+def _thread_log(
+    hub: MessageHub[PropertyChangedMessage[object]],
+) -> list[tuple[str, str]]:
+    log: list[tuple[str, str]] = []
+    hub.messages.subscribe(
+        lambda message: log.append((message.property_name, current_thread().name))
+    )
+    return log
+
+
+@pytest.mark.conformance("HUB-013")
+@pytest.mark.parametrize(
+    ("target", "order"),
+    [("h3", "borrow_exit_first"), ("h", "borrow_exit_first"), ("h3", "p_waits_first")],
+)
+def test_a_wait_for_a_borrowed_scope_records_an_edge(target: str, order: str) -> None:
+    # #1179 reproduction 1. P borrows h, which Q drains. Q's drain then finds
+    # an empty queue and releases the drain instead of waiting for P's borrow
+    # with no edge, so P's later wait for Q cannot hang.
+    h, h2, h3 = _fresh_hub(), _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    borrow_open = Event()
+    q_left_h3 = Event()
+    early: list[str] = []
+    h_log = _thread_log(h)
+    h3_log = _thread_log(h3)
+    p_draining = Event()
+
+    def on_h(message: PropertyChangedMessage[object]) -> None:
+        if borrow_open.is_set():
+            early.append(message.property_name)
+        if message.property_name == "q0":
+            h2.send(_make_msg("q1"))
+            if order == "p_waits_first":
+                wait_until_waiting(threads.ident("P"))
+
+    h.messages.subscribe(_recording(errors, on_h))
+
+    def on_h2(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name != "p0":
+            return
+        p_draining.set()
+        wait_until_waiting(threads.ident("Q"))
+        with h.batch():
+            borrow_open.set()
+            h2.dispose()
+            if order == "borrow_exit_first" and not q_left_h3.wait(HANG_GUARD):
+                errors.append(TimeoutError("Q's h3 batch did not exit"))
+            (h3 if target == "h3" else h).send(_make_msg("pm"))
+            borrow_open.clear()
+
+    h2.messages.subscribe(_recording(errors, on_h2))
+
+    def q_body() -> None:
+        with h3.batch():
+            h.send(_make_msg("q0"))
+        q_left_h3.set()
+
+    threads.start("P", lambda: h2.send(_make_msg("p0")))
+    assert p_draining.wait(HANG_GUARD)
+    threads.start("Q", q_body)
+    threads.join_all()
+
+    assert errors == []
+    assert early == []
+    delivered = h3_log if target == "h3" else [entry for entry in h_log if entry[0] == "pm"]
+    assert [tag for tag, _ in delivered] == ["pm"]
+
+
+@pytest.mark.conformance("HUB-013")
+@pytest.mark.parametrize("operation", ["send", "batch", "dispose"])
+def test_a_wait_for_a_borrower_closes_a_visible_cycle(operation: str) -> None:
+    # #1179 variant: after its own h batch exits, Q's h operation waits for
+    # P's borrowed scope with an edge. P's h3 send, which waits for Q, then
+    # closes a visible cycle and enqueues instead of hanging.
+    h, h2, h3 = _fresh_hub(), _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    borrow_open = Event()
+    q_left_h = Event()
+    early: list[str] = []
+    h3_log = _thread_log(h3)
+    h_log = _thread_log(h)
+    h_completed: list[bool] = []
+    h.messages.subscribe(on_completed=lambda: h_completed.append(True))
+    p_draining = Event()
+    h.messages.subscribe(
+        lambda message: early.append(message.property_name) if borrow_open.is_set() else None
+    )
+
+    def on_h2(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name != "p0":
+            return
+        p_draining.set()
+        wait_until_waiting(threads.ident("Q"))
+        with h.batch():
+            borrow_open.set()
+            h2.dispose()
+            if not q_left_h.wait(HANG_GUARD):
+                errors.append(TimeoutError("Q's h batch did not exit"))
+            try:
+                wait_until_waiting(threads.ident("Q"))
+            except TimeoutError as error:
+                errors.append(error)
+            h3.send(_make_msg("pm"))
+            borrow_open.clear()
+
+    h2.messages.subscribe(_recording(errors, on_h2))
+
+    def q_body() -> None:
+        with h3.batch():
+            with h.batch():
+                h2.send(_make_msg("q1"))
+            q_left_h.set()
+            if operation == "send":
+                h.send(_make_msg("qx"))
+            elif operation == "batch":
+                with h.batch():
+                    h.send(_make_msg("qx"))
+            else:
+                h.dispose()
+
+    threads.start("P", lambda: h2.send(_make_msg("p0")))
+    assert p_draining.wait(HANG_GUARD)
+    threads.start("Q", q_body)
+    threads.join_all()
+
+    assert errors == []
+    assert early == []
+    assert [tag for tag, _ in h3_log] == ["pm"]
+    if operation == "dispose":
+        assert h_completed == [True]
+    else:
+        assert h_log == [("qx", "Q")]
+
+
+@pytest.mark.conformance("HUB-013")
+@pytest.mark.parametrize("operation", ["send", "batch", "dispose"])
+def test_a_borrowers_own_hub_calls_do_not_wait_for_its_borrow(operation: str) -> None:
+    # #1179 reproduction 2. With no other owner left, P's send, nested batch
+    # and dispose on the hub it borrowed must not wait for its own borrow.
+    h, h2 = _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    borrow_open = Event()
+    q_left_h = Event()
+    early: list[str] = []
+    h_log = _thread_log(h)
+    h_completed: list[bool] = []
+    h.messages.subscribe(on_completed=lambda: h_completed.append(True))
+    h.messages.subscribe(
+        lambda message: early.append(message.property_name) if borrow_open.is_set() else None
+    )
+    p_draining = Event()
+
+    def on_h2(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name != "p0":
+            return
+        p_draining.set()
+        wait_until_waiting(threads.ident("Q"))
+        with h.batch():
+            borrow_open.set()
+            h2.dispose()
+            if not q_left_h.wait(HANG_GUARD):
+                errors.append(TimeoutError("Q's h batch did not exit"))
+            if operation == "send":
+                h.send(_make_msg("pm"))
+            elif operation == "batch":
+                with h.batch():
+                    h.send(_make_msg("pm"))
+            else:
+                h.dispose()
+            borrow_open.clear()
+
+    h2.messages.subscribe(_recording(errors, on_h2))
+
+    def q_body() -> None:
+        with h.batch():
+            h2.send(_make_msg("q1"))
+        q_left_h.set()
+
+    threads.start("P", lambda: h2.send(_make_msg("p0")))
+    assert p_draining.wait(HANG_GUARD)
+    threads.start("Q", q_body)
+    threads.join_all()
+
+    assert errors == []
+    assert early == []
+    if operation == "dispose":
+        assert h_completed == [True]
+        assert h_log == []
+    else:
+        assert h_log == [("pm", "P")]
+
+
+@pytest.mark.conformance("HUB-013")
+@pytest.mark.parametrize("form", ["drain", "batch"])
+@pytest.mark.parametrize("operation", ["send", "dispose", "batch", "batch_send"])
+def test_an_ended_hub_wait_does_not_cause_a_cycle_escape(
+    monkeypatch: pytest.MonkeyPatch, form: str, operation: str
+) -> None:
+    # #1181. P releases h2, which Q waits for. Q is held after it wakes and
+    # before its wait ends, until P's h operation decides whether to wait for
+    # Q's h batch. P released h2 before it woke Q, so Q's edge is gone and P
+    # waits, as HUB-013 requires, instead of taking a cycle escape.
+    seam = WaitDecisions(monkeypatch)
+    h, h2 = _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    h_log = _thread_log(h)
+    h_completed: list[bool] = []
+    h.messages.subscribe(on_completed=lambda: h_completed.append(True))
+    p_owns_h2 = Event()
+    body_start_log: list[tuple[str, str]] = []
+    after_send_log: list[tuple[str, str]] = []
+
+    def hold_q_until_p_decides() -> None:
+        wait_until_waiting(threads.ident("Q"))
+        seam.hold_until_decided(threads.ident("Q"), threads.ident("P"))
+
+    def on_h2(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name == "p0":
+            p_owns_h2.set()
+            hold_q_until_p_decides()
+
+    h2.messages.subscribe(_recording(errors, on_h2))
+
+    def p_body() -> None:
+        if form == "drain":
+            h2.send(_make_msg("p0"))
+        else:
+            with h2.batch():
+                p_owns_h2.set()
+                hold_q_until_p_decides()
+        if operation == "send":
+            h.send(_make_msg("p1"))
+            after_send_log.extend(h_log)
+        elif operation == "dispose":
+            h.dispose()
+        else:
+            with h.batch():
+                body_start_log.extend(h_log)
+                if operation == "batch_send":
+                    h.send(_make_msg("p1"))
+
+    def q_body() -> None:
+        with h.batch():
+            h.send(_make_msg("q0"))
+            h2.send(_make_msg("q1"))
+
+    threads.start("P", p_body)
+    assert p_owns_h2.wait(HANG_GUARD)
+    threads.start("Q", q_body)
+    threads.join_all()
+
+    assert errors == []
+    p_decisions = seam.decisions(threads.ident("P"))
+    assert p_decisions and all(p_decisions), "P took a cycle escape for an ended wait"
+    if operation == "send":
+        assert after_send_log == [("q0", "Q"), ("p1", "P")]
+    elif operation == "dispose":
+        assert h_log == [("q0", "Q")]
+        assert h_completed == [True]
+    else:
+        assert body_start_log == [("q0", "Q")]
+        expected = [("q0", "Q"), ("p1", "P")] if operation == "batch_send" else [("q0", "Q")]
+        assert h_log == expected
+
+
+@pytest.mark.conformance("HUB-013")
+def test_a_live_hub_cycle_still_takes_the_send_escape(monkeypatch: pytest.MonkeyPatch) -> None:
+    # #1181 real-cycle control: P still drains h2 while Q waits for it, so
+    # P's send to Q's batched hub enqueues for Q's batch exit.
+    seam = WaitDecisions(monkeypatch)
+    h, h2 = _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    h_log = _thread_log(h)
+    p_draining = Event()
+
+    def on_h2(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name == "p0":
+            p_draining.set()
+            wait_until_waiting(threads.ident("Q"))
+            h.send(_make_msg("p1"))
+
+    h2.messages.subscribe(_recording(errors, on_h2))
+
+    def q_body() -> None:
+        with h.batch():
+            h.send(_make_msg("q0"))
+            h2.send(_make_msg("q1"))
+
+    threads.start("P", lambda: h2.send(_make_msg("p0")))
+    assert p_draining.wait(HANG_GUARD)
+    threads.start("Q", q_body)
+    threads.join_all()
+
+    assert errors == []
+    assert seam.decisions(threads.ident("P")) == [False]
+    assert h_log == [("q0", "Q"), ("p1", "Q")]
+
+
+@pytest.mark.conformance("HUB-013")
+def test_a_drainer_with_queued_messages_releases_the_drain_on_a_cycle() -> None:
+    # spec/03 §4.2 rule 5. Drainer D has m2 queued and would wait for B's
+    # borrowed scope, while B already waits for D. D releases the drain, and
+    # B's borrow exit delivers m2 on B. D's outermost send returns first.
+    h, h2, h4 = _fresh_hub(), _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    h_log = _thread_log(h)
+    borrow_open = Event()
+    early: list[str] = []
+    h.messages.subscribe(
+        lambda message: early.append(message.property_name) if borrow_open.is_set() else None
+    )
+    b_owns_h2 = Event()
+    log_when_d_send_returned: list[tuple[str, str]] = []
+
+    def on_h(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name == "m1":
+            h.send(_make_msg("m2"))
+            h2.send(_make_msg("x"))
+            wait_until_waiting(threads.ident("B"))
+
+    h.messages.subscribe(_recording(errors, on_h))
+
+    def d_body() -> None:
+        with h4.batch():
+            h.send(_make_msg("m1"))
+            log_when_d_send_returned.extend(h_log)
+
+    def b_body() -> None:
+        with h2.batch():
+            b_owns_h2.set()
+            wait_until_waiting(threads.ident("D"))
+            with h.batch():
+                borrow_open.set()
+                h2.dispose()
+                h4.send(_make_msg("b4"))
+                borrow_open.clear()
+
+    threads.start("B", b_body)
+    assert b_owns_h2.wait(HANG_GUARD)
+    threads.start("D", d_body)
+    threads.join_all()
+
+    assert errors == []
+    assert early == []
+    assert log_when_d_send_returned == [("m1", "D")]
+    assert h_log == [("m1", "D"), ("m2", "B")]

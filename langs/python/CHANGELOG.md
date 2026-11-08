@@ -64,6 +64,45 @@ below for them.
 
 ### Fixed
 
+- Hub, container membership and child ownership-lock waits now record in one
+  wait-for graph, `vmx._wait_for_graph.WAITS` (spec/03 §4.1, ADR-0172). A
+  cycle that crosses these waits no longer hangs (#1157): when a hub drainer
+  disposes a `CompositeVM` or `GroupVM` whose `add` or `append` waits in
+  `send` for that drainer, the disposal is recorded for the transaction owner.
+  A wait for another thread's child ownership lock now records an edge too
+  (#1155). The wait that would close a cycle raises `RuntimeError` before the
+  `add`, `append`, indexer, population or `AggregateVM` slot replacement
+  changes anything, instead of hanging. A contested lock with no cycle is
+  still waited for.
+- A `MessageHub` waiter no longer takes a cycle escape for a cycle that has
+  ended (#1181, `HUB-013`). The thread that releases a hub's batch, drain or
+  borrowed scope removes the edges that name it before it wakes the waiters.
+  Before, a `send` could return before delivery, a `dispose()` could drop
+  another thread's batched messages, and a `batch()` could borrow the hub.
+- A borrowed `MessageHub` batch scope is a wait-for owner (spec/03 §4.2,
+  #1179). A wait for it records an edge to the borrower, so a cycle through it
+  is refused instead of hanging. The borrower's own `send`, `batch()` and
+  `dispose()` on that hub no longer wait for its own borrowed scope. A drainer
+  with an empty queue releases the drain instead of waiting for a borrowed
+  scope. A drainer with queued messages whose wait would close a cycle
+  releases the drain, and the exit of the last borrowed scope delivers them,
+  in FIFO order, on the borrower's thread.
+- Lifecycle publication and hook-lease waits now record in the same wait-for
+  graph, `vmx._wait_for_graph.WAITS`, keyed per publication and per hook lease
+  (spec/02 §2.4, spec/03 §4.1, ADR-0172). The private lifecycle graph in
+  `vmx.components.base` is gone.
+  - `dispose()` no longer returns before another thread's admitted hook, or
+    another thread's delivery of the view-model's `DISPOSED`, finishes because
+    of a cycle that has ended (#1182, `LIFE-015`). The hook's thread, or the
+    publication's drainer, removes its ownership before it wakes the waiters.
+    Before, a stale edge made `dispose()` defer its cleanup to the other
+    thread and drop a cleanup failure, or run `_on_dispose` before `DISPOSED`
+    reached subscribers.
+  - A cycle that crosses a lifecycle wait and a hub wait no longer hangs
+    (#1202, `HUB-013`). For example, a hub drainer whose subscriber disposes a
+    view-model while that view-model's `construct()` waits in `send` for the
+    drainer: the `dispose()` leaves `DISPOSED` queued for the constructing
+    thread and returns.
 - A `construct()`, `destruct()` or `reconstruct()` call that starts during a
   view-model's inline dispose cascade now raises
   `StatusTransitionError(DISPOSED, operation)` (ADR-0175, spec/02 §7.2,
