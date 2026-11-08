@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use vmx::{
-    ComponentVm, CompositeVm, ConstructionStatus, ManualDispatcher, Message, MessageHub, VmxError,
+    ComponentVm, CompositeVm, ConstructionStatus, ManualDispatcher, Message, MessageHub, VmNode,
+    VmxError,
 };
 
 type Leaf = ComponentVm<&'static str, ManualDispatcher>;
@@ -909,4 +910,139 @@ fn transfer_destination_admits_the_moved_child_after_the_old_parents_detach_comm
         dest.set_current(Some(moved.clone())).unwrap();
         assert!(moved.is_current(), "{operation}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Replacing the current child (#1219).
+
+/// The action a `FreeProbe` runs once, right after its parent is cleared.
+type FreeAction = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
+/// A leaf that runs a test action once, right after a container clears its
+/// parent. Another thread can adopt the child at that point, so the action
+/// stands in for that thread (#1219).
+#[derive(Clone)]
+struct FreeProbe {
+    inner: Leaf,
+    on_freed: FreeAction,
+}
+
+impl FreeProbe {
+    fn new(name: &'static str) -> Self {
+        Self {
+            inner: leaf(name),
+            on_freed: Arc::default(),
+        }
+    }
+
+    fn arm(&self, action: impl FnOnce() + Send + 'static) {
+        *self.on_freed.lock().unwrap() = Some(Box::new(action));
+    }
+}
+
+impl PartialEq for FreeProbe {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl VmNode for FreeProbe {
+    fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    fn construct(&self) -> vmx::VmxResult<()> {
+        self.inner.construct()
+    }
+
+    fn destruct(&self) -> vmx::VmxResult<()> {
+        self.inner.destruct()
+    }
+
+    fn dispose(&self) -> vmx::VmxResult<()> {
+        self.inner.dispose()
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        VmNode::set_parent_id(&self.inner, parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        VmNode::parent_id(&self.inner)
+    }
+
+    fn set_parent_handle(&self, parent: Option<vmx::ParentHandle>) {
+        let freed = parent.is_none();
+        VmNode::set_parent_handle(&self.inner, parent);
+        if freed {
+            let action = self.on_freed.lock().unwrap().take();
+            if let Some(action) = action {
+                action();
+            }
+        }
+    }
+
+    fn parent_handle(&self) -> Option<vmx::ParentHandle> {
+        VmNode::parent_handle(&self.inner)
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        VmNode::set_current_flag(&self.inner, is_current);
+    }
+
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        VmNode::commit_current_flag(&self.inner, is_current)
+    }
+
+    fn publish_current_flag(&self, is_current: bool) {
+        VmNode::publish_current_flag(&self.inner, is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        VmNode::is_current(&self.inner)
+    }
+}
+
+/// #1219 — the replacement commit clears the replaced child as current before
+/// it frees the child, as `remove_at` does. A container that adopts and
+/// selects the freed child keeps its selection and the child's flag
+/// (COMP-006, spec/06 §4.3 rule 6).
+#[test]
+fn replacement_clears_the_old_current_child_before_it_frees_it() {
+    let dispatcher = ManualDispatcher::new();
+    let sut: CompositeVm<FreeProbe, ManualDispatcher> =
+        CompositeVm::with_services("sut", MessageHub::new(), dispatcher.clone());
+    let other: CompositeVm<FreeProbe, ManualDispatcher> =
+        CompositeVm::with_services("other", MessageHub::new(), dispatcher);
+    let (a, b) = (FreeProbe::new("a"), FreeProbe::new("b"));
+    sut.add(a.clone()).unwrap();
+    sut.add(b.clone()).unwrap();
+    sut.set_current(Some(a.clone())).unwrap();
+    let adopted: Arc<Mutex<Option<vmx::VmxResult<()>>>> = Arc::default();
+    let (adopter, child, sink) = (other.clone(), a.clone(), Arc::clone(&adopted));
+    a.arm(move || {
+        let result = adopter
+            .add(child.clone())
+            .and_then(|()| adopter.set_current(Some(child)));
+        *sink.lock().unwrap() = Some(result);
+    });
+
+    let replaced = sut.replace(0, FreeProbe::new("replacement")).unwrap();
+
+    assert_eq!(replaced.id(), a.id());
+    assert_eq!(
+        *adopted.lock().unwrap(),
+        Some(Ok(())),
+        "another container adopts and selects the freed child"
+    );
+    assert_eq!(sut.current().map(|c| c.id()), None);
+    assert_eq!(other.current().map(|c| c.id()), Some(a.id()));
+    assert!(
+        VmNode::is_current(&a),
+        "the replacement's clear never resets a selection in another composite"
+    );
 }

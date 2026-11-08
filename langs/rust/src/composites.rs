@@ -1255,12 +1255,20 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         if let Some(transfer) = transfer {
             retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
         }
-        old.set_parent_handle(None);
         let cleared = {
             let _gate = lock(&self.membership_gate);
             staged.admit();
             self.selection.clear_if_current_locked(&old)
         };
+        // Free `old` only after the clear, as `remove_at` does: a container
+        // that adopts it can then select it without this clear resetting its
+        // flag (COMP-006, #1219).
+        if old
+            .parent_handle()
+            .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+        {
+            old.set_parent_handle(None);
+        }
         retain_first_error(&mut commit_error, self.publish_current(cleared));
         self.items.publish_replace(index);
         retain_first_error(&mut commit_error, transaction.finish());
