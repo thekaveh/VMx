@@ -35,11 +35,13 @@ impl NoteDraft {
 }
 
 type SaveHook = Arc<dyn Fn(&str, &NoteDraft) + Send + Sync>;
+type SearchHook = Arc<dyn Fn(&str, usize) + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub struct InMemoryNoteRepository {
     inner: Arc<Mutex<RepositoryInner>>,
     save_hook: Arc<Mutex<Option<SaveHookSlot>>>,
+    search_hook: Arc<Mutex<Option<SearchHookSlot>>>,
 }
 
 /// Stands in for storage latency: runs before each draft is written.
@@ -49,6 +51,16 @@ struct SaveHookSlot(SaveHook);
 impl fmt::Debug for SaveHookSlot {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("SaveHook")
+    }
+}
+
+/// Stands in for search latency: runs before each search page is read.
+#[derive(Clone)]
+struct SearchHookSlot(SearchHook);
+
+impl fmt::Debug for SearchHookSlot {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SearchHook")
     }
 }
 
@@ -63,6 +75,7 @@ impl InMemoryNoteRepository {
         Self {
             inner: Arc::new(Mutex::new(RepositoryInner { notebooks, notes })),
             save_hook: Arc::new(Mutex::new(None)),
+            search_hook: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -162,11 +175,60 @@ impl InMemoryNoteRepository {
         Some(note.clone())
     }
 
+    /// Runs `hook` with the term and offset before each search page is read,
+    /// outside the repository lock, as a stand-in for a slow search.
+    pub fn set_search_hook(&self, hook: impl Fn(&str, usize) + Send + Sync + 'static) {
+        *lock(&self.search_hook) = Some(SearchHookSlot(Arc::new(hook)));
+    }
+
+    /// Returns at most `limit` notes that match `term`, starting at `offset`,
+    /// and the offset of the next page, or `None` after the last match.
+    pub fn search_notes(
+        &self,
+        term: &str,
+        offset: usize,
+        limit: usize,
+    ) -> (Vec<NoteModel>, Option<usize>) {
+        let hook = lock(&self.search_hook).clone();
+        if let Some(SearchHookSlot(hook)) = hook {
+            hook(term, offset);
+        }
+        let matches = self
+            .notes()
+            .into_iter()
+            .filter(|note| note_matches(note, term))
+            .collect::<Vec<_>>();
+        let page = matches
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect::<Vec<_>>();
+        let next = offset + page.len();
+        let next_offset = (next < matches.len()).then_some(next);
+        (page, next_offset)
+    }
+
     pub fn delete_note(&self, note_id: &str) -> Option<NoteModel> {
         let mut inner = lock(&self.inner);
         let index = inner.notes.iter().position(|note| note.id == note_id)?;
         Some(inner.notes.remove(index))
     }
+}
+
+/// Reports whether `term` occurs in the title, body, or a tag of `note`,
+/// ignoring case. An empty term matches every note.
+pub fn note_matches(note: &NoteModel, term: &str) -> bool {
+    let term = term.trim().to_lowercase();
+    if term.is_empty() {
+        return true;
+    }
+    note.title.to_lowercase().contains(&term)
+        || note.body.to_lowercase().contains(&term)
+        || note
+            .tags
+            .iter()
+            .any(|tag| tag.to_lowercase().contains(&term))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
