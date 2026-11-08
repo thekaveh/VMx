@@ -81,10 +81,11 @@ below for them.
   the `approve_async` awaiter, or `approve_errors` once on the command path.
   A failure that the approval already carries wins. That is a failed reset, or
   a failure that a settlement or `on_approved` observer raises. After a failed
-  reset, the calls it queued replay before the failure is routed. Another
-  thread's `set_model`, deny, or `dispose()` now also waits while the
-  post-persist commit runs, so the reset no longer overwrites it. Each queued
-  update calls the validators once more, at call time.
+  reset, the calls it queued replay before the failure is routed. Only the
+  approving thread's calls are queued. Another thread still waits only during
+  the publication scope, and while the post-persist commit runs its approve is
+  refused and the reset overwrites its `set_model`. Each queued update calls
+  the validators once more, at call time.
 - `ObservableDictionary`: `remove` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was

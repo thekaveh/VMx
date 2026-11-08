@@ -92,6 +92,12 @@ class FormVM(Generic[TM]):
         self._approval_in_flight = False
         self._approval_pre_publishing = False
         self._approval_publisher_thread: int | None = None
+        # The approving thread while its post-persist commit runs (the reset,
+        # snapshotter, and validators). The commit is part of the
+        # pre-publication window but not of the publication scope, so it
+        # queues only that thread's updates and holds no other thread
+        # (spec/20 §5.3 rules 1 and 7).
+        self._commit_window_thread: int | None = None
         # Updates the approving thread makes in an approval's pre-publication
         # window (spec/20 §5.3, ADR-0174): each is a set or a deny, replayed
         # in call order when the outermost publication on that thread ends.
@@ -246,35 +252,31 @@ class FormVM(Generic[TM]):
                 if model is None:
                     # Reject before any deferral, so the caller sees the error.
                     raise ValueError("model must not be None")
+                queue = self._in_pre_publication_window(caller)
                 self._active_mutations += 1
                 admitted = True
-                if self._in_pre_publication_window():
-                    # Call-time preparation (§5.3 rule 2): equality never
-                    # skips the enqueue, because earlier queued updates can
-                    # change the live model before this one replays. The
-                    # prepared result is discarded; the replay prepares again.
-                    generation = self._generation
-                    current, snapshot = self._model, self._snapshot
-                    _ = current == model
-                    _ = current != snapshot
-                    _ = model != snapshot
-                    self._validate(model)
-                    self._queue_update(generation, partial(self.set_model, model))
-                    return
                 # Prepare (spec/20 §5.4) without touching form state. Callbacks
                 # run under the re-entrant state lock: one may re-enter
                 # set_model, deny, or dispose on this thread, while another
-                # thread's update or dispose waits for this one.
+                # thread's update or dispose waits for this one. A call in the
+                # approval's pre-publication window runs the same preparation
+                # and is then queued (§5.3 rule 2): equality never skips the
+                # enqueue, because earlier queued updates can change the live
+                # model before this one replays. The replay prepares again.
                 generation = self._generation
                 current, snapshot = self._model, self._snapshot
-                if current == model:
+                if current == model and not queue:
                     return
                 was_dirty = current != snapshot
                 was_valid = not self._errors
                 next_errors = self._validate(model)
                 is_dirty = model != snapshot
-                # A re-entrant dispose or commit made this preparation stale.
+                # A re-entrant dispose, commit, or queued update made this
+                # preparation stale.
                 if self._disposed or self._generation != generation:
+                    return
+                if queue:
+                    self._queue_update(partial(self.set_model, model))
                     return
                 # Commit in one step, then notify.
                 errors_changed = next_errors != self._errors
@@ -378,43 +380,30 @@ class FormVM(Generic[TM]):
     def _settle_approval(self, current: TM) -> None:
         """Run the post-persist commit of a successful approval and settle it.
 
-        The approval's publication opens before the commit starts, so the
-        commit's callbacks (the reset, the snapshotter, and the validators)
-        and settlement steps 2 and 3 run in the pre-publication window: an
-        update this thread makes there is queued (spec/20 §5.3, ADR-0174).
-        The queue replays when the outermost publication on this thread ends.
-        The first replay failure then propagates to this approval's failure
-        route unless the approval already carries a failure, which wins.
+        Order (spec/20 §5.1, §5.3): prepare the configured reset state, or the
+        legacy snapshot advance, before committing any local state; clear the
+        in-flight mark with the commit; ``errors_changed`` when the effective
+        map changed; ``can_execute_changed`` exactly once; then ``on_approved``.
+
+        The pre-publication window opens with the commit (ADR-0174): an update
+        this thread makes from the reset, the snapshotter, a validator, or a
+        settlement step 2 or 3 observer is queued. The commit marks only this
+        thread, so another thread is not held until the publication scope
+        opens at settlement step 1 (rule 7). The queue replays when the
+        outermost publication on this thread ends. The first replay failure
+        then propagates to this approval's failure route unless the approval
+        already carries a failure, which wins.
         """
         caller = get_ident()
         with self._state_changed:
             # dispose() may have run during the persister await; disposal
             # suppresses the whole settlement (spec/20 §5.3/§10): the subjects
             # are completed and disposed, so emitting would raise.
-            if not self._disposed:
-                # Unlike the other waits, disposal does not end this one.
-                self._wait_for_other_publication(caller, stop_on_disposal=False)
             if self._disposed:
                 self._approval_in_flight = False
                 return
-            outer = self._enter_publication(caller, pre_publishing=True)
-        replay_failure: BaseException | None = None
-        try:
-            self._commit_and_publish_approval(current)
-        finally:
-            replay_failure = self._exit_publication(outer)
-        if replay_failure is not None:
-            raise replay_failure
-
-    def _commit_and_publish_approval(self, current: TM) -> None:
-        """Commit the approval, then publish its settlement in order.
-
-        Order (spec/20 §5.1, §5.3): prepare the configured reset state, or the
-        legacy snapshot advance, before committing any local state; clear the
-        in-flight mark with the commit; ``errors_changed`` when the effective
-        map changed; ``can_execute_changed`` exactly once; then ``on_approved``.
-        Must run inside the approval's publication.
-        """
+            outer_window = self._commit_window_thread
+            self._commit_window_thread = caller
         try:
             if self._reset_on_approved is not None:
                 reset = self._reset_on_approved(current)
@@ -430,22 +419,24 @@ class FormVM(Generic[TM]):
                 reset_state = None
                 next_snapshot = self._snapshotter(current)
         except BaseException:
-            # A failed post-persist commit: the window ends with the failure,
-            # and the failure settlement notifies before the queue replays.
+            # A failed post-persist commit: the window ends with the failure.
+            # The calls it queued replay after the failure settlement's
+            # can_execute_changed, and the commit failure wins (FORM-033).
             with self._state_changed:
-                self._approval_pre_publishing = False
-                self._approval_in_flight = False
-                disposed = self._disposed
-            if not disposed:
-                # The commit failure is the first error and wins (FORM-033).
-                with contextlib.suppress(BaseException):
-                    self._can_execute_trigger.on_next(None)
+                self._commit_window_thread = outer_window
+            self._settle_failed_approval()
             raise
 
         with self._state_changed:
+            # Unlike the other waits, disposal does not end this one.
+            self._wait_for_other_publication(caller, stop_on_disposal=False)
+            self._commit_window_thread = outer_window
             self._approval_in_flight = False
             if self._disposed:
+                self._drop_queue_after_disposal()
                 return
+            # Settlement step 1 opens the publication scope.
+            outer = self._enter_publication(caller, pre_publishing=True)
             # The approval commit (snapshot advance or reset) supersedes any
             # update still preparing on this thread (spec/20 §5.4).
             self._generation += 1
@@ -460,6 +451,22 @@ class FormVM(Generic[TM]):
             else:
                 self._snapshot = next_snapshot
 
+        replay_failure: BaseException | None = None
+        try:
+            self._publish_approval(current, published_errors)
+        finally:
+            # The queue replays here, after on_approved delivery returns. A
+            # settlement observer failure propagates past this block and wins
+            # over a replay failure.
+            replay_failure = self._exit_publication(outer)
+        if replay_failure is not None:
+            raise replay_failure
+
+    def _publish_approval(self, current: TM, published_errors: dict[str, str] | None) -> None:
+        """Publish settlement steps 2 to 4 of a committed approval.
+
+        A disposing observer stops the remaining notifications.
+        """
         if published_errors is not None:
             self._errors_changed.on_next(published_errors)
             if self._disposed:
@@ -489,13 +496,16 @@ class FormVM(Generic[TM]):
             self._wait_for_other_publication(caller)
             self._approval_in_flight = False
             if self._disposed:
+                self._drop_queue_after_disposal()
                 return
             outer = self._enter_publication(caller, pre_publishing=False)
         try:
             with contextlib.suppress(BaseException):
                 self._can_execute_trigger.on_next(None)
         finally:
-            # The approval's own failure wins over a replay failure (§5.3).
+            # Calls a failed post-persist commit queued replay here, before
+            # the caller routes the failure. That failure wins, so a replay
+            # failure is discarded (spec/20 §5.3, ADR-0174).
             self._exit_publication(outer)
 
     def _wait_for_other_publication(self, caller: int, *, stop_on_disposal: bool = True) -> None:
@@ -516,8 +526,9 @@ class FormVM(Generic[TM]):
 
         Must be called holding the state lock, after waiting out any other
         thread's publication. Other threads' mutations and disposal wait until
-        :meth:`_exit_publication`; same-thread edits made while
-        ``pre_publishing`` is set are deferred until it ends.
+        :meth:`_exit_publication`; same-thread updates made while
+        ``pre_publishing`` is set are queued and replay when the outermost
+        publication on this thread ends.
         """
         outer = (self._approval_pre_publishing, self._approval_publisher_thread)
         self._approval_pre_publishing = pre_publishing
@@ -553,25 +564,37 @@ class FormVM(Generic[TM]):
                     first_failure = error
         return first_failure
 
-    def _in_pre_publication_window(self) -> bool:
-        """Whether this thread is in an approval's pre-publication window.
+    def _in_pre_publication_window(self, caller: int) -> bool:
+        """Whether *caller* is in an approval's pre-publication window.
 
-        Must be called holding the state lock, after waiting out any other
-        thread's publication, so the publisher is the calling thread.
+        That is the approving thread's post-persist commit, or settlement steps
+        2 and 3 of the innermost publication. Must be called holding the state
+        lock, after waiting out any other thread's publication, so an open
+        publication belongs to the caller.
         """
-        return self._approval_publisher_thread is not None and self._approval_pre_publishing
+        return (
+            self._approval_publisher_thread is not None and self._approval_pre_publishing
+        ) or self._commit_window_thread == caller
 
-    def _queue_update(self, generation: int, replay: Callable[[], None]) -> None:
-        """Queue a prepared update unless its preparation went stale.
+    def _queue_update(self, replay: Callable[[], None]) -> None:
+        """Queue a prepared update that is not stale (spec/20 §5.3 rule 2).
 
-        Must be called holding the state lock. A re-entrant dispose, commit, or
-        queued update during the call-time preparation wins over the
-        interrupted call, which then queues nothing (spec/20 §5.3 rule 2).
+        Must be called holding the state lock. Advancing the generation makes
+        any update still preparing on this thread stale, so the newest call
+        wins, as it does for a committed update.
         """
-        if self._disposed or self._generation != generation:
-            return
         self._generation += 1
         self._queued_updates.append(replay)
+
+    def _drop_queue_after_disposal(self) -> None:
+        """Drop queued updates once disposal suppressed the settlement.
+
+        Must be called holding the state lock. A queued update would replay as
+        a no-op on the disposed form. An open publication on this thread keeps
+        the queue: its exit replays it, and each replay does nothing.
+        """
+        if self._approval_publisher_thread is None:
+            self._queued_updates.clear()
 
     # ── Dispose ───────────────────────────────────────────────────────────────
 
@@ -648,10 +671,14 @@ class FormVM(Generic[TM]):
                 self._wait_for_other_publication(caller)
                 if self._disposed:
                     return
+                queue = self._in_pre_publication_window(caller)
                 self._active_mutations += 1
                 admitted = True
                 # Prepare the revert (spec/20 §5.4): the snapshotter, equality,
                 # and validators run before anything is committed or published.
+                # Inside the approving thread's pre-publication window the
+                # prepared revert is discarded and the deny is queued (§5.3,
+                # ADR-0174); it replays as a new call.
                 generation = self._generation
                 current, snapshot = self._model, self._snapshot
                 was_dirty = current != snapshot
@@ -659,14 +686,12 @@ class FormVM(Generic[TM]):
                 next_model = self._snapshotter(snapshot)
                 next_errors = self._validate(next_model)
                 is_dirty = next_model != snapshot
-                if self._in_pre_publication_window():
-                    # Inside the approving thread's pre-publication window the
-                    # prepared revert is discarded and the deny is queued
-                    # (spec/20 §5.3, ADR-0174); it replays as a new call.
-                    self._queue_update(generation, self._deny)
-                    return
-                # A re-entrant dispose or commit made this preparation stale.
+                # A re-entrant dispose, commit, or queued update made this
+                # preparation stale.
                 if self._disposed or self._generation != generation:
+                    return
+                if queue:
+                    self._queue_update(self._deny)
                     return
                 errors_changed = next_errors != self._errors
                 self._model = next_model
@@ -776,6 +801,9 @@ class FormVM(Generic[TM]):
         try:
             self._approve_errors.on_next(exc)
         finally:
+            # This scope never queues (pre_publishing is off). The failure
+            # being routed is the approval's own and wins, so a replay
+            # failure here would be discarded (spec/20 §5.3, ADR-0174).
             self._exit_publication(outer)
 
     def _can_approve(self) -> bool:
