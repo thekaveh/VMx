@@ -731,6 +731,26 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         XCTAssertTrue(waitUntil { composite.status == .disposed })
     }
 
+    /// #1201 / ADR-0173 rule 8: the destruct clear is not skipped once the
+    /// composite has published Disposed. A subclass destruct hook that
+    /// disposes the composite before the base hook runs still ends with
+    /// `current` nil, as in C# and Python.
+    func testDestructClearAfterDisposedInsideTheDestructHookClearsCurrent() throws {
+        let a = try leaf("a")
+        let composite = DisposingDestructComposite(
+            name: "root", hub: NullMessageHub.INSTANCE, dispatcher: ImmediateDispatcher.INSTANCE,
+            childrenFactory: { [a] }, currentSelector: { $0.first }
+        )
+        try composite.construct()
+        XCTAssertTrue(composite.current === a)
+
+        _ = try? composite.destruct()
+
+        XCTAssertEqual(composite.statusInHook, .disposed)
+        XCTAssertEqual(composite.status, .disposed)
+        XCTAssertNil(composite.current, "COMP-005: the destruct clear ran after Disposed")
+    }
+
     /// COMP-006 with a transfer: a selection of the moved child in the
     /// destination, made by another thread while the add runs, leaves the
     /// child's flag set. The destination admits the child only after the old
@@ -847,5 +867,17 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         XCTAssertEqual(composite.status, .disposed)
         XCTAssertNoThrow(try composite.setCurrent(member))
         XCTAssertNil(composite.current)
+    }
+}
+
+/// Disposes itself at the start of its destruct hook, before the base hook
+/// runs the destruct clear (#1201).
+private final class DisposingDestructComposite: CompositeVM<ComponentVM> {
+    private(set) var statusInHook: ConstructionStatus?
+
+    override func _onDestruct() throws {
+        dispose()
+        statusInHook = status
+        try super._onDestruct()
     }
 }

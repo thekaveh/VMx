@@ -1314,7 +1314,10 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// is pending) apply to every path; a `nil` value is never refused by
     /// them. `expectedCurrent` makes the change apply only while that child is
     /// current. Once the composite has published Disposed (`disposed`, read
-    /// from the base lifecycle state), selection is inert (chapter 01 §4).
+    /// from the base lifecycle state), a selection call is inert (chapter 01
+    /// §4). The destruct and detach clears still commit `nil`: they are never
+    /// skipped (spec/06 §5, ADR-0173 rule 8), as in C# and Python, and the
+    /// disposed composite's own notifications are no-ops.
     private func _commitSelectionLocked(
         _ value: Child?,
         selectionCall: Bool,
@@ -1328,7 +1331,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         }
         if let value, !isAdmittedMemberLocked(value) { return .refused(.nonMember) }
         if let expectedCurrent, _current !== expectedCurrent { return .refused(.notCurrent) }
-        if disposed || disposeCompleted { return .inert }
+        if selectionCall && (disposed || disposeCompleted) { return .inert }
         if value != nil && (disposeRequested || disposeDeferred) {
             return .refused(.disposing)
         }

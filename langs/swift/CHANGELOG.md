@@ -106,10 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `CompositeVM.destruct()` always clears `current` (`COMP-005`, ADR-0173
   rule 8). Before, a destruct inside the composite's own transaction, or
   while disposal was deferred, skipped the clear without an error and
-  reached `Destructed` with `current` still set. One case stays as before:
-  once the composite has published `Disposed`, the clear is inert and
-  `current` stays set (chapter 01 §4). This happens when another thread's
-  dispose publishes `Disposed` while the destruct hook still runs.
+  reached `Destructed` with `current` still set. The clear also commits
+  after the composite has published `Disposed`, as in C# and Python, for
+  example when another thread's dispose, or the subclass's own destruct
+  hook, disposes the composite while the destruct still runs.
 - `CompositeVM` refusals use the existing channels: `setCurrent(_:)`,
   `selectComponent(_:)` and `deselectComponent(_:)` throw
   `CompositeMembershipError`, the `current` setter traps (ADR-0009), and
