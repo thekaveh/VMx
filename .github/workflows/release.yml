@@ -720,8 +720,15 @@ jobs:
           version="${GITHUB_REF#refs/tags/react-v}"
           package_version=$(node -p 'require("./packages/react/package.json").version')
           [ "$version" = "$package_version" ] || { echo "::error::Tag/package version mismatch." >&2; exit 1; }
-          core_version=$(node -p 'require("./langs/typescript/package.json").version')
-          npm view "@thekaveh/vmx@${core_version}" version --json
+          # The adapter installs against a published core, so check its peer
+          # range on npm, not the unreleased langs/typescript source version.
+          core_range=$(node -p 'require("./packages/react/package.json").peerDependencies?.["@thekaveh/vmx"] ?? ""')
+          [ -n "$core_range" ] || { echo "::error::packages/react has no @thekaveh/vmx peer range." >&2; exit 1; }
+          published=$(npm view "@thekaveh/vmx@${core_range}" version --json) || {
+            echo "::error::No published @thekaveh/vmx satisfies the adapter peer range ${core_range}." >&2
+            exit 1
+          }
+          echo "Published @thekaveh/vmx versions in ${core_range}: ${published}"
       - name: Build core and install adapter
         run: |
           npm ci --prefix langs/typescript
@@ -730,7 +737,9 @@ jobs:
       - name: Verify adapter
         run: |
           npm run check:deps --prefix packages/react
-          npm audit --prefix packages/react --package-lock-only --audit-level=low
+          # Production-only at release time: dev-only advisories cannot reach
+          # consumers, and typescript.yml still audits the full lockfile.
+          npm audit --prefix packages/react --package-lock-only --omit=dev --audit-level=low
           npm run typecheck --prefix packages/react
           npm run lint --prefix packages/react
           npm test --prefix packages/react

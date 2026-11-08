@@ -209,6 +209,11 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// The ordered child nodes. Lazily materialized on first access — the
     /// factory runs once (seeding each child's `parent` to this node), then the
     /// result is cached for the lifetime of the node.
+    ///
+    /// Fails fast (traps) when the factory returns structurally invalid
+    /// output (spec/18 §4). Use `tryChildren()` to handle that case; the tree
+    /// utilities `walk`, `walkExpanded` and `find` read `tryChildren()` and
+    /// throw instead (spec/13 §6, ADR-0170).
     public var children: [TVM] {
         switch tryChildren() {
         case .success(let children):
@@ -262,7 +267,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     }
 
     /// `true` when this node has no children. Accessing this materializes
-    /// children if not already done.
+    /// children if not already done. Like `children`, it fails fast (traps)
+    /// on structurally invalid factory output (spec/18 §4, ADR-0170); call
+    /// `tryChildren()` first to handle that case.
     public var isLeaf: Bool { children.isEmpty }
 
     /// `true` when this is the first child in its parent's `children`

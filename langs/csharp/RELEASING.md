@@ -91,11 +91,13 @@ version or reuse that tag.
 
 ### 3.1 Pre-publish gates
 
-Before entering the protected environment, CI verifies main ancestry and exact
-tag/project selection, locked restore, Release format/build/tests, every public
-project pack, exact `.nupkg` and `.snupkg` allowlists, metadata, repository SHA,
-framework assets, dependency floors, and clean local net8.0 and netstandard2.0
-consumers. Only the tag-selected main/symbol pairs enter the publish artifact.
+Before entering the protected environment, the `release-metadata` preflight
+checks versions, tags, and release notes. CI also verifies main ancestry and
+exact tag/project selection, locked restore, the transitive vulnerability
+listing, Release format/build/tests, every public project pack, exact `.nupkg`
+and `.snupkg` allowlists, metadata, repository SHA, framework assets,
+dependency floors, and clean local net8.0 and netstandard2.0 consumers. Only
+the tag-selected main/symbol pairs enter the publish artifact.
 
 Each main package ships its own README from `langs/csharp/packaging/<package>/`,
 not the repository README, because a `.nupkg` carries none of the repository

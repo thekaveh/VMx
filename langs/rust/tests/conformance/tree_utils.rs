@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use vmx::{find, walk, HierarchicalVm};
+use vmx::{find, walk, walk_expanded, HierarchicalVm, MessageHub, VmxError};
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
     HierarchicalVm::new(name, name.to_string())
@@ -25,6 +25,7 @@ fn walk_yields_depth_first_preorder() {
     let root = sample_tree();
 
     let names = walk(&root)
+        .unwrap()
         .into_iter()
         .map(|node| node.model())
         .collect::<Vec<_>>();
@@ -75,6 +76,7 @@ fn walk_skips_empty_child_slots_by_construction() {
     root.add_child(leaf("c")).unwrap();
 
     let names = walk(&root)
+        .unwrap()
         .into_iter()
         .map(|node| node.model())
         .collect::<Vec<_>>();
@@ -92,7 +94,8 @@ fn find_returns_first_match_and_short_circuits() {
     let found = find(&root, move |node| {
         visited_inner.lock().unwrap().push(node.model());
         node.model() == "b1"
-    });
+    })
+    .unwrap();
 
     assert_eq!(found.unwrap().model(), "b1");
     assert_eq!(
@@ -104,4 +107,49 @@ fn find_returns_first_match_and_short_circuits() {
             "b1".to_string()
         ]
     );
+}
+
+/// Tree walks over invalid factory output (spec/13 §6, ADR-0170, #1060):
+/// `walk`, `walk_expanded` and `find` return the factory error instead of
+/// panicking, and the node stays unmaterialized so a later walk retries.
+#[test]
+fn walks_return_invalid_factory_output_error_and_stay_retryable() {
+    let dup = leaf("dup");
+    let other = leaf("other");
+    let snapshot = Arc::new(Mutex::new(vec![dup.clone(), dup.clone()]));
+    let captured = Arc::clone(&snapshot);
+    let calls = Arc::new(Mutex::new(0_usize));
+    let counted = Arc::clone(&calls);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| {
+            *counted.lock().unwrap() += 1;
+            captured.lock().unwrap().clone()
+        },
+        false,
+        MessageHub::new(),
+    );
+    let is_factory_error = |error: &VmxError| matches!(error, VmxError::InvalidArgument(message) if message.contains("factory"));
+
+    assert!(walk(&root).is_err_and(|error| is_factory_error(&error)));
+    assert!(walk_expanded(&root).is_err_and(|error| is_factory_error(&error)));
+    assert!(find(&root, |_| false).is_err_and(|error| is_factory_error(&error)));
+    assert_eq!(*calls.lock().unwrap(), 3, "each walk retries the factory");
+    assert!(
+        dup.parent().is_none(),
+        "a rejected snapshot assigns no parent"
+    );
+    assert!(!root.is_children_materialized());
+
+    // A predicate that matches the root returns before any child is read.
+    let target = root.clone();
+    assert!(find(&root, move |node| *node == target).unwrap() == Some(root.clone()));
+    assert_eq!(*calls.lock().unwrap(), 3);
+
+    *snapshot.lock().unwrap() = vec![dup.clone(), other.clone()];
+    assert_eq!(walk(&root).unwrap().len(), 3);
+    assert_eq!(walk_expanded(&root).unwrap().len(), 3);
+    let wanted = other.clone();
+    assert!(find(&root, move |node| *node == wanted).unwrap() == Some(other.clone()));
 }

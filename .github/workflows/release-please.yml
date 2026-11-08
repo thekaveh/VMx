@@ -3,15 +3,15 @@ name: release-please
 # release-please watches main for Conventional Commits and maintains a
 # long-lived "release PR" per package that bumps the version + updates
 # CHANGELOG.md according to what's accumulated since the last tag.
-# Merging that PR pushes a `python-v<X.Y.Z>` tag (the component prefix
-# comes from release-please-config.json's `component: python` setting,
-# which keeps tags coexisting with future `csharp-v*`, `typescript-v*`,
-# and `swift-v*` flavors), which fires `release.yml`'s tag-triggered
-# publish pipeline.
 #
-# Human gate stays on the release PR merge: review the version bump,
-# review the auto-generated CHANGELOG entry, then merge → tag fires →
-# publish runs → environment approval gates the actual PyPI upload.
+# release-please creates no tag and no GitHub Release
+# (`skip-github-release: true` in release-please-config.json). After the
+# release PR merges, the owner pushes the annotated `python-v<X.Y.Z>` tag
+# on the merge commit, as for every other flavor. The tag fires
+# `release.yml`, which creates the GitHub Release only after PyPI
+# verification. The owner then relabels the merged release PR from
+# `autorelease: pending` to `autorelease: tagged`; until then,
+# release-please opens no new release PR.
 
 on:
   push:

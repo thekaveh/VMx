@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 `CompositeVM<TabVM>` with tab selection — all in a Swift Package or playground.
 
-> The Swift source line 3.31.0 covers all 444 library conformance IDs. The
+> The Swift source line 3.31.0 covers all 445 library conformance IDs. The
 > SwiftUI Notes Workspace flagship covers the 5 `THEME-00x` scenario IDs. The
 > [Swift flavor](../flavors/swift.md) page lists the documented Swift-specific
 > divergences.
@@ -234,7 +234,9 @@ catchable `StatusTransitionError`. The `construct()`, `destruct()`, and
 Swift traps only where a setter cannot throw (ADR-0009, ADR-0037). For example,
 assigning a non-child to the `CompositeVM.current` setter traps. Call
 `setCurrent(_:)` instead: it throws a catchable `CompositeMembershipError` for
-a non-child. A builder throws `BuilderValidationError` from `build()` when a
+a non-child. It also throws for a child while disposal of the composite is
+pending, and for any value inside the caller's own uncommitted membership
+transaction (ADR-0173). A builder throws `BuilderValidationError` from `build()` when a
 required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the

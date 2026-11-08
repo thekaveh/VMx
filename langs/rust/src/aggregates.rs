@@ -197,7 +197,8 @@ impl FixedAggregateOwnership {
         loop {
             let gate = lock(&self.transaction_gate);
             match self.transaction_control.dispose_disposition() {
-                MembershipDisposeDisposition::Owned => {
+                MembershipDisposeDisposition::Owned
+                | MembershipDisposeDisposition::PublishingThread => {
                     self.transaction_control
                         .defer_dispose(deferred.take().expect("deferred disposal is available"));
                     return false;
@@ -550,6 +551,14 @@ impl<T1: VmNode, D: Dispatcher> VmNode for AggregateVm1<T1, D> {
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        self.core.commit_current_flag(is_current)
+    }
+
+    fn publish_current_flag(&self, _is_current: bool) {
+        self.core.publish_current_flag();
     }
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
@@ -921,6 +930,14 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> VmNode for AggregateVm2<T1, T2, D> {
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        self.core.commit_current_flag(is_current)
+    }
+
+    fn publish_current_flag(&self, _is_current: bool) {
+        self.core.publish_current_flag();
     }
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
@@ -2453,6 +2470,14 @@ macro_rules! impl_fixed_aggregate_vm_node {
             fn parent_handle(&self) -> Option<ParentHandle> { self.core.parent_handle() }
             fn set_current_flag(&self, is_current: bool) {
                 self.core.set_current_flag(is_current);
+            }
+
+            fn commit_current_flag(&self, is_current: bool) -> bool {
+                self.core.commit_current_flag(is_current)
+            }
+
+            fn publish_current_flag(&self, _is_current: bool) {
+                self.core.publish_current_flag();
             }
             fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
                 self.core.when_settled(callback)

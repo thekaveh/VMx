@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-066` conformance tests: a failing local collection subscriber does not
+  suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). TypeScript
+  already behaved this way.
 - `TreeSelection<TVM>`, an opt-in helper that keeps one current node per
   `HierarchicalVM` tree (#667, ADR-0164, HIER-033..HIER-040). Construct it on
   a root node. It exposes `current`, `canSelect(node)`, `select(node)`,
@@ -92,6 +95,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM` and `CompositeVMOf` selection now follows spec/06 §4.3
+  (#1149, ADR-0165, ADR-0173). No selection path opens a membership
+  transaction.
+  - The construct walk's `Current(selector)` assignment no longer fails the
+    construct when the walk resumes inside an add or while disposal is
+    pending. It is a silent no-op before the add commits, while disposal is
+    pending, and for a child that is not yet admitted. From the add's
+    `collectionChanged` publication on, it commits.
+  - `destruct()`, including the destruct phase of `reconstruct()`, always
+    clears `current` (`COMP-005`). Before, it threw "Container membership
+    transaction is already in progress" inside the composite's own
+    transaction, or while disposal was deferred. It then stayed `Constructed`
+    with `current` set (TS part of #1144).
+  - The setter, `selectComponent`, `deselectComponent` and child
+    `select()`/`deselect()` still throw "Container membership transaction is
+    already in progress" before the composite's own add, insert, replacement,
+    population or transfer-out commits. From the commit on, they succeed, so a
+    `collectionChanged` subscriber can select the child that was just added.
+    Before, they threw until the transaction ended.
+  - A non-null selection throws while disposal is pending, and `current = null`
+    and deselection stay legal until `Disposed`. `canSelectComponent` returns
+    `false` for a child that is not yet admitted, while disposal is pending and
+    before the composite's own transaction commits. With `asyncSelection(true)`,
+    the setter validates when called, and the delivery checks again and drops
+    silently.
+  - Every `current` change holds a publication lease. A `dispose()` from
+    `onCurrentChanged` or from an `isCurrent` subscriber is deferred until the
+    lease ends and no membership transaction is open. `current` and both
+    `isCurrent` flags are committed before any of them is published.
+  - A detach clears `current` only while the detached child is still current.
+  - When an add, insert, replacement or population moves a child from another
+    parent, the destination admits it after the old parent's detach commit,
+    as in every flavor (`COMP-006`). During the old parent's commit
+    callbacks, the destination no longer offers the child for selection.
 - A background VM that waits on a child now rolls back and clears its in-flight
   guard when that wait fails (#1053). The wait can fail in a deferred
   `_transitionChildren` walk, a member hook, a `CompositeVM` selector or a

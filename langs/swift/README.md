@@ -6,9 +6,9 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 ## 1. Status
 
 **v3.31.0 source — total parity.** Swift implements `spec-v3.30.0` and covers
-all **444 of 444** library conformance IDs. The SwiftUI notes-showcase exercises
-the five additional `THEME-00x` scenarios, for **449 total**, matching the other
-UI-backed flavors; Rust covers the 444 library IDs and has no UI scenario suite.
+all **445 of 445** library conformance IDs. The SwiftUI notes-showcase exercises
+the five additional `THEME-00x` scenarios, for **450 total**, matching the other
+UI-backed flavors; Rust covers the 445 library IDs and has no UI scenario suite.
 See [CHANGELOG.md](CHANGELOG.md) for history.
 
 The package requires Combine and iOS 16, macOS 13, tvOS 16, or watchOS 9. The
@@ -133,7 +133,7 @@ Key exports:
 | `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
 | `ConstructionStatus`            | 5-state lifecycle enum                           |
 | `StatusTransitionError`         | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
-| `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
+| `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` and the select calls on a refused selection (ADR-0053, ADR-0173) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
 | `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface |
 | `KeyedServicedObservableCollection<Key, T>` | Ordered serviced surface plus captured-key index |
@@ -161,7 +161,7 @@ owns; VMx does not attach it to the observed VM's lifetime. See
 
 ## 5. Conformance
 
-Swift implements all 444 library conformance IDs. The
+Swift implements all 445 library conformance IDs. The
 `examples/swift/notes-showcase/` flagship covers `THEME-001..005` in
 `ThemeVMTests.swift`, validated by the `examples (notes-showcase)` job in
 `.github/workflows/swift.yml`. See
@@ -173,8 +173,10 @@ Known Swift divergences:
 
 - The read-only model setter traps because Swift setters cannot throw
   (ADR-0053).
-- The `CompositeVM.current` setter traps on a non-child; use
-  `try setCurrent(_:)` for a catchable `CompositeMembershipError` (ADR-0053).
+- The `CompositeVM.current` setter traps where `setCurrent(_:)` throws: on a
+  non-child, on a child while disposal is pending, and inside the caller's own
+  uncommitted membership transaction. Use `try setCurrent(_:)` for a catchable
+  `CompositeMembershipError` (ADR-0053, ADR-0173).
 - Hub handler traps are uncatchable on every path. `subscribe(_:)` isolates
   thrown errors per subscriber; raw `messages` Combine sinks cannot throw
   (ADR-0062 §2.4).

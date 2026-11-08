@@ -12,7 +12,7 @@ pre-publication changes.
 
 The closure was revalidated against the current Rust implementation, its
 conformance and regression tests, the canonical spec, and the four-flavor
-consensus on **2026-07-26**. All five flavors cover all 444 library IDs. The
+consensus on **2026-07-26**. All five flavors cover all 445 library IDs. The
 focused Rust tests cited below now assert the canonical member shape and edge
 behavior rather than the earlier reduced Rust surface.
 
@@ -234,14 +234,19 @@ callbacks directly and assert value-before-completion ordering.
 Still open (recorded in spec chapter 06): `FilteredCompositeVm` has no
 `Changed` stream, and `ModeledCrudCommands` has no `confirm_update` and a
 synchronous `with_confirm_delete`, which takes no `current_changed` trigger
-(`with_current_changed` takes the trigger but no confirmation). `CompositeVm` holds its
-membership transaction across `CollectionChanged` and current-change
-publication, so a selection from those callbacks or a concurrent selection
-fails with `OwnershipTransactionInProgress` (two `COMP-026` tests are ignored).
-The construct walk's `Current(selector)` assignment can select an unadmitted
-child and can assign while disposing. It does not defer a disposal from its
-callbacks, and a transfer commit always clears `current` (spec/06 §3.2,
-ADR-0165 §3).
+(`with_current_changed` takes the trigger but no confirmation).
+
+Selection follows the shared rules of spec/06 §4.3 (ADR-0173). `set_current`,
+`select_component` and `deselect_component` open no membership transaction. A
+selection from the `CollectionChanged` or current-change callbacks, or from
+another thread, commits instead of returning `OwnershipTransactionInProgress`,
+and the two `COMP-026` tests for these cases run again. A selection refused
+inside the caller's own uncommitted add still returns
+`OwnershipTransactionInProgress`. The construct walk's `Current(selector)`
+assignment skips an unadmitted child and a disposing composite. A disposal from
+a selection's callbacks, including the destruct clear's, is deferred through
+the publication lease. A transfer commit clears `current` only while the moved
+child is still current (spec/06 §3.2, ADR-0165).
 
 ### 12.4.8. Hot-Stream Completion And Notification Replay
 
