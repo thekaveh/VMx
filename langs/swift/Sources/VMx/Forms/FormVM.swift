@@ -43,9 +43,12 @@ public final class FormVM<Model> {
     // commit another update meanwhile; the prepared result is then stale and
     // dropped, and the newest committed state stands.
     private var commitGeneration: UInt64 = 0
+    // Counts the updates in progress and the deliveries outside a publication
+    // scope: an admission's `canExecuteChanged` and an `approveErrors` send
+    // (§5.5, #1228).
     private var activeMutations = 0
-    // A disposal's teardown (§10) waits until no update is active (§5.4) and
-    // no other thread holds a publication scope. A disposal whose scope wait
+    // A disposal's teardown (§10) waits until no update or unscoped delivery
+    // is active (§5.4, §5.5) and no other thread holds a publication scope. A disposal whose scope wait
     // was refused sets `teardownAfterScopes`: its teardown then waits until
     // no thread holds a scope, so the publisher runs it after its outermost
     // scope ends (§5.5).
@@ -365,6 +368,12 @@ public final class FormVM<Model> {
     /// wait-for cycle, the call marks the form disposed and returns. The
     /// publisher then completes the channels and disposes the commands after
     /// its outermost scope ends (§5.5, ADR-0176).
+    ///
+    /// A notification delivered outside a publication scope does not make
+    /// the call wait: an update's notifications after its scope, an approval
+    /// admission's `canExecuteChanged`, or an `approveErrors` send. The call
+    /// then marks the form disposed and returns, and the delivering thread
+    /// completes the channels when that delivery returns (§5.5).
     public func dispose() {
         stateGate.lock()
         let refused = awaitForeignScopesLocked() != nil
@@ -657,7 +666,8 @@ public final class FormVM<Model> {
     /// Admission waits while another thread holds a publication scope. A
     /// wait that would close a wait-for cycle is refused, and the call is
     /// admitted without waiting (§5.5). The admission notification opens no
-    /// scope.
+    /// scope. It counts in `activeMutations`, so a disposal meanwhile defers
+    /// its teardown until the notification returns (#1228).
     private func admitApproval(startingCommandTask: Bool = false) -> ApprovalAdmission? {
         stateGate.lock()
         _ = awaitForeignScopesLocked()
@@ -666,6 +676,7 @@ public final class FormVM<Model> {
             return nil
         }
         approvalInFlight = true
+        activeMutations += 1
         let admission = ApprovalAdmission(captured: _model)
         var notices = Notices()
         notices.afterScope.append(.canExecuteChanged)
@@ -675,6 +686,7 @@ public final class FormVM<Model> {
         let delivery = takeNoticesLocked(notices)
         stateGate.unlock()
         deliver(delivery)
+        endMutation()
         return admission
     }
 
@@ -922,9 +934,9 @@ public final class FormVM<Model> {
     }
 
     /// `true`, once, when a requested teardown may run on this thread: no
-    /// update is active, and no other thread holds a publication scope. After
-    /// a refused disposal wait, no thread may hold one (§5.5, §10). The
-    /// caller holds `stateGate`.
+    /// update or unscoped delivery is active, and no other thread holds a
+    /// publication scope. After a refused disposal wait, no thread may hold
+    /// one (§5.5, §10). The caller holds `stateGate`.
     private func takeTeardownLocked() -> Bool {
         let caller = Self.currentThread
         let scopesEnded = teardownAfterScopes
@@ -1045,10 +1057,18 @@ public final class FormVM<Model> {
 
     /// Routes a command-path failure to ``approveErrors`` after settlement.
     /// Sent outside `stateGate`, like every settlement notification (§5.3);
-    /// a failure that lands after disposal is dropped (§8.2).
+    /// a failure that lands after disposal is dropped (§8.2). The send opens
+    /// no publication scope. It counts in `activeMutations`, so a disposal
+    /// meanwhile defers its teardown until the send returns (§5.5, #1228).
     private func emitApproveError(_ error: Error) {
-        guard !isDisposed else { return }
+        let admitted = withStateGate { () -> Bool in
+            guard !_disposed else { return false }
+            activeMutations += 1
+            return true
+        }
+        guard admitted else { return }
         _approveErrors.send(error)
+        endMutation()
     }
 }
 

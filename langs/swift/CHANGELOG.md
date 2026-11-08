@@ -85,6 +85,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   clears the in-flight mark. Two threads can hold scopes after a refused
   settlement wait, so each publisher keeps its own queue and
   pre-publication window.
+- `FormVM.dispose()` no longer completes the channels while another thread
+  delivers an approval admission's `canExecuteChanged` or an `approveErrors`
+  value (spec/20 §5.5, ADR-0176, #1228). Neither delivery opens a
+  publication scope. Before, `dispose()` tore the form down at once. Now
+  both deliveries count as active, as an update already did. `dispose()`
+  marks the form disposed and returns, and the delivering thread completes
+  the channels when the delivery returns, as in C# and Python.
 - A wait for another thread's child ownership gate is now recorded in the one
   wait-for graph (ADR-0172, spec/03 §4.1, #1154). A structural operation
   holds a child's gate from reservation until commit or rollback, and the
