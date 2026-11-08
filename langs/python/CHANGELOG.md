@@ -87,6 +87,22 @@ below for them.
   scope. A drainer with queued messages whose wait would close a cycle
   releases the drain, and the exit of the last borrowed scope delivers them,
   in FIFO order, on the borrower's thread.
+- Lifecycle publication and hook-lease waits now record in the same wait-for
+  graph, `vmx._wait_for_graph.WAITS`, keyed per publication and per hook lease
+  (spec/02 §2.4, spec/03 §4.1, ADR-0172). The private lifecycle graph in
+  `vmx.components.base` is gone.
+  - `dispose()` no longer returns before another thread's admitted hook, or
+    another thread's delivery of the view-model's `DISPOSED`, finishes because
+    of a cycle that has ended (#1182, `LIFE-015`). The hook's thread, or the
+    publication's drainer, removes its ownership before it wakes the waiters.
+    Before, a stale edge made `dispose()` defer its cleanup to the other
+    thread and drop a cleanup failure, or run `_on_dispose` before `DISPOSED`
+    reached subscribers.
+  - A cycle that crosses a lifecycle wait and a hub wait no longer hangs
+    (#1202, `HUB-013`). For example, a hub drainer whose subscriber disposes a
+    view-model while that view-model's `construct()` waits in `send` for the
+    drainer: the `dispose()` leaves `DISPOSED` queued for the constructing
+    thread and returns.
 - A `construct()`, `destruct()` or `reconstruct()` call that starts during a
   view-model's inline dispose cascade now raises
   `StatusTransitionError(DISPOSED, operation)` (ADR-0175, spec/02 §7.2,

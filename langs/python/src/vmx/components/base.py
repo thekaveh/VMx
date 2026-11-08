@@ -221,31 +221,29 @@ class _LifecycleHookLease:
         self.deferred_disposal: Callable[[], None] | None = None
 
 
-_lifecycle_wait_graph_gate = threading.RLock()
-_lifecycle_thread_waits_for: dict[int, int] = {}
+class _Completion(Protocol):
+    def wait(self) -> object: ...
 
 
-def _register_lifecycle_wait(waiter: int, owner: int) -> bool:
-    """Register a lifecycle wait edge; return true if it closes a cycle."""
-    with _lifecycle_wait_graph_gate:
-        _lifecycle_thread_waits_for[waiter] = owner
-        cursor = owner
-        visited: set[int] = set()
-        while cursor not in visited:
-            if cursor == waiter:
-                _lifecycle_thread_waits_for.pop(waiter, None)
-                return True
-            visited.add(cursor)
-            next_owner = _lifecycle_thread_waits_for.get(cursor)
-            if next_owner is None:
-                return False
-            cursor = next_owner
+def _wait_for_lifecycle_owner(resource: object, completed: _Completion) -> bool:
+    """Wait until *completed* is set, unless the wait would close a live cycle.
+
+    *resource* is one hook lease or one lifecycle publication. Its owner, the
+    hook's thread or the publication's drainer, is recorded in the shared
+    wait-for graph, so a cycle through lifecycle, hub, membership and
+    ownership waits is visible (spec/02 §2.4, spec/03 §4.1, ADR-0172). The
+    owner releases the resource in the graph before it sets *completed*, so a
+    finished hook or a delivered publication never counts in a later cycle
+    check (#1182). Return False, without waiting, when the wait is refused.
+    """
+    caller = threading.get_ident()
+    if not WAITS.try_begin_wait(resource, caller):
         return False
-
-
-def _unregister_lifecycle_wait(waiter: int) -> None:
-    with _lifecycle_wait_graph_gate:
-        _lifecycle_thread_waits_for.pop(waiter, None)
+    try:
+        completed.wait()
+    finally:
+        WAITS.end_wait(caller)
+    return True
 
 
 def _dispose_children(children: Iterable[_Disposable | None]) -> BaseException | None:
@@ -1212,18 +1210,17 @@ class _ComponentVMBase(ABC):
             if first_error is not None:
                 raise first_error
 
-        if hook_lease is not None and hook_lease.owner_thread != threading.get_ident():
-            caller = threading.get_ident()
-            if _register_lifecycle_wait(caller, hook_lease.owner_thread):
-                with self._lifecycle_lock:
-                    if self._active_hook_lease is hook_lease:
-                        hook_lease.deferred_disposal = finish_disposal
-                        return
-            else:
-                try:
-                    hook_lease.completed.wait()
-                finally:
-                    _unregister_lifecycle_wait(caller)
+        if (
+            hook_lease is not None
+            and hook_lease.owner_thread != threading.get_ident()
+            and not _wait_for_lifecycle_owner(hook_lease, hook_lease.completed)
+        ):
+            # The wait would close a live cycle: the hook's thread runs the
+            # terminal cleanup when the hook finishes (ADR-0126).
+            with self._lifecycle_lock:
+                if self._active_hook_lease is hook_lease:
+                    hook_lease.deferred_disposal = finish_disposal
+                    return
         finish_disposal()
 
     def _with_member_cascade(
@@ -1299,6 +1296,7 @@ class _ComponentVMBase(ABC):
                 return False
             lease = _LifecycleHookLease()
             self._active_hook_lease = lease
+            WAITS.acquire(lease, lease.owner_thread)
             # Each hook starts with a fresh deferral slot.
             self._deferred_lifecycle_future = None
         try:
@@ -1321,6 +1319,9 @@ class _ComponentVMBase(ABC):
                     self._active_hook_lease = None
                 deferred_disposal = lease.deferred_disposal
                 lease.deferred_disposal = None
+            # Release before wake: a foreign dispose() that waits for this
+            # lease stops counting in cycle checks before it wakes (#1182).
+            WAITS.release(lease)
             lease.completed.set()
             if deferred_disposal is not None:
                 # The cycle-broken dispose call has already returned. A deferred
@@ -1969,22 +1970,31 @@ class _ComponentVMBase(ABC):
     def _enqueue_lifecycle_publication_locked(
         self, status: ConstructionStatus
     ) -> tuple[_LifecyclePublication, bool]:
-        publication = _LifecyclePublication(status)
-        self._lifecycle_publications.append(publication)
-        if self._lifecycle_drainer_thread is None:
-            self._lifecycle_drainer_thread = threading.get_ident()
-            return publication, True
-        return publication, False
+        return self._enqueue_locked(_LifecyclePublication(status))
 
     def _enqueue_lifecycle_action_locked(
         self, action: Callable[[], None]
     ) -> tuple[_LifecyclePublication, bool]:
-        publication = _LifecyclePublication(action=action)
+        return self._enqueue_locked(_LifecyclePublication(action=action))
+
+    def _enqueue_locked(
+        self, publication: _LifecyclePublication
+    ) -> tuple[_LifecyclePublication, bool]:
+        """Queue *publication*; return True when the caller becomes the drainer.
+
+        The drainer keeps draining until the queue is empty, so it owns every
+        queued publication until it delivers it. The graph records that owner,
+        and the drainer releases each publication before it sets ``completed``
+        (spec/02 §2.4, ADR-0172).
+        """
         self._lifecycle_publications.append(publication)
-        if self._lifecycle_drainer_thread is None:
-            self._lifecycle_drainer_thread = threading.get_ident()
-            return publication, True
-        return publication, False
+        drainer = self._lifecycle_drainer_thread
+        should_drain = drainer is None
+        if drainer is None:
+            drainer = threading.get_ident()
+            self._lifecycle_drainer_thread = drainer
+        WAITS.acquire(publication, drainer)
+        return publication, should_drain
 
     def _enqueue_waiter_completion_locked(
         self, waiters: list[Future[None]]
@@ -2028,24 +2038,23 @@ class _ComponentVMBase(ABC):
             except BaseException as error:
                 publication.error = error
             finally:
+                # Release before wake (#1182).
+                WAITS.release(publication)
                 publication.completed.set()
 
     def _await_lifecycle_publication(
         self, publication: _LifecyclePublication, should_drain: bool
     ) -> None:
-        """Drain or wait, escaping only an actual cross-VM thread cycle."""
+        """Drain or wait, escaping only a wait that would close a live cycle.
+
+        A refused wait leaves the publication queued for its drainer, and the
+        call returns (ADR-0117). That includes a call from the drainer itself,
+        such as a status observer that disposes the VM it observes.
+        """
         if should_drain:
             self._drain_lifecycle_publications()
         elif not publication.completed.is_set():
-            caller = threading.get_ident()
-            with self._lifecycle_lock:
-                owner = self._lifecycle_drainer_thread
-            if owner is not None and owner != caller:
-                if not _register_lifecycle_wait(caller, owner):
-                    try:
-                        publication.completed.wait()
-                    finally:
-                        _unregister_lifecycle_wait(caller)
+            _wait_for_lifecycle_owner(publication, publication.completed)
 
         if publication.completed.is_set() and publication.error is not None:
             raise publication.error

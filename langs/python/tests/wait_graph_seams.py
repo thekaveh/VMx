@@ -1,8 +1,8 @@
 """Test seams for the process-wide wait-for graph, ``vmx._wait_for_graph.WAITS``.
 
-Hub, membership and ownership-lock waits all record in ``WAITS`` (spec/03
-§4.1, ADR-0172), so a test orders its threads on recorded waits instead of on
-sleeps.
+Hub, membership, ownership-lock, lifecycle publication and hook-lease waits
+all record in ``WAITS`` (spec/03 §4.1, ADR-0172), so a test orders its threads
+on recorded waits instead of on sleeps.
 """
 
 from __future__ import annotations
