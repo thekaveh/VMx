@@ -65,6 +65,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command was admitted. The load then refetched
+  page 1 and appended it again, and `hasMore` stayed true. The load now changes
+  nothing and does not supersede an in-flight refresh.
 - `CompositeVM` selection follows ADR-0173 (spec/06 §4.3, #1145, #1150,
   #1201). No selection path opens, joins or waits for a membership
   transaction. The `current` setter, `setCurrent(_:)`, `selectComponent(_:)`,
