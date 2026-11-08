@@ -260,10 +260,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   rule in this list. On a shared `queueScheduler`, the outermost background
   `construct()` or `destruct()` in the flush throws it after the flush drains.
   Otherwise a foreground action throws it after the queued lifecycle actions
-  have run. With separate schedulers, a background hook failure throws on the
-  background, but this error does not. Before, rxjs reported the error as an
-  unhandled subscriber error. A container whose children are all synchronous
-  still throws from `construct()`.
+  have run. With a `queueScheduler` foreground, such as
+  `RxDispatcher.default()`, that action runs at once. So the error throws
+  inside the background work that settled the child. Before, rxjs reported the
+  error as an unhandled subscriber error. A container whose children are all
+  synchronous still throws from `construct()`.
 - `FilteredCompositeVM.setPredicate` restores the previous predicate when the
   new one throws, so later source changes keep using the working predicate.
 - `CompositeVM` and `GroupVM` `insert`/`removeAt`/`setAt` reject a
