@@ -724,4 +724,122 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         XCTAssertNil(composite.current)
         XCTAssertTrue(waitUntil { composite.status == .disposed })
     }
+
+    /// COMP-006 with a transfer: a selection of the moved child in the
+    /// destination, made by another thread while the add runs, leaves the
+    /// child's flag set. The destination admits the child only after the old
+    /// parent's detach commit has cleared the flag there, so that commit can
+    /// no longer reset the flag of a child that is already current in the
+    /// destination. The race is narrow, so the test repeats it.
+    func testForeignSelectionInTheDestinationOfATransferKeepsIsCurrent() throws {
+        var selectedInDestination = 0
+        var desynchronized = 0
+        let guardWait = hangGuard
+        for iteration in 0..<300 {
+            let x = try leaf("x\(iteration)")
+            let a = try CompositeVM<ComponentVM>.builder().name("A").withNullServices()
+                .children { [x] }.build()
+            try a.construct()
+            try a.setCurrent(x)
+            let b = try CompositeVM<ComponentVM>.builder().name("B").withNullServices()
+                .children { [] }.build()
+            try b.construct()
+            let started = DispatchSemaphore(value: 0)
+            let done = DispatchSemaphore(value: 0)
+            let stop = Shared(false)
+            Thread.detachNewThread {
+                started.signal()
+                let end = Date().addingTimeInterval(guardWait)
+                while !stop.value && Date() < end {
+                    if (try? b.setCurrent(x)) != nil, b.current === x { break }
+                }
+                done.signal()
+            }
+            XCTAssertEqual(started.wait(timeout: deadline()), .success)
+            XCTAssertNoThrow(try b.addResult(x).get())
+            let finished = done.wait(timeout: deadline())
+            stop.value = true
+            XCTAssertEqual(finished, .success, "the selecting thread did not finish")
+            XCTAssertNil(a.current)
+            if b.current === x {
+                selectedInDestination += 1
+                if !x.isCurrent { desynchronized += 1 }
+            }
+        }
+        XCTAssertGreaterThan(selectedInDestination, 0)
+        XCTAssertEqual(desynchronized, 0, "B.current is x while x.isCurrent is false")
+    }
+
+    /// Rule 4 on the old parent of a transfer: between the detach and its
+    /// commit, the adding thread owns the old parent's uncommitted transaction,
+    /// so a selection call there is refused, and the predicate says so.
+    func testSelectionOnTheOldParentDuringATransferIsRefusedOnTheAddingThread() throws {
+        let aRef = Shared<CompositeVM<ComponentVM>?>(nil)
+        let refusals = Shared<[String]>([])
+        let y = try leaf("y")
+        let x = try leaf("x", onConstruct: {
+            guard let a = aRef.value else { return }
+            var refused: [String] = []
+            if !a.canSetCurrent(y) { refused.append("canSetCurrent(y)") }
+            if !a.canSetCurrent(nil) { refused.append("canSetCurrent(nil)") }
+            do { try a.setCurrent(y) } catch {
+                if "\(error)".contains("membership transaction") { refused.append("setCurrent(y)") }
+            }
+            refusals.value = refused
+        })
+        let a = try CompositeVM<ComponentVM>.builder().name("A").withNullServices()
+            .children { [] }.build()
+        aRef.value = a
+        a.add(x)
+        a.add(y)
+        try a.setCurrent(x)
+        let b = try CompositeVM<ComponentVM>.builder().name("B").withNullServices()
+            .autoConstructOnAdd().children { [] }.build()
+        try b.construct()
+
+        XCTAssertNoThrow(try b.addResult(x).get())
+
+        XCTAssertEqual(refusals.value, ["canSetCurrent(y)", "canSetCurrent(nil)", "setCurrent(y)"])
+        XCTAssertNil(a.current, "the detach commit clears the moved child")
+        XCTAssertFalse(x.isCurrent)
+        XCTAssertFalse(y.isCurrent)
+        XCTAssertTrue(b.containsIdentity(x))
+        XCTAssertNoThrow(try a.setCurrent(y), "the old parent is selectable after the commit")
+    }
+
+    /// Rule 3 ends at Disposed: a composite that disposes itself in its own
+    /// construct hook publishes Disposed before its dispose hook runs, and
+    /// from then on selection is inert (chapter 01 §4), not refused as
+    /// "disposal in progress".
+    func testSelectionAfterDisposedInsideTheCompositesOwnHookIsInert() throws {
+        let member = try leaf("member")
+        let compositeRef = Shared<CompositeVM<ComponentVM>?>(nil)
+        let statusInHook = Shared<ConstructionStatus?>(nil)
+        let errorInHook = Shared<Error?>(nil)
+        let canSetInHook = Shared<Bool?>(nil)
+        let composite = try CompositeVM<ComponentVM>.builder().name("composite")
+            .withNullServices().children { [] }
+            .onConstruct {
+                guard let composite = compositeRef.value else { return }
+                composite.dispose()
+                statusInHook.value = composite.status
+                do { try composite.setCurrent(member) } catch { errorInHook.value = error }
+                // The trapping setter must not trap either.
+                composite.current = member
+                canSetInHook.value = composite.canSetCurrent(member)
+            }.build()
+        compositeRef.value = composite
+        composite.add(member)
+
+        _ = try? composite.construct()
+
+        XCTAssertEqual(statusInHook.value, .disposed)
+        XCTAssertNil(errorInHook.value, "a selection after Disposed is inert, not refused")
+        XCTAssertEqual(canSetInHook.value, false)
+        XCTAssertNil(composite.current)
+        XCTAssertFalse(member.isCurrent)
+        XCTAssertEqual(composite.status, .disposed)
+        XCTAssertNoThrow(try composite.setCurrent(member))
+        XCTAssertNil(composite.current)
+    }
 }
