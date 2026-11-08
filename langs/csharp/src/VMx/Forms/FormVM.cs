@@ -47,7 +47,19 @@ public sealed class FormVM<TM> : IDisposable
     private int _approvalPublishingDepth;
     private bool _approvalPrePublishing;
     private int _approvalPublisherThreadId;
-    private readonly Queue<TM> _deferredApprovalModels = new();
+    // Updates during approval publication (spec/20 §5.3, ADR-0174): the
+    // approving thread's SetModel and deny calls made inside the
+    // pre-publication window are prepared at call time, queued as operations,
+    // and replayed when the outermost publication scope on that thread ends.
+    private readonly Queue<QueuedUpdate> _queuedUpdates = new();
+    // Advances on every enqueue, so a preparation callback that queues another
+    // update makes the outer call stale (spec/20 §5.4).
+    private long _queueGeneration;
+    // The thread running an approval's post-persist commit (reset callback,
+    // snapshotter, validators) before settlement step 1, or 0. The
+    // pre-publication window opens with this commit; only one approval is in
+    // flight, so at most one commit runs at a time.
+    private int _commitWindowThreadId;
     private int _activeMutations;
     private bool _mutationTeardownPending;
     // Failure-atomic updates (spec/20 §5.4, ADR-0144): every commit of model,
@@ -267,6 +279,9 @@ public sealed class FormVM<TM> : IDisposable
     /// The update is failure-atomic (chapter 20 §5.4): the model's equality and the
     /// validators run before anything is committed, so an exception they throw
     /// propagates to the caller with the form unchanged and nothing published.
+    /// A call that the approving thread makes from the post-persist commit or a
+    /// settlement observer is prepared, then queued, and replays after the
+    /// <see cref="OnApproved"/> delivery returns (chapter 20 §5.3, ADR-0174).
     /// </summary>
     public void SetModel(TM model)
     {
@@ -285,31 +300,37 @@ public sealed class FormVM<TM> : IDisposable
                 // Reject a null model before any deferral, so the caller sees
                 // the error (failure-atomic).
                 ThrowHelper.ThrowIfNull(model, nameof(model));
-                if (_approvalPublishingDepth > 0 && _approvalPrePublishing)
-                {
-                    _deferredApprovalModels.Enqueue(model);
-                    return;
-                }
+                var queue = InPrePublicationWindow(caller);
                 _activeMutations++;
                 admitted = true;
 
                 // Preparation (spec/20 §5.2, §5.4) runs every consumer callback
                 // and changes no form state, so a callback failure propagates
                 // with nothing committed or published, and a callback reading
-                // the form sees the previous state.
+                // the form sees the previous state. A call inside the approval's
+                // pre-publication window runs the full preparation and is then
+                // queued (§5.3, ADR-0174): equality never skips the enqueue,
+                // because earlier queued calls can change the live model before
+                // this one replays.
                 var generation = _commitGeneration;
+                var queueGeneration = _queueGeneration;
                 var live = _model;
                 var snapshot = _snapshot;
                 var errors = _errors;
-                if (Equals(live, model)) return;
+                if (Equals(live, model) && !queue) return;
                 var wasDirty = !Equals(live, snapshot);
                 var nextErrors = Validate(model);
                 var isDirty = !Equals(model, snapshot);
 
                 // A callback re-entered on this thread and disposed the form or
-                // committed another update: the prepared result is stale, and
-                // the newest committed state stands.
-                if (_disposed || _commitGeneration != generation) return;
+                // made another update (committed or queued): the prepared
+                // result is stale, and the newest update stands.
+                if (IsStale(generation, queueGeneration)) return;
+                if (queue)
+                {
+                    Enqueue(QueuedUpdate.Set(model));
+                    return;
+                }
 
                 // Commit in one step, before any notification.
                 var errorsChanged = !SameErrors(nextErrors, errors);
@@ -425,14 +446,18 @@ public sealed class FormVM<TM> : IDisposable
             {
                 WaitForApprovalPublisher(caller);
                 if (_disposed) return;
+                var queue = InPrePublicationWindow(caller);
                 _activeMutations++;
                 admitted = true;
 
                 // Preparation (spec/20 §5.4): the equality, snapshotter, and
                 // validator callbacks change no form state, so a failure
                 // propagates from DenyCommand.Execute() with nothing reverted
-                // or published.
+                // or published. Inside the approval's pre-publication window
+                // the prepared revert is discarded and the deny is queued
+                // (§5.3, ADR-0174).
                 var generation = _commitGeneration;
+                var queueGeneration = _queueGeneration;
                 var live = _model;
                 var snapshot = _snapshot;
                 var errors = _errors;
@@ -441,9 +466,14 @@ public sealed class FormVM<TM> : IDisposable
                 var nextErrors = Validate(nextModel);
                 var isDirty = !Equals(nextModel, snapshot);
 
-                // Same-thread re-entry disposed the form or committed another
-                // update: the prepared revert is stale.
-                if (_disposed || _commitGeneration != generation) return;
+                // Same-thread re-entry disposed the form or made another update
+                // (committed or queued): the prepared revert is stale.
+                if (IsStale(generation, queueGeneration)) return;
+                if (queue)
+                {
+                    Enqueue(QueuedUpdate.Deny);
+                    return;
+                }
 
                 var errorsChanged = !SameErrors(nextErrors, errors);
                 _model = nextModel;
@@ -478,7 +508,21 @@ public sealed class FormVM<TM> : IDisposable
     // in-flight mark are one critical section; the mark is cleared before any
     // settlement notification, so a settlement observer may approve again. No
     // lock is held while the persister runs or while observers are notified.
+    //
+    // A queued update that fails when it replays does not fail the settled
+    // approval in place (spec/20 §5.3, ADR-0174): every replay still runs, and
+    // the first replay failure is raised after them through this approval's
+    // own failure route (the awaiter, or ApproveErrors once on the command
+    // path). A failure the approval already carries wins, and the replay
+    // failures are discarded.
     private async Task ApproveInternalAsync()
+    {
+        var replayFailure = new FirstReplayFailure();
+        await ApproveCoreAsync(replayFailure).ConfigureAwait(false);
+        replayFailure.Error?.Throw();
+    }
+
+    private async Task ApproveCoreAsync(FirstReplayFailure replayFailure)
     {
         // Admission. A disposed, invalid, or already-approving form refuses the
         // call: the persister is not invoked and nothing is emitted (the
@@ -513,7 +557,7 @@ public sealed class FormVM<TM> : IDisposable
         }
         finally
         {
-            ExitApprovalPublication(outerPrePublishing);
+            replayFailure.Record(ExitApprovalPublication(outerPrePublishing));
         }
 
         // An admission observer may have disposed the form; a disposed form
@@ -535,6 +579,15 @@ public sealed class FormVM<TM> : IDisposable
         // the subjects are completed and disposed, and emitting would throw
         // inside an unobserved task.
         if (_disposed) return;
+
+        // The pre-publication window opens with the post-persist commit
+        // (spec/20 §5.3, ADR-0174): a SetModel or deny that the reset callback,
+        // the snapshotter, or a validator makes on this thread is queued, not
+        // committed, so it publishes nothing while the commit runs and the
+        // reset cannot overwrite it.
+        caller = Environment.CurrentManagedThreadId;
+        lock (_stateGate)
+            _commitWindowThreadId = caller;
 
         // Success: either atomically install the configured pristine reset
         // state, or preserve the legacy snapshot-advance behavior.
@@ -560,17 +613,27 @@ public sealed class FormVM<TM> : IDisposable
         }
         catch
         {
+            // The window ends with the commit failure. The calls it already
+            // queued replay after the failed settlement's CanExecuteChanged,
+            // and the commit failure wins over theirs.
+            CloseCommitWindow();
             SettleFailedApproval();
             throw;
         }
 
-        caller = Environment.CurrentManagedThreadId;
         var errorsChanged = false;
         IReadOnlyDictionary<string, string>? publishedErrors = null;
         lock (_stateGate)
         {
             WaitForApprovalPublisher(caller);
-            if (_disposed) return;
+            _commitWindowThreadId = 0;
+            if (_disposed)
+            {
+                // Disposal suppresses settlement; a queued call would replay
+                // as a no-op on the disposed form.
+                _queuedUpdates.Clear();
+                return;
+            }
             // Settlement step 1: the commit and clearing the mark are atomic.
             // The commit is authoritative (§5.1, §5.3). An update whose callback
             // started this approval re-entrantly is now stale (§5.4).
@@ -599,22 +662,33 @@ public sealed class FormVM<TM> : IDisposable
         {
             // Settlement steps 2-4: ErrorsChanged when the commit changed the
             // error map, exactly one CanExecuteChanged (it also carries any
-            // strict/validity change), then the outcome.
+            // strict/validity change), then the outcome. A disposing observer
+            // stops the remaining notifications.
             if (errorsChanged)
-            {
                 _errorsChanged.OnNext(publishedErrors!);
-                if (_disposed) return;
+            if (!_disposed)
+                _canExecuteChangedTrigger.OnNext(Unit.Default);
+            if (!_disposed)
+            {
+                lock (_stateGate)
+                    _approvalPrePublishing = false;
+                _onApproved.OnNext(current);
             }
-            _canExecuteChangedTrigger.OnNext(Unit.Default);
-            if (_disposed) return;
-            lock (_stateGate)
-                _approvalPrePublishing = false;
-            _onApproved.OnNext(current);
         }
         finally
         {
-            ExitApprovalPublication(outerPrePublishing);
+            // The queued updates replay here, after the OnApproved delivery
+            // returns. A settlement observer failure propagates past this
+            // block and wins over a replay failure.
+            replayFailure.Record(ExitApprovalPublication(outerPrePublishing));
         }
+    }
+
+    // Ends a post-persist commit that failed before settlement step 1.
+    private void CloseCommitWindow()
+    {
+        lock (_stateGate)
+            _commitWindowThreadId = 0;
     }
 
     // Settles an approval whose persister failed or was cancelled, or whose
@@ -628,7 +702,11 @@ public sealed class FormVM<TM> : IDisposable
         lock (_stateGate)
         {
             WaitForApprovalPublisher(caller);
-            if (_disposed) return;
+            if (_disposed)
+            {
+                _queuedUpdates.Clear();
+                return;
+            }
             _approvalInFlight = false;
             outerPrePublishing = EnterApprovalPublication(caller);
         }
@@ -645,7 +723,10 @@ public sealed class FormVM<TM> : IDisposable
         }
         finally
         {
-            ExitApprovalPublication(outerPrePublishing);
+            // Calls a failed post-persist commit queued replay here, before
+            // the caller routes the failure. That failure wins, so a replay
+            // failure is discarded (spec/20 §5.3, ADR-0174).
+            _ = ExitApprovalPublication(outerPrePublishing);
         }
     }
 
@@ -659,6 +740,25 @@ public sealed class FormVM<TM> : IDisposable
             Monitor.Wait(_stateGate);
     }
 
+    // Called under _stateGate after WaitForApprovalPublisher. A caller inside
+    // the approving thread's pre-publication window (spec/20 §5.3): the
+    // post-persist commit, or settlement steps 2 and 3 of the innermost scope.
+    // Another thread never passes the wait while a scope is open, and the
+    // commit window belongs to one thread.
+    private bool InPrePublicationWindow(int caller) =>
+        (_approvalPublishingDepth > 0 && _approvalPrePublishing) || _commitWindowThreadId == caller;
+
+    // Called under _stateGate after a preparation.
+    private bool IsStale(long generation, long queueGeneration) =>
+        _disposed || _commitGeneration != generation || _queueGeneration != queueGeneration;
+
+    // Called under _stateGate.
+    private void Enqueue(QueuedUpdate update)
+    {
+        _queuedUpdates.Enqueue(update);
+        _queueGeneration++;
+    }
+
     // Called under _stateGate after WaitForApprovalPublisher. Returns the
     // enclosing scope's pre-publishing flag for ExitApprovalPublication.
     private bool EnterApprovalPublication(int caller)
@@ -669,23 +769,63 @@ public sealed class FormVM<TM> : IDisposable
     }
 
     // Leaves a notification scope. The outermost exit wakes waiting threads
-    // and applies the model edits deferred while OnApproved was pending.
-    private void ExitApprovalPublication(bool outerPrePublishing)
+    // and replays, in call order, the updates queued during the approval's
+    // pre-publication window (spec/20 §5.3, ADR-0174). Each replay is a new
+    // call that prepares again against the state at replay time, and runs in
+    // isolation: a failure does not stop the later replays. The first failure
+    // is returned for the approval to route; this is shared by the admission,
+    // success, and failed-settlement scopes.
+    private ExceptionDispatchInfo? ExitApprovalPublication(bool outerPrePublishing)
     {
-        TM[] deferredModels = [];
+        QueuedUpdate[] queued = [];
         lock (_stateGate)
         {
             _approvalPrePublishing = outerPrePublishing;
             if (--_approvalPublishingDepth == 0)
             {
                 _approvalPublisherThreadId = 0;
-                deferredModels = [.. _deferredApprovalModels];
-                _deferredApprovalModels.Clear();
+                queued = [.. _queuedUpdates];
+                _queuedUpdates.Clear();
                 Monitor.PulseAll(_stateGate);
             }
         }
-        foreach (var deferredModel in deferredModels)
-            SetModel(deferredModel);
+
+        ExceptionDispatchInfo? firstFailure = null;
+        foreach (var update in queued)
+        {
+            if (update.IsDeny)
+                FirstFailure.Capture(ref firstFailure, Deny);
+            else
+                FirstFailure.Capture(ref firstFailure, () => SetModel(update.Model));
+        }
+
+        return firstFailure;
+    }
+
+    // A queued SetModel candidate or a queued deny.
+    private readonly struct QueuedUpdate
+    {
+        private QueuedUpdate(bool isDeny, TM model)
+        {
+            IsDeny = isDeny;
+            Model = model;
+        }
+
+        public bool IsDeny { get; }
+
+        public TM Model { get; }
+
+        public static QueuedUpdate Deny => new(true, default!);
+
+        public static QueuedUpdate Set(TM model) => new(false, model);
+    }
+
+    // The first replay failure of one approval call.
+    private sealed class FirstReplayFailure
+    {
+        public ExceptionDispatchInfo? Error { get; private set; }
+
+        public void Record(ExceptionDispatchInfo? failure) => Error ??= failure;
     }
 
     // Cached per closed generic (one instance per TM): System.Text.Json caches
