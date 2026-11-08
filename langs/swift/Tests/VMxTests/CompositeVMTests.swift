@@ -685,13 +685,11 @@ final class CompositeVMTests: XCTestCase {
         bag.removeAll()
     }
 
-    /// COMP-026 / ADR-0118 — a selection made while another thread holds the
-    /// composite's membership transaction waits for it and then completes. It
-    /// was dropped (`selectChild`), rejected as a non-member (`setCurrent`), or
-    /// trapped (`current =`), which also made the crossing test above flaky.
-    /// The add's construct hook parks until the selection reports that it
-    /// waits for the add's transaction; its wait is a hang guard only.
-    func testCOMP026SelectionFromAnotherThreadWaitsForAnOpenMembershipTransaction() throws {
+    /// COMP-026 / ADR-0173 — a selection made while another thread holds the
+    /// composite's membership transaction commits at once: it neither fails
+    /// nor waits (spec/06 §4.3 rule 1, #1145). The add's construct hook stays
+    /// parked until the selection has returned; its wait is a hang guard only.
+    func testCOMP026SelectionFromAnotherThreadCommitsWithoutWaitingForAnOpenMembershipTransaction() throws {
         let a = leaf("a")
         let b = leaf("b")
         let c = leaf("c")
@@ -699,20 +697,15 @@ final class CompositeVMTests: XCTestCase {
             .withNullServices().children { [a, b, c] }
             .autoConstructOnAdd(true).build()
         try composite.construct()
-        let selector = ThreadWaitGraph.currentThread
-        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
 
         func whileAnotherThreadAdds(_ name: String, _ select: () throws -> Void) rethrows {
             let entered = DispatchSemaphore(value: 0)
-            let selectionWaits = DispatchSemaphore(value: 0)
+            let selected = DispatchSemaphore(value: 0)
             let released = SharedValue<DispatchTimeoutResult?>(nil)
-            ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
-                if accepted, caller == selector { selectionWaits.signal() }
-            }
             let parked = try! ComponentVM.builder().name(name).withNullServices()
                 .onConstruct {
                     entered.signal()
-                    released.value = selectionWaits.wait(timeout: .now() + 10)
+                    released.value = selected.wait(timeout: .now() + 10)
                 }.build()
             let added = DispatchGroup()
             added.enter()
@@ -722,23 +715,35 @@ final class CompositeVMTests: XCTestCase {
             }
             XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
             try select()
+            selected.signal()
             XCTAssertEqual(added.wait(timeout: .now() + 20), .success)
-            XCTAssertEqual(released.value, .success, "\(name): the selection waits for the add")
+            XCTAssertEqual(released.value, .success, "\(name): the selection returned while the add was open")
         }
 
-        whileAnotherThreadAdds("parked-1") { composite.selectChild(a) }
-        XCTAssertTrue(composite.current === a, "selectChild waits instead of being dropped")
-        try whileAnotherThreadAdds("parked-2") { try composite.setCurrent(b) }
-        XCTAssertTrue(composite.current === b, "setCurrent waits instead of throwing")
-        whileAnotherThreadAdds("parked-3") { composite.current = c }
-        XCTAssertTrue(composite.current === c, "the current setter waits instead of trapping")
-        XCTAssertEqual(composite.count, 6)
+        whileAnotherThreadAdds("parked-1") {
+            composite.selectChild(a)
+            XCTAssertTrue(composite.current === a, "selectChild commits without waiting")
+        }
+        try whileAnotherThreadAdds("parked-2") {
+            try composite.setCurrent(b)
+            XCTAssertTrue(composite.current === b, "setCurrent commits without waiting")
+        }
+        whileAnotherThreadAdds("parked-3") {
+            composite.current = c
+            XCTAssertTrue(composite.current === c, "the current setter commits without waiting")
+        }
+        try whileAnotherThreadAdds("parked-4") {
+            try composite.selectComponent(a)
+            try composite.deselectComponent(a)
+            XCTAssertNil(composite.current, "selectComponent/deselectComponent commit without waiting")
+        }
+        XCTAssertEqual(composite.count, 7)
     }
 
-    /// COMP-026 — a selection waiting for another thread's membership
+    /// COMP-026 — a selection made during another thread's membership
     /// transaction does not retain the shared cross-composite coordinator, so
     /// that thread's construct hook can still select in another composite.
-    func testCOMP026SelectionWaitingForATransactionDoesNotRetainTheCoordinator() throws {
+    func testCOMP026SelectionDuringAForeignTransactionDoesNotRetainTheCoordinator() throws {
         let a = leaf("a")
         let o = leaf("o")
         let other = try CompositeVM<ComponentVM>.builder().name("other")
@@ -749,19 +754,13 @@ final class CompositeVMTests: XCTestCase {
             .autoConstructOnAdd(true).build()
         try composite.construct()
         let entered = DispatchSemaphore(value: 0)
-        let selectionWaits = DispatchSemaphore(value: 0)
-        let selector = SharedValue<UInt64?>(nil)
+        let selected = DispatchSemaphore(value: 0)
         let released = SharedValue<DispatchTimeoutResult?>(nil)
-        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
-            if accepted, caller == selector.value { selectionWaits.signal() }
-        }
-        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
         let parked = try ComponentVM.builder().name("parked").withNullServices()
             .onConstruct {
                 entered.signal()
-                // Select only once the other thread's selection waits for
-                // this add's transaction.
-                released.value = selectionWaits.wait(timeout: .now() + 10)
+                // Select only once the other thread's selection has returned.
+                released.value = selected.wait(timeout: .now() + 10)
                 other.selectChild(o)
             }.build()
 
@@ -774,17 +773,17 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
         done.enter()
         DispatchQueue.global().async {
-            selector.value = ThreadWaitGraph.currentThread
             composite.selectChild(a)
+            selected.signal()
             done.leave()
         }
 
         // A deadlocked worker keeps holding the shared selection coordinator,
         // so stop here instead of reading `current`.
         guard done.wait(timeout: .now() + 20) == .success else {
-            return XCTFail("a waiting selection must not block selection in another composite")
+            return XCTFail("a selection must not block selection in another composite")
         }
-        XCTAssertEqual(released.value, .success, "the selection waits for the add")
+        XCTAssertEqual(released.value, .success, "the selection returned while the add was open")
         XCTAssertTrue(other.current === o)
         XCTAssertTrue(composite.current === a)
     }

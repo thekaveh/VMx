@@ -50,7 +50,7 @@ pub(crate) use runtime::{
     retain_first_error, retain_first_failure, retain_parent_transfer_commit, spawn_worker, wait,
     ComponentCore, FirstFailure, LateStarts, MembershipDisposeDisposition,
     MembershipTransactionControl, MembershipTransactionGuard, ModelHint, ParentRegistration,
-    ParentTransfer, StartAttempt, HIERARCHY_TOPOLOGY_GATE,
+    ParentTransfer, PublicationLease, StartAttempt, HIERARCHY_TOPOLOGY_GATE,
 };
 
 mod components;
