@@ -674,7 +674,7 @@ public final class FormVM<Model> {
         do {
             publication = try commitApproval(captured)
         } catch {
-            settleFailedApproval()
+            settleFailedApproval(replayingCommitQueue: true)
             throw error
         }
         guard let publication else { return }
@@ -682,14 +682,19 @@ public final class FormVM<Model> {
     }
 
     /// Settles a failed approval: clears the in-flight mark, then raises
-    /// `canExecuteChanged` once unless the form was disposed meanwhile. The
-    /// updates that a failed post-persist commit queued then replay, before
-    /// the caller routes the failure (§5.3 rule 4). They are taken with the
-    /// mark cleared, before another approval can be admitted.
-    private func settleFailedApproval() {
+    /// `canExecuteChanged` once unless the form was disposed meanwhile.
+    ///
+    /// Only a failed post-persist commit passes `replayingCommitQueue`: the
+    /// updates that commit queued then replay, before the caller routes the
+    /// failure (§5.3 rule 4). They are taken with the mark cleared, before
+    /// another approval can be admitted. A persister failure has no window,
+    /// and it must not take the queue: this approval may have been admitted
+    /// during another thread's settlement, and that queue belongs to the
+    /// other approval, which replays it on its own thread.
+    private func settleFailedApproval(replayingCommitQueue: Bool = false) {
         let (disposed, deferred) = withStateGate { () -> (Bool, [DeferredUpdate]) in
             approvalInFlight = false
-            return (_disposed, takeDeferredUpdatesLocked())
+            return (_disposed, replayingCommitQueue ? takeDeferredUpdatesLocked() : [])
         }
         guard !disposed else { return }
         _approveCanExecSubject.send(())

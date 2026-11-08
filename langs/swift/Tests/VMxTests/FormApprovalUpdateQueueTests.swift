@@ -91,12 +91,65 @@ private final class Once: @unchecked Sendable {
     }
 }
 
+/// Bound for each approval, so a deadlock fails the test instead of hanging
+/// the run.
+private let approvalTimeout: TimeInterval = 10
+
+/// Thrown when an approval does not return within `approvalTimeout`.
+private struct ApprovalStalled: Error {}
+
+/// The error an approval threw, set once on the approving task.
+private final class ApprovalOutcome: @unchecked Sendable {
+    private let lock = NSLock()
+    private var thrown: Error?
+
+    func record(_ error: Error) {
+        lock.lock()
+        thrown = error
+        lock.unlock()
+    }
+
+    var error: Error? {
+        lock.lock()
+        defer { lock.unlock() }
+        return thrown
+    }
+}
+
 final class FormApprovalUpdateQueueTests: XCTestCase {
     private var cancellables = Set<AnyCancellable>()
 
     override func tearDown() {
         cancellables.removeAll()
         super.tearDown()
+    }
+
+    /// Runs `approveAsync()` on a detached task and waits at most
+    /// `approvalTimeout` for it. A stalled approval throws `ApprovalStalled`
+    /// before the test reads the form, whose state lock it may hold; its task
+    /// is left behind rather than hanging the run.
+    private func approve<Model>(
+        _ form: FormVM<Model>,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let returned = expectation(description: "approveAsync returned")
+        let outcome = ApprovalOutcome()
+        let boxedForm = UncheckedSendableBox(form)
+        Task.detached {
+            do {
+                try await boxedForm.value.approveAsync()
+            } catch {
+                outcome.record(error)
+            }
+            returned.fulfill()
+        }
+        let waited = await XCTWaiter().fulfillment(of: [returned], timeout: approvalTimeout)
+        guard waited == .completed else {
+            XCTFail("the approval stalled", file: file, line: line)
+            throw ApprovalStalled()
+        }
+        if let error = outcome.error { throw error }
     }
 
     /// Logs the form's `errorsChanged`, `canExecuteChanged`, and `onApproved`
@@ -143,7 +196,7 @@ final class FormApprovalUpdateQueueTests: XCTestCase {
         var seen: (model: String, dirty: Bool, valid: Bool)?
         observe(form, log) { form in seen = (form.model, form.isDirty, form.isValid) }
 
-        try await form.approveAsync()
+        try await approve(form)
 
         // The nested call published nothing before `onApproved`: after the
         // admission's `canExecuteChanged` and persistence, the only event is
@@ -190,7 +243,7 @@ final class FormApprovalUpdateQueueTests: XCTestCase {
         var seen: (model: String, dirty: Bool)?
         observe(form, log) { form in seen = (form.model, form.isDirty) }
 
-        try await form.approveAsync()
+        try await approve(form)
 
         XCTAssertEqual(seen?.model, "newer", "onApproved observers never see a queued revert")
         XCTAssertEqual(seen?.dirty, true)
@@ -221,7 +274,7 @@ final class FormApprovalUpdateQueueTests: XCTestCase {
         var seen: String?
         observe(form, log) { form in seen = form.model }
 
-        try await form.approveAsync()
+        try await approve(form)
 
         XCTAssertEqual(seen, "pristine")
         XCTAssertEqual(log.events(before: "approved"), ["canExecute", "persisted", "canExecute"])
@@ -260,7 +313,7 @@ final class FormApprovalUpdateQueueTests: XCTestCase {
         var seen: Int?
         observe(form, log) { form in seen = form.model }
 
-        try await form.approveAsync()
+        try await approve(form)
 
         // Both calls ran their preparation when they were called, including
         // the one equal to the live model, and changed nothing yet.
@@ -304,7 +357,7 @@ final class FormApprovalUpdateQueueTests: XCTestCase {
         hub.form = form
         observe(form, log)
 
-        try await form.approveAsync()
+        try await approve(form)
 
         XCTAssertEqual(log.events(after: "approved").filter { $0.hasPrefix("model=") }, ["model=8"])
         XCTAssertEqual(form.model, 8)

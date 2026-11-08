@@ -93,16 +93,20 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Waits for `semaphore` and returns `false` after a recorded failure
+    /// when it times out. A caller returns at once on `false`: a stalled
+    /// approval may hold the form's state lock, so reading the form after a
+    /// timeout would hang the run instead of failing the test.
+    @discardableResult
     private func wait(
         _ semaphore: DispatchSemaphore,
         _ message: String,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) {
-        XCTAssertEqual(
-            semaphore.wait(timeout: .now() + deliveryTimeout), .success, message,
-            file: file, line: line
-        )
+    ) -> Bool {
+        let result = semaphore.wait(timeout: .now() + deliveryTimeout)
+        XCTAssertEqual(result, .success, message, file: file, line: line)
+        return result == .success
     }
 
     // ── Case 1 ────────────────────────────────────────────────────────────────
@@ -165,15 +169,18 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
             try? await boxedForm.value.approveAsync()
             pDone.signal()
         }
-        wait(pInErrorsSink, "P never reached its errorsChanged sink", file: file, line: line)
+        guard wait(pInErrorsSink, "P never reached its errorsChanged sink", file: file, line: line) else {
+            return
+        }
         Thread {
             Thread.current.threadDictionary[actingSinkThread] = true
             boxedForm.value.approveCommand.execute()
             yDone.signal()
         }.start()
 
-        wait(pDone, "approval P stalled", file: file, line: line)
-        wait(yDone, "thread Y stalled", file: file, line: line)
+        guard wait(pDone, "approval P stalled", file: file, line: line),
+              wait(yDone, "thread Y stalled", file: file, line: line)
+        else { return }
 
         // Y's call waited until P's `onApproved` was delivered (#533).
         let events = log.events
@@ -248,17 +255,18 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
             try? await boxedForm.value.approveAsync()
             pDone.signal()
         }
-        wait(pInApproved, "P never reached its onApproved sink")
+        guard wait(pInApproved, "P never reached its onApproved sink") else { return }
         Thread {
             Thread.current.threadDictionary[actingSinkThread] = true
             boxedForm.value.approveCommand.execute()
             yDone.signal()
         }.start()
 
-        wait(pDone, "approval P stalled")
-        wait(yDone, "thread Y stalled")
-        wait(approvals, "first onApproved")
-        wait(approvals, "Y's approval stalled")
+        guard wait(pDone, "approval P stalled"),
+              wait(yDone, "thread Y stalled"),
+              wait(approvals, "first onApproved"),
+              wait(approvals, "Y's approval stalled")
+        else { return }
         XCTAssertEqual(log.events, ["p set", "y set"])
         XCTAssertEqual(form.model, "sink")
     }
@@ -358,15 +366,16 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
             try? await boxedForm.value.approveAsync()
             approvalDone.signal()
         }
-        wait(resetEntered, "the reset never ran")
+        guard wait(resetEntered, "the reset never ran") else { return }
         Thread {
             Thread.current.threadDictionary[actingSinkThread] = true
             boxedForm.value.approveCommand.raiseCanExecuteChanged()
             zDone.signal()
         }.start()
 
-        wait(approvalDone, "the approving thread stalled")
-        wait(zDone, "thread Z stalled")
+        guard wait(approvalDone, "the approving thread stalled"),
+              wait(zDone, "thread Z stalled")
+        else { return }
         XCTAssertEqual(seen?.model, "pristine", "onApproved observers see the reset state")
         XCTAssertEqual(seen?.valid, true)
         XCTAssertEqual(form.model, "")
@@ -381,7 +390,7 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
     /// #1168 case 2 without a second thread: a `setModel("")` from
     /// `resetOnApproved` on a form that rejects `""` leaves the last delivered
     /// error map equal to `errors`.
-    func testResetSetModelLeavesTheLastErrorMapEqualToErrors() async throws {
+    func testResetSetModelLeavesTheLastErrorMapEqualToErrors() async {
         weak var weakForm: FormVM<String>?
         let form = FormVM<String>(
             initial: "saved",
@@ -396,11 +405,119 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
         var maps: [[String: String]] = []
         form.errorsChanged.sink { maps.append($0) }.store(in: &cancellables)
 
-        try await form.approveAsync()
+        let returned = expectation(description: "approveAsync returned")
+        let boxedForm = UncheckedSendableBox(form)
+        Task.detached {
+            try? await boxedForm.value.approveAsync()
+            returned.fulfill()
+        }
+        // A stalled approval may hold the state lock, so fail before reading
+        // the form; its task is left behind.
+        guard await XCTWaiter().fulfillment(of: [returned], timeout: deliveryTimeout) == .completed else {
+            return XCTFail("the approval stalled")
+        }
 
         XCTAssertEqual(maps.last, form.errors)
         XCTAssertEqual(form.errors, ["value": "required"])
         XCTAssertEqual(form.model, "")
         XCTAssertEqual(form.snapshot, "pristine")
+    }
+
+    // ── Queue ownership ───────────────────────────────────────────────────────
+
+    /// Approval A's queue belongs to A. Approval B is admitted from another
+    /// thread during A's settlement, and B's persister throws. B's failed
+    /// settlement must not take the `setModel(1)` that A's reset queued and
+    /// replay it on B's thread (spec/20 §5.3 rule 4: the queue replays in call
+    /// order on the approving thread). A's settlement sink waits until B has
+    /// settled, then queues `setModel(2)`, so the final model is 2.
+    func testForeignApprovalWithFailingPersisterDoesNotTakeTheQueue() {
+        struct PersistFailure: Error {}
+        let lock = NSLock()
+        var approvingThread: pthread_t?
+        var validated: [(value: Int, onApprovingThread: Bool)] = []
+        var foreignDeliveries = 0
+        /// `nil` until A's reset records the approving thread.
+        func onApprovingThreadIfKnown() -> Bool? {
+            lock.lock()
+            defer { lock.unlock() }
+            return approvingThread.map { pthread_equal($0, pthread_self()) != 0 }
+        }
+        func onApprovingThread() -> Bool { onApprovingThreadIfKnown() ?? false }
+
+        weak var weakForm: FormVM<Int>?
+        let form = FormVM<Int>(
+            initial: 10,
+            persister: { captured in
+                // B captures the reset model 20; A captured 10.
+                if captured == 20 { throw PersistFailure() }
+            },
+            validators: ["value": { value in
+                if value == 1 || value == 2 {
+                    let onA = onApprovingThread()
+                    lock.lock()
+                    validated.append((value, onA))
+                    lock.unlock()
+                }
+                return nil
+            }],
+            resetOnApproved: { _ in
+                lock.lock()
+                approvingThread = pthread_self()
+                lock.unlock()
+                weakForm?.setModel(1)
+                return 20
+            }
+        )
+        weakForm = form
+
+        let bSettled = DispatchSemaphore(value: 0)
+        let aDone = DispatchSemaphore(value: 0)
+        let bDone = DispatchSemaphore(value: 0)
+        let aSinkOnce = OnceGate()
+        let bOutcome = DeliveryLog()
+        let boxedForm = UncheckedSendableBox(form)
+
+        form.approveCommand.canExecuteChanged
+            .sink { [weak form] _ in
+                // Skip A's admission, which runs before the reset.
+                guard let form, let onA = onApprovingThreadIfKnown() else { return }
+                if !onA {
+                    // B's admission, then B's failed settlement.
+                    lock.lock()
+                    foreignDeliveries += 1
+                    let settled = foreignDeliveries == 2
+                    lock.unlock()
+                    if settled { bSettled.signal() }
+                    return
+                }
+                guard aSinkOnce.claim() else { return }
+                Task.detached {
+                    do {
+                        try await boxedForm.value.approveAsync()
+                        bOutcome.append("succeeded")
+                    } catch {
+                        bOutcome.append("failed")
+                    }
+                    bDone.signal()
+                }
+                _ = bSettled.wait(timeout: .now() + deliveryTimeout)
+                form.setModel(2)
+            }
+            .store(in: &cancellables)
+
+        Task.detached {
+            try? await boxedForm.value.approveAsync()
+            aDone.signal()
+        }
+        guard wait(aDone, "approval A stalled"), wait(bDone, "approval B stalled") else { return }
+
+        XCTAssertEqual(bOutcome.events, ["failed"], "B's persister failure reached its awaiter")
+        XCTAssertEqual(form.model, 2)
+        lock.lock()
+        let calls = validated
+        lock.unlock()
+        XCTAssertEqual(calls.map(\.value), [1, 2, 1, 2], "prepare 1 and 2, then replay 1 and 2")
+        XCTAssertTrue(calls.allSatisfy(\.onApprovingThread), "A's queue replays on A's thread")
     }
 }
