@@ -88,6 +88,8 @@ tests/conformance/group_vm.rs
 tests/conformance/hierarchical.rs
 tests/conformance/hierarchical_batch.rs
 tests/conformance/hub_collection_changes.rs
+tests/conformance/inline_dispose_cascade.rs
+tests/conformance/leaf_hook_disposal.rs
 tests/conformance/lifecycle.rs
 tests/conformance/localization.rs
 tests/conformance/message_hub.rs
