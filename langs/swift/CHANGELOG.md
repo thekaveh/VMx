@@ -81,8 +81,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   its `isCurrent` flag matches the destination's `current` (`COMP-006`).
 - `CompositeVM`: while disposal is requested or deferred, a non-`nil`
   selection is refused and a `nil` clear still commits (ADR-0173 rule 3).
-  After `Disposed`, selection stays inert, also inside the composite's own
-  hook.
+  The refusal also covers re-assigning the child that is already current, as
+  in C# and Python. After `Disposed`, selection stays inert, also inside the
+  composite's own hook, and `canSetCurrent(_:)` returns `true` for that
+  inert assignment of a member or `nil`.
 - `CompositeVM`: on the thread whose own membership transaction has not
   committed yet, every selection call is refused and the walk's assignment
   is a silent no-op (ADR-0173 rule 4). From the commit on, including the
@@ -104,7 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `CompositeVM.destruct()` always clears `current` (`COMP-005`, ADR-0173
   rule 8). Before, a destruct inside the composite's own transaction, or
   while disposal was deferred, skipped the clear without an error and
-  reached `Destructed` with `current` still set.
+  reached `Destructed` with `current` still set. One case stays as before:
+  once the composite has published `Disposed`, the clear is inert and
+  `current` stays set (chapter 01 §4). This happens when another thread's
+  dispose publishes `Disposed` while the destruct hook still runs.
 - `CompositeVM` refusals use the existing channels: `setCurrent(_:)`,
   `selectComponent(_:)` and `deselectComponent(_:)` throw
   `CompositeMembershipError`, the `current` setter traps (ADR-0009), and
@@ -112,7 +117,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `description` now names the reason. For a non-member it reads "Cannot set
   current to 'X' in composite 'Y': not an admitted child of the composite."
   instead of "Cannot set current to 'X': not a child of composite 'Y'."
-
 - `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
   before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
   updated `keys2`. Before, an entry that a `keys1` subscriber added during

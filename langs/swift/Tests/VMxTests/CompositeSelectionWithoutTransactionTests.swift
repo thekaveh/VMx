@@ -579,6 +579,12 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         XCTAssertThrowsError(try composite.selectComponent(b))
         b.select()
         XCTAssertTrue(composite.current === a)
+        // Rule 3 refuses every non-nil selection, also the child that is
+        // already current; C# and Python refuse it too (ADR-0173).
+        XCTAssertFalse(composite.canSetCurrent(a))
+        XCTAssertThrowsError(try composite.setCurrent(a)) { error in
+            XCTAssertTrue("\(error)".contains("disposal"), "\(error)")
+        }
         XCTAssertTrue(composite.canSetCurrent(nil))
         XCTAssertNoThrow(try composite.setCurrent(nil))
         XCTAssertNil(composite.current)
@@ -835,7 +841,7 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
 
         XCTAssertEqual(statusInHook.value, .disposed)
         XCTAssertNil(errorInHook.value, "a selection after Disposed is inert, not refused")
-        XCTAssertEqual(canSetInHook.value, false)
+        XCTAssertEqual(canSetInHook.value, true, "the inert assignment is not refused")
         XCTAssertNil(composite.current)
         XCTAssertFalse(member.isCurrent)
         XCTAssertEqual(composite.status, .disposed)

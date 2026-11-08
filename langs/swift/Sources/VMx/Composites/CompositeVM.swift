@@ -302,12 +302,13 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// `true` iff the assignment would not be refused now. `nil` is refused
     /// only inside the caller's own uncommitted membership transaction; a
     /// child must also be an admitted member while no disposal of the
-    /// composite is pending (spec/06 §3, §4.3, ADR-0173).
+    /// composite is pending (spec/06 §3, §4.3, ADR-0173). After Disposed an
+    /// assignment of a member or `nil` is an inert no-op, not a refusal, so
+    /// the predicate returns `true` for it.
     public func canSetCurrent(_ value: Child?) -> Bool {
         switch _commitSelection(value, selectionCall: true, validateOnly: true) {
         case .refused: return false
-        case .inert: return value == nil
-        case .committed, .unchanged: return true
+        case .inert, .committed, .unchanged: return true
         }
     }
 
@@ -1196,6 +1197,8 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// selection call: no refusal applies, and it never waits or is skipped
     /// (#1201).
     private func _clearCurrentForDestruct() {
+        // Nothing to clear: skip the shared coordination lane, as before.
+        guard membershipGate.withLock({ _current != nil }) else { return }
         _ = _applySelection(nil, selectionCall: false)
     }
 
@@ -1203,6 +1206,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// current, so a selection made after the detach stays (spec/06 §4.3
     /// rule 6).
     private func _clearDetachedCurrent(_ detached: Child) {
+        guard membershipGate.withLock({ _current === detached }) else { return }
         _ = _applySelection(nil, selectionCall: false, expectedCurrent: detached)
     }
 
