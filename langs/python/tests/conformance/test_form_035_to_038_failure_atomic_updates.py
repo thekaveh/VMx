@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from tests.liveness import HANG_GUARD
 from vmx.forms import FormVM
 from vmx.messages import FormRevertedMessage, PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
@@ -350,6 +351,8 @@ def test_form_037_nested_set_model_from_validator_wins() -> None:
             nested = True
             assert form is not None
             form.set_model(_Model(""))
+            # The nested call returns before its notifications (ADR-0180).
+            probe.events.append("nested returned")
         return _required(model)
 
     hub: MessageHub[Any] = MessageHub()
@@ -362,6 +365,7 @@ def test_form_037_nested_set_model_from_validator_wins() -> None:
     # The nested assignment (b = "") ran its own preparation and committed;
     # the outer call validated "a" once and then committed nothing.
     assert calls == ["a", ""]
+    assert probe.events == ["nested returned", "errors", "can_execute", "model"]
     assert probe.counts() == (1, 1, 1, 0)
     assert probe.model_messages == [(_Model(""), {"value": "required"}, True, False, False)]
     assert form.model == _Model("")
@@ -400,33 +404,51 @@ def test_nested_deny_from_validator_supersedes_the_outer_assignment() -> None:
     assert probe.model_messages == [(_Model("initial"), {}, False, True, False)]
 
 
-def test_nested_approval_commit_from_validator_supersedes_the_outer_assignment() -> None:
+async def test_nested_approval_from_validator_races_the_outer_assignment() -> None:
     form: FormVM[_Model] | None = None
     approved: list[_Model] = []
+    persisted: list[_Model] = []
     nested = False
+
+    async def persist(model: _Model) -> None:
+        persisted.append(model)
 
     def validate(model: _Model) -> str | None:
         nonlocal nested
         if model.value == "a" and not nested:
             nested = True
             assert form is not None
-            asyncio.run(form.approve_async())
+            # Blocking on a nested approval never returns (spec/20 §5.4), so
+            # the validator uses the command path.
+            form.approve_command.execute()
         return _required(model)
 
     hub: MessageHub[Any] = MessageHub()
-    form = _strict_form(_Model("initial"), hub, validators={"value": validate})
+    form = FormVM(
+        _Model("initial"),
+        persist,
+        hub=hub,
+        strict=True,
+        snapshotter=_identity,
+        validators={"value": validate},
+    )
     form.set_model(_Model("edited"))
     form.on_approved.subscribe(approved.append)
     probe = _Probe(form, hub)
 
     form.set_model(_Model("a"))
+    pending = asyncio.all_tasks() - {asyncio.current_task()}
+    await asyncio.wait_for(asyncio.gather(*pending), HANG_GUARD)
 
-    # The approval captured and committed "edited"; the outer "a" is stale.
+    # The approval captured "edited" and persists after the outer update
+    # commits "a" and sends the queue (ADR-0180): it races the assignment.
+    assert persisted == [_Model("edited")]
     assert approved == [_Model("edited")]
-    assert form.model == _Model("edited")
+    assert form.model == _Model("a")
     assert form.snapshot == _Model("edited")
-    assert not form.is_dirty
-    assert probe.counts() == (0, 2, 0, 0)
+    assert form.is_dirty
+    assert probe.events == ["can_execute", "model", "can_execute"]
+    assert probe.counts() == (0, 2, 1, 0)
 
 
 # ---------------------------------------------------------------------------
