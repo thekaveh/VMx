@@ -141,7 +141,22 @@ simplest and most common-sense approach chosen.
   in every flavor. C# drops its admission scope. Python drops its
   `ApproveErrors` scope. Swift and Rust add a failed-settlement scope. A
   flavor defers a teardown that would race a delivery outside a scope. C# and
-  Python already do this for an admitted update.
+  Python already do this, and Rust and Swift follow (#1228).
+- Decided under the owner's 2026-11-07 delegation: a `Dispose()` during a
+  delivery outside a scope does not wait for it (#1228). It marks the form
+  disposed and returns, and the delivering thread runs the teardown when the
+  delivery returns. This is the C# and Python behavior. The deliveries are an
+  admission notification, an `ApproveErrors` send, and an update's
+  notifications after its `ErrorsChanged`. A `Dispose()` from such a
+  delivery's own observer defers in the same way.
+- Decided under the owner's 2026-11-07 delegation: a Rust validator
+  registration on a live form revalidates as an update (#1231). It waits like
+  `SetModel`, sends `errors_changed` in an update scope, and counts as a
+  delivery until it returns. A refused revalidation joins the publisher's
+  queue, as a refused `SetModel` does. It replays as a new revalidation, so
+  neither the registration nor its errors are lost. Committing it at once in
+  a second scope was rejected. `OnApproved` observers could then see another
+  thread's edit, which ADR-0174 rule 7 forbids.
 - Decided under the owner's 2026-11-07 delegation: a refused update replays on
   the publisher, and its replay failure takes the publisher's failure route.
   This is ADR-0174 rule 6 applied to one more caller. The call already ran its
@@ -184,7 +199,9 @@ simplest and most common-sense approach chosen.
   records its wait in `ThreadWaitGraph`, with the same results. `admitApproval`
   waits for another thread's scope. `settleFailedApproval` waits like
   `commitApproval` and opens a scope over its `canExecuteChanged`. The publisher
-  state and queues become per thread.
+  state and queues become per thread. `admitApproval` and `emitApproveError`
+  count their delivery in `activeMutations`, so `dispose()` defers its
+  teardown until it returns (#1228).
 - **Rust (#1160).** `approve()` admission and settlement, `set_model`,
   `revert()` and `dispose()` wait for another thread's scope. Each wait
   records an edge in `wait_for_graph`. An update
@@ -194,6 +211,11 @@ simplest and most common-sense approach chosen.
   comment changes. So do the tests
   `another_threads_approval_replays_its_own_deferred_edit` and
   `disposal_during_an_emission_skips_the_callbacks_not_yet_invoked`.
+  A `Delivery` span counts the admission notification, an update from its
+  commit until it returns, and the command path's `approve_errors` send.
+  `dispose()` defers its teardown while one is open (#1228). `revalidate()`
+  waits through `serialize()`, opens an update scope, and queues a refused
+  run as `QueuedUpdate::Revalidate` (#1231).
 - **TypeScript.** No change.
 
 ### 3.1. Known differences
@@ -211,12 +233,6 @@ the same. Chapter 20 §5.5 lists them as flavor notes.
 - After a refused `Dispose()`, C# and Rust wake the scope waiters at once,
   and they find the form disposed. Python and Swift waiters wake when the
   publisher's scope closes.
-- A Rust `dispose()` that is not refused tears down at once, even while
-  another thread delivers outside a scope. Examples are an admission
-  notification, or an update's notifications after its scope closed. Swift
-  does the same during an admission notification or an `ApproveErrors`
-  delivery. C# and Python defer that teardown. This gap predates this ADR,
-  and #1228 tracks it.
 - C#, Python and Rust open an update scope only when the update changes the
   error map. Swift opens one at every commit. A scope with no `ErrorsChanged`
   delivery cannot be observed.
@@ -239,6 +255,9 @@ regression tests for its issue, as ADR-0172 did.
   takes effect only when its wait would close a live cycle.
 - In that case, a settlement's notifications can interleave with another
   thread's scope. Error maps can then reach an observer out of commit order.
+- A `Dispose()` during a delivery outside a scope returns before the channels
+  complete. The delivering thread completes them when that delivery returns,
+  in every threaded flavor (#1228).
 - Rust applies ADR-0174 rule 7 like the other threaded flavors.
 - C# and Python no longer hold a lock while an observer runs, except during
   an update nested in a preparation callback (#1173).

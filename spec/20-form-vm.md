@@ -558,7 +558,11 @@ that its own thread holds. There are two kinds:
    settlement closes it when its step 3 `CanExecuteChanged` delivery returns.
 
 An approval's admission notification and the `ApproveErrors` delivery open no
-scope.
+scope. An update's notifications after its `ErrorsChanged` delivery are also
+outside any scope. A `Dispose()` during such a delivery does not wait for it. It marks the form
+disposed and returns. The §10 teardown runs when that delivery returns, so no
+channel completes while the delivery runs. This also applies to a `Dispose()`
+from that delivery's own observer.
 
 **Waits.** Five calls wait while another thread holds a scope on the form. They
 are `SetModel`, deny, an approve call before its admission, a settlement before
@@ -568,6 +572,13 @@ The resource is the form's publication scope, and its owner is a publisher. When
 two threads hold scopes, the edge names one, and the waiter records its wait
 again when it wakes. A publisher removes the edges that name it before it wakes
 the waiters. A wait that closes no cycle blocks.
+
+**Rust validator registration.** Only Rust registers a validator on a live
+form. The registration takes effect at once, and its revalidation is an update.
+It waits like `SetModel`, delivers `errors_changed` in an update scope, and
+counts as a delivery outside a scope until it returns. When its wait is
+refused, the revalidation joins the publisher's queue and replays there as a
+new revalidation (#1231).
 
 **Refused waits.** A wait that would close a live cycle is refused, and the
 call does not wait. No call is lost:
@@ -623,10 +634,6 @@ state is the same:
 - After a refused `Dispose()`, C# and Rust wake the scope waiters at once.
   Python and Swift waiters wake when the publisher's scope closes. Either way
   they find the form disposed.
-- A Rust `dispose()` that is not refused tears down at once, even while another
-  thread delivers outside a scope. Swift does the same during an admission
-  notification or an `ApproveErrors` delivery. C# and Python defer that
-  teardown until the delivery returns (#1228).
 - C#, Python, and Rust open an update scope only when the update changes the
   error map. Swift opens one at every commit. A scope with no `ErrorsChanged`
   delivery cannot be observed.
