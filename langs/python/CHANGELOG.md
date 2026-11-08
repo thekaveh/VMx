@@ -83,10 +83,10 @@ below for them.
   #1179). A wait for it records an edge to the borrower, so a cycle through it
   is refused instead of hanging. The borrower's own `send`, `batch()` and
   `dispose()` on that hub no longer wait for its own borrowed scope. After the
-  borrower's `dispose()`, the exit of the last borrowed scope completes
-  `messages`; a drain that ends first no longer completes it while the
-  borrowed scope is open, as in the other flavors. A drainer
-  with an empty queue releases the drain instead of waiting for a borrowed
+  borrower's `dispose()`, the last of the batch owner, the drainer and the
+  borrowers to release the hub completes `messages`; a drain that ends first
+  no longer completes it while the borrowed scope is open, as in the other
+  flavors. A drainer with an empty queue releases the drain instead of waiting for a borrowed
   scope. A drainer with queued messages whose wait would close a cycle
   releases the drain, and the exit of the last borrowed scope delivers them,
   in FIFO order, on the borrower's thread.

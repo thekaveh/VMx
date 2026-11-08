@@ -850,7 +850,10 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
                 b.value = ThreadWaitGraph.currentThread
                 try? h2.batch {
                     bOwnsH2.signal()
-                    _ = oWaiting.wait(timeout: .now() + timeout)
+                    XCTAssertEqual(
+                        oWaiting.wait(timeout: .now() + timeout), .success,
+                        "\(label): O never waited for B's h2 batch"
+                    )
                     try? h.batch {
                         h.dispose()
                         guard borrowerExitsLast else { return }
@@ -880,5 +883,65 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             subscription.cancel()
             ThreadWaitGraph.shared.onWaitDecidedForTesting = nil
         }
+    }
+
+    /// spec/03 §4.2 rule 3 with a drainer. D drains h, and D's h subscriber
+    /// sends on h2, which B batch-owns, so D waits for B. B's h batch would
+    /// close a cycle by waiting for D, so it borrows h. B disposes h in the
+    /// borrowed body and exits it while D is still inside its subscriber. The
+    /// borrowed exit leaves the disposal to D, whose drain completes h after
+    /// the subscriber returns, as in C#, Python and Rust.
+    func testABorrowersDisposeIsFinishedByTheDrainerThatIsStillDelivering() {
+        let h = MessageHub()
+        let h2 = MessageHub()
+        let timeout: TimeInterval = 5
+        let d = BorrowBox<UInt64>(0)
+        let dWaiting = DispatchSemaphore(value: 0)
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            if accepted, caller == d.value { dWaiting.signal() }
+        }
+        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
+        let inHandler = BorrowBox<Bool>(false)
+        let completed = BorrowBox<[(UInt64, Bool)]>([])
+        let subscription = h.messages.sink(
+            receiveCompletion: { _ in
+                let entry = (ThreadWaitGraph.currentThread, inHandler.value)
+                completed.mutate { $0.append(entry) }
+            },
+            receiveValue: { _ in
+                inHandler.value = true
+                h2.send(PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: "forwarded"))
+                inHandler.value = false
+            }
+        )
+        let bOwnsH2 = DispatchSemaphore(value: 0)
+        let bDone = DispatchSemaphore(value: 0)
+        let dDone = DispatchSemaphore(value: 0)
+        let completedAfterBorrow = BorrowBox<Int>(-1)
+        Thread.detachNewThread {
+            try? h2.batch {
+                bOwnsH2.signal()
+                XCTAssertEqual(
+                    dWaiting.wait(timeout: .now() + timeout), .success,
+                    "D never waited for B's h2 batch"
+                )
+                try? h.batch { h.dispose() }
+                completedAfterBorrow.value = completed.value.count
+            }
+            bDone.signal()
+        }
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        Thread.detachNewThread {
+            d.value = ThreadWaitGraph.currentThread
+            h.send(PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: "m"))
+            dDone.signal()
+        }
+
+        XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "B hung")
+        XCTAssertEqual(dDone.wait(timeout: .now() + timeout), .success, "D hung")
+        XCTAssertEqual(completedAfterBorrow.value, 0, "B's borrow exit completed h while D was delivering")
+        XCTAssertEqual(completed.value.map(\.0), [d.value])
+        XCTAssertEqual(completed.value.map(\.1), [false], "h completed inside D's in-flight delivery")
+        subscription.cancel()
     }
 }

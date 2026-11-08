@@ -268,6 +268,54 @@ public class BorrowedScopeWaitCycleTests
         }
     }
 
+    // spec/03 §4.2 rule 3 with a drainer. D drains h, and D's h subscriber
+    // sends on h2, which B batch-owns, so D waits for B. B's h batch would
+    // close a cycle by waiting for D, so it borrows h. B disposes h in the
+    // borrowed body and exits it while D is still inside its subscriber. The
+    // borrowed exit leaves the disposal to D, whose drain completes h after
+    // the subscriber returns, as in Python, Swift and Rust.
+    [Fact]
+    public async Task A_Borrowers_Dispose_Is_Finished_By_The_Drainer_That_Is_Still_Delivering()
+    {
+        var h = new MessageHub();
+        var h2 = new MessageHub();
+        var d = 0;
+        var inHandler = 0;
+        var completedOn = new ConcurrentQueue<(bool OnD, bool InHandler)>();
+        var completedAfterBorrow = -1;
+        using var bOwnsH2 = new ManualResetEventSlim(false);
+        using var sub = h.Messages.Subscribe(
+            _ =>
+            {
+                Volatile.Write(ref inHandler, 1);
+                h2.Send(new Stub("forwarded"));
+                Volatile.Write(ref inHandler, 0);
+            },
+            () => completedOn.Enqueue((
+                Environment.CurrentManagedThreadId == Volatile.Read(ref d),
+                Volatile.Read(ref inHandler) == 1)));
+
+        var bTask = Run(() => h2.Batch(() =>
+        {
+            bOwnsH2.Set();
+            SpinWait.SpinUntil(
+                () => Volatile.Read(ref d) != 0 && WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref d)),
+                HangGuard).Should().BeTrue("D waits for B's h2 batch");
+            h.Batch(() => h.Dispose());
+            Volatile.Write(ref completedAfterBorrow, completedOn.Count);
+        }));
+        bOwnsH2.Wait(HangGuard).Should().BeTrue();
+        var dTask = Run(() =>
+        {
+            Volatile.Write(ref d, Environment.CurrentManagedThreadId);
+            h.Send(new Stub("m"));
+        });
+
+        await FinishWithin(Task.WhenAll(bTask, dTask), "the borrow cycle must not deadlock");
+        Volatile.Read(ref completedAfterBorrow).Should().Be(0, "B's borrow exit leaves the disposal to D's drain");
+        completedOn.Should().Equal((true, false));
+    }
+
     // spec/03 §4.2 rule 5: as in row 4, but Q's h queue still holds "qx" when
     // Q's subscriber returns. Q's wait for P's borrowed scope would close the
     // cycle P -> Q (h3) -> P (h), so Q releases the drain with qx queued. Q's

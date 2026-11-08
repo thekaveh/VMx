@@ -855,6 +855,50 @@ def test_a_borrowers_dispose_is_finished_by_the_last_owner_to_release_the_hub(
 
 
 @pytest.mark.conformance("HUB-013")
+def test_a_borrowers_dispose_is_finished_by_the_drainer_that_is_still_delivering() -> None:
+    # spec/03 §4.2 rule 3 with a drainer. D drains h, and D's h handler sends
+    # on h2, which B batch-owns, so D waits for B. B's h batch would close a
+    # cycle by waiting for D, so it borrows h. B disposes h in the borrowed
+    # body and exits it while D is still inside its handler. The borrowed exit
+    # leaves the disposal to D, whose drain completes h after the handler
+    # returns, as in C#, Swift and Rust.
+    h, h2 = _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    in_handler = Event()
+    h_completed: list[tuple[str, bool]] = []
+    completed_after_borrow: list[int] = []
+
+    def forward(_message: object) -> None:
+        in_handler.set()
+        h2.send(_make_msg("forwarded"))
+        in_handler.clear()
+
+    h.messages.subscribe(
+        on_next=forward,
+        on_completed=lambda: h_completed.append((current_thread().name, in_handler.is_set())),
+    )
+    b_owns_h2 = Event()
+
+    def b_body() -> None:
+        with h2.batch():
+            b_owns_h2.set()
+            wait_until_waiting(threads.ident("D"))
+            with h.batch():
+                h.dispose()
+            completed_after_borrow.append(len(h_completed))
+
+    threads.start("B", b_body)
+    assert b_owns_h2.wait(HANG_GUARD)
+    threads.start("D", lambda: h.send(_make_msg("m")))
+    threads.join_all()
+
+    assert errors == []
+    assert completed_after_borrow == [0]
+    assert h_completed == [("D", False)]
+
+
+@pytest.mark.conformance("HUB-013")
 @pytest.mark.parametrize("form", ["drain", "batch"])
 @pytest.mark.parametrize("operation", ["send", "dispose", "batch", "batch_send"])
 def test_an_ended_hub_wait_does_not_cause_a_cycle_escape(
