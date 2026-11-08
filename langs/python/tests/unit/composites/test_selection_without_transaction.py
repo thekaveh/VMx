@@ -870,9 +870,7 @@ def test_transfer_destination_admits_the_moved_child_after_the_old_parents_detac
         repopulating = _Repopulating(name="repop", hub=hub, dispatcher=dispatcher)
         destination = repopulating
     else:
-        destination = _Root(
-            hub, dispatcher, lambda: [filler] if operation == "replace" else []
-        ).vm
+        destination = _Root(hub, dispatcher, lambda: [filler] if operation == "replace" else []).vm
     destination.construct()
     armed = True
 

@@ -878,8 +878,7 @@ fn transfer_destination_admits_the_moved_child_after_the_old_parents_detach_comm
         dest.construct().unwrap();
         let seen: CommitWindowLog = Arc::default();
         let armed = Arc::new(AtomicBool::new(true));
-        let (sink, window_dest, window_child) =
-            (Arc::clone(&seen), dest.clone(), moved.clone());
+        let (sink, window_dest, window_child) = (Arc::clone(&seen), dest.clone(), moved.clone());
         old.on_current_changed(move |current| {
             if current.is_some() || !armed.swap(false, Ordering::SeqCst) {
                 return;
