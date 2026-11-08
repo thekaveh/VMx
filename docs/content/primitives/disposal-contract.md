@@ -90,8 +90,8 @@ model.
 - If rollback also triggers failing disposal, an earlier attachment failure
   stays first.
 - Disposal requested from a current-changed callback is likewise deferred until
-  selection publication finishes, without blocking the callback on its own
-  membership transaction.
+  selection publication finishes. Selection holds no membership transaction,
+  so the callback never blocks on one (ADR-0173).
 - Disposal that races an admitted construct or destruct hook waits until the
   hook settles. Terminal resource and stream teardown follow.
 - Opposing hooks that cross-dispose use cycle-aware deferral. Neither thread

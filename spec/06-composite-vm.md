@@ -84,13 +84,24 @@ holds and delegates to.
 
 - `Current` MAY be `null` (no child selected).
 - If `Current` is non-null, it MUST be a member of the children collection.
-- Setting `Current` to a value not in the children collection MUST raise.
-- Setting `Current = null` is always legal (no-op if already null).
+- Setting `Current` to a value not in the children collection MUST raise. A
+  child that an `Add`, `Insert`, index replacement or population has attached
+  but not yet admitted is not in the collection for this rule (§4.3).
+- Setting `Current = null` is always legal (no-op if already null), also while
+  disposal of the composite is pending. The only refusal is a call inside the
+  caller's own uncommitted membership transaction (§4.3).
+- While disposal of the composite is requested or deferred, setting a non-null
+  `Current` MUST raise. After `Disposed`, the composite keeps its documented
+  post-dispose behavior (chapter 01 §4).
+- Another thread's membership transaction never makes a selection fail or wait
+  (§4.3, ADR-0173).
 - A change to `Current` fires `PropertyChangedMessage("Current")` and updates the
   affected children's `IsCurrent` (raising their `PropertyChangedMessage("IsCurrent")`).
 - If the builder enabled `AsyncSelection(true)`, the setter dispatches the work via
   `IDispatcher.Foreground` and returns immediately. The new `Current` is observable
-  only after the dispatcher delivers. If `AsyncSelection(false)` (the default), the
+  only after the dispatcher delivers. The call validates as the synchronous
+  setter does, and the delivery validates again; a delivery that is no longer
+  valid is a silent no-op (§4.3). If `AsyncSelection(false)` (the default), the
   setter is synchronous.
 
 ### 3.1 `select_component(vm)` / `deselect_component(vm)`
@@ -99,26 +110,33 @@ holds and delegates to.
   If the predicate is false, the call raises.
 - `deselect_component(vm)` sets `Current = null` after verifying `Current == vm`.
   If `Current != vm`, the call raises. This is a guarded convenience; the raw
-  `Current = null` setter (§3) stays unconditional.
-- `can_select_component(vm)` returns `true` iff `vm ∈ children` and `vm.Status == Constructed`.
+  `Current = null` setter (§3) checks nothing else. Like every selection call,
+  both calls are refused inside the caller's own uncommitted membership
+  transaction (§4.3).
+- `can_select_component(vm)` returns `true` iff `vm ∈ children` and `vm.Status == Constructed`,
+  and `select_component(vm)` would not be refused now: `vm` is admitted, no
+  disposal of the composite is pending, and the caller is not inside its own
+  uncommitted membership transaction (§3, §4.3, ADR-0173).
 
 ### 3.2 Initial `Current` selection and change callback (spec v2.6.0)
 
 `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
 
 - `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked during every construct phase of the composite, including the construct phase of `reconstruct()`, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. Destruct first sets `Current` to `null` (§5), which reports `null` to `OnCurrentChanged`, so each construct selects again. To restore the previous selection, record only the non-null values that `OnCurrentChanged` receives and return the last one from the selector; if that child is no longer contained, the assignment is the no-op described below (ADR-0158). The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
-- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the active membership transaction or current-publication lease and completes after publication without deadlocking selection. The shared cross-composite coordinator protects validation and the committed state update only; hub publication and consumer callbacks execute after it is released.
+- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the current-publication lease and completes after publication without deadlocking selection (§4.3). The shared cross-composite coordinator protects validation and the committed state update only; hub publication and consumer callbacks execute after it is released.
 
 The construct walk's assignment uses committed membership and never waits
-(ADR-0165):
+(ADR-0165, ADR-0173). Every flavor follows these rules:
 
 - It opens no membership transaction. Another thread's open transaction
   neither fails it nor makes it wait. The composite reaches `Constructed` with
   the selected child current, also when that thread waits for the walk.
-- A child that an `Add`, `Insert` or index replacement has attached but not yet
-  admitted is not contained yet. Its rollback could still remove it.
+- A child that an `Add`, `Insert`, index replacement or population has
+  attached but not yet admitted is not contained yet. Its rollback could still
+  remove it.
 - While disposal of the composite is requested or deferred, the assignment is a
-  silent no-op.
+  silent no-op. It is also a silent no-op on a thread that owns an uncommitted
+  membership transaction of the composite (§4.3).
 - A disposal requested from the assignment's own `OnCurrentChanged` or
   current-flag callbacks returns at once. The disposal starts after the
   publication and any open membership transaction end. The request does not
@@ -126,25 +144,10 @@ The construct walk's assignment uses committed membership and never waits
 - A transaction that detached the current child clears `Current` only while
   that child is still current. It never clears a selection made after the
   detach.
+- The assignment is synchronous, also with `AsyncSelection(true)`: the
+  composite reaches `Constructed` with the selected child already current.
 
-Open gaps (ADR-0165 §3):
-
-- TypeScript raises when the walk resumes on the same thread inside an open
-  transaction or while disposal is deferred.
-- Swift waits for a foreign transaction, and `dispose()` waits for one before
-  it checks the publication lease. On the owner thread, the assignment skips
-  the admission and disposal checks, and a transfer's detach commit clears
-  `Current` even after a later selection.
-- Rust can select an unadmitted child and can assign while disposing. It does
-  not defer a disposal from the selection's callbacks, and its transfer commit
-  always clears `Current`.
-
-Open Rust gap: Rust `CompositeVm` keeps its membership transaction open while
-it publishes `CollectionChanged` from `add` and while it publishes the
-current-flag changes and runs the current-changed callback. A selection started
-from those callbacks, or concurrently, returns `OwnershipTransactionInProgress`
-instead of completing. The `COMP-026` Rust tests for these two cases are
-ignored until the transaction is released before publication.
+The other selection paths commit in the same way (§4.3).
 
 Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, each selector assignment that changes `Current` triggers the callback exactly once.
 
@@ -214,18 +217,16 @@ transaction through hooks and commit or rollback. Re-entrant structural
 mutation of either protected container MUST fail before mutation; coherent
 snapshot reads remain legal. Child reservations use a deterministic acquisition
 strategy so two reverse-order bulk populations cannot deadlock. Selection
-validation and assignment are one membership-gated operation, and deferred
-selection revalidates membership when it executes. Concurrent flavors use a
-shared re-entrant coordination lane for cross-composite validation and state
-commit, including the affected child current flags, then release it before hub
-publication and consumer callbacks. A flavor
-MAY retain a logical transaction without its mutex or replace it with an
-equivalent current-publication lease; a selection invoked from an existing
-structural transaction MAY reuse that transaction. Consumer code holds neither
-the shared lane nor a non-reentrant membership mutex, so opposing callback
-graphs cannot retain one while acquiring another container. A callback observes
-the selected child still constructed; any deferred disposal cascade begins only
-after the callback returns.
+validation and assignment are one membership-gated operation that opens no
+membership transaction, and deferred selection revalidates membership when it
+executes (§4.3). Concurrent flavors use a shared re-entrant coordination lane
+for cross-composite validation and state commit, including the affected child
+current flags, then release it before hub publication and consumer callbacks.
+A flavor MAY retain a logical structural transaction without its mutex during
+publication. Consumer code holds neither the shared lane nor a non-reentrant
+membership mutex, so opposing callback graphs cannot retain one while acquiring
+another container. A callback observes the selected child still constructed;
+any deferred disposal cascade begins only after the callback returns.
 
 If any step after preflight fails, both memberships, `Parent`, `Current`, child
 current flags, lazy/builder population state, and the event stream MUST equal
@@ -241,6 +242,11 @@ point rejects admission and performs the same exact rollback. Replacement
 rollback identifies the candidate by identity, restores the displaced child
 before deferred disposal can take a terminal snapshot, and MUST NOT mutate an
 unrelated member merely because the original index changed (ADR-0118).
+The selection rules of §4.3 keep `Current` out of the rollback: the owner
+thread cannot select before the commit, and no thread can select a staged
+child. A selection that another thread commits on an admitted child during the
+step is independent of it and stays, as does the clear of the composite's own
+`destruct()` (§5).
 
 Disposal MUST observe a stable membership boundary. If the transaction-owning
 thread requests disposal of a protected old parent from an attachment or
@@ -276,6 +282,63 @@ decorator instance supplied by the caller, while parent ownership, lifecycle,
 current flags, and the built-in selection commands behave transparently through
 the wrapped component (ADR-0123).
 
+### 4.3 Selection during membership transactions (spec v3.30)
+
+The selection paths are the `Current` setter, `select_component`,
+`deselect_component`, the child `Select` and `Deselect` paths, the
+`AsyncSelection(true)` setter and its delivery, the construct walk's
+assignment (§3.2), the destruct clear (§5) and the clear that a detach
+commits. The selection calls are the setter, synchronous or asynchronous,
+`select_component`, `deselect_component` and the child `Select` and `Deselect`
+paths. Every flavor follows these rules (ADR-0165, ADR-0173):
+
+1. **No transaction.** No selection path opens, joins or waits for a membership
+   transaction, on any thread. It validates and commits `Current` and the
+   affected `IsCurrent` flags under the coordination lane and the membership
+   gate, and publishes after it releases both. Another thread's open
+   transaction neither fails nor delays it. Publications from two threads can
+   interleave.
+1. **Committed membership.** A child that an `Add`, `Insert`, index
+   replacement or population has attached but not yet admitted is not a
+   member for selection, on any thread. The setter raises the non-member
+   error, and `can_select_component` returns `false`. The child becomes
+   selectable when its add admits it, before `CollectionChanged` publishes.
+1. **Disposal.** While disposal of the composite is requested or deferred, a
+   non-null selection is refused. A null clear is never refused because of
+   disposal.
+1. **The caller's own uncommitted transaction.** A membership transaction is
+   uncommitted while its rollback could still undo a staged change: a child
+   attached but not admitted, a staged population, or a child detached for a
+   transfer whose commit has not run. On the thread that owns such a
+   transaction of the composite, every selection call on that composite fails
+   before it changes anything, also a null clear, with the "membership
+   transaction in progress" error. The walk's assignment there is a silent
+   no-op. From the commit on, including the transaction's `CollectionChanged`
+   publication, the owner thread's selection commits under rule 1.
+1. **Publication lease.** A selection path that changes `Current` holds the
+   current-publication lease while it publishes `Current` and `IsCurrent` and
+   runs `OnCurrentChanged`. Leases nest, so a selection from those callbacks
+   commits under rule 1. A disposal requested on a thread that holds a lease
+   returns at once and is deferred. A disposal requested on another thread
+   first follows §4.2 for a foreign membership transaction; if a lease is still
+   active after that, the disposal is deferred. A deferred disposal starts when
+   the last lease ends and no membership transaction is open. The deferral
+   stays set until the disposal starts, so no transaction and no non-null
+   selection is admitted in between.
+1. **Detach clear.** A transaction that detached the current child clears
+   `Current` only while that child is still current.
+1. **Asynchronous selection.** With `AsyncSelection(true)`, the setter
+   validates at call time under rules 2, 3 and 4 and raises as the synchronous
+   setter does. It then schedules the change and returns. The delivery commits
+   under rules 1 and 5 and validates membership and rules 2, 3 and 4 again; a
+   delivery that is no longer valid is a silent no-op. The walk's assignment
+   and the destruct clear stay synchronous.
+
+Each surface reports a refusal through the channel it already uses for that
+case. The Swift `current` property setter cannot throw, so it traps
+(ADR-0009); `setCurrent(_:)` is its catchable form. Swift `selectChild` and
+`deselectChild` stay silent no-ops.
+
 ## 5. Children construction orchestration
 
 The non-modeled `CompositeVM<VM>` may be built with the fluent builder or the
@@ -297,6 +360,15 @@ children:
   the composite first sets `Current = null`. It then calls `destruct()` on every
   child; each call returns once that child reaches `Destructed`. Once every
   child is `Destructed`, the composite transitions to `Destructed`.
+- The destruct clear, also in the destruct phase of `reconstruct()`, commits
+  under §4.3 rules 1 and 5. It is not a selection call, so §4.3 rules 3 and 4
+  never refuse it. It never raises, waits or is skipped: it also clears while
+  another thread holds a membership transaction, inside the composite's own
+  transaction and while disposal is deferred (`COMP-005`, ADR-0173). A disposal
+  from `OnCurrentChanged(null)` is deferred through its lease. A rollback does
+  not restore a `Current` that the destruct cleared. A consumer selection made
+  after the clear, while the composite is `Destructing`, is not refused;
+  `COMP-005` assumes none.
 
 The order in which children are visited is unspecified by default. Chapter 02
 §6 says which reference implementations drive container children sequentially
