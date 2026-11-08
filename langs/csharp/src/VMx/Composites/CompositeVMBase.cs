@@ -1593,9 +1593,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// The refusal of a selection of <paramref name="value"/>, or null
     /// (spec/06 §4.3 rules 2-4). <paramref name="disposed"/> keeps the
     /// post-dispose behavior: a null clear that would change a disposed
-    /// composite raises, as it always has (chapter 01 §4). While disposal is
-    /// pending and after Disposed, re-assigning the child that is already
-    /// current changes nothing and stays the no-op it always was.
+    /// composite raises, as it always has (chapter 01 §4). After Disposed,
+    /// re-assigning the child that is already current changes nothing and
+    /// stays the no-op it always was; while disposal is only requested or
+    /// deferred, it is refused like any non-null selection (rule 3).
     /// </summary>
     private Exception? SelectionRefusalLocked(VM? value, bool disposed)
     {
@@ -1603,7 +1604,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         if (value is null)
             return disposed && _current is not null ? SelectionWhileDisposing() : null;
         if (DisposalPendingLocked())
-            return ReferenceEquals(value, _current) ? null : SelectionWhileDisposing();
+            return disposed && ReferenceEquals(value, _current) ? null : SelectionWhileDisposing();
         if (!IsCommittedMemberLocked(value))
             return new InvalidOperationException(
                 $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
@@ -1622,7 +1623,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         }
         // The call validates now and raises as the synchronous setter does;
         // the delivery validates again (spec/06 §4.3 rule 7).
-        var disposed = value is null && IsDisposed();
+        var disposed = IsDisposed();
         lock (_membershipGate)
         {
             if (SelectionRefusalLocked(value, disposed) is { } refusal) throw refusal;
@@ -1653,7 +1654,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             lock (_membershipGate)
                 if (_current is null) return;
         }
-        var disposed = kind != CurrentChange.Clear && value is null && IsDisposed();
+        var disposed = kind != CurrentChange.Clear && IsDisposed();
         VM? previous;
         bool previousFlagChanged;
         bool valueFlagChanged;

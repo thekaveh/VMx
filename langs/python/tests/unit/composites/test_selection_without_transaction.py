@@ -374,6 +374,7 @@ def test_late_child_hook_selects_during_another_threads_add_without_rolling_back
         ("add", "late", True),
         ("add", "select-late", False),
         ("add", "keep", False),
+        ("add", "select-keep", False),
         ("insert", "keep", False),
         ("replace", "keep", False),
         ("add", "null", True),
@@ -396,6 +397,8 @@ def test_owner_thread_selection_before_a_failed_admission_is_refused(
                 root.vm.current = late
             elif target == "select-late":
                 root.vm.select_component(late)
+            elif target == "select-keep":
+                root.vm.select_component(keep)
             elif target == "keep":
                 root.vm.current = keep
             elif target == "null":
@@ -422,7 +425,7 @@ def test_owner_thread_selection_before_a_failed_admission_is_refused(
             root.vm[1] = late  # replaces spare
 
     assert len(hook_errors) == 1
-    if target == "select-late":
+    if target.startswith("select-"):
         assert isinstance(hook_errors[0], ValueError)
         assert "can_select_component returned False" in str(hook_errors[0])
     else:
@@ -658,10 +661,11 @@ def test_pending_disposal_refuses_a_non_null_selection_but_not_a_null_clear() ->
 
 
 @pytest.mark.parametrize("async_selection", [False, True])
-def test_reassigning_the_current_child_while_disposing_is_a_no_op(async_selection: bool) -> None:
-    # Re-assigning the child that is already current changes nothing, so rule 3
-    # does not refuse it: a two-way binding may write the selection back while
-    # or after the VM is disposed (chapter 01 §4).
+def test_reassigning_the_current_child_while_disposing_is_refused(async_selection: bool) -> None:
+    # From the moment disposal is requested or deferred until DISPOSED, a
+    # non-null selection is refused, also one of the child that is already
+    # current (spec/06 §4.3 rule 3), as in TS, Swift and Rust. Only after
+    # DISPOSED does the re-assignment stay a no-op.
     hub: MessageHub[object] = MessageHub()
     dispatcher = _immediate()
     a = _child(hub, dispatcher, "a")
@@ -684,7 +688,9 @@ def test_reassigning_the_current_child_while_disposing_is_a_no_op(async_selectio
 
     root.vm.current = a
 
-    assert errors == []
+    assert len(errors) == 1
+    assert isinstance(errors[0], RuntimeError)
+    assert "disposing" in str(errors[0])
     assert root.vm.status is S.DISPOSED
     assert root.changes == ["a"]
 
@@ -741,3 +747,73 @@ def test_child_paths_that_change_nothing_are_refused_inside_the_owner_transactio
     assert "already in progress" in str(hook_errors[0])
     assert root.vm.current is None
     assert root.changes == []
+
+
+@pytest.mark.parametrize("hook_raises", [True, False])
+def test_old_parent_refuses_owner_thread_selection_until_a_transfer_commits(
+    hook_raises: bool,
+) -> None:
+    # Between detach_for_transfer and its commit or rollback, the old parent
+    # has an uncommitted transaction on the transferring thread (spec/06 §4.3
+    # rule 4). From the commit on, including the old parent's own
+    # collection-changed publication, a selection commits (rule 1).
+    hub: MessageHub[object] = MessageHub()
+    dispatcher = _immediate()
+    hook_errors: list[BaseException] = []
+    publication_errors: list[BaseException] = []
+    armed = False
+
+    def hook() -> None:
+        if not armed:
+            return
+        try:
+            old_parent.vm.current = sibling
+        except BaseException as error:
+            hook_errors.append(error)
+        if hook_raises:
+            raise RuntimeError("boom")
+
+    moved = _child(hub, dispatcher, "moved", on_construct=hook)
+    sibling = _child(hub, dispatcher, "sibling")
+    old_parent = _Root(hub, dispatcher, lambda: [], auto_construct_on_add=False)
+    old_parent.vm.construct()
+    old_parent.vm.add(moved)
+    old_parent.vm.add(sibling)
+    old_parent.vm.current = moved
+    new_parent = _Root(hub, dispatcher, lambda: [])
+    new_parent.vm.construct()
+    old_parent.reset_records()
+
+    def on_changed(_event: object) -> None:
+        try:
+            old_parent.vm.current = sibling
+        except BaseException as error:
+            publication_errors.append(error)
+
+    old_parent.vm.on_collection_changed.subscribe(on_changed)
+    armed = True
+
+    if hook_raises:
+        with pytest.raises(RuntimeError, match="boom"):
+            new_parent.vm.add(moved)
+    else:
+        new_parent.vm.add(moved)
+
+    assert len(hook_errors) == 1
+    assert isinstance(hook_errors[0], RuntimeError)
+    assert "already in progress" in str(hook_errors[0])
+    if hook_raises:
+        assert old_parent.vm.snapshot() == (moved, sibling)
+        assert old_parent.vm.current is moved
+        assert moved.is_current
+        assert not sibling.is_current
+        assert old_parent.changes == []
+        assert new_parent.vm.snapshot() == ()
+    else:
+        assert publication_errors == []
+        assert old_parent.vm.snapshot() == (sibling,)
+        assert new_parent.vm.snapshot() == (moved,)
+        assert old_parent.vm.current is sibling
+        assert sibling.is_current
+        assert not moved.is_current
+        assert old_parent.changes == [None, "sibling"]

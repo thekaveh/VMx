@@ -373,6 +373,7 @@ public sealed class SelectionWithoutTransactionTests
     [InlineData("add", "late", true)]
     [InlineData("add", "select-late", false)]
     [InlineData("add", "keep", false)]
+    [InlineData("add", "select-keep", false)]
     [InlineData("insert", "keep", false)]
     [InlineData("replace", "keep", false)]
     [InlineData("add", "null", true)]
@@ -395,6 +396,7 @@ public sealed class SelectionWithoutTransactionTests
                 {
                     case "late": root!.Vm.Current = late; break;
                     case "select-late": root!.Vm.SelectComponent(late!); break;
+                    case "select-keep": root!.Vm.SelectComponent(keep); break;
                     case "keep": root!.Vm.Current = keep; break;
                     case "null": root!.Vm.Current = null; break;
                     case "deselect-keep": root!.Vm.DeselectComponent(keep); break;
@@ -417,7 +419,9 @@ public sealed class SelectionWithoutTransactionTests
 
         act.Should().Throw<InvalidOperationException>().WithMessage("boom");
         hookError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Contain(
-            target == "select-late" ? "can_select_component returned false" : "already in progress");
+            target.StartsWith("select-", StringComparison.Ordinal)
+                ? "can_select_component returned false"
+                : "already in progress");
         root.Vm.Should().Equal(keep, spare);
         root.Vm.Current.Should().BeSameAs(keepCurrent ? keep : null);
         keep.IsCurrent.Should().Be(keepCurrent);
@@ -637,11 +641,12 @@ public sealed class SelectionWithoutTransactionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Reassigning_The_Current_Child_While_Disposing_Is_A_No_Op(bool asyncSelection)
+    public void Reassigning_The_Current_Child_While_Disposing_Is_Refused(bool asyncSelection)
     {
-        // Re-assigning the child that is already current changes nothing, so
-        // rule 3 does not refuse it: a two-way binding may write SelectedItem
-        // back while or after the VM is disposed (chapter 01 §4).
+        // From the moment disposal is requested or deferred until Disposed, a
+        // non-null selection is refused, also one of the child that is
+        // already current (spec/06 §4.3 rule 3), as in TS, Swift and Rust.
+        // Only after Disposed does the re-assignment stay a no-op.
         var hub = new TestHub();
         var a = Child(hub, NullDispatcher.Instance, "a");
         var b = Child(hub, NullDispatcher.Instance, "b");
@@ -658,7 +663,8 @@ public sealed class SelectionWithoutTransactionTests
 
         root.Vm.Current = a;
 
-        pendingError.Should().BeNull();
+        pendingError.Should().BeOfType<ObjectDisposedException>()
+            .Which.Message.Should().Contain("disposing");
         root.Vm.Status.Should().Be(ConstructionStatus.Disposed);
         root.Changes.Should().Equal("a");
     }
@@ -682,5 +688,73 @@ public sealed class SelectionWithoutTransactionTests
         act.Should().NotThrow();
         root.Vm.Current.Should().BeSameAs(current);
         root.Changes.Should().Equal("a");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Old_Parent_Refuses_Owner_Thread_Selection_Until_A_Transfer_Commits(bool hookThrows)
+    {
+        // Between DetachForTransfer and its commit or rollback, the old parent
+        // has an uncommitted transaction on the transferring thread (spec/06
+        // §4.3 rule 4). From the commit on, including the old parent's own
+        // CollectionChanged publication, a selection commits (rule 1).
+        var hub = new TestHub();
+        Root? oldParent = null;
+        ComponentVM? sibling = null;
+        Exception? hookError = null;
+        var armed = false;
+        var moved = Child(hub, NullDispatcher.Instance, "moved", onConstruct: () =>
+        {
+            if (!armed) return;
+            try { oldParent!.Vm.Current = sibling; }
+            catch (Exception error) { hookError = error; }
+            if (hookThrows) throw new InvalidOperationException("boom");
+        });
+        sibling = Child(hub, NullDispatcher.Instance, "sibling");
+        oldParent = new Root(hub, NullDispatcher.Instance, () => [], autoConstructOnAdd: false);
+        oldParent.Vm.Construct();
+        oldParent.Vm.Add(moved);
+        oldParent.Vm.Add(sibling);
+        oldParent.Vm.Current = moved;
+        var newParent = new Root(hub, NullDispatcher.Instance, () => []);
+        newParent.Vm.Construct();
+        oldParent.ResetRecords();
+        Exception? publicationError = null;
+        oldParent.Vm.CollectionChanged += (_, _) =>
+        {
+            try { oldParent.Vm.Current = sibling; }
+            catch (Exception error) { publicationError = error; }
+        };
+        armed = true;
+
+        var act = () => newParent.Vm.Add(moved);
+
+        hookError.Should().BeNull("the hook has not run yet");
+        if (hookThrows)
+        {
+            act.Should().Throw<InvalidOperationException>().WithMessage("boom");
+            hookError.Should().BeOfType<InvalidOperationException>()
+                .Which.Message.Should().Contain("already in progress");
+            oldParent.Vm.Should().Equal(moved, sibling);
+            oldParent.Vm.Current.Should().BeSameAs(moved);
+            moved.IsCurrent.Should().BeTrue();
+            sibling.IsCurrent.Should().BeFalse();
+            oldParent.Changes.Should().BeEmpty();
+            newParent.Vm.Should().BeEmpty();
+        }
+        else
+        {
+            act.Should().NotThrow();
+            hookError.Should().BeOfType<InvalidOperationException>()
+                .Which.Message.Should().Contain("already in progress");
+            publicationError.Should().BeNull();
+            oldParent.Vm.Should().Equal(sibling);
+            newParent.Vm.Should().Equal(moved);
+            oldParent.Vm.Current.Should().BeSameAs(sibling);
+            sibling.IsCurrent.Should().BeTrue();
+            moved.IsCurrent.Should().BeFalse();
+            oldParent.Changes.Should().Equal(null, "sibling");
+        }
     }
 }

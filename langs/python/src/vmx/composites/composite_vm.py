@@ -1139,16 +1139,17 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
         *disposed* keeps the post-dispose behavior: a null clear that would
         change a disposed composite raises, as it always has (chapter 01 §4).
-        While disposal is pending and after Disposed, re-assigning the child
-        that is already current changes nothing and stays the no-op it always
-        was.
+        After Disposed, re-assigning the child that is already current changes
+        nothing and stays the no-op it always was; while disposal is only
+        requested or deferred, it is refused like any non-null selection
+        (rule 3).
         """
         if self._caller_owns_uncommitted_transaction_locked():
             return _transaction_in_progress()
         if value is None:
             return _selection_while_disposing() if disposed and self._current is not None else None
         if self._disposal_pending_locked():
-            return None if value is self._current else _selection_while_disposing()
+            return None if disposed and value is self._current else _selection_while_disposing()
         if not self._is_committed_member_locked(value):
             return ValueError(
                 f"Cannot set current to '{getattr(value, 'name', value)!r}': "
@@ -1163,7 +1164,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return
         # The call validates now and raises as the synchronous setter does;
         # the delivery validates again (spec/06 §4.3 rule 7).
-        disposed = value is None and self._is_disposed()
+        disposed = self._is_disposed()
         with self._membership_gate:
             refusal = self._selection_refusal_locked(value, disposed=disposed)
         if refusal is not None:
@@ -1201,7 +1202,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             with self._membership_gate:
                 if self._current is None:
                     return
-        disposed = kind != _CLEAR and value is None and self._is_disposed()
+        disposed = kind != _CLEAR and self._is_disposed()
         with _current_change_coordinator:
             with self._membership_gate:
                 if kind != _CLEAR:
