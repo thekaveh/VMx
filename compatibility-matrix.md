@@ -90,7 +90,9 @@ lines but were never tagged or published. They remain compatibility history,
 not release claims.
 
 [^python-3-23-1]: Python 3.23.1 is tagged (`python-v3.23.1`) and has a GitHub
-Release, but its PyPI upload failed; PyPI's latest Python release is 3.23.0.
+Release, but it never reached PyPI. Nobody approved its `pypi-python`
+deployment, and GitHub failed the job after 30 days. PyPI's latest Python
+release is 3.23.0.
 
 [^source-3-23]: C# 3.23.0, Python 3.23.2–3.23.3, TypeScript 3.24.0–3.24.1,
 and Rust 0.27.0–0.29.0 implemented spec 3.23.x as validated source lines but

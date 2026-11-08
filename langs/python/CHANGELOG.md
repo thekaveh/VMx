@@ -6,7 +6,11 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
-## [3.30.0] — unreleased source version
+## [3.30.0] — 2026-11-07
+
+First PyPI release since 3.23.0. The 3.23.1 tag never reached PyPI, and 3.23.2
+to 3.29.0 were source-only versions. This package contains every change listed
+below for them.
 
 ### Added
 

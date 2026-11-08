@@ -72,7 +72,7 @@ Until the manifest is reconciled, release through
 3. If the spec version also bumped, update `__min_spec_version__` in the same PR (release-please does not auto-bump that — see the comment in `__about__.py`).
 4. Merge the release PR. release-please pushes a `python-v<X.Y.Z>` tag on the merge commit.
 5. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> — the publish pipeline fires on the tag.
-6. The `python-build-and-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy".
+6. The `python-build-and-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy". Approve within 30 days: GitHub then fails the pending deployment, and the tag cannot be reused.
 7. Before upload, `python-build-and-publish` installs the exact wheel from
    `dist/` into a fresh environment and runs the version/lifecycle smoke test.
    A failure stops before the irreversible PyPI action.
@@ -100,8 +100,9 @@ The same five publish jobs run.
 The `release-please` workflow pauses while the source version and
 `.release-please-manifest.json` disagree. The manifest records the last version
 that the release pipeline tagged; never advance it merely to silence the guard.
-The manifest holds 3.23.1, the last tag; its PyPI upload failed, so PyPI's
-latest is 3.23.0. After the manual release and public-install verification
+The manifest holds 3.23.1, the last tag. That release never reached PyPI,
+because nobody approved its `pypi-python` deployment, so PyPI's latest is
+3.23.0. After the manual release and public-install verification
 succeed:
 
 1. Confirm PyPI and the GitHub release both report the exact source version.

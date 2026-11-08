@@ -9,15 +9,16 @@ spec-compatible with the C#, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.30.0 source** — implements `spec-v3.30.0` end-to-end. 444/444 library conformance IDs
+**v3.30.0** — implements spec 3.30.0 end-to-end. 444/444 library conformance IDs
 pass. Supports Python 3.10–3.14.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations.
 
 ## 2. Install
 
-VMx 3.23.0 is on PyPI and implements spec 3.23.0. The 3.30.0 source line is
-not published; pin 3.23.0 when reproducing released behavior.
+Releases are published to PyPI from `python-v*` tags on `main`. The source
+tree currently implements v3.30.0; pin a version when reproducing released
+behavior.
 
 ```bash
 pip install vmx
