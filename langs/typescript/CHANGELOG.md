@@ -100,7 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - An `asyncSelection(true)` delivery of `selectComponent` now checks
   `Constructed` again (spec/06 §3.1, #1220). Before, a child destructed
   between the call and the delivery became `current`. Now the delivery does
-  nothing.
+  nothing. `selectComponent` no longer goes through the `current` setter, as
+  in C# and Swift. A subclass that overrides that setter no longer sees these
+  selections.
 - A lifecycle call during the inline dispose cascade now fails (#1174,
   #1167, ADR-0175, LIFE-021). A container disposes its children, and a leaf
   its members, before it publishes `Disposed`.

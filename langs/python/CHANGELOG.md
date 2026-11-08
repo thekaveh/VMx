@@ -79,7 +79,9 @@ below for them.
   `async_selection(True)` delivery (spec/06 §3.1, #1220). Before, a destruct
   on another thread after `can_select_component`, or before the delivery,
   let the call select a `DESTRUCTED` child. Now the call raises its
-  predicate `ValueError`, and the delivery does nothing.
+  predicate `ValueError`, and the delivery does nothing. `select_component`
+  no longer goes through the `current` property setter, as in C# and Swift.
+  A subclass that overrides that setter no longer sees these selections.
 - Hub, container membership and child ownership-lock waits now record in one
   wait-for graph, `vmx._wait_for_graph.WAITS` (spec/03 §4.1, ADR-0172). A
   cycle that crosses these waits no longer hangs (#1157): when a hub drainer
