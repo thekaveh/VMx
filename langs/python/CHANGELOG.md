@@ -64,6 +64,125 @@ below for them.
 
 ### Fixed
 
+- `CompositeVM.__setitem__` keeps the replaced child owned until the commit
+  (#1219). The commit now frees the child and clears `current` in one locked
+  section. Before, the method freed the child first and cleared `current`
+  only at the commit. A construct hook of the replacement could adopt the
+  freed child into another composite and select it there. The commit then
+  reset the child's `is_current` flag while the other composite kept it
+  current. A hook that adopted the child and then failed left it in both
+  composites. Now the adoption fails while the replacement is in progress. A
+  failed replacement still restores the child and `current` with no
+  notification.
+- `select_component` now checks `CONSTRUCTED` again at the commit, under the
+  coordination lane and the membership gate, also at an
+  `async_selection(True)` delivery (spec/06 §3.1, #1220). Before, a destruct
+  on another thread after `can_select_component`, or before the delivery,
+  let the call select a `DESTRUCTED` child. Now the call raises its
+  predicate `ValueError`, and the delivery does nothing. `select_component`
+  no longer goes through the `current` property setter, as in C# and Swift.
+  A subclass that overrides that setter no longer sees these selections.
+- A child's `select()` no longer makes a member current that is not
+  `CONSTRUCTED` (spec/05 §6, spec/06 §3.1, #1229). Before, `select_child`
+  checked only membership, so `select()` on a `DESTRUCTED` member selected it.
+  Now the call does nothing, as for a non-member and as in Swift and Rust. C#
+  also refuses it, with its `SelectComponent` exception. The commit checks
+  `CONSTRUCTED` again under the same locks as `select_component`. A destruct
+  on another thread after the entry check makes the call raise the predicate
+  `ValueError`. An `async_selection(True)` delivery drops such a child. The
+  check runs before the disposing check. So while the composite disposes, the
+  call no longer raises the disposing `RuntimeError`, as in Swift.
+- Hub, container membership and child ownership-lock waits now record in one
+  wait-for graph, `vmx._wait_for_graph.WAITS` (spec/03 §4.1, ADR-0172). A
+  cycle that crosses these waits no longer hangs (#1157): when a hub drainer
+  disposes a `CompositeVM` or `GroupVM` whose `add` or `append` waits in
+  `send` for that drainer, the disposal is recorded for the transaction owner.
+  A wait for another thread's child ownership lock now records an edge too
+  (#1155). The wait that would close a cycle raises `RuntimeError` before the
+  `add`, `append`, indexer, population or `AggregateVM` slot replacement
+  changes anything, instead of hanging. A contested lock with no cycle is
+  still waited for.
+- A `MessageHub` waiter no longer takes a cycle escape for a cycle that has
+  ended (#1181, `HUB-013`). The thread that releases a hub's batch, drain or
+  borrowed scope removes the edges that name it before it wakes the waiters.
+  Before, a `send` could return before delivery, a `dispose()` could drop
+  another thread's batched messages, and a `batch()` could borrow the hub.
+- A borrowed `MessageHub` batch scope is a wait-for owner (spec/03 §4.2,
+  #1179). A wait for it records an edge to the borrower, so a cycle through it
+  is refused instead of hanging. The borrower's own `send`, `batch()` and
+  `dispose()` on that hub no longer wait for its own borrowed scope. After the
+  borrower's `dispose()`, the last of the batch owner, the drainer and the
+  borrowers to release the hub completes `messages`; a drain that ends first
+  no longer completes it while the borrowed scope is open, as in the other
+  flavors. A drainer with an empty queue releases the drain instead of waiting for a borrowed
+  scope. A drainer with queued messages whose wait would close a cycle
+  releases the drain, and the exit of the last borrowed scope delivers them,
+  in FIFO order, on the borrower's thread.
+- Lifecycle publication and hook-lease waits now record in the same wait-for
+  graph, `vmx._wait_for_graph.WAITS`, keyed per publication and per hook lease
+  (spec/02 §2.4, spec/03 §4.1, ADR-0172). The private lifecycle graph in
+  `vmx.components.base` is gone.
+  - `dispose()` no longer returns before another thread's admitted hook, or
+    another thread's delivery of the view-model's `DISPOSED`, finishes because
+    of a cycle that has ended (#1182, `LIFE-015`). The hook's thread, or the
+    publication's drainer, removes its ownership before it wakes the waiters.
+    Before, a stale edge made `dispose()` defer its cleanup to the other
+    thread and drop a cleanup failure, or run `_on_dispose` before `DISPOSED`
+    reached subscribers.
+  - A cycle that crosses a lifecycle wait and a hub wait no longer hangs
+    (#1202, `HUB-013`). For example, a hub drainer whose subscriber disposes a
+    view-model while that view-model's `construct()` waits in `send` for the
+    drainer: the `dispose()` leaves `DISPOSED` queued for the constructing
+    thread and returns.
+- A `construct()`, `destruct()` or `reconstruct()` call that starts during a
+  view-model's inline dispose cascade now raises
+  `StatusTransitionError(DISPOSED, operation)` (ADR-0175, spec/02 §7.2,
+  LIFE-021, #1174). The cascade is the part of `dispose()` that disposes the
+  children of a `CompositeVM`, `GroupVM` or `AggregateVM1`…`AggregateVM6`, or
+  the `_own_member` members of a leaf, before the view-model publishes
+  `DISPOSED`. The check runs before the idempotent no-op, so `construct()`
+  from `CONSTRUCTED` also raises. The call publishes nothing, runs no hook and
+  calls no slot factory. Before, it published `CONSTRUCTING` or `DESTRUCTING`,
+  ran no hook and returned.
+- A transition whose hook returned before a concurrent `dispose()` started
+  its inline cascade no longer publishes `CONSTRUCTED` or `DESTRUCTED` over
+  disposed children or members (#1167). Once `dispose()` has started, the
+  settled commit, the rollback after a failed hook or child walk, the restore
+  after a failed transient publication, a commit that a background
+  transition queued on the foreground, and the construct phase of
+  `reconstruct()` publish nothing. The call returns without a supersession
+  error; a hook or walk failure that was already propagating still
+  propagates.
+- A container's child walk stops once a foreign `dispose()` has published
+  `DISPOSED` (#1163, spec/02 §2.4, LIFE-015). Before, a `CompositeVM`,
+  `GroupVM`, `AggregateVM1`…`AggregateVM6` or `_transition_children` walk
+  still constructed or destructed the remaining children and ran the
+  `current` selector, the `on_destruct` callback or `after` while the
+  disposing thread waited for the hook. A child whose transition started
+  before the dispose still finishes it. The walk's future then completes
+  without error, as in C#, Swift and Rust.
+- `FormVM` queues every `set_model` and deny that the approving thread makes in
+  an approval's pre-publication window and replays them after `on_approved`
+  (spec/20 §5.3, ADR-0174, FORM-039, FORM-040, #1168, #1050). The window now
+  opens with the post-persist commit. Calls from `reset_on_approved`, the
+  snapshotter, and the validators of that commit are queued, as are calls from
+  the settlement `errors_changed` and `can_execute_changed` observers. Before,
+  a call from `reset_on_approved` committed at once and the reset then
+  overwrote it. A deny from a settlement observer also committed at once, so
+  `on_approved` observers saw the reverted model. A queued call now runs its
+  preparation when it is called, so a failing validator or `__eq__` raises to
+  the caller and nothing is queued. Before, the failure surfaced only at
+  replay and failed the settled approval. Each queued call replays as a new
+  call, in call order. A replay failure no longer stops the later replays. The
+  first one reaches the approval's own failure route after the last replay:
+  the `approve_async` awaiter, or `approve_errors` once on the command path.
+  A failure that the approval already carries wins. That is a failed reset, or
+  a failure that a settlement or `on_approved` observer raises. After a failed
+  reset, the calls it queued replay before the failure is routed. Only the
+  approving thread's calls are queued. Another thread still waits only during
+  the publication scope, and while the post-persist commit runs its approve is
+  refused and the reset overwrites its `set_model`. Each queued update calls
+  the validators once more, at call time.
 - `ServicedObservableCollection`, `KeyedServicedObservableCollection` and
   `ObservableDictionary` now send the hub `CollectionChangedMessage` when a
   local subscriber raises (#1051, ADR-0171, COL-066). The change stays
@@ -104,6 +223,52 @@ below for them.
   parent's detach commit. Before, another thread could select the child in
   the destination before that commit, and the commit then reset its
   `is_current` flag while it stayed `current` (`COMP-006`).
+- `FormVM` queues every `set_model` and deny that the approving thread makes in
+  an approval's pre-publication window and replays them after `on_approved`
+  (spec/20 §5.3, ADR-0174, FORM-039, FORM-040, #1168, #1050). The window now
+  opens with the post-persist commit. Calls from `reset_on_approved`, the
+  snapshotter, and the validators of that commit are queued, as are calls from
+  the settlement `errors_changed` and `can_execute_changed` observers. Before,
+  a call from `reset_on_approved` committed at once and the reset then
+  overwrote it. A deny from a settlement observer also committed at once, so
+  `on_approved` observers saw the reverted model. A queued call now runs its
+  preparation when it is called, so a failing validator or `__eq__` raises to
+  the caller and nothing is queued. Before, the failure surfaced only at
+  replay and failed the settled approval. Each queued call replays as a new
+  call, in call order. A replay failure no longer stops the later replays. The
+  first one reaches the approval's own failure route after the last replay:
+  the `approve_async` awaiter, or `approve_errors` once on the command path.
+  A failure that the approval already carries wins. That is a failed reset, or
+  a failure that a settlement or `on_approved` observer raises. After a failed
+  reset, the calls it queued replay before the failure is routed. Only the
+  approving thread's calls are queued. Another thread still waits only during
+  the publication scope, and while the post-persist commit runs its approve is
+  refused and the reset overwrites its `set_model`. Each queued update calls
+  the validators once more, at call time.
+- A `FormVM` wait for another thread's publication scope now records an edge
+  in `vmx._wait_for_graph.WAITS` (spec/20 §5.5, ADR-0176, #1170). Before, a
+  form observer that sent on a hub could deadlock with that hub's drainer.
+  This happened when the drainer's subscriber called `set_model`, deny or
+  `dispose()` on the same form. Now the wait that would close the cycle is
+  refused. A refused `set_model` or deny prepares, joins the publisher's
+  queue, and returns before it takes effect. The publisher replays it when its
+  scope ends. A refused `dispose()` marks the form disposed and returns, and
+  the publisher runs the teardown when its scope ends. A refused approve call
+  is admitted, and a refused settlement commits in its own scope. A wait that
+  closes no cycle still blocks. `set_model` and deny now deliver
+  `errors_changed` in an update scope, and `can_execute_changed` after it. No
+  form notification is delivered while the form holds its state lock. The
+  `approve_errors` delivery opens no scope, so a concurrent `dispose()`
+  returns at once. Its teardown waits until the delivery returns. Each thread
+  keeps its own publication state and queue.
+  A failed settlement nested in an outer approval's notifications now keeps
+  the outer pre-publication window. An update from its `can_execute_changed`
+  observer is queued, as in C# and Rust.
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command was admitted. The load then refetched
+  page 1 and appended it again, and `has_more` stayed true. The load now changes
+  nothing and does not supersede an in-flight refresh.
 - `ObservableDictionary`: `remove` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
@@ -270,6 +435,22 @@ below for them.
   other resources, when that component is disposed through any decorator or
   directly, and at once if it is already disposed (`FWD-005`, ADR-0151, spec
   3.30.0) (#650).
+- `CompositeVM` and `GroupVM` raise the failure of a deferred `dispose()` after
+  a successful structural operation also when the caller runs it inside an
+  `except` block or a container `on_destruct` hook. This covers `__setitem__`,
+  `insert`, `append`/`add`, `remove`, `remove_at`, `__delitem__`, `clear`,
+  lazy population in `construct()` and a transfer out of a `GroupVM`. Before,
+  each operation decided success from `sys.exc_info()`, which also reports an
+  exception that a caller frame handles, so it dropped the failure. A lazy
+  population then left the container `DISPOSED`, and `construct()` raised a
+  `StatusTransitionError`. A failed operation still keeps its own error as the
+  first failure (spec/06 §4.2) (#1152).
+- `GroupVM` keeps a deferred `dispose()` pending until the handoff call at the
+  end of the owner's membership transaction admits it, as `CompositeVM` does
+  (#1064). Before, it cleared the deferral first, so another thread's `add`
+  that started in between was admitted and then disposed, or the handoff
+  waited for it. That `add` now raises the "container is disposing"
+  `RuntimeError` (spec/06 §4.2, spec/07) (#1153).
 
 ## [3.29.0] — unreleased source version
 

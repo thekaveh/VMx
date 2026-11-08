@@ -179,7 +179,8 @@ open class CompositeVM<Child: ComponentVMBase>:
         // Constructed. C# throws on a violation; Swift keeps the existing
         // no-op rather than introducing an (uncatchable) trap — the
         // trap-vs-throw recoverability gap is tracked separately (ADR-0037).
-        // Every other refusal of spec/06 §4.3 is a silent no-op here too.
+        // Every other refusal of spec/06 §4.3 is a silent no-op here too. The
+        // commit checks Constructed again under its locks (#1220).
         guard vm.status == .constructed,
               let child = membershipGate.withLock({ children.first(where: { $0 === vm }) })
         else { return }
@@ -337,7 +338,9 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// surfaces `InvalidOperationException`.
     public func canSelectComponent(_ vm: Child) -> Bool {
         guard vm.status == .constructed else { return false }
-        switch _commitSelection(vm, selectionCall: true, validateOnly: true) {
+        switch _commitSelection(
+            vm, selectionCall: true, requireConstructed: true, validateOnly: true
+        ) {
         case .committed, .unchanged: return true
         case .refused, .inert: return false
         }
@@ -351,8 +354,12 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// property setter which cannot be `throws` in Swift.
     public func selectComponent(_ vm: Child) throws {
         guard vm.status == .constructed else {
-            throw CompositeMembershipError(memberName: vm.name, compositeName: name)
+            throw CompositeMembershipError(
+                memberName: vm.name, compositeName: name, reason: .notConstructed
+            )
         }
+        // The commit checks Constructed again under its locks, so a destruct
+        // on another thread after this check cannot pass it (#1220).
         if let refusal = _requestSelection(vm, requireConstructed: true) {
             throw CompositeMembershipError(memberName: vm.name, compositeName: name, reason: refusal)
         }
@@ -641,10 +648,12 @@ open class CompositeVM<Child: ComponentVMBase>:
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
+        // `old` keeps this composite as its parent until the commit, which
+        // frees it and clears `current` in one locked section. Until then no
+        // other container can adopt it while it is still current here
+        // (COMP-006), and a rollback can always put it back (#1219).
         let old = children[index]
         children[index] = child
-        old._parent = nil
-        old._ownershipParent = nil
         child._parent = self
         child._ownershipParent = self
         pendingAdmissions.insert(ObjectIdentifier(child))
@@ -656,8 +665,6 @@ open class CompositeVM<Child: ComponentVMBase>:
                 pendingAdmissions.remove(ObjectIdentifier(child))
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children[attached] = old
-                    old._parent = self
-                    old._ownershipParent = self
                 }
                 if child._ownershipParent === self {
                     child._parent = nil
@@ -676,8 +683,6 @@ open class CompositeVM<Child: ComponentVMBase>:
                 pendingAdmissions.remove(ObjectIdentifier(child))
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children[attached] = old
-                    old._parent = self
-                    old._ownershipParent = self
                 }
                 if child._ownershipParent === self {
                     child._parent = nil
@@ -701,7 +706,15 @@ open class CompositeVM<Child: ComponentVMBase>:
         // the child is current here (COMP-006). The admission still precedes
         // CollectionChanged (spec/06 §4.3 rule 2).
         membershipGate.withLock { _ = pendingAdmissions.remove(ObjectIdentifier(child)) }
-        _clearDetachedCurrent(old)
+        // Free `old` and clear `current` in one section, as removeAt does.
+        let detached = _detachClearingCurrent { () -> (Void, Child?)? in
+            if old._ownershipParent === self {
+                old._parent = nil
+                old._ownershipParent = nil
+            }
+            return ((), old)
+        }
+        if let (_, clear) = detached { _publishSelection(clear, to: nil) }
         emit(.removed(old, at: index))
         emit(.added(child, at: index))
         return .success(())
@@ -1241,22 +1254,33 @@ open class CompositeVM<Child: ComponentVMBase>:
     ) -> CompositeSelectionRefusal? {
         guard _asyncSelection else {
             if case let .refused(refusal) = _applySelection(
-                value, selectionCall: true, expectedCurrent: expectedCurrent
+                value,
+                selectionCall: true,
+                requireConstructed: requireConstructed,
+                expectedCurrent: expectedCurrent
             ) {
                 return refusal
             }
             return nil
         }
         switch _commitSelection(
-            value, selectionCall: true, expectedCurrent: expectedCurrent, validateOnly: true
+            value,
+            selectionCall: true,
+            requireConstructed: requireConstructed,
+            expectedCurrent: expectedCurrent,
+            validateOnly: true
         ) {
         case let .refused(refusal): return refusal
         case .inert: return nil
         case .committed, .unchanged: break
         }
         dispatcher.scheduleForeground { [weak self] in
-            if requireConstructed, let value, value.status != .constructed { return }
-            _ = self?._applySelection(value, selectionCall: true, expectedCurrent: expectedCurrent)
+            _ = self?._applySelection(
+                value,
+                selectionCall: true,
+                requireConstructed: requireConstructed,
+                expectedCurrent: expectedCurrent
+            )
         }
         return nil
     }
@@ -1267,10 +1291,14 @@ open class CompositeVM<Child: ComponentVMBase>:
     private func _applySelection(
         _ value: Child?,
         selectionCall: Bool,
+        requireConstructed: Bool = false,
         expectedCurrent: Child? = nil
     ) -> CompositeSelectionOutcome<Child> {
         let outcome = _commitSelection(
-            value, selectionCall: selectionCall, expectedCurrent: expectedCurrent
+            value,
+            selectionCall: selectionCall,
+            requireConstructed: requireConstructed,
+            expectedCurrent: expectedCurrent
         )
         _publishSelection(outcome, to: value)
         return outcome
@@ -1284,6 +1312,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     private func _commitSelection(
         _ value: Child?,
         selectionCall: Bool,
+        requireConstructed: Bool = false,
         expectedCurrent: Child? = nil,
         validateOnly: Bool = false
     ) -> CompositeSelectionOutcome<Child> {
@@ -1297,6 +1326,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             _commitSelectionLocked(
                 value,
                 selectionCall: selectionCall,
+                requireConstructed: requireConstructed,
                 expectedCurrent: expectedCurrent,
                 validateOnly: validateOnly,
                 caller: caller,
@@ -1312,8 +1342,11 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// transaction); the destruct and detach clears pass `false`. Rule 2
     /// (admitted members) and rule 3 (no non-`nil` selection while disposal
     /// is pending) apply to every path; a `nil` value is never refused by
-    /// them. `expectedCurrent` makes the change apply only while that child is
-    /// current. Once the composite has published Disposed (`disposed`, read
+    /// them. `requireConstructed` (`selectComponent` and the child `select`
+    /// path) refuses a child that is not Constructed at the commit, so a
+    /// concurrent destruct cannot pass a check made before the locks (spec/06
+    /// §3.1, #1220). `expectedCurrent` makes the change apply only while that
+    /// child is current. Once the composite has published Disposed (`disposed`, read
     /// from the base lifecycle state), a selection call is inert (chapter 01
     /// §4). The destruct and detach clears still commit `nil`: they are never
     /// skipped (spec/06 §5, ADR-0173 rule 8), as in C# and Python, and the
@@ -1321,6 +1354,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     private func _commitSelectionLocked(
         _ value: Child?,
         selectionCall: Bool,
+        requireConstructed: Bool = false,
         expectedCurrent: Child?,
         validateOnly: Bool,
         caller: UInt64,
@@ -1330,6 +1364,11 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .refused(.transactionInProgress)
         }
         if let value, !isAdmittedMemberLocked(value) { return .refused(.nonMember) }
+        // The child's lifecycle lock nests under the gate, as in
+        // `_commitIsCurrent`.
+        if requireConstructed, let value, value.status != .constructed {
+            return .refused(.notConstructed)
+        }
         if let expectedCurrent, _current !== expectedCurrent { return .refused(.notCurrent) }
         if selectionCall && (disposed || disposeCompleted) { return .inert }
         if value != nil && (disposeRequested || disposeDeferred) {
@@ -1451,6 +1490,9 @@ open class CompositeVM<Child: ComponentVMBase>:
 enum CompositeSelectionRefusal {
     /// Not an admitted member (rule 2).
     case nonMember
+    /// `selectComponent` or the child `select` path on a child that is not
+    /// Constructed (spec/06 §3.1).
+    case notConstructed
     /// A deselection of a child that is not current (spec/06 §3.1).
     case notCurrent
     /// A non-`nil` selection while disposal is pending (rule 3).
@@ -1505,6 +1547,7 @@ public struct CompositeMembershipError: Error, CustomStringConvertible {
     static func explanation(for reason: CompositeSelectionRefusal) -> String {
         switch reason {
         case .nonMember: return "not an admitted child of the composite."
+        case .notConstructed: return "the child is not Constructed."
         case .notCurrent: return "not the current child of the composite."
         case .disposing: return "disposal of the composite is in progress."
         case .transactionInProgress:

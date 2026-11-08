@@ -74,7 +74,7 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     // own Disposed transition — a single dispose-ordering rule across all
     // container VM kinds.
     disposeBestEffort([
-      () => this._abandonChildTransition(),
+      () => this._beginDisposeCascade(),
       () => this.#component1?.dispose(),
       () => super.dispose(),
     ]);

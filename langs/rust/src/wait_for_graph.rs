@@ -1,17 +1,33 @@
-//! The process-wide wait-for graph for container membership waits.
+//! The process-wide wait-for graph for every blocking wait between VMx-owned
+//! resources (spec/03 §4.1, ADR-0172).
 //!
-//! A thread that waits for another thread's container membership transaction
-//! records its wait before it blocks, so a wait-for cycle is visible. The wait
-//! that would close a cycle is refused, and the caller records deferred intent
-//! instead of waiting (ADR-0153, ADR-0167). Rust message-hub waits are not
-//! recorded here.
+//! A thread that waits for another thread's resource records its wait before
+//! it blocks, so a wait-for cycle across any mix of waits is visible: a message
+//! hub `send`, `batch` or `dispose` that waits for the hub's batch owner,
+//! drainer or a borrowed scope; a hub drainer with queued messages that waits
+//! for a borrowed scope; a foreign `dispose()` that waits for an admitted
+//! lifecycle hook; a cross-thread container disposal that waits for a
+//! membership transaction; and a `FormVm` call that waits for another thread's
+//! publication scope on the form. A lifecycle status publication is a hub
+//! send, so it records a hub wait. The wait that would close a cycle is
+//! refused, and the caller takes its refused-wait result instead of blocking
+//! (ADR-0119, ADR-0126, ADR-0153, ADR-0167, ADR-0176).
 //!
-//! A wait names its resource, a container's transaction control. The owner of
-//! the resource is looked up when a cycle is checked, so an edge stops counting
-//! as soon as the resource is released, even before the waiter wakes (#736).
-//! Callers may hold a container's transaction state lock when they call in.
-//! The graph never takes another lock, so its lock is always the last one
-//! taken.
+//! Every resource is named by a typed, address-derived [`Resource`] key, so
+//! keys of different kinds never collide. A thread has at most one edge. An
+//! edge names its resource and either the owner the waiter saw when it began
+//! to wait (hub, hook and form waits) or no owner, which is then looked up
+//! when a cycle is checked (membership waits, #736). Either way an edge stops
+//! counting as soon as the owner releases the resource: an owner-named edge
+//! is removed by the releasing thread before it wakes the waiters
+//! ([`WaitForGraph::release_waiters`]), and a looked-up owner is removed by
+//! [`WaitForGraph::release`]. A woken waiter that must still wait records its
+//! wait again. So only live cycles count, and a stale edge never makes a wait
+//! take its refused-wait result.
+//!
+//! Callers may hold a hub's, a component's or a container's state lock when
+//! they call in. The graph never takes another lock and runs no consumer code,
+//! so its lock is always the last one taken.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
@@ -19,10 +35,32 @@ use std::thread::ThreadId;
 
 use crate::runtime::lock;
 
+/// A resource that a thread can own and another thread can wait for. Each key
+/// is the address of the object that guards the resource while it lives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Resource {
+    /// A container's membership transaction control.
+    Membership(usize),
+    /// A message hub's batch, drain and borrowed scopes.
+    MessageHub(usize),
+    /// A component's admitted lifecycle hook (its hook lease).
+    Hook(usize),
+    /// A form's publication scopes (spec/20 §5.5).
+    FormPublication(usize),
+}
+
+#[derive(Clone, Copy)]
+struct Edge {
+    resource: Resource,
+    /// The owner the waiter named, or `None` when the owner is looked up in
+    /// `owners` at check time.
+    owner: Option<ThreadId>,
+}
+
 #[derive(Default)]
 struct GraphState {
-    owners: HashMap<usize, ThreadId>,
-    waiting_on: HashMap<ThreadId, usize>,
+    owners: HashMap<Resource, ThreadId>,
+    waiting_on: HashMap<ThreadId, Edge>,
 }
 
 #[derive(Default)]
@@ -30,37 +68,79 @@ pub(crate) struct WaitForGraph {
     state: Mutex<GraphState>,
 }
 
-/// Returns the graph that every container membership wait records in.
+/// Returns the graph that every VMx wait records in.
 pub(crate) fn waits() -> &'static WaitForGraph {
     static GRAPH: OnceLock<WaitForGraph> = OnceLock::new();
     GRAPH.get_or_init(WaitForGraph::default)
 }
 
 impl WaitForGraph {
-    /// Records that `thread` holds `resource`.
-    pub(crate) fn acquire(&self, resource: usize, thread: ThreadId) {
+    /// Records that `thread` holds `resource`, for waits that look the owner
+    /// up when a cycle is checked.
+    pub(crate) fn acquire(&self, resource: Resource, thread: ThreadId) {
         lock(&self.state).owners.insert(resource, thread);
     }
 
     /// Records that `resource` has been released.
-    pub(crate) fn release(&self, resource: usize) {
+    pub(crate) fn release(&self, resource: Resource) {
         lock(&self.state).owners.remove(&resource);
     }
 
-    /// Records that `caller` waits for `resource`. Returns `false`, and
-    /// records nothing, when that wait would close a cycle.
-    pub(crate) fn try_begin_wait(&self, resource: usize, caller: ThreadId) -> bool {
+    /// Records that `caller` waits for `resource`, whose owner is looked up
+    /// when a cycle is checked. Returns `false`, and records nothing, when
+    /// that wait would close a cycle.
+    pub(crate) fn try_begin_wait(&self, resource: Resource, caller: ThreadId) -> bool {
         let mut state = lock(&self.state);
         if let Some(&owner) = state.owners.get(&resource) {
             if reaches(&state, caller, owner) {
                 return false;
             }
         }
-        state.waiting_on.insert(caller, resource);
+        state.waiting_on.insert(
+            caller,
+            Edge {
+                resource,
+                owner: None,
+            },
+        );
         true
     }
 
-    /// Removes the wait that `caller` recorded.
+    /// Records that `caller` waits for `owner`'s hold on `resource`. Returns
+    /// `false`, and records nothing, when that wait would close a cycle. The
+    /// owner removes the edge with [`Self::release_waiters`] before it wakes
+    /// the waiter.
+    pub(crate) fn try_begin_wait_for(
+        &self,
+        resource: Resource,
+        owner: ThreadId,
+        caller: ThreadId,
+    ) -> bool {
+        let mut state = lock(&self.state);
+        if reaches(&state, caller, owner) {
+            return false;
+        }
+        state.waiting_on.insert(
+            caller,
+            Edge {
+                resource,
+                owner: Some(owner),
+            },
+        );
+        true
+    }
+
+    /// Removes the waits on `resource` that name an owner not in `holders`.
+    /// The thread that releases its hold on `resource` calls this before it
+    /// wakes the waiters, so no edge names a released owner (spec/03 §4.1
+    /// rule 4).
+    pub(crate) fn release_waiters(&self, resource: Resource, holders: &[ThreadId]) {
+        lock(&self.state).waiting_on.retain(|_, edge| {
+            edge.resource != resource || edge.owner.is_none_or(|owner| holders.contains(&owner))
+        });
+    }
+
+    /// Removes the wait that `caller` recorded, if any remains.
     pub(crate) fn end_wait(&self, caller: ThreadId) {
         lock(&self.state).waiting_on.remove(&caller);
     }
@@ -69,8 +149,15 @@ impl WaitForGraph {
         lock(&self.state).waiting_on.contains_key(&thread)
     }
 
+    fn is_waiting_for_membership(&self, thread: ThreadId) -> bool {
+        lock(&self.state)
+            .waiting_on
+            .get(&thread)
+            .is_some_and(|edge| matches!(edge.resource, Resource::Membership(_)))
+    }
+
     #[cfg(test)]
-    fn owner_of(&self, resource: usize) -> Option<ThreadId> {
+    fn owner_of(&self, resource: Resource) -> Option<ThreadId> {
         lock(&self.state).owners.get(&resource).copied()
     }
 }
@@ -83,14 +170,13 @@ fn reaches(state: &GraphState, target: ThreadId, start: ThreadId) -> bool {
         if !visited.insert(cursor) {
             return false;
         }
-        let Some(owner) = state
-            .waiting_on
-            .get(&cursor)
-            .and_then(|resource| state.owners.get(resource))
-        else {
+        let Some(owner) = state.waiting_on.get(&cursor).and_then(|edge| {
+            edge.owner
+                .or_else(|| state.owners.get(&edge.resource).copied())
+        }) else {
             return false;
         };
-        cursor = *owner;
+        cursor = owner;
     }
     true
 }
@@ -99,17 +185,30 @@ fn reaches(state: &GraphState, target: ThreadId, start: ThreadId) -> bool {
 /// container membership transaction. Production code never calls it.
 #[doc(hidden)]
 pub fn container_wait_registered_for_testing(thread: ThreadId) -> bool {
+    waits().is_waiting_for_membership(thread)
+}
+
+/// Test-only seam: reports whether `thread` has recorded any wait in the
+/// wait-for graph: a message hub, lifecycle hook, container membership or
+/// form publication wait.
+/// Production code never calls it.
+#[doc(hidden)]
+pub fn wait_registered_for_testing(thread: ThreadId) -> bool {
     waits().is_waiting(thread)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{waits, WaitForGraph};
+    use super::{waits, Resource, WaitForGraph};
     use crate::runtime::{begin_membership_transaction, MembershipTransactionControl};
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     use std::thread::{self, ThreadId};
     use std::time::{Duration, Instant};
+
+    fn m(key: usize) -> Resource {
+        Resource::Membership(key)
+    }
 
     fn threads(count: usize) -> Vec<ThreadId> {
         (0..count)
@@ -121,11 +220,11 @@ mod tests {
     fn a_wait_that_closes_a_cycle_is_refused() {
         let graph = WaitForGraph::default();
         let t = threads(2);
-        graph.acquire(1, t[0]);
-        graph.acquire(2, t[1]);
+        graph.acquire(m(1), t[0]);
+        graph.acquire(m(2), t[1]);
 
-        assert!(graph.try_begin_wait(2, t[0]));
-        assert!(!graph.try_begin_wait(1, t[1]));
+        assert!(graph.try_begin_wait(m(2), t[0]));
+        assert!(!graph.try_begin_wait(m(1), t[1]));
         assert!(!graph.is_waiting(t[1]));
     }
 
@@ -133,13 +232,13 @@ mod tests {
     fn a_cycle_through_a_third_thread_is_refused() {
         let graph = WaitForGraph::default();
         let t = threads(3);
-        graph.acquire(1, t[0]);
-        graph.acquire(2, t[1]);
-        graph.acquire(3, t[2]);
+        graph.acquire(m(1), t[0]);
+        graph.acquire(m(2), t[1]);
+        graph.acquire(m(3), t[2]);
 
-        assert!(graph.try_begin_wait(2, t[0]));
-        assert!(graph.try_begin_wait(3, t[1]));
-        assert!(!graph.try_begin_wait(1, t[2]));
+        assert!(graph.try_begin_wait(m(2), t[0]));
+        assert!(graph.try_begin_wait(m(3), t[1]));
+        assert!(!graph.try_begin_wait(m(1), t[2]));
     }
 
     #[test]
@@ -148,25 +247,25 @@ mod tests {
         // on a released resource does not count (#736).
         let graph = WaitForGraph::default();
         let t = threads(2);
-        graph.acquire(1, t[0]);
-        graph.acquire(2, t[1]);
-        assert!(graph.try_begin_wait(2, t[0]));
-        graph.release(2);
+        graph.acquire(m(1), t[0]);
+        graph.acquire(m(2), t[1]);
+        assert!(graph.try_begin_wait(m(2), t[0]));
+        graph.release(m(2));
 
-        assert!(graph.try_begin_wait(1, t[1]));
+        assert!(graph.try_begin_wait(m(1), t[1]));
     }
 
     #[test]
     fn an_ended_wait_no_longer_closes_a_cycle() {
         let graph = WaitForGraph::default();
         let t = threads(2);
-        graph.acquire(1, t[0]);
-        graph.acquire(2, t[1]);
-        assert!(graph.try_begin_wait(2, t[0]));
+        graph.acquire(m(1), t[0]);
+        graph.acquire(m(2), t[1]);
+        assert!(graph.try_begin_wait(m(2), t[0]));
         graph.end_wait(t[0]);
 
         assert!(!graph.is_waiting(t[0]));
-        assert!(graph.try_begin_wait(1, t[1]));
+        assert!(graph.try_begin_wait(m(1), t[1]));
     }
 
     #[test]
@@ -221,7 +320,70 @@ mod tests {
         let graph = WaitForGraph::default();
         let t = threads(1);
 
-        assert!(graph.try_begin_wait(7, t[0]));
+        assert!(graph.try_begin_wait(m(7), t[0]));
         assert!(graph.is_waiting(t[0]));
+    }
+
+    #[test]
+    fn a_hub_wait_and_a_membership_wait_close_one_cycle_in_either_order() {
+        // #1158: hub, hook and membership waits share one graph, so a cycle
+        // that mixes them is refused whichever wait closes it.
+        for hub_first in [true, false] {
+            for named in [Resource::MessageHub(10), Resource::Hook(11)] {
+                let graph = WaitForGraph::default();
+                let t = threads(2);
+                graph.acquire(m(1), t[0]);
+                if hub_first {
+                    assert!(graph.try_begin_wait_for(named, t[1], t[0]));
+                    assert!(!graph.try_begin_wait(m(1), t[1]));
+                    assert!(!graph.is_waiting(t[1]));
+                } else {
+                    assert!(graph.try_begin_wait(m(1), t[1]));
+                    assert!(!graph.try_begin_wait_for(named, t[1], t[0]));
+                    assert!(!graph.is_waiting(t[0]));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn released_waiters_drop_only_edges_to_former_owners() {
+        let graph = WaitForGraph::default();
+        let t = threads(4);
+        let hub = Resource::MessageHub(10);
+        assert!(graph.try_begin_wait_for(hub, t[1], t[0]));
+        assert!(graph.try_begin_wait_for(hub, t[2], t[3]));
+        assert!(graph.try_begin_wait_for(Resource::Hook(10), t[1], t[2]));
+
+        // t[1] released the hub, and t[2] still holds it.
+        graph.release_waiters(hub, &[t[2]]);
+
+        assert!(!graph.is_waiting(t[0]));
+        assert!(graph.is_waiting(t[3]));
+        // A wait on another resource with the same address is kept.
+        assert!(graph.is_waiting(t[2]));
+    }
+
+    #[test]
+    fn a_released_named_owner_no_longer_closes_a_cycle() {
+        // #1180, #1183: the releasing owner removes the edge before the
+        // waiter wakes, so a check in that window sees no cycle.
+        let graph = WaitForGraph::default();
+        let t = threads(2);
+        let hub = Resource::MessageHub(10);
+        assert!(graph.try_begin_wait_for(hub, t[1], t[0]));
+        graph.release_waiters(hub, &[]);
+
+        assert!(graph.try_begin_wait_for(Resource::Hook(11), t[0], t[1]));
+    }
+
+    #[test]
+    fn a_membership_wait_is_not_reported_for_a_hub_wait() {
+        let graph = WaitForGraph::default();
+        let t = threads(2);
+        assert!(graph.try_begin_wait_for(Resource::MessageHub(10), t[1], t[0]));
+
+        assert!(graph.is_waiting(t[0]));
+        assert!(!graph.is_waiting_for_membership(t[0]));
     }
 }

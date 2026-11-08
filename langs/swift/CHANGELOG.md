@@ -67,6 +67,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVM` call that waits for another thread's publication scope is now
+  recorded in the one wait-for graph (ADR-0176, spec/20 §5.5, #1170). Before,
+  a sink that sent on a hub while another thread drained it could hang both
+  threads. This happened when a subscriber on the draining thread called
+  `setModel`, deny or `dispose()` on the form. The publishing sink could be an
+  `errorsChanged`, `onApproved`, reset or settlement `canExecuteChanged`
+  sink. Now the wait that would close the cycle is refused. A refused
+  `setModel` or deny prepares, joins the publisher's queue, and returns before
+  it takes effect. The publisher replays it when its outermost scope ends. A
+  refused `dispose()` marks the form disposed and returns. The publisher then
+  completes the channels and disposes the commands after its outermost scope.
+  When the hub wait comes first, the send is refused instead, as before.
+  The form's notifications are unchanged in both cases.
+- Another thread's approval admission now waits for a `FormVM` publication
+  scope, as in C# and Python (ADR-0176, spec/20 §5.5). A refused wait admits
+  the call at once. A failed settlement now holds a scope over its
+  `canExecuteChanged`, and it waits for another thread's scope before it
+  clears the in-flight mark. Two threads can hold scopes after a refused
+  settlement wait, so each publisher keeps its own queue and
+  pre-publication window.
+- `FormVM.dispose()` no longer completes the channels while another thread
+  delivers an approval admission's `canExecuteChanged` or an `approveErrors`
+  value (spec/20 §5.5, ADR-0176, #1228). Neither delivery opens a
+  publication scope. Before, `dispose()` tore the form down at once. Now
+  both deliveries count as active, as an update already did. `dispose()`
+  marks the form disposed and returns, and the delivering thread completes
+  the channels when the delivery returns, as in C# and Python.
+- `MessageHub.batch` called by a borrower on a disposed hub now runs its body
+  with no new borrowed scope (#1230, spec/03 §3.3, §4.2 rule 3). C#, Python
+  and Rust already did this. Before, the call nested another borrowed scope.
+  Only the borrower's own outer exit could finish the disposal, so no other
+  thread saw a difference.
+- `replaceResult(at:with:)` and `replace(at:with:)` keep the replaced child
+  owned until the commit (#1219). The commit now frees the child and clears
+  `current` in one locked section, as `removeAt` does. Before, the method
+  freed the child first and cleared `current` only at the end. A construct
+  hook of the replacement could adopt the freed child into another
+  composite and select it there. The commit then reset the child's
+  `isCurrent` flag while the other composite kept it current. A hook that
+  adopted the child and then failed left it in both composites. Now the
+  adoption fails while the replacement is in progress. A failed replacement
+  still restores the child and `current` with no notification.
+- `selectComponent(_:)`, `selectChild(_:)` and the `asyncSelection` delivery
+  now check `Constructed` again at the commit, under the coordination lane
+  and the membership gate (spec/06 §3.1, #1220). Before, they read the
+  child's status once, before the commit. A destruct on another thread in
+  between let the call select a `Destructed` child. Now `selectComponent`
+  throws `CompositeMembershipError`, and `selectChild` and the delivery do
+  nothing.
+- A wait for another thread's child ownership gate is now recorded in the one
+  wait-for graph (ADR-0172, spec/03 §4.1, #1154). A structural operation
+  holds a child's gate from reservation until commit or rollback, and the
+  child's construct hook runs inside that interval. Before, a hook that
+  transferred a child whose gate another thread held, or that joined a group
+  transaction that thread owned, could hang both threads. Now the gate wait
+  that would close the cycle fails before mutation: `addResult`, `insertResult`
+  and population return `.failure(.attachmentFailed(_))`, and aggregate slot
+  replacement throws. The edge is keyed on the gate object, not on the VM, so
+  the end of a nested container's own membership transaction does not drop
+  it. A contested gate that closes no cycle still blocks.
+- `MessageHub` treats an open borrowed batch scope as a wait-for owner
+  (ADR-0172, spec/03 §4.2, HUB-013, #1178). A drainer with an empty queue no
+  longer waits for a borrowed scope: it releases the drain, and the last
+  borrowed-scope exit drains what the bodies enqueued. A drainer with queued
+  messages waits for a borrower with an edge in the wait-for graph. When that
+  wait would close a cycle, it releases the drain, and the last borrowed-scope
+  exit delivers the queued messages in FIFO order on its own thread. This is
+  the documented HUB-010 limitation of spec/03 §4.2 rule 5. A borrower's own
+  `send` enqueues and its `dispose()` records terminal intent, without a wait.
+  The exit of an owned batch no longer claims the drain while a borrowed
+  scope is open, and a borrower that exits while other borrowers remain wakes
+  the waiters, so no waiter keeps an edge to it. Before, the drainer waited
+  for the borrowed scope with no edge, and a borrower that then waited for the
+  drainer hung both threads.
+- A `construct()`, `destruct()` or `reconstruct()` call that starts during a
+  view-model's inline dispose cascade now throws
+  `StatusTransitionError(currentStatus: .disposed, …)` (ADR-0175, LIFE-021,
+  spec/02 §7.2, #1174). The cascade is the part of `dispose()` that disposes
+  the children of a `CompositeVM`, `GroupVM` or `AggregateVM1`…`AggregateVM6`,
+  or the members a leaf registered with `ownMember(_:)`, before the VM
+  publishes `.disposed`. The check runs before the idempotent no-op, so
+  `construct()` from `.constructed` also throws. Before, the call published
+  `.constructing` or `.destructing`, ran no hook and returned, so subscribers
+  saw a transient status that ended only at `.disposed`. A child's or
+  member's dispose hook, a subscriber and another thread all get the error.
+  `canConstruct()`, `canDestruct()` and `canReconstruct()` are unchanged.
+- Once the inline dispose cascade has started, no status other than
+  `.disposed` commits (ADR-0175, #1167). A transition whose hook returned
+  before the cascade no longer publishes `.constructed` or `.destructed`, or
+  its rollback, over children the cascade disposed. This also drops a
+  background commit queued on the foreground and drained during the cascade,
+  a deferred child-walk completion and its commit-time seal, and the
+  construct phase of `reconstruct()`. The superseded call returns without an
+  error, as a call that `.disposed` superseded does, and a hook or child
+  failure that was already propagating still propagates.
+- `GroupVM` refuses another thread's add, insert, removal or transfer as
+  disposal in progress while a deferred `dispose()` is handed off (#1153,
+  spec/06 §4.2, spec/07). A `dispose()` inside the caller's own membership
+  transaction is deferred, and the group calls `dispose()` again when the
+  transaction ends. Before, the group cleared the deferral before that call
+  admitted the disposal. In the gap, another thread's `addResult(_:)` could
+  be admitted, and the disposal then disposed the new child, or waited for
+  that thread's transaction. The deferral now stays set until `dispose()`
+  admits the disposal, as in C# and Python. `CompositeVM` keeps its deferral
+  set across the same handoff, from a transaction end and from a publication
+  end (#1064). New regression tests cover both containers.
+- `FormVM` no longer deadlocks when a `canExecuteChanged` sink on another
+  thread calls `setModel`, deny or `dispose()` while a successful approval is
+  published, or when an `onApproved` sink updates the form while such a sink
+  waits (#1168, ADR-0174). `onApproved`, `approveErrors`, `errorsChanged` and
+  `canExecuteChanged` of `approveCommand` and `denyCommand` now deliver
+  through `VMxConcurrentSubject`, which holds no lock while a sink runs, as
+  C# and Python do. A sink can therefore run on two threads at once, and a
+  sink that updates the form on each `canExecuteChanged` while another thread
+  edits it can recurse on its own thread. Sinks receive each value in
+  subscription order; the spec does not require this (open decision §2.5).
+  The public types of the commands do not change, and other commands keep
+  Combine delivery.
+- `FormVM` queues a `setModel` or deny that the approving thread makes from
+  `resetOnApproved`, another callback of the approval's commit, or a
+  settlement `errorsChanged` or `canExecuteChanged` sink (#1168, ADR-0174,
+  FORM-039, FORM-040). Before, a `setModel` from `resetOnApproved` committed
+  and delivered its notifications while the commit held the state lock. It
+  could deadlock with a sink on another thread, and the reset then overwrote
+  it, so the last `errorsChanged` map did not match `errors`. A deny from a
+  settlement sink committed at once, so `onApproved` observers saw the
+  reverted model. A queued call now runs its preparation (equality,
+  validators, and the snapshotter for deny) when it is called, changes and
+  publishes nothing, and replays in call order after `onApproved` is
+  delivered. After a failed reset, it replays after the failed settlement's
+  `canExecuteChanged` and before the failure is routed. A candidate equal to
+  the live model is still queued. A nested update made during that
+  preparation makes the outer call stale, so it is not queued. Each queued
+  update now runs its validators once more, at call time.
+- `VMxConcurrentSubject`, the internal subject behind `ComponentVMBase`
+  property changes and the `FormVM` channels, now delivers in subscription
+  order and reads a subscription's cancelled flag under its lock. It also
+  honors subscriber demand, as `PassthroughSubject` does: a value sent while a
+  subscriber has no outstanding demand is dropped for that subscriber. Before,
+  it delivered every value, so a demand-limited subscriber broke. For example,
+  `for await` over `propertyChanged.values` or `errorsChanged.values` trapped
+  with "Received an output without requesting demand".
 - `walk(_:)`, `walkExpanded(_:)` and `find(_:where:)` no longer trap when they
   reach a `HierarchicalVM` whose lazy children factory returns invalid output
   (#1060, ADR-0170, spec/13 §6.1). They are now `throws` and throw
@@ -130,6 +272,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `description` now names the reason. For a non-member it reads "Cannot set
   current to 'X' in composite 'Y': not an admitted child of the composite."
   instead of "Cannot set current to 'X': not a child of composite 'Y'."
+- `FormVM` no longer deadlocks when a `canExecuteChanged` sink on another
+  thread calls `setModel`, deny or `dispose()` while a successful approval is
+  published, or when an `onApproved` sink updates the form while such a sink
+  waits (#1168, ADR-0174). `onApproved`, `approveErrors`, `errorsChanged` and
+  `canExecuteChanged` of `approveCommand` and `denyCommand` now deliver
+  through `VMxConcurrentSubject`, which holds no lock while a sink runs, as
+  C# and Python do. A sink can therefore run on two threads at once, and a
+  sink that updates the form on each `canExecuteChanged` while another thread
+  edits it can recurse on its own thread. Sinks receive each value in
+  subscription order; the spec does not require this (open decision §2.5).
+  The public types of the commands do not change, and other commands keep
+  Combine delivery.
+- `FormVM` queues a `setModel` or deny that the approving thread makes from
+  `resetOnApproved`, another callback of the approval's commit, or a
+  settlement `errorsChanged` or `canExecuteChanged` sink (#1168, ADR-0174,
+  FORM-039, FORM-040). Before, a `setModel` from `resetOnApproved` committed
+  and delivered its notifications while the commit held the state lock. It
+  could deadlock with a sink on another thread, and the reset then overwrote
+  it, so the last `errorsChanged` map did not match `errors`. A deny from a
+  settlement sink committed at once, so `onApproved` observers saw the
+  reverted model. A queued call now runs its preparation (equality,
+  validators, and the snapshotter for deny) when it is called, changes and
+  publishes nothing, and replays in call order after `onApproved` is
+  delivered. After a failed reset, it replays after the failed settlement's
+  `canExecuteChanged` and before the failure is routed. A candidate equal to
+  the live model is still queued. A nested update made during that
+  preparation makes the outer call stale, so it is not queued. Each queued
+  update now runs its validators once more, at call time.
+- `VMxConcurrentSubject`, the internal subject behind `ComponentVMBase`
+  property changes and the `FormVM` channels, now delivers in subscription
+  order and reads a subscription's cancelled flag under its lock. It also
+  honors subscriber demand, as `PassthroughSubject` does: a value sent while a
+  subscriber has no outstanding demand is dropped for that subscriber. Before,
+  it delivered every value, so a demand-limited subscriber broke. For example,
+  `for await` over `propertyChanged.values` or `errorsChanged.values` trapped
+  with "Received an output without requesting demand".
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command was admitted. The load then refetched
+  page 1 and appended it again, and `hasMore` stayed true. The load now changes
+  nothing and does not supersede an in-flight refresh.
 - `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
   before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
   updated `keys2`. Before, an entry that a `keys1` subscriber added during
@@ -151,8 +334,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `canExecuteChanged` after the publication scope closes, as deny already did.
   `errorsChanged` is still sent inside the scope and keeps commit order across
   threads. This covers the notifications of `setModel`, deny and approval
-  admission. A `canExecuteChanged` sink that calls `setModel` can still deadlock
-  with a successful approval's settlement on another thread.
+  admission. The remaining deadlock, a `canExecuteChanged` sink that calls
+  `setModel` during a successful approval's settlement on another thread, is
+  fixed by the #1168 entry above.
 - A lifecycle publication that waits behind another thread's drain now waits on
   the thread that holds the turn (#1056). Before, a hand-off released only the
   next waiter's wait edge. Later waiters kept an edge to the old drainer, so the

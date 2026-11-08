@@ -1,5 +1,4 @@
 using VMx.Components;
-using VMx.Lifecycle;
 
 namespace VMx.Aggregates;
 
@@ -17,10 +16,17 @@ internal interface IAggregateSlots
 
 }
 
-internal sealed class AggregateParent(IComponentVM owner, IAggregateSlots slots)
+internal sealed class AggregateParent(ComponentVMBase owner, IAggregateSlots slots)
     : IParentCompositeVM
 {
     public IComponentVM Owner => owner;
+
+    /// <summary>
+    /// Assigns the aggregate's new slots in one step with the owner's terminal
+    /// check; see <see cref="ComponentVMBase.CommitUnlessDisposing"/>.
+    /// </summary>
+    internal bool CommitUnlessDisposing(Action assign) => owner.CommitUnlessDisposing(assign);
+
     public IParentCompositeVM? OwnerParent => owner.GetParent();
     public bool SupportsChildSelection => false;
     public IComponentVM? CurrentChild => null;
@@ -40,7 +46,7 @@ internal sealed class AggregateParent(IComponentVM owner, IAggregateSlots slots)
 internal static class AggregateOwnership
 {
     internal static bool Replace(
-        IParentCompositeVM parent,
+        AggregateParent parent,
         IComponentVM?[] previous,
         IComponentVM[] next,
         Action assign,
@@ -57,7 +63,10 @@ internal static class AggregateOwnership
                 firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
             }
         }
-        if (parent.Owner?.Status == ConstructionStatus.Disposed)
+        // The terminal check and the assignment are one step under the owner's
+        // lifecycle gate: a concurrent disposal either sees the committed slots
+        // in its cascade snapshot, or makes this commit fail (spec/08 §4).
+        if (!parent.CommitUnlessDisposing(assign))
         {
             foreach (var child in next)
             {
@@ -70,7 +79,6 @@ internal static class AggregateOwnership
             firstError?.Throw();
             return false;
         }
-        assign();
         Commit(parent, previous, next);
         if (firstError is not null)
         {

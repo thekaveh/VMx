@@ -152,8 +152,9 @@ and Rust (Rust's `ComponentCore` is mutex-backed); and the single-threaded event
 loop in TypeScript. This guarantees
 that a transition completing on the background scheduler (§4 background
 construct/destruct, `11-threading.md §4`) cannot interleave with `dispose()`:
-the completion observes `Disposed` under the guard and aborts instead of
-resurrecting the VM or reserving a post-terminal publication (invariant 6).
+the completion observes `Disposed`, or an inline dispose cascade in progress
+(§7.2), under the guard and aborts instead of resurrecting the VM or reserving
+a post-terminal publication (invariant 6).
 
 Consumer callbacks MUST NOT run while that state guard is held. The admitted
 `ConstructionStatusChangedMessage`, local property notifications, command
@@ -176,13 +177,34 @@ construct/destruct hook is admitted, foreign `dispose()` publishes the terminal
 status but waits for that hook and its container action before running terminal
 cleanup. The hook rechecks terminal supersession before any post-hook container
 action, so disposed parents cannot begin new child work. If two active hooks
-cross-dispose their peers, the global lifecycle wait graph breaks the cycle by
+cross-dispose their peers, the flavor's wait-for graph breaks the cycle by
 deferring one VM's terminal cleanup to its admitted hook's completion; both
 hooks and both teardown paths still run exactly once. TypeScript's
 single-threaded event loop cannot form this foreign-thread wait. Swift keeps its
 documented nonthrowing disposal surface. Throwing/result-based flavors preserve
 the earliest already-propagating failure when deferred cleanup also fails;
 later cleanup failures never replace it (ADR-0126).
+
+In C#, Python, Swift, and Rust, lifecycle publication waits and hook-lease
+waits are recorded in the flavor's single wait-for graph, with its hub,
+container membership, and ownership waits (chapter 03 §4.1, ADR-0172). Each
+edge is keyed by the one delivery or hook lease that the caller waits for,
+never by the VM. A Rust status publication is a hub send, so it records a hub
+edge. A cycle that crosses these
+waits is therefore refused like any other: the wait that would close it takes
+the escape above. `dispose()` does not return before another thread's admitted
+hook, or another thread's delivery of the VM's `Disposed` publication,
+finishes, unless that wait would close a live cycle. A cycle is live only when
+every owner on it still holds its resource. The thread that finishes a hook or
+delivers a publication removes the edges that name it as that resource's
+owner before it wakes the waiters, so an ended wait never causes an early
+return or a deferred cleanup.
+
+When no hook is admitted on another thread, `dispose()` closes hook admission
+under the same guard before it disposes the first child or member. From then
+on, no construct or destruct hook of the VM is admitted, a lifecycle call that
+starts fails, and a transition that started earlier commits no further status:
+the VM's next and last status is `Disposed` (§7.2, ADR-0175).
 
 ### 2.5 Transactional hook failure (rollback)
 
@@ -210,7 +232,8 @@ to the already-returned caller (ADR-0053, ADR-0109). `OnDispose` is **not**
 subject to rollback — `dispose()` is terminal and idempotent.
 
 This behavior is verified by `LIFE-014`. Coordination between an admitted hook
-and terminal disposal is verified by `LIFE-015`.
+and terminal disposal is verified by `LIFE-015`. A transition during the inline
+dispose cascade is verified by `LIFE-021` (§7.2).
 
 ## 3. Invariants
 
@@ -220,7 +243,9 @@ These hold for every VM at every point in its lifetime:
 1. `IsConstructed == (Status == Constructed)`.
 1. Once `Status` reaches `Disposed`, it never changes again. All lifecycle
    operations from `Disposed` (except `dispose` itself, which is idempotent)
-   raise. A **selection** change (`IsCurrent`) requested after `Disposed` is a
+   raise. They also raise once an inline dispose cascade has started, before
+   `Status` reads `Disposed` (§7.2). A **selection** change (`IsCurrent`)
+   requested after `Disposed` is a
    silent no-op — it does not raise and emits no `PropertyChangedMessage` —
    distinguishing it from the lifecycle operations, which raise (VMX-006).
 1. Every `Status` change publishes exactly one `ConstructionStatusChangedMessage`
@@ -232,8 +257,9 @@ These hold for every VM at every point in its lifetime:
    the per-VM guard of §2.4 (not an unsynchronized `Status` read).
 1. Each status transition is atomic with respect to other lifecycle operations on
    the same VM (§2.4). A transition racing `dispose()` observes the terminal
-   `Disposed` state under the guard and aborts — it never resurrects the VM nor
-   publishes a post-dispose message.
+   `Disposed` state, or an inline dispose cascade in progress (§7.2), under the
+   guard and aborts — it never resurrects the VM nor publishes a post-dispose
+   message or a status other than `Disposed` once the cascade has started.
 1. If `OnConstruct` / `OnDestruct` raises, `Status` is rolled back to the prior
    settled state (`Destructed` for a failed construct, `Constructed` for a failed
    destruct) before the exception propagates (§2.5); the VM never remains in a
@@ -245,6 +271,9 @@ These hold for every VM at every point in its lifetime:
   `ConstructionStatusChangedMessage` is emitted.
 - `destruct()` from `Destructed` is a no-op. Same emission behavior.
 - `dispose()` from `Disposed` is a no-op. No emission.
+
+The first two no-ops do not apply once an inline dispose cascade has started:
+`construct()` and `destruct()` then fail (§7.2).
 
 ## 5. Reconstruct
 
@@ -398,12 +427,53 @@ members, so a caller that returns early can observe the parent before it is
 `InvalidOperationException` in C#, `RuntimeError` in Python, `Error` in
 TypeScript, a trap in Swift (ADR-0009), and `VmxError::OwnershipCycle` in Rust.
 Member disposal follows the admitted-hook rule of §2.4 (`LIFE-015`) in the same
-way as the container cascade.
+way as the container cascade. It also follows the cascade rule of §7.2: a
+member dispose hook that calls `construct()` or `destruct()` on its leaf gets
+the lifecycle error, and the leaf commits no status other than `Disposed`
+(`LIFE-021`).
 
 A member is not a container child. It has no parent link and no selection
 state, and registration does not construct it. A leaf that wants reverse
 teardown registers its members in reverse order. Resources registered with
 `own` (§2.3) are still released after the parent publishes `Disposed`.
+
+### 7.2 Lifecycle calls during the inline cascade
+
+The *inline cascade* of a VM is the part of its first `dispose()` call that
+disposes its children (§7) and its registered members (§7.1) while no
+construct or destruct hook of the VM is admitted on another thread. It starts
+when that call closes hook admission under the §2.4 guard, and it ends when the
+VM publishes `Disposed`. A VM with no children and no members has no inline
+cascade. When a hook is admitted on another thread, disposal publishes
+`Disposed` first (§2.4), and invariant 3 applies (ADR-0175).
+
+A `construct()`, `destruct()`, or `reconstruct()` call that starts during the
+inline cascade fails with the error that the same call raises on a `Disposed`
+VM. The call can come from a child or member dispose hook, a subscriber, or
+another thread. The error names `Disposed` and the attempted operation, as in
+§2.1: `StatusTransitionException` in C#, `StatusTransitionError` in Python,
+TypeScript, and Swift, and `VmxError::Disposed` in Rust. The background form
+and the C# async methods deliver it the way they deliver it for a call from
+`Disposed`. The call publishes no status, admits no hook, starts no child work,
+and calls no slot factory. This check runs before the idempotent no-ops of §4,
+the legality check of §2.1, and the concurrent-operation check (`LIFE-008`), so
+`construct()` from `Constructed` fails in the same way. The §2.1 predicates do
+not change: they read `Status`, which does not read `Disposed` yet.
+
+Once the inline cascade has started, the VM admits no construct or destruct
+hook and commits no status other than `Disposed`. A transition that started
+before the cascade therefore publishes nothing more. This covers its settled
+commit, its rollback after a failed hook, child step, or `after` callback
+(§2.5, §6.1), the restore after a failed transient publication, a commit that a
+background transition queued on the foreground, and the construct phase of
+`reconstruct()`. Such a call returns as a call that `Disposed` superseded
+returns (invariant 6): the supersession raises nothing, a failure that was
+already propagating still propagates, and the in-flight guard is cleared. Until
+the cascade publishes `Disposed`, `Status` can still read the transient or
+prior status after the call returns.
+
+A container's child cascade and a leaf's member cascade (§7.1) follow these
+rules in the same way (`LIFE-021`).
 
 ## 8. Reference table
 
@@ -413,7 +483,7 @@ directly.
 
 ## 9. Conformance
 
-`LIFE-001` through `LIFE-020` in `12-conformance.md` cover:
+`LIFE-001` through `LIFE-021` in `12-conformance.md` cover:
 
 - legal state transitions (construct / destruct / reconstruct / dispose)
 - predicates raising `StatusTransitionError` / `StatusTransitionException` (or
@@ -437,6 +507,9 @@ directly.
   transit (`LIFE-020`) (§6.1)
 - depth-first member disposal before the parent publishes `Disposed`
   (`LIFE-018`, §7.1)
+- the inline dispose cascade: a lifecycle call that starts during it fails
+  with the `Disposed` error and publishes nothing, and no status other than
+  `Disposed` commits once it has started (`LIFE-021`, §7.2)
 
 `DISP-001` adds the cross-cutting at-most-once assertion: invoking a parent
 dispose path more than once produces one observable terminal transition and

@@ -716,8 +716,10 @@ public class ComponentVMLifecycleRaceTests
             workers.Add(Task.Factory.StartNew(vm.Construct, CancellationToken.None,
                 TaskCreationOptions.LongRunning, TaskScheduler.Default));
             entered.Wait(HangGuard).Should().BeTrue("ordinary publication must enter");
+            var disposerThread = 0;
             var disposer = Task.Factory.StartNew(() =>
             {
+                Volatile.Write(ref disposerThread, Environment.CurrentManagedThreadId);
                 vm.Dispose();
                 Volatile.Read(ref disposedSeen).Should().Be(1,
                     "Dispose cannot return before terminal publication");
@@ -740,13 +742,11 @@ public class ComponentVMLifecycleRaceTests
                         $"draining={typeof(ComponentVMBase).GetField("_lifecycleDeliveryDraining", Private)!.GetValue(vm)}, " +
                         $"drainer={typeof(ComponentVMBase).GetField("_lifecycleDeliveryDrainerThreadId", Private)!.GetValue(vm)}";
                 }
-                const BindingFlags Static = BindingFlags.Static | BindingFlags.NonPublic;
-                var graphGate = typeof(ComponentVMBase).GetField("s_lifecycleWaitGraphGate", Static)!.GetValue(null)!;
-                var graph = (IDictionary)typeof(ComponentVMBase).GetField("s_lifecycleWaitGraph", Static)!.GetValue(null)!;
-                string edges;
-                lock (graphGate)
-                    edges = string.Join(",", graph.Keys.Cast<int>().Select(caller => $"{caller}->{graph[caller]}"));
-                return $"{local}, disposer={disposer.Status}, waitGraph=[{edges}]";
+                // Lifecycle waits are edges of the shared wait-for graph
+                // (ADR-0172, #1156).
+                var disposerWaits = VMx.Internal.WaitForGraph.Shared.WaitResourceForTesting(
+                    Volatile.Read(ref disposerThread));
+                return $"{local}, disposer={disposer.Status}, disposerWaitsFor={disposerWaits?.GetType().Name ?? "nothing"}";
             }
 
             // Poll gently: a spinning probe that takes the VM gate on every

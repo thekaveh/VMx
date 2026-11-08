@@ -375,10 +375,16 @@ async def test_approve_after_dispose_does_not_invoke_persister() -> None:
     assert persisted == []
 
 
-def test_approve_error_emission_finishes_before_concurrent_dispose() -> None:
+def test_approve_error_emission_finishes_before_concurrent_dispose_tears_down() -> None:
+    """The delivery opens no publication scope (spec/20 §5.5, ADR-0176).
+
+    A concurrent dispose returns at once, and the teardown waits until the
+    delivery returns, so no channel completes during it.
+    """
     emission_started = Event()
     release_emission = Event()
     dispose_finished = Event()
+    completed = Event()
 
     class BlockingSubject(Subject[BaseException]):
         def on_next(self, value: BaseException) -> None:
@@ -389,7 +395,7 @@ def test_approve_error_emission_finishes_before_concurrent_dispose() -> None:
     sut = _make()
     subject = BlockingSubject()
     observed: list[BaseException] = []
-    subject.subscribe(observed.append)
+    subject.subscribe(observed.append, on_completed=completed.set)
     sut._approve_errors = subject
     failure = RuntimeError("persist failed")
     emission_failures: list[BaseException] = []
@@ -409,15 +415,19 @@ def test_approve_error_emission_finishes_before_concurrent_dispose() -> None:
         daemon=True,
     )
     disposer.start()
-    disposed_during_emission = dispose_finished.wait(0.1)
-    release_emission.set()
+    try:
+        assert dispose_finished.wait(HANG_GUARD)
+        torn_down_during_emission = completed.wait(0.1)
+    finally:
+        release_emission.set()
 
     emitter.join(timeout=HANG_GUARD)
     disposer.join(timeout=HANG_GUARD)
 
     assert not emitter.is_alive()
     assert not disposer.is_alive()
-    assert not disposed_during_emission
+    assert not torn_down_during_emission
+    assert completed.is_set()
     assert emission_failures == []
     assert observed == [failure]
 

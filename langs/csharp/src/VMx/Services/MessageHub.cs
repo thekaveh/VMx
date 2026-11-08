@@ -14,8 +14,6 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 #if DEBUG
     private const int DevelopmentDrainLimit = 10_000;
 #endif
-    [ThreadStatic]
-    private static int s_deliveryDepth;
     private readonly object _gate = new();
     private readonly Queue<IMessage> _pending = new();
     private readonly Subject<IMessage> _subject = new();
@@ -30,9 +28,10 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
     // Threads with a wait edge on this hub; the shared graph is touched on a
     // wake only while one exists.
     private int _registeredWaits;
-    // Borrowed scope depth per borrowing thread. A borrower's own sends,
-    // batches and disposal on this hub never wait for the owner it borrowed
-    // from (spec/03: the borrowed body may enqueue).
+    // Borrowed scope depth per borrowing thread. A borrower is a wait-for
+    // owner of this hub with the batch owner and the drainer, so a wait for a
+    // borrowed scope records an edge to it. A borrower's own sends, batches
+    // and disposal on this hub never wait (spec/03 §4.2, ADR-0172).
     private readonly Dictionary<int, int> _borrowers = new();
 
     /// <inheritdoc/>
@@ -57,26 +56,17 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
             {
                 while (!_disposed && !_disposeRequested)
                 {
-                    // A borrowed body enqueues for the owner's drain.
+                    // A borrowed body enqueues for the drain at the borrowed
+                    // scope's exit.
                     if (_borrowers.ContainsKey(caller)) break;
                     var owner = ConflictingOwnerLocked(caller);
-                    if (owner != 0)
-                    {
-                        // Only a wait that would close a real wait-for cycle,
-                        // across hubs or through a container membership or
-                        // ownership wait (#1055), may defer this send into the
-                        // owner's FIFO drain.
-                        if (WaitForOwnerLocked(caller, owner, ref waiting)) break;
-                        continue;
-                    }
-                    EndWaitLocked(caller, ref waiting);
-                    if (_borrowedBatchDepth > 0)
-                    {
-                        if (s_deliveryDepth > 0) break;
-                        Monitor.Wait(_gate);
-                        continue;
-                    }
-                    break;
+                    if (owner == 0) break;
+                    // Only a wait that would close a live wait-for cycle, across
+                    // hubs or through a lifecycle, container membership or
+                    // ownership wait, may defer this send into the owner's FIFO
+                    // drain (#1055, ADR-0172). A send from inside a hub callback
+                    // waits like any other (#1159).
+                    if (WaitForOwnerLocked(caller, owner, ref waiting)) break;
                 }
             }
             finally
@@ -116,7 +106,12 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
                 while (!_disposed && !_disposeRequested)
                 {
                     // A batch inside a borrowed body nests in that borrow.
-                    var owner = _borrowers.ContainsKey(caller) ? 0 : ConflictingOwnerLocked(caller);
+                    // Every other batch, the batch owner's nested batch too,
+                    // waits for a foreign owner, and a borrowed scope is one
+                    // (spec/03 §4.1, §4.2 rule 3, #1223).
+                    var owner = _borrowers.ContainsKey(caller)
+                        ? 0
+                        : ConflictingOwnerLocked(caller);
                     if (_borrowers.ContainsKey(caller) ||
                         (owner != 0 && WaitForOwnerLocked(caller, owner, ref waiting)))
                     {
@@ -130,12 +125,6 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
                         break;
                     }
                     if (owner != 0) continue;
-                    EndWaitLocked(caller, ref waiting);
-                    if (_borrowedBatchDepth > 0 && _batchOwnerThreadId != caller)
-                    {
-                        Monitor.Wait(_gate);
-                        continue;
-                    }
                     break;
                 }
             }
@@ -162,10 +151,12 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
             lock (_gate)
             {
                 bool outermost;
+                var borrowerLeft = false;
                 if (borrowed)
                 {
                     _borrowedBatchDepth--;
-                    if (_borrowers[caller] == 1) _borrowers.Remove(caller);
+                    borrowerLeft = _borrowers[caller] == 1;
+                    if (borrowerLeft) _borrowers.Remove(caller);
                     else _borrowers[caller]--;
                     outermost = _borrowedBatchDepth == 0;
                 }
@@ -176,7 +167,11 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
                     if (outermost) _batchOwnerThreadId = 0;
                 }
 
-                if (outermost && _disposeRequested)
+                // The last batch owner or borrower to release the hub finishes
+                // a requested disposal; with a drainer active, the drain's end
+                // completes the subject (spec/03 §4.2 rule 3).
+                if (outermost && _disposeRequested &&
+                    _batchOwnerThreadId == 0 && _borrowedBatchDepth == 0)
                     shouldTerminateSubject = FinishDisposeLocked();
 
                 if (outermost && !_disposed && _pending.Count > 0 &&
@@ -186,7 +181,10 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
                     _drainerThreadId = caller;
                     shouldDrain = true;
                 }
-                if (outermost)
+                // A borrower that leaves while other borrowers remain also
+                // wakes the waiters: their edges to it go, and each one names
+                // a current owner again (spec/03 §4.1 rule 4).
+                if (outermost || borrowerLeft)
                     WakeWaitersLocked();
             }
         }
@@ -204,6 +202,7 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 
     private void DrainQueue()
     {
+        var caller = Environment.CurrentManagedThreadId;
 #if DEBUG
         var delivered = 0;
         var messageTypes = new HashSet<string>(StringComparer.Ordinal);
@@ -215,8 +214,14 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
             var shouldTerminateSubject = false;
             lock (_gate)
             {
-                while (_borrowedBatchDepth > 0 && !_disposed)
-                    Monitor.Wait(_gate);
+                if (!WaitForBorrowedScopesLocked(caller))
+                {
+                    // The exit of the last borrowed scope drains the queue and
+                    // finishes a requested disposal (spec/03 §4.2).
+                    _drainerThreadId = 0;
+                    WakeWaitersLocked();
+                    return;
+                }
                 if (_disposeRequested)
                     _ = FinishDisposeLocked();
                 if (_disposed || _pending.Count == 0)
@@ -236,7 +241,6 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 #endif
             try
             {
-                s_deliveryDepth++;
                 _subject.OnNext(message!);
             }
             catch
@@ -244,10 +248,6 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
                 try { AbandonPending(); }
                 catch { /* preserve the original delivery failure */ }
                 throw;
-            }
-            finally
-            {
-                s_deliveryDepth--;
             }
 #if DEBUG
             delivered++;
@@ -264,6 +264,34 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
             AbandonPending();
             throw cycleError;
 #endif
+        }
+    }
+
+    // The drainer's wait for the open borrowed scopes (spec/03 §4.2). Returns
+    // true when no borrowed scope is open, or the hub is disposed, so the
+    // drainer goes on. Returns false when the drainer must release the drain
+    // to the exit of the last borrowed scope instead: its queue is empty
+    // (rule 2), a disposal is requested, which that exit finishes and which
+    // discards the queue, or its wait for a borrower would close a live
+    // wait-for cycle (rule 5). In the last case the queued messages stay
+    // queued, and that exit delivers them on the borrower's thread. Call
+    // under _gate.
+    private bool WaitForBorrowedScopesLocked(int caller)
+    {
+        var waiting = false;
+        try
+        {
+            while (_borrowedBatchDepth > 0 && !_disposed)
+            {
+                if (_pending.Count == 0 || _disposeRequested) return false;
+                var borrower = ForeignBorrowerLocked(caller);
+                if (borrower == 0 || WaitForOwnerLocked(caller, borrower, ref waiting)) return false;
+            }
+            return true;
+        }
+        finally
+        {
+            EndWaitLocked(caller, ref waiting);
         }
     }
 
@@ -323,8 +351,11 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
             {
                 while (!_disposed && !_disposeRequested)
                 {
-                    // A borrowed body records the intent for the owner to finish.
-                    var owner = _borrowers.ContainsKey(caller) ? 0 : ConflictingOwnerLocked(caller);
+                    // A borrowed body records the intent for the exit of the
+                    // last borrowed scope to finish.
+                    var owner = _borrowers.ContainsKey(caller)
+                        ? 0
+                        : ConflictingOwnerLocked(caller);
                     if (_borrowers.ContainsKey(caller) ||
                         (owner != 0 && WaitForOwnerLocked(caller, owner, ref waiting)))
                     {
@@ -333,12 +364,6 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
                         return;
                     }
                     if (owner != 0) continue;
-                    EndWaitLocked(caller, ref waiting);
-                    if (_borrowedBatchDepth > 0)
-                    {
-                        Monitor.Wait(_gate);
-                        continue;
-                    }
                     break;
                 }
             }
@@ -353,21 +378,40 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
         if (shouldTerminateSubject) TerminateSubject();
     }
 
+    // The one owner that a wait by caller names (spec/03 §4.1 rule 2): the
+    // batch owner, then the drainer, then a borrower other than the caller.
+    // Returns 0 when no other thread owns the hub.
     private int ConflictingOwnerLocked(int caller)
     {
         if (_batchOwnerThreadId != 0 && _batchOwnerThreadId != caller)
             return _batchOwnerThreadId;
         if (_drainerThreadId != 0 && _drainerThreadId != caller)
             return _drainerThreadId;
+        return ForeignBorrowerLocked(caller);
+    }
+
+    // Test-only seam: whether thread has an open borrowed scope on this hub.
+    internal bool IsBorrowerForTesting(int thread)
+    {
+        lock (_gate) return _borrowers.ContainsKey(thread);
+    }
+
+    private int ForeignBorrowerLocked(int caller)
+    {
+        if (_borrowedBatchDepth == 0) return 0;
+        foreach (var borrower in _borrowers.Keys)
+            if (borrower != caller) return borrower;
         return 0;
     }
 
-    // Waits for the hub's batch or drain owner, unless the wait would close a
-    // wait-for cycle in the shared graph, which also holds container
-    // membership and ownership waits (#1055). Returns true for such a cycle,
-    // so the caller takes its escape instead of waiting. The caller's edge
-    // stays across wakes, so a woken waiter that must wait again leaves no gap
-    // in the chain; EndWaitLocked removes it once the caller stops waiting.
+    // Waits for one owner of the hub (its batch owner, drainer or a
+    // borrower), unless the wait would close a live wait-for cycle in the
+    // shared graph, which holds every lifecycle, container membership,
+    // ownership and hub wait (ADR-0172). Returns true for such a cycle, so the
+    // caller takes its escape instead of waiting. The caller's edge stays
+    // across a wake while its owner still owns the hub; a woken waiter records
+    // its wait again on every pass, naming a current owner. EndWaitLocked
+    // removes the edge once the caller stops waiting.
     private bool WaitForOwnerLocked(int caller, int owner, ref bool waiting)
     {
         if (!WaitForGraph.Shared.TryBeginWait(_gate, owner, caller))
@@ -395,14 +439,15 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 
     // Wakes every thread that waits for this hub. Edges to a thread that no
     // longer owns the hub go first, so no woken waiter keeps an edge to an
-    // owner that no longer blocks it. Edges to a current owner stay. Once the
-    // hub is disposing, every edge goes: no waiter waits for it again.
+    // owner that no longer blocks it. Edges to a current owner (the drainer,
+    // the batch owner or a borrower) stay. Once the hub is disposing, every
+    // edge goes: no waiter waits for it again.
     private void WakeWaitersLocked()
     {
         if (_registeredWaits > 0)
         {
             if (_disposed || _disposeRequested) WaitForGraph.Shared.ReleaseWaiters(_gate);
-            else WaitForGraph.Shared.ReleaseWaiters(_gate, _drainerThreadId, _batchOwnerThreadId);
+            else WaitForGraph.Shared.ReleaseWaiters(_gate, _drainerThreadId, _batchOwnerThreadId, _borrowers);
         }
         Monitor.PulseAll(_gate);
     }

@@ -15,6 +15,7 @@ import XCTest
 
 private enum MembershipTestError: Error {
     case constructFailed
+    case hookFailed
 }
 
 final class CompositeVMMembershipTests: XCTestCase {
@@ -138,6 +139,118 @@ final class CompositeVMMembershipTests: XCTestCase {
             events(),
             ["remove a new:-1 old:0", "add replacement new:0 old:-1"]
         )
+    }
+
+    // MARK: — replacing the current child (#1219)
+
+    /// A Constructed composite `[a, b]` with auto-construct on add and `a`
+    /// current, and a replacement whose construct hook runs `hook` inside the
+    /// replacement's transaction.
+    private func replacementScenario(
+        hook: @escaping (ComponentVM, CompositeVM<ComponentVM>) throws -> Void
+    ) throws -> (sut: CompositeVM<ComponentVM>, a: ComponentVM, b: ComponentVM, replacement: ComponentVM) {
+        let a = try leaf("a"), b = try leaf("b")
+        let sut = try composite([a, b], autoConstructOnAdd: true)
+        try sut.construct()
+        try sut.setCurrent(a)
+        currentChanges.removeAll()
+        let replacement = try ComponentVM.builder()
+            .name("replacement")
+            .withNullServices()
+            .onConstruct { [unowned sut] in try hook(a, sut) }
+            .build()
+        return (sut, a, b, replacement)
+    }
+
+    /// Records each property change of `vm` named `property`.
+    private func recordProperty(_ property: String, of vm: ComponentVMBase) -> () -> Int {
+        var count = 0
+        vm.propertyChanged
+            .sink { name in if name == property { count += 1 } }
+            .store(in: &cancellables)
+        return { count }
+    }
+
+    func testTheReplacementHookSeesTheCurrentChildStillOwnedAndFlagged() throws {
+        var observed: (owned: Bool, current: Bool, flag: Bool)?
+        let (sut, a, _, replacement) = try replacementScenario { a, sut in
+            observed = (self.owner(of: a) === sut, sut.current === a, a.isCurrent)
+        }
+
+        try sut.replaceResult(at: 0, with: replacement).get()
+
+        let seen = try XCTUnwrap(observed, "the replacement's construct hook ran")
+        XCTAssertTrue(seen.current, "current changes only at the commit")
+        XCTAssertTrue(seen.owned, "the composite still owns its current child")
+        XCTAssertEqual(seen.flag, seen.current, "isCurrent matches current inside the hook")
+        XCTAssertNil(sut.current)
+        XCTAssertFalse(a.isCurrent)
+        XCTAssertNil(owner(of: a))
+        XCTAssertEqual(currentChanges, ["nil"])
+    }
+
+    func testTheReplacementHookCannotAdoptAndSelectTheReplacedCurrentChild() throws {
+        let other = try composite([])
+        var adoptResult: Result<Void, ContainerOwnershipError>?
+        let (sut, a, _, replacement) = try replacementScenario { a, _ in
+            adoptResult = other.addResult(a)
+            try? other.setCurrent(a)
+        }
+
+        try sut.replaceResult(at: 0, with: replacement).get()
+
+        XCTAssertNotNil(adoptResult, "the replacement's construct hook ran")
+        XCTAssertNil(sut.current)
+        XCTAssertEqual(
+            a.isCurrent, other.current === a,
+            "the commit's clear never resets a selection in another composite (COMP-006)"
+        )
+        let holders = [sut, other].filter { $0.snapshot().contains { $0 === a } }
+        XCTAssertLessThanOrEqual(holders.count, 1, "a is a member of at most one composite")
+        if let holder = holders.first { XCTAssertTrue(owner(of: a) === holder) }
+    }
+
+    func testAFailedReplacementLeavesTheReplacedChildInExactlyOneComposite() throws {
+        let other = try composite([])
+        let (sut, a, b, replacement) = try replacementScenario { a, _ in
+            _ = other.addResult(a)
+            throw MembershipTestError.hookFailed
+        }
+
+        let result = sut.replaceResult(at: 0, with: replacement)
+
+        guard case let .failure(.attachmentFailed(error)) = result else {
+            return XCTFail("expected the hook failure, got \(result)")
+        }
+        XCTAssertEqual(error as? MembershipTestError, .hookFailed)
+        let holders = [sut, other].filter { $0.snapshot().contains { $0 === a } }
+        XCTAssertEqual(holders.count, 1, "a is a member of exactly one composite")
+        XCTAssertTrue(owner(of: a) === holders.first, "a's owner is the composite that holds it")
+        XCTAssertEqual(sut.snapshot().map(\.name), ["a", "b"])
+        XCTAssertTrue(owner(of: b) === sut)
+        XCTAssertNil(owner(of: replacement))
+    }
+
+    func testAFailedReplacementOfTheCurrentChildRestoresItSilently() throws {
+        let (sut, a, b, replacement) = try replacementScenario { _, _ in
+            throw MembershipTestError.hookFailed
+        }
+        let events = record(sut)
+        let currentNotifications = recordProperty("current", of: sut)
+        let aFlagNotifications = recordProperty("isCurrent", of: a)
+
+        let result = sut.replaceResult(at: 0, with: replacement)
+
+        guard case .failure = result else { return XCTFail("expected the hook failure") }
+        XCTAssertEqual(sut.snapshot().map(\.name), ["a", "b"])
+        XCTAssertTrue(sut.current === a)
+        XCTAssertTrue(a.isCurrent)
+        XCTAssertTrue(owner(of: a) === sut)
+        XCTAssertTrue(owner(of: b) === sut)
+        XCTAssertEqual(events(), [], "no collectionChanged event")
+        XCTAssertEqual(currentChanges, [], "no onCurrentChanged call")
+        XCTAssertEqual(currentNotifications(), 0, "no current notification")
+        XCTAssertEqual(aFlagNotifications(), 0, "no isCurrent notification")
     }
 
     // MARK: — removeAt and clear

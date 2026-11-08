@@ -83,7 +83,7 @@ export class AggregateVM3<
   override dispose(): void {
     // Depth-first dispose (LIFE-013): each component slot first, then self.
     disposeBestEffort([
-      () => this._abandonChildTransition(),
+      () => this._beginDisposeCascade(),
       () => this.#component1?.dispose(),
       () => this.#component2?.dispose(),
       () => this.#component3?.dispose(),

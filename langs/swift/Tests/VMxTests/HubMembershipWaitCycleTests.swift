@@ -581,6 +581,77 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         XCTAssertEqual(vm.status, .disposed)
     }
 
+    // ── A drain that meets a borrowed scope (#1178 variant 2) ────────────
+
+    /// HUB-013, spec/03 §4.2. Q adds `x` to a composite on hub `h`; Q drains
+    /// x's first status message, and the subscriber sends on `h2`, which P
+    /// drains. P's `h2` subscriber borrows `h`, because its wait for Q would
+    /// close a cycle. It disposes `h2` and then adds `y` to the composite. Q's
+    /// drain of `h` has an empty queue, so it releases the drain instead of
+    /// waiting for P's borrowed scope without an edge. Neither thread hangs.
+    func testDrainMeetingABorrowedScopeDuringACompositeAddDoesNotDeadlock() throws {
+        let h = MessageHub()
+        let h2 = MessageHub()
+        let composite = try constructedComposite(h, autoConstructOnAdd: true)
+        let x = leaf(h, "x"), y = leaf(h, "y")
+        let q = Box<UInt64>(0)
+        let qWaitingForP = DispatchSemaphore(value: 0)
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            if accepted, caller == q.value { qWaitingForP.signal() }
+        }
+        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
+
+        let firstStatus = OneShot()
+        let firstTrigger = OneShot()
+        let pInSubscriber = DispatchSemaphore(value: 0)
+        let pDone = DispatchSemaphore(value: 0)
+        let qDone = DispatchSemaphore(value: 0)
+        let yResult = Box<Result<Void, ContainerOwnershipError>?>(nil)
+        let xResult = Box<Result<Void, ContainerOwnershipError>?>(nil)
+        let waitTimeout = timeout
+        let hSubscription = h.messages.sink { message in
+            guard let status = message as? ConstructionStatusChangedMessage,
+                  status.senderObject === x, firstStatus.take() else { return }
+            h2.send(PropertyChangedMessage(sender: x, senderName: "x", propertyName: "q1"))
+        }
+        defer { hSubscription.cancel() }
+        let h2Subscription = h2.messages.sink { message in
+            guard (message as? PropertyChangedMessage)?.propertyName == "p0", firstTrigger.take() else { return }
+            pInSubscriber.signal()
+            guard qWaitingForP.wait(timeout: .now() + waitTimeout) == .success else { return }
+            try? h.batch {
+                h2.dispose()
+                Thread.sleep(forTimeInterval: 0.3)
+                yResult.value = composite.addResult(y)
+            }
+        }
+        defer { h2Subscription.cancel() }
+
+        Thread.detachNewThread {
+            h2.send(PropertyChangedMessage(sender: y, senderName: "y", propertyName: "p0"))
+            pDone.signal()
+        }
+        XCTAssertEqual(pInSubscriber.wait(timeout: .now() + timeout), .success)
+        Thread.detachNewThread {
+            q.value = ThreadWaitGraph.currentThread
+            xResult.value = composite.addResult(x)
+            qDone.signal()
+        }
+
+        XCTAssertEqual(pDone.wait(timeout: .now() + timeout), .success, "thread P hung")
+        XCTAssertEqual(qDone.wait(timeout: .now() + timeout), .success, "thread Q hung")
+        XCTAssertNoThrow(try xResult.value?.get())
+        XCTAssertEqual(x.status, .constructed)
+        switch yResult.value {
+        case .success?:
+            break
+        case .failure(.attachmentFailed(let error))? where error is ContainerMembershipTransactionError:
+            break
+        default:
+            XCTFail("addResult(y): \(String(describing: yResult.value))")
+        }
+    }
+
     // ── Guard: no cycle, no refusal ──────────────────────────────────────
 
     func testSubscriberChangingAnUnrelatedContainerCompletesNormally() throws {
