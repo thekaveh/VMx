@@ -58,6 +58,14 @@ interface PreparedUpdate<TM> {
   readonly isDirty: boolean;
 }
 
+/**
+ * An update queued during an approval's pre-publication window (§5.3): set a
+ * model, or deny. It replays as a new call after `onApproved`.
+ */
+type QueuedUpdate<TM> =
+  | { readonly kind: "set"; readonly model: TM }
+  | { readonly kind: "deny" };
+
 function hasReachableEnumerableAccessor(
   value: unknown,
   seen = new Set<object>(),
@@ -475,11 +483,16 @@ export class FormVM<TM> {
   // Single-flight admission (§5.3): set when an approval is admitted, cleared
   // when it settles. Disposal leaves it set; a disposed form is inert anyway.
   #approvalInFlight = false;
+  // The approval's pre-publication window (§5.3): open from the start of the
+  // post-persist commit until onApproved delivery starts. A setModel or deny
+  // made inside it is prepared, then queued in #queuedUpdates, and replays
+  // after onApproved.
   #approvalPrePublishing = false;
-  #deferredApprovalModels: TM[] = [];
-  // Commit generation (§5.4): advanced by every committed state change (an
-  // assignment, a revert, or an approval snapshot advance or reset). A
-  // preparation that finishes under a newer generation is stale.
+  #queuedUpdates: QueuedUpdate<TM>[] = [];
+  // Update generation (§5.4): advanced by every committed state change (an
+  // assignment, a revert, or an approval snapshot advance or reset) and by
+  // every update queued during approval publication (§5.3). A preparation that
+  // finishes under a newer generation is stale.
   #generation = 0;
 
   readonly #onApproved = new Subject<TM>();
@@ -638,6 +651,12 @@ export class FormVM<TM> {
    * propagates and the form is unchanged, with nothing published. If a
    * callback disposes the form or commits another update, this call commits
    * and publishes nothing.
+   *
+   * A call made from `resetOnApproved`, the approval's snapshotter or
+   * validators, or a settlement `errorsChanged` or `canExecuteChanged`
+   * observer is queued (§5.3, ADR-0174). It runs the same preparation first,
+   * so a failure still reaches the caller, but it commits and publishes
+   * nothing until it replays after `onApproved`.
    */
   setModel(model: TM): void {
     if (this.#disposed) return;
@@ -646,15 +665,21 @@ export class FormVM<TM> {
     if (model === null || model === undefined) {
       throw new Error("model must not be null or undefined");
     }
-    if (this.#approvalPrePublishing) {
-      this.#deferredApprovalModels.push(model);
-      return;
-    }
     this.#beginSyncOperation();
     try {
       // Preparation: every consumer callback runs before any commit.
       const generation = this.#generation;
-      if (this.#equals(this.#model, model)) return;
+      const unchanged = this.#equals(this.#model, model);
+      if (this.#approvalPrePublishing) {
+        // §5.3: prepare at call time so a failure reaches this caller. An
+        // equal candidate is still queued, because an earlier queued update
+        // can change the model before this one replays. The replay prepares
+        // again, so the result here is discarded.
+        this.#prepare(model);
+        this.#enqueue(generation, { kind: "set", model });
+        return;
+      }
+      if (unchanged) return;
       const update = this.#prepare(model);
       if (this.#isStale(generation)) return;
 
@@ -675,6 +700,11 @@ export class FormVM<TM> {
    * and fires `onApproved`. Throws when the persister throws (no state mutation).
    * Only one approval runs at a time: a call made while another is in flight
    * returns without persisting, mutating, throwing, or emitting (§5.3).
+   *
+   * A `setModel` or deny queued during the post-persist commit or settlement
+   * replays after `onApproved` (or after a failed commit's settlement). If a
+   * replay throws, the later ones still run, and the first replay failure is
+   * thrown here after the last one, unless the approval already failed.
    */
   async approveAsync(): Promise<void> {
     // A disposed form is a full no-op — the persister must not be invoked
@@ -714,71 +744,119 @@ export class FormVM<TM> {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (this.#disposed) return;
 
+    // §5.3: the pre-publication window opens with the post-persist commit, so a
+    // setModel or deny from the reset, the snapshotter, a validator, or a
+    // settlement observer is queued.
+    this.#approvalPrePublishing = true;
     this.#beginSyncOperation();
+    let failure: { readonly error: unknown } | undefined;
     try {
-      // Success: atomically install the configured reset state, or preserve the
-      // legacy snapshot-advance behavior when no reset is configured.
-      let errorsChanged = false;
-      try {
-        if (this.#resetOnApproved !== null) {
-          // Prepare callback output, two independent values, and validation
-          // before committing any local field. A failure therefore leaves
-          // state intact.
-          const reset = this.#resetOnApproved(current);
-          const nextModel = this.#takeSnapshot(reset, "approve reset model");
-          const nextSnapshot = this.#takeSnapshot(reset, "approve reset snapshot");
-          const nextErrors = this.#validate(nextModel);
-
-          this.#model = nextModel;
-          this.#snapshot = nextSnapshot;
-          this.#generation += 1;
-          if (!sameErrors(nextErrors, this.#errors)) {
-            this.#errors = nextErrors;
-            errorsChanged = true;
-          }
-        } else {
-          this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
-          this.#generation += 1;
-        }
-      } catch (error: unknown) {
-        // A failed reset or snapshot advance commits nothing and settles the
-        // approval exactly like a persister failure.
-        this.#settleFailedApproval();
-        throw error;
-      }
-
-      // Settlement: clear the mark first, so every notification below reaches
-      // an idle form and an approval started by an observer is admitted.
-      this.#approvalInFlight = false;
-      this.#approvalPrePublishing = true;
-      try {
-        if (errorsChanged) {
-          this.#errorsChanged.next({ ...this.#errors });
-          // A synchronous observer may dispose the form reentrantly.
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-          if (this.#disposed) return;
-        }
-        // Exactly one notification per settlement. It also covers any
-        // strict-mode dirty or validity change the commit made.
-        this.#canExecuteTrigger.next();
-        // A synchronous observer may dispose the form reentrantly.
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-        if (this.#disposed) return;
-      } finally {
-        this.#approvalPrePublishing = false;
-      }
-
-      // Emit the value that was actually persisted (parity with C#'s captured
-      // `current`): a SetModel racing the persister await must not swap the
-      // approved payload for a newer un-persisted model.
-      this.#onApproved.next(current);
+      this.#commitAndPublishApproval(current);
+    } catch (error: unknown) {
+      failure = { error };
     } finally {
       this.#approvalPrePublishing = false;
       this.#endSyncOperation();
-      const deferredModels = this.#deferredApprovalModels;
-      this.#deferredApprovalModels = [];
-      for (const deferredModel of deferredModels) this.setModel(deferredModel);
     }
+
+    // The queued updates replay after the publication scope ends. A failure
+    // the approval already carries wins over a replay failure.
+    const replayFailure = this.#replayQueuedUpdates();
+    const routed = failure ?? replayFailure;
+    if (routed !== undefined) throw routed.error;
+  }
+
+  /**
+   * Commits a persisted approval, then publishes its settlement and
+   * `onApproved`. A failed commit settles the approval as failed and rethrows.
+   * Runs inside the pre-publication window and closes it before `onApproved`
+   * delivery, or before a failed settlement's notification.
+   */
+  #commitAndPublishApproval(current: TM): void {
+    // Success: atomically install the configured reset state, or preserve the
+    // legacy snapshot-advance behavior when no reset is configured.
+    let errorsChanged = false;
+    try {
+      if (this.#resetOnApproved !== null) {
+        // Prepare callback output, two independent values, and validation
+        // before committing any local field. A failure therefore leaves
+        // state intact.
+        const reset = this.#resetOnApproved(current);
+        const nextModel = this.#takeSnapshot(reset, "approve reset model");
+        const nextSnapshot = this.#takeSnapshot(reset, "approve reset snapshot");
+        const nextErrors = this.#validate(nextModel);
+
+        this.#model = nextModel;
+        this.#snapshot = nextSnapshot;
+        this.#generation += 1;
+        if (!sameErrors(nextErrors, this.#errors)) {
+          this.#errors = nextErrors;
+          errorsChanged = true;
+        }
+      } else {
+        this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
+        this.#generation += 1;
+      }
+    } catch (error: unknown) {
+      // A failed reset or snapshot advance commits nothing and settles the
+      // approval exactly like a persister failure. The window ends with the
+      // failure, so the failed settlement's observers update directly.
+      this.#approvalPrePublishing = false;
+      this.#settleFailedApproval();
+      throw error;
+    }
+
+    // Settlement: clear the mark first, so every notification below reaches
+    // an idle form and an approval started by an observer is admitted.
+    this.#approvalInFlight = false;
+    if (errorsChanged) {
+      this.#errorsChanged.next({ ...this.#errors });
+      // A synchronous observer may dispose the form reentrantly.
+      if (this.#disposed) return;
+    }
+    // Exactly one notification per settlement. It also covers any
+    // strict-mode dirty or validity change the commit made.
+    this.#canExecuteTrigger.next();
+    // A synchronous observer may dispose the form reentrantly.
+    if (this.#disposed) return;
+    this.#approvalPrePublishing = false;
+
+    // Emit the value that was actually persisted (parity with C#'s captured
+    // `current`): a SetModel racing the persister await must not swap the
+    // approved payload for a newer un-persisted model.
+    this.#onApproved.next(current);
+  }
+
+  /**
+   * Queues an update prepared at `generation` (§5.3), unless a preparation
+   * callback disposed the form or made another update meanwhile (§5.4).
+   */
+  #enqueue(generation: number, update: QueuedUpdate<TM>): void {
+    if (this.#isStale(generation)) return;
+    this.#queuedUpdates.push(update);
+    this.#generation += 1;
+  }
+
+  /**
+   * Replays the queued updates in call order, each as a new call (§5.3). A
+   * failing replay does not stop the later ones. Returns the first failure.
+   */
+  #replayQueuedUpdates(): { readonly error: unknown } | undefined {
+    const updates = this.#queuedUpdates;
+    this.#queuedUpdates = [];
+    let failure: { readonly error: unknown } | undefined;
+    for (const update of updates) {
+      try {
+        if (update.kind === "set") {
+          this.setModel(update.model);
+        } else {
+          this.#deny();
+        }
+      } catch (error: unknown) {
+        failure ??= { error };
+      }
+    }
+    return failure;
   }
 
   // ── Dispose ────────────────────────────────────────────────────────────────
@@ -814,6 +892,11 @@ export class FormVM<TM> {
       const generation = this.#generation;
       const reverted = this.#takeSnapshot(this.#snapshot, "deny/revert");
       const update = this.#prepare(reverted);
+      if (this.#approvalPrePublishing) {
+        // §5.3: prepared at call time, committed when it replays.
+        this.#enqueue(generation, { kind: "deny" });
+        return;
+      }
       if (this.#isStale(generation)) return;
 
       const errorsChanged = this.#commit(update);
