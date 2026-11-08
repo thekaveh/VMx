@@ -10,8 +10,8 @@
 // waiting. No subsystem keeps a second graph.
 //
 // Each edge names the resource it waits on: a hub, a container, a lifecycle
-// publication, a hook lease, an ownership gate or a form's publication scope. A waiting thread has at
-// most one edge. There are two edge kinds:
+// publication, a hook lease, an ownership gate or a form's publication scope.
+// A waiting thread has at most one edge. There are two edge kinds:
 //
 // - An owner-named edge (`beginWait`) names the owner thread when the wait
 //   starts. The thread that frees the resource calls `release(resource:)`
