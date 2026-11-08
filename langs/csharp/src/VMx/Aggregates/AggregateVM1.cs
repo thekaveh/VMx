@@ -15,7 +15,7 @@ namespace VMx.Aggregates;
 public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAggregateSlots
     where VM1 : class, IComponentVM
 {
-    private readonly IParentCompositeVM _aggregateParent;
+    private readonly AggregateParent _aggregateParent;
     // Set by the first Dispose(); a later or re-entrant call returns at once.
     private int _disposeRequested;
     private readonly Func<VM1> _factory1;

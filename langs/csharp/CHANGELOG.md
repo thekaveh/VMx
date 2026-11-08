@@ -105,7 +105,10 @@ All notable changes to the C# flavor are documented here. The format is based on
   `Constructed` first. A `Construct()` racing `Dispose()`, and two aggregates
   whose slot factories dispose each other, no longer deadlock. The slot
   snapshot is taken when the cascade starts, and a further `Dispose()` call
-  during the cascade does nothing.
+  during the cascade does nothing. A slot replacement checks for disposal and
+  assigns its slots in one step under the lifecycle lock, so a concurrent
+  `Dispose()` never leaves a slot committed to a disposed aggregate (spec/08
+  §4, AGG-007).
 - Fixed: `CompositeVMBase` selection opens no membership transaction
   (ADR-0173, spec/06 §4.3). The `Current` setter, `SelectComponent`,
   `DeselectComponent`, the child `Select` and `Deselect` paths and the

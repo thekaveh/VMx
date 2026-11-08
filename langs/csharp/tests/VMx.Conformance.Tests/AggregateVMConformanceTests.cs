@@ -711,5 +711,75 @@ public class AggregateVMConformanceTests
         first.Status.Should().Be(ConstructionStatus.Disposed);
         second.Status.Should().Be(ConstructionStatus.Disposed);
     }
+
+    /// <summary>
+    /// AGG-007 (spec/08 §4, #1166): a foreign Dispose() that publishes Disposed
+    /// after the aggregate's slot replacement passed its preflight, but before
+    /// the slots are assigned, wins. No candidate is committed to the disposed
+    /// aggregate: none is a slot when Disposed is published or afterward, and
+    /// every candidate ends Disposed with no parent. The internal seam holds
+    /// the replacement just before its terminal check and slot assignment.
+    /// </summary>
+    [Theory, Trait("Conformance", "AGG-007")]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    [InlineData(3, true)]
+    [InlineData(4, false)]
+    [InlineData(5, true)]
+    [InlineData(6, false)]
+    [InlineData(6, true)]
+    public async Task Foreign_Dispose_Before_Slot_Assignment_Commits_No_Slot(int arity, bool reconstruct)
+    {
+        using var hub = new TestHub();
+        var candidates = new System.Collections.Concurrent.ConcurrentQueue<IComponentVM>();
+        var collect = false;
+        var agg = BuildAggregate(arity, "agg", hub, n =>
+        {
+            var slot = PlainSlot(hub, $"c{n}");
+            if (Volatile.Read(ref collect)) candidates.Enqueue(slot);
+            return slot;
+        });
+        if (reconstruct) agg.Construct();
+        Volatile.Write(ref collect, true);
+        IComponentVM[]? slotsAtDisposed = null;
+        hub.Messages.Subscribe(message =>
+        {
+            if (message is ConstructionStatusChangedMessage { SenderName: "agg", Status: ConstructionStatus.Disposed })
+                slotsAtDisposed = ((IAggregateSlots)agg).EnumerateSlots().ToArray();
+        });
+        using var inWindow = new ManualResetEventSlim();
+        var probe = (ComponentVMBase)agg;
+        probe.BeforeCommitUnlessDisposingForTesting = () =>
+        {
+            probe.BeforeCommitUnlessDisposingForTesting = null;
+            inWindow.Set();
+            // The construct hook holds its lease, so the foreign disposal
+            // publishes Disposed now and defers its slot cascade to the lease.
+            SpinWait.SpinUntil(() => agg.Status == ConstructionStatus.Disposed, Liveness.HangGuard)
+                .Should().BeTrue("the foreign disposal publishes Disposed while the hook runs");
+        };
+
+        var transition = OnOwnThread(reconstruct ? agg.Reconstruct : agg.Construct);
+        inWindow.Wait(Liveness.HangGuard).Should().BeTrue();
+        var dispose = OnOwnThread(agg.Dispose);
+        await Task.WhenAll(transition, dispose).WaitAsync(Liveness.HangGuard);
+
+        (await transition).Should().BeNull("a transition superseded by Disposed returns without error");
+        (await dispose).Should().BeNull();
+        agg.Status.Should().Be(ConstructionStatus.Disposed);
+        candidates.Should().HaveCount(arity);
+        slotsAtDisposed.Should().NotBeNull().And.NotIntersectWith(candidates,
+            "no candidate is a slot when the aggregate publishes Disposed");
+        ((IAggregateSlots)agg).EnumerateSlots().Should().NotIntersectWith(candidates,
+            "no slot is committed to a disposed aggregate (spec/08 §4)");
+        foreach (var candidate in candidates)
+        {
+            candidate.Status.Should().Be(ConstructionStatus.Disposed);
+            candidate.GetParent().Should().BeNull();
+        }
+        ((IAggregateSlots)agg).EnumerateSlots()
+            .All(slot => slot.Status == ConstructionStatus.Disposed).Should().BeTrue();
+    }
 }
 #pragma warning restore CA1715

@@ -677,6 +677,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// joined) or Constructed (and follows the add-after-Constructed rule). The
     /// base still publishes the single Constructed status when the transition
     /// completes (spec/06 §5.1).
+    /// <para>
+    /// If an inline dispose cascade starts on another thread after the flip,
+    /// that Constructed publication is dropped (spec/02 §7.2 Rule 3), and
+    /// Status reads the committed Constructed until the cascade publishes
+    /// Disposed. The superseded call's waiters then complete without error,
+    /// as Rule 4 describes for a call superseded by Disposed.
+    /// </para>
     /// </summary>
     private protected void MarkConstructedBeforePublication()
     {
@@ -2092,6 +2099,26 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         return true;
     }
 
+    /// <summary>
+    /// Runs <paramref name="assign"/> under <c>_gate</c> unless disposal has
+    /// started, and returns whether it ran. A fixed aggregate commits its new
+    /// slots here, so a disposal on another thread cannot publish Disposed
+    /// between the terminal check and the slot assignment: no slot is
+    /// committed to a disposed aggregate (spec/08 §4, #1166). The check also
+    /// covers an inline dispose cascade that already took its slot snapshot.
+    /// <paramref name="assign"/> must only write fields.
+    /// </summary>
+    internal bool CommitUnlessDisposing(Action assign)
+    {
+        BeforeCommitUnlessDisposingForTesting?.Invoke();
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Disposed || _childTransitionAbandoned) return false;
+            assign();
+            return true;
+        }
+    }
+
     private bool IsDisposedOrAbandoned()
     {
         lock (_gate)
@@ -2181,6 +2208,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// test can start a disposal in that window (#1167).
     /// </summary>
     internal Action? AfterHookLeaseReleasedForTesting { get; set; }
+
+    /// <summary>
+    /// Test-only: runs on the committing thread just before
+    /// <see cref="CommitUnlessDisposing"/> takes <c>_gate</c>, so a test can
+    /// publish Disposed from another thread in that window.
+    /// </summary>
+    internal Action? BeforeCommitUnlessDisposingForTesting { get; set; }
 
     private LifecycleDelivery QueueStatusDeliveryLocked(
         ConstructionStatus newStatus,

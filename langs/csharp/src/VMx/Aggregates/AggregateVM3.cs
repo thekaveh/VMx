@@ -19,7 +19,7 @@ public sealed class AggregateVM3<VM1, VM2, VM3> : ComponentVMBase, IAggregateVM3
     where VM2 : class, IComponentVM
     where VM3 : class, IComponentVM
 {
-    private readonly IParentCompositeVM _aggregateParent;
+    private readonly AggregateParent _aggregateParent;
     // Set by the first Dispose(); a later or re-entrant call returns at once.
     private int _disposeRequested;
     private readonly Func<VM1> _factory1;
