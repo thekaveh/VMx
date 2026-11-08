@@ -79,6 +79,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: `ServicedObservableCollection<T>`,
+  `KeyedServicedObservableCollection<TKey, TItem>` and `ObservableDictionary`
+  now send the hub `CollectionChangedMessage` when a local handler throws
+  (#1051, ADR-0171, COL-066). The change stays committed, and the first
+  failure is rethrown after the hub send. In `ObservableDictionary`, a
+  throwing granular-event handler no longer skips `CollectionChanged`.
 - Fixed: `CompositeVMBase` selection opens no membership transaction
   (ADR-0173, spec/06 §4.3). The `Current` setter, `SelectComponent`,
   `DeselectComponent`, the child `Select` and `Deselect` paths and the

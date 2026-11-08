@@ -64,6 +64,10 @@ below for them.
 
 ### Fixed
 
+- `ServicedObservableCollection`, `KeyedServicedObservableCollection` and
+  `ObservableDictionary` now send the hub `CollectionChangedMessage` when a
+  local subscriber raises (#1051, ADR-0171, COL-066). The change stays
+  committed, and the first failure is re-raised after the hub send.
 - `TokenPagedComposition`: a load that finds a terminal token when it starts now
   fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
   terminal token after the load command was admitted. The load then refetched
