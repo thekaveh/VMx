@@ -126,6 +126,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm::replace` now clears the replaced child as `current` before it
+  frees the child, as `remove_at` does (#1219). Before, the commit freed the
+  child first. Another thread could adopt the freed child into another
+  composite and select it there. The clear then reset the child's current
+  flag while the other composite kept it current (`COMP-006`).
 - Every blocking wait between VMx resources now records in one process-wide
   wait-for graph, following ADR-0172 (spec/03 §4.1 and §4.2, spec/02 §2.4,
   `HUB-013`, #1158, #1180, #1183). Hub `send`, `batch` and `dispose` waits,
@@ -160,6 +165,20 @@ project adheres to [Semantic Versioning](https://semver.org/).
   completes the hub when the delivery returns.
   `vmx::wait_registered_for_testing` is a new hidden test seam that reports
   any recorded wait.
+- The thread that owns a `MessageHub` batch now waits for another thread's
+  open borrowed scope before its nested `batch` closure runs (#1223,
+  ADR-0172). The wait records an edge to the borrower, as the owner's `send`
+  and `dispose` already did. Before this fix, the nested closure ran inside
+  the other thread's borrowed scope. When the wait would close a cycle, the
+  nested `batch` enters a borrowed scope (spec/03 §4.1 and §4.2 rule 3).
+- `MessageHub` `send`, `batch` and `dispose` no longer wait for a hub owner
+  once the hub is disposed or its disposal is requested (#1224, spec/03
+  §3.3). A woken waiter stops waiting at the disposal. Before this fix, these
+  calls waited for another thread's batch, drain or borrowed scope, and then
+  did nothing. A `batch` on such a hub runs its closure and returns its
+  value, but it no longer claims the batch owner. So a later call does not
+  wait for that closure. A second `dispose` returns at once. C#, Python and
+  Swift already behaved this way.
 - The inline dispose cascade follows ADR-0175 (spec/02 §7.2, `LIFE-021`,
   #1174, #1167). Once `dispose()` closes hook admission and starts disposing
   children or members, `construct()`, `destruct()` and `reconstruct()` return

@@ -459,18 +459,20 @@ here so audits don't reopen them prematurely:
   Documented here so audits don't re-flag it as accidental drift.
 - **Runtime `select_child`/`deselect_child` on a member-but-not-Constructed child.**
   The construct-time `Current(selector)` path is a non-raising validated assignment
-  (spec/06 §5.4, ADR-0050), but the RUNTIME select path (`child.select()` →
-  `parent.select_child`) for a child that is a member yet not `Constructed`
-  diverges: C# `SelectChild`→`SelectComponent` **throws** `InvalidOperationException`,
-  Swift **no-ops** (gates on `.constructed`; tracked vs C#'s throw in ADR-0037),
-  while Python/TypeScript have no `Constructed` gate and **select the destructed
-  member** as current. `deselect` of a non-current child likewise throws in C# and
-  no-ops in the other three. This edge (reachable only by a direct `select()`/
-  `deselect()` that bypasses `can_select()`) is unspecified; the canonical rule
-  (no-op vs throw vs select) should be pinned in a spec chapter + conformance ID
-  and the flavors aligned — most likely gating Python/TS on `Constructed` so a
-  destructed member cannot become current. Recorded here so audits don't re-flag
-  it as accidental drift.
+  (spec/06 §5.4, ADR-0050). The RUNTIME path is `child.select()` →
+  `parent.select_child`. Every flavor now refuses a member that is not
+  `Constructed`, so such a member never becomes current (spec/05 §6, spec/06
+  §3.1). Only the refusal channel differs. C# `SelectChild`→`SelectComponent`
+  **throws** `InvalidOperationException`. Python, TypeScript, Swift and Rust
+  **no-op**, as they do for a non-member (#1229). Swift keeps the no-op instead
+  of an uncatchable trap (ADR-0037). Inside the caller's own uncommitted
+  membership transaction, Python and TypeScript still raise the spec/06 §4.3
+  rule 4 error. In Python, a destruct on another thread after the entry check
+  raises the predicate `ValueError` at the commit. A membership race there
+  already raises the same way. `deselect` of a non-current child throws in C#
+  and no-ops in the other flavors. This edge is reachable only by a direct
+  `select()`/`deselect()` that bypasses `can_select()`. Recorded here so audits
+  don't re-flag it as accidental drift.
 - **Swift `TokenPagedComposition` default page-equality comparer.** Swift defaults
   `pagesEqual` to `{ _, _ in false }` — the unconstrained generic `TVM` cannot
   synthesize a universal equality — so a redundant `refresh()` of a byte-identical

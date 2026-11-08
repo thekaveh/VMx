@@ -79,6 +79,22 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: the `CompositeVMBase` index setter keeps the replaced child owned
+  until the commit (#1219). The commit now frees the child and clears
+  `Current` in one locked section. Before, the setter freed the child first
+  and cleared `Current` only at the commit. A construct hook of the
+  replacement could adopt the freed child into another composite and select
+  it there. The commit then reset the child's `IsCurrent` flag while the
+  other composite kept it current. A hook that adopted the child and then
+  failed left it in both composites. Now the adoption fails while the
+  replacement is in progress. A failed replacement still restores the child
+  and `Current` with no notification.
+- Fixed: `SelectComponent` now checks `Constructed` again at the commit,
+  under the coordination lane and the membership gate, also at an
+  `AsyncSelection(true)` delivery (spec/06 §3.1, #1220). Before, a destruct on
+  another thread after `CanSelectComponent`, or before the delivery, let the
+  call select a `Destructed` child. Now the call throws its predicate error,
+  and the delivery does nothing.
 - Fixed: lifecycle publication waits and hook-lease waits now join the one
   wait-for graph that hub, membership and ownership waits use (#1156,
   ADR-0172). A thread that drains a VM's publications or runs its hook can
@@ -112,6 +128,13 @@ All notable changes to the C# flavor are documented here. The format is based on
   borrowers to release the hub completes `Messages`. The batch owner's exit no
   longer completes it inside an open borrowed scope, and a borrower's exit no
   longer completes it while the batch is still open (spec/03 §4.2 rule 3).
+- Fixed: the thread that owns a `MessageHub` batch now waits for another
+  thread's open borrowed scope before its nested `Batch` body runs (#1223,
+  ADR-0172). The wait records an edge to the borrower, as the owner's `Send`
+  and `Dispose()` already did. Before this fix, the nested body ran inside the
+  other thread's borrowed scope. When the wait would close a cycle, the
+  nested `Batch` enters a borrowed scope (spec/03 §4.1 and §4.2 rule 3).
+  Python and Swift already behaved this way.
 - Fixed: a `Construct()`, `Destruct()` or `Reconstruct()` call, or its async
   form, that starts during a VM's inline dispose cascade now throws
   `StatusTransitionException(Disposed, operation)` (#1174, ADR-0175, spec/02

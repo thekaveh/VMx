@@ -94,6 +94,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   both deliveries count as active, as an update already did. `dispose()`
   marks the form disposed and returns, and the delivering thread completes
   the channels when the delivery returns, as in C# and Python.
+- `MessageHub.batch` called by a borrower on a disposed hub now runs its body
+  with no new borrowed scope (#1230, spec/03 §3.3, §4.2 rule 3). C#, Python
+  and Rust already did this. Before, the call nested another borrowed scope.
+  Only the borrower's own outer exit could finish the disposal, so no other
+  thread saw a difference.
+- `replaceResult(at:with:)` and `replace(at:with:)` keep the replaced child
+  owned until the commit (#1219). The commit now frees the child and clears
+  `current` in one locked section, as `removeAt` does. Before, the method
+  freed the child first and cleared `current` only at the end. A construct
+  hook of the replacement could adopt the freed child into another
+  composite and select it there. The commit then reset the child's
+  `isCurrent` flag while the other composite kept it current. A hook that
+  adopted the child and then failed left it in both composites. Now the
+  adoption fails while the replacement is in progress. A failed replacement
+  still restores the child and `current` with no notification.
+- `selectComponent(_:)`, `selectChild(_:)` and the `asyncSelection` delivery
+  now check `Constructed` again at the commit, under the coordination lane
+  and the membership gate (spec/06 §3.1, #1220). Before, they read the
+  child's status once, before the commit. A destruct on another thread in
+  between let the call select a `Destructed` child. Now `selectComponent`
+  throws `CompositeMembershipError`, and `selectChild` and the delivery do
+  nothing.
 - A wait for another thread's child ownership gate is now recorded in the one
   wait-for graph (ADR-0172, spec/03 §4.1, #1154). A structural operation
   holds a child's gate from reservation until commit or rollback, and the
