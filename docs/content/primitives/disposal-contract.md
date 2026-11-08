@@ -248,10 +248,14 @@ flavor unless the exceptions below say otherwise.
 
 ### 6.8.5.5. Rust
 
-- `PagedComposition`, rendering `NotificationVm`, `ConfirmationVm`, and
-  `ModeledCrudCommands` have no public disposal member. VMx does not treat them
-  as disposable. Adding one is a separate API decision with its own inventory
-  row and conformance coverage.
+- `PagedComposition` and `ModeledCrudCommands` have no public disposal member.
+  VMx does not treat them as disposable. Adding one is a separate API decision
+  with its own inventory row and conformance coverage.
+- `NotificationVm` and `ConfirmationVm` have no property-change stream.
+  `dispose()` disposes their stable dismiss, approve and reject commands, so a
+  kept command clone no longer resolves the hub. It stops the lifespan clock
+  and keeps `is_resolved()` at its value at disposal. Clones share the disposed
+  state (ADR-0178).
 - VM families, including modeled composite and forwarding, dispose through
   `VmNode::dispose`. It returns `Ok(())` on a repeated call with no new work.
 - A VM sends one `Disposed` message. It releases children, LIFO owned

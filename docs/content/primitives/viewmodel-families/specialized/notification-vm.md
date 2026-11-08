@@ -44,7 +44,9 @@ once under the [Disposal Contract](../../disposal-contract.md).
 | Dismiss command  | `DismissCommand` | `dismiss_command` | `dismissCommand` | `dismissCommand` | `dismiss_command()` |
 
 Rust's `NotificationVm` has no injected scheduler: its lifespan advances only
-through `advance_by_ms`, so a host drives the clock itself.
+through `advance_by_ms`, so a host drives the clock itself. Its `dispose()`
+makes every clone of `dismiss_command()` inert. Dropping the VM does not, so
+call `dispose()` when a VM leaves the visible list.
 
 ## 6.2.8.4.5. Example
 

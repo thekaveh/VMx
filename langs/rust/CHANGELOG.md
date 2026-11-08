@@ -75,6 +75,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
   every component, as `reconstruct()` does. `reconstruct()` and
   `reconstruct_command()` run only the component's hooks and never a walk, so
   a consumer type reconstructs through `reconstruct_with_children`.
+- `NotificationVm::dispose()` and `ConfirmationVm::dispose()` (#1067,
+  ADR-0178, `DISP-004`). Disposal disposes the dismiss, approve and reject
+  commands, so a kept command clone reports `can_execute()` false and no
+  longer resolves the hub. It does not resolve the notification, stops the
+  lifespan clock, and keeps `is_resolved()` at its value at disposal. A first
+  reaction stays authoritative, and a second call has no effect. Disposal
+  never disposes the hub. Before this change, a kept command still resolved
+  the hub after the host dropped the view model.
 
 ### Changed
 
@@ -123,6 +131,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   and publishes it afterwards, so two concurrent selections leave the flags
   in commit order. Wrapper nodes should forward both methods; the defaults
   keep the old behavior through `set_current_flag`.
+- `NotificationVm::dismiss_command()`, `ConfirmationVm::approve_command()`,
+  `reject_command()` and `dismiss_command()` return a clone of one command
+  that the view model owns, not a new command for each call (#1067,
+  ADR-0178). Clones of the view model share the commands. A command holds
+  only the shared notification state, so a kept command makes no reference
+  cycle.
 
 ### Fixed
 
