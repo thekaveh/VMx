@@ -148,4 +148,32 @@ final class CompositeSelectionTests: XCTestCase {
         XCTAssertTrue(vm.isCurrent)
         XCTAssertEqual(vm.status, .constructed)
     }
+
+    /// #1220 — an `asyncSelection` delivery of `selectComponent` checks
+    /// Constructed again at its commit. A child destructed after the call and
+    /// before the delivery is not selected, and the delivery does nothing.
+    func testAsyncSelectComponentDeliveryDropsAChildDestructedAfterTheCall() throws {
+        let dispatcher = ManualDispatcher()
+        let vm = try ComponentVM.builder()
+            .name("vm")
+            .services(hub: NullMessageHub.INSTANCE, dispatcher: dispatcher)
+            .build()
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("c")
+            .services(hub: NullMessageHub.INSTANCE, dispatcher: dispatcher)
+            .asyncSelection(true)
+            .children { [vm] }
+            .build()
+        try composite.construct()
+        dispatcher.flushForeground()
+
+        try composite.selectComponent(vm)
+        XCTAssertNil(composite.current, "the selection waits for the delivery")
+        try vm.destruct()
+        dispatcher.flushForeground()
+
+        XCTAssertEqual(vm.status, .destructed)
+        XCTAssertNil(composite.current, "the delivery checks Constructed again")
+        XCTAssertFalse(vm.isCurrent)
+    }
 }
