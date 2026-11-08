@@ -818,7 +818,11 @@ open class GroupVM<Child: ComponentVMBase>:
                     }
                     return false
                 }
+                // Admit the disposal. A deferral stays set until here, so no
+                // foreign structural operation slips in during the handoff
+                // from `endMembershipTransaction` (#1153).
                 disposeRequested = true
+                disposeDeferred = false
                 snapshot = children
                 return false
             }
@@ -956,8 +960,8 @@ open class GroupVM<Child: ComponentVMBase>:
                     membershipWaits = 0
                     releaseMembershipWaiters(of: self)
                 }
+                // `dispose()` clears the deferral when it admits the disposal.
                 shouldDispose = disposeDeferred
-                disposeDeferred = false
             }
         }
         completion?.leave()
