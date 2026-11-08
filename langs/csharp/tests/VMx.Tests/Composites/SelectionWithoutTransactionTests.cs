@@ -633,4 +633,54 @@ public sealed class SelectionWithoutTransactionTests
         b.IsCurrent.Should().BeFalse();
         root.Vm.Status.Should().Be(ConstructionStatus.Disposed);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reassigning_The_Current_Child_While_Disposing_Is_A_No_Op(bool asyncSelection)
+    {
+        // Re-assigning the child that is already current changes nothing, so
+        // rule 3 does not refuse it: a two-way binding may write SelectedItem
+        // back while or after the VM is disposed (chapter 01 §4).
+        var hub = new TestHub();
+        var a = Child(hub, NullDispatcher.Instance, "a");
+        var b = Child(hub, NullDispatcher.Instance, "b");
+        Root? root = null;
+        Exception? pendingError = null;
+        root = new Root(hub, NullDispatcher.Instance, () => [a, b], asyncSelection: asyncSelection, onCurrent: value =>
+        {
+            if (value is null) return;
+            root!.Vm.Dispose(); // deferred by the lease
+            try { root.Vm.Current = a; }
+            catch (Exception error) { pendingError = error; }
+        });
+        root.Vm.Construct();
+
+        root.Vm.Current = a;
+
+        pendingError.Should().BeNull();
+        root.Vm.Status.Should().Be(ConstructionStatus.Disposed);
+        root.Changes.Should().Equal("a");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reassigning_The_Current_Child_After_Disposed_Is_A_No_Op(bool asyncSelection)
+    {
+        var hub = new TestHub();
+        var a = Child(hub, NullDispatcher.Instance, "a");
+        var root = new Root(hub, NullDispatcher.Instance, () => [a], asyncSelection: asyncSelection);
+        root.Vm.Construct();
+        root.Vm.Current = a;
+        root.Vm.Dispose();
+        root.Vm.Status.Should().Be(ConstructionStatus.Disposed);
+        var current = root.Vm.Current;
+
+        var act = () => root.Vm.Current = current;
+
+        act.Should().NotThrow();
+        root.Vm.Current.Should().BeSameAs(current);
+        root.Changes.Should().Equal("a");
+    }
 }

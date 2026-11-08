@@ -655,3 +655,89 @@ def test_pending_disposal_refuses_a_non_null_selection_but_not_a_null_clear() ->
     assert not a.is_current
     assert not b.is_current
     assert root.vm.status is S.DISPOSED
+
+
+@pytest.mark.parametrize("async_selection", [False, True])
+def test_reassigning_the_current_child_while_disposing_is_a_no_op(async_selection: bool) -> None:
+    # Re-assigning the child that is already current changes nothing, so rule 3
+    # does not refuse it: a two-way binding may write the selection back while
+    # or after the VM is disposed (chapter 01 §4).
+    hub: MessageHub[object] = MessageHub()
+    dispatcher = _immediate()
+    a = _child(hub, dispatcher, "a")
+    b = _child(hub, dispatcher, "b")
+    errors: list[BaseException] = []
+
+    def on_current(value: ComponentVM | None) -> None:
+        if value is None:
+            return
+        root.vm.dispose()  # deferred by the lease
+        try:
+            root.vm.current = a
+        except BaseException as error:
+            errors.append(error)
+
+    root = _Root(
+        hub, dispatcher, lambda: [a, b], async_selection=async_selection, on_current=on_current
+    )
+    root.vm.construct()
+
+    root.vm.current = a
+
+    assert errors == []
+    assert root.vm.status is S.DISPOSED
+    assert root.changes == ["a"]
+
+
+@pytest.mark.parametrize("async_selection", [False, True])
+def test_reassigning_the_current_child_after_disposed_is_a_no_op(async_selection: bool) -> None:
+    hub: MessageHub[object] = MessageHub()
+    dispatcher = _immediate()
+    a = _child(hub, dispatcher, "a")
+    root = _Root(hub, dispatcher, lambda: [a], async_selection=async_selection)
+    root.vm.construct()
+    root.vm.current = a
+    root.vm.dispose()
+    assert root.vm.status is S.DISPOSED
+    current = root.vm.current
+
+    root.vm.current = current
+
+    assert root.vm.current is current
+    assert root.changes == ["a"]
+
+
+@pytest.mark.parametrize("path", ["deselect-not-current", "select-non-member"])
+def test_child_paths_that_change_nothing_are_refused_inside_the_owner_transaction(
+    path: str,
+) -> None:
+    # Every selection call fails on the thread that owns an uncommitted
+    # transaction, also one that would change nothing (spec/06 §4.3 rule 4),
+    # as the C# child paths do through DeselectComponent and SelectComponent.
+    hub: MessageHub[object] = MessageHub()
+    dispatcher = _immediate()
+    keep = _child(hub, dispatcher, "keep")
+    outsider = _child(hub, dispatcher, "outsider")
+    hook_errors: list[BaseException] = []
+
+    def hook() -> None:
+        try:
+            if path == "deselect-not-current":
+                root.vm.deselect_child(keep)
+            else:
+                root.vm.select_child(outsider)
+        except BaseException as error:
+            hook_errors.append(error)
+
+    late = _child(hub, dispatcher, "late", on_construct=hook)
+    root = _Root(hub, dispatcher, lambda: [keep])
+    root.vm.construct()
+    root.reset_records()
+
+    root.vm.add(late)
+
+    assert len(hook_errors) == 1
+    assert isinstance(hook_errors[0], RuntimeError)
+    assert "already in progress" in str(hook_errors[0])
+    assert root.vm.current is None
+    assert root.changes == []

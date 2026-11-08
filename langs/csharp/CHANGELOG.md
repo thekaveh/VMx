@@ -90,8 +90,9 @@ All notable changes to the C# flavor are documented here. The format is based on
   `InvalidOperationException`, also a null clear; from the commit on,
   including the add's `CollectionChanged` publication, it commits. While
   disposal is requested or deferred, a non-null selection throws
-  `ObjectDisposedException`, and a null clear now succeeds.
-  `CanSelectComponent` returns true only if `SelectComponent` would succeed
+  `ObjectDisposedException`, and a null clear now succeeds. Re-assigning the
+  child that is already current stays a no-op while disposing and after
+  `Dispose()`. `CanSelectComponent` returns true only if `SelectComponent` would succeed
   now. `Destruct()` and the destruct phase of `Reconstruct()` clear `Current`
   without a transaction and are never refused. Before, the clear threw while
   another thread held a transaction or while disposal was deferred, and the

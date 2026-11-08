@@ -1593,14 +1593,17 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// The refusal of a selection of <paramref name="value"/>, or null
     /// (spec/06 §4.3 rules 2-4). <paramref name="disposed"/> keeps the
     /// post-dispose behavior: a null clear that would change a disposed
-    /// composite raises, as it always has (chapter 01 §4).
+    /// composite raises, as it always has (chapter 01 §4). While disposal is
+    /// pending and after Disposed, re-assigning the child that is already
+    /// current changes nothing and stays the no-op it always was.
     /// </summary>
     private Exception? SelectionRefusalLocked(VM? value, bool disposed)
     {
         if (CallerOwnsUncommittedTransactionLocked()) return TransactionInProgress();
         if (value is null)
             return disposed && _current is not null ? SelectionWhileDisposing() : null;
-        if (DisposalPendingLocked()) return SelectionWhileDisposing();
+        if (DisposalPendingLocked())
+            return ReferenceEquals(value, _current) ? null : SelectionWhileDisposing();
         if (!IsCommittedMemberLocked(value))
             return new InvalidOperationException(
                 $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
@@ -1644,6 +1647,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     private void ApplyCurrentChange(VM? value, CurrentChange kind, VM? onlyReplacing = null)
     {
+        if (kind == CurrentChange.Clear)
+        {
+            // A clear with nothing to clear skips the global lane.
+            lock (_membershipGate)
+                if (_current is null) return;
+        }
         var disposed = kind != CurrentChange.Clear && value is null && IsDisposed();
         VM? previous;
         bool previousFlagChanged;

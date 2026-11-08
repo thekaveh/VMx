@@ -80,7 +80,11 @@ below for them.
   `None` clear, and the walk's assignment is a no-op; from the commit on,
   including the add's collection-changed publication, it commits. While
   disposal is requested or deferred, a non-`None` selection raises
-  `RuntimeError`, and a `None` clear now succeeds. `can_select_component`
+  `RuntimeError`, and a `None` clear now succeeds. Re-assigning the child
+  that is already current stays a no-op while disposing and after
+  `dispose()`. The child `select` and `deselect` paths also raise the
+  "in progress" error on the owner thread when they would change nothing, as
+  in C#. `can_select_component`
   returns `True` only if `select_component` would succeed now. `destruct()`
   and the destruct phase of `reconstruct()` clear `current` without a
   transaction and are never refused. Before, the clear raised while another

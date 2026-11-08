@@ -173,6 +173,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return self._current
 
     def select_child(self, vm: _ComponentVMBase) -> None:
+        self._raise_if_caller_owns_uncommitted_transaction()
         if isinstance(vm, _ComponentVMBase):
             # Use typed access via _set_current
             for child in self.snapshot():
@@ -181,6 +182,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     return
 
     def deselect_child(self, vm: _ComponentVMBase) -> None:
+        self._raise_if_caller_owns_uncommitted_transaction()
         if self.current is vm:
             self._set_current(None, async_sel=self._async_selection)
 
@@ -1125,18 +1127,28 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             and self._membership_transaction_owner == get_ident()
         )
 
+    def _raise_if_caller_owns_uncommitted_transaction(self) -> None:
+        """Every selection call fails inside the caller's own uncommitted
+        transaction, also one that would change nothing (spec/06 §4.3 rule 4)."""
+        with self._membership_gate:
+            if self._caller_owns_uncommitted_transaction_locked():
+                raise _transaction_in_progress()
+
     def _selection_refusal_locked(self, value: VM | None, *, disposed: bool) -> Exception | None:
         """The refusal of a selection of *value*, or None (spec/06 §4.3 rules 2-4).
 
         *disposed* keeps the post-dispose behavior: a null clear that would
         change a disposed composite raises, as it always has (chapter 01 §4).
+        While disposal is pending and after Disposed, re-assigning the child
+        that is already current changes nothing and stays the no-op it always
+        was.
         """
         if self._caller_owns_uncommitted_transaction_locked():
             return _transaction_in_progress()
         if value is None:
             return _selection_while_disposing() if disposed and self._current is not None else None
         if self._disposal_pending_locked():
-            return _selection_while_disposing()
+            return None if value is self._current else _selection_while_disposing()
         if not self._is_committed_member_locked(value):
             return ValueError(
                 f"Cannot set current to '{getattr(value, 'name', value)!r}': "
@@ -1184,6 +1196,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         clears the child it detached, never a selection made after the detach
         (#1064).
         """
+        if kind == _CLEAR:
+            # A clear with nothing to clear skips the global lane.
+            with self._membership_gate:
+                if self._current is None:
+                    return
         disposed = kind != _CLEAR and value is None and self._is_disposed()
         with _current_change_coordinator:
             with self._membership_gate:
