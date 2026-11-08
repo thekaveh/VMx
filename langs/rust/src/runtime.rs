@@ -1313,12 +1313,14 @@ impl MessageHub {
             }
             (outermost, outermost)
         };
-        // The last batch owner or borrower to release the hub finishes a
-        // requested disposal (spec/03 §4.2 rule 3).
+        // The last of the batch owner, the drainer and the borrowers to
+        // release the hub finishes a requested disposal. A drain that is
+        // still delivering finishes it at its end (spec/03 §4.2 rule 3).
         let completions = if outermost
             && inner.dispose_requested
             && inner.batch_owner.is_none()
             && !inner.has_borrowers()
+            && inner.draining_owner.is_none()
         {
             Self::finish_dispose(&mut inner)
         } else {
