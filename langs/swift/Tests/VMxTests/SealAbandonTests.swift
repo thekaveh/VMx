@@ -5,9 +5,9 @@ import XCTest
 
 /// A disposal that cancels a construct walk while its commit-time seal runs
 /// publishes no `.destructed` rollback ahead of the disposal (spec/06 §5.1,
-/// #744). The walk had finished, so the container commits `.constructed` as
-/// it would have without the seal, then the disposal publishes `.disposed`.
-/// Every wait is bounded.
+/// #744). The disposal's inline cascade has started when the seal resumes, so
+/// the container commits no `.constructed` either: its next and last status
+/// is `.disposed` (spec/02 §7.2, ADR-0175, #1167). Every wait is bounded.
 final class SealAbandonTests: XCTestCase {
     private final class Locked<T> {
         private let lock = NSLock()
@@ -93,15 +93,13 @@ final class SealAbandonTests: XCTestCase {
         XCTAssertEqual(
             childDisposing.wait(timeout: .now() + 5), .success, "\(kind): the cascade starts"
         )
-        // The seal resumes and finds its walk cancelled. Its terminal status
-        // is committed before its publication, which queues behind the held
-        // delivery; release the cascade once that status is decided.
+        // The seal resumes and finds its walk cancelled. The cascade has
+        // started, so the seal's commit is dropped and the pump finishes
+        // while the cascade is still held.
         goSeal.signal()
-        let deadline = Date().addingTimeInterval(5)
-        while root.status == .constructing && Date() < deadline { usleep(1_000) }
-        XCTAssertNotEqual(root.status, .constructing, "\(kind): the seal commits a status")
-        goDispose.signal()
         XCTAssertEqual(pumped.wait(timeout: .now() + 5), .success, "\(kind): the seal finishes")
+        XCTAssertEqual(root.status, .constructing, "\(kind): the seal commits no status")
+        goDispose.signal()
         XCTAssertEqual(disposed.wait(timeout: .now() + 5), .success, "\(kind): the disposal ends")
         XCTAssertEqual(root.status, .disposed, kind)
         return log.value
@@ -111,7 +109,7 @@ final class SealAbandonTests: XCTestCase {
         for kind in ["composite", "group"] {
             XCTAssertEqual(
                 try rootStatusesWhenDisposalCancelsTheSeal(kind),
-                [.constructing, .constructed, .disposed],
+                [.constructing, .disposed],
                 kind
             )
         }

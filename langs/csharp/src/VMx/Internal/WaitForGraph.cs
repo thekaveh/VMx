@@ -1,15 +1,22 @@
 namespace VMx.Internal;
 
 /// <summary>
-/// The process-wide wait-for graph for container membership transactions
-/// (#718), child ownership gates (#1047) and message-hub drain and batch
-/// ownership (spec/03, #1055). Each of these waits is recorded before it
-/// blocks, so a cycle that crosses them is visible. The wait that would close
-/// a cycle is refused, and the caller takes its own escape instead of waiting.
-/// Lifecycle delivery waits still use the separate graph in
-/// <c>ComponentVMBase</c>. Swift's graph covers those waits too (#703).
+/// The process-wide wait-for graph (spec/03 §4.1, ADR-0172). It records every
+/// blocking wait between VMx-owned resources: container membership
+/// transactions (#718), child ownership gates (#1047), message-hub batch,
+/// drain and borrowed-scope ownership (spec/03 §4 and §4.2, #1055, #1159),
+/// lifecycle deliveries (spec/02 §2.4, ADR-0117), admitted hook leases
+/// (ADR-0126, #1156) and form publication scopes (spec/20 §5.5, ADR-0176,
+/// #1170). Each wait is recorded before it blocks, so a cycle that
+/// crosses any mix of them is visible. The wait that would close a cycle is
+/// refused, and the caller takes its own escape instead of waiting. No other
+/// C# wait-for graph exists.
 /// </summary>
 /// <remarks>
+/// <para>
+/// An edge names the waiting thread and one resource instance, never a VM. A
+/// thread has at most one edge.
+/// </para>
 /// <para>
 /// A membership or ownership wait names its resource, a container's
 /// membership gate or a child's ownership gate. Its owner is looked up when a
@@ -17,16 +24,32 @@ namespace VMx.Internal;
 /// released, even before the waiter wakes (#736).
 /// </para>
 /// <para>
-/// A hub wait names the hub and the owner thread it waits for. Before the hub
-/// wakes its waiters, it calls <see cref="ReleaseWaiters"/> with its current
-/// owners. Edges to a thread that no longer owns the hub go; edges to a current
-/// owner stay, because that owner still blocks the waiter. Once the hub is
-/// disposing, every edge on it goes, because no waiter waits for it again.
+/// A hub wait names the hub and the owner thread it waits for: the batch
+/// owner, then the drainer, then a borrower other than the caller. Before the
+/// hub wakes its waiters, it calls <see cref="ReleaseWaiters"/> with its
+/// current owners. Edges to a thread that no longer owns the hub go; edges to
+/// a current owner, borrowers included, stay, because that owner still blocks
+/// the waiter. Once the hub is disposing, every edge on it goes, because no
+/// waiter waits for it again.
+/// </para>
+/// <para>
+/// A lifecycle wait names one lifecycle delivery or one hook lease and the
+/// thread that owns it: the VM's publication drainer or the hook's thread.
+/// That owner calls <see cref="ReleaseWaiters"/> on the delivery or lease
+/// before it sets its completion, so a finished owner's edges never outlive
+/// it (#1183).
+/// </para>
+/// <para>
+/// A form publication wait names the form's scope resource and one thread
+/// that holds a scope on it. When that thread's outermost scope ends, the form
+/// calls <see cref="ReleaseWaiters"/> with the threads that still hold a scope,
+/// then wakes its waiters, which record their wait again if they must.
 /// </para>
 /// <para>
 /// Callers may hold container gates, ownership gates, the ownership
-/// coordinator, a hub gate, or no lock at all when they call in. This class
-/// never takes another lock, so its lock is always the last one taken.
+/// coordinator, a hub gate, a lifecycle resource's lock, a form's state lock,
+/// or no lock at all when they call in. This class never takes another lock,
+/// so its lock is always the last one taken.
 /// </para>
 /// </remarks>
 internal sealed class WaitForGraph
@@ -70,8 +93,9 @@ internal sealed class WaitForGraph
 
     /// <summary>
     /// Records that <paramref name="caller"/> waits for <paramref name="owner"/>
-    /// to free <paramref name="resource"/>, a hub. Returns <c>false</c>, and
-    /// records nothing, when that wait would close a cycle.
+    /// to free <paramref name="resource"/>: a hub, a lifecycle delivery or a
+    /// hook lease. Returns <c>false</c>, and records nothing, when that wait
+    /// would close a cycle.
     /// </summary>
     internal bool TryBeginWait(object resource, int owner, int caller)
     {
@@ -90,12 +114,19 @@ internal sealed class WaitForGraph
     }
 
     /// <summary>
-    /// Removes the hub waits on <paramref name="resource"/> whose owner is
-    /// neither <paramref name="owner"/> nor <paramref name="otherOwner"/>, the
-    /// hub's current owners (0 for none). The hub calls this before it wakes
-    /// its waiters.
+    /// Removes the owner-named waits on <paramref name="resource"/> whose owner
+    /// is not a current owner: neither <paramref name="owner"/> nor
+    /// <paramref name="otherOwner"/> (0 for none) nor a key of
+    /// <paramref name="moreOwners"/>. A hub calls this with its batch owner,
+    /// drainer and borrowers before it wakes its waiters. A lifecycle delivery
+    /// or hook lease calls it with no owner before it sets its completion, so
+    /// every wait on it goes.
     /// </summary>
-    internal void ReleaseWaiters(object resource, int owner = 0, int otherOwner = 0)
+    internal void ReleaseWaiters(
+        object resource,
+        int owner = 0,
+        int otherOwner = 0,
+        IReadOnlyDictionary<int, int>? moreOwners = null)
     {
         lock (_gate)
         {
@@ -105,6 +136,7 @@ internal sealed class WaitForGraph
                 var edge = entry.Value;
                 if (edge.Owner == 0 || !ReferenceEquals(edge.Resource, resource)) continue;
                 if (edge.Owner == owner || edge.Owner == otherOwner) continue;
+                if (moreOwners is not null && moreOwners.ContainsKey(edge.Owner)) continue;
                 (released ??= []).Add(entry.Key);
             }
             if (released is null) return;
@@ -116,6 +148,15 @@ internal sealed class WaitForGraph
     internal bool IsWaitingForTesting(int thread)
     {
         lock (_gate) return _waitingOn.ContainsKey(thread);
+    }
+
+    /// <summary>
+    /// Test-only: the resource that <paramref name="thread"/> waits for, or
+    /// <c>null</c> when it has no recorded wait.
+    /// </summary>
+    internal object? WaitResourceForTesting(int thread)
+    {
+        lock (_gate) return _waitingOn.TryGetValue(thread, out var edge) ? edge.Resource : null;
     }
 
     // True when the chain of waits from start reaches target. Call under _gate.

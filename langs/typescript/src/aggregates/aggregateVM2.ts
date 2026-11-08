@@ -79,7 +79,7 @@ export class AggregateVM2<VM1 extends ComponentVMBase, VM2 extends ComponentVMBa
   override dispose(): void {
     // Depth-first dispose (LIFE-013): each component slot first, then self.
     disposeBestEffort([
-      () => this._abandonChildTransition(),
+      () => this._beginDisposeCascade(),
       () => this.#component1?.dispose(),
       () => this.#component2?.dispose(),
       () => super.dispose(),

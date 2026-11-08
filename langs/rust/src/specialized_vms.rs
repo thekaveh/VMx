@@ -80,14 +80,112 @@ impl<T: Clone + Send + 'static> ModalVm<T> {
     }
 }
 
+/// Shared resolution and disposal state of one rendered notification.
+///
+/// The VM and its commands hold clones of this state. The state never holds a
+/// command, so a kept command does not keep a reference cycle alive.
 #[derive(Clone)]
-/// Presentation state and deterministic lifespan behavior for one notification.
-pub struct NotificationVm {
+struct NotificationState {
     notification: Notification,
     hub: NotificationHub,
-    resolved: Arc<Mutex<bool>>,
+    flags: Arc<Mutex<NotificationFlags>>,
     elapsed_ms: Arc<Mutex<u64>>,
     lifespan_ms: u64,
+}
+
+#[derive(Default)]
+struct NotificationFlags {
+    resolved: bool,
+    disposed: bool,
+}
+
+impl NotificationState {
+    fn new(notification: Notification, hub: NotificationHub, lifespan_ms: u64) -> Self {
+        Self {
+            notification,
+            hub,
+            flags: Arc::new(Mutex::new(NotificationFlags::default())),
+            elapsed_ms: Arc::new(Mutex::new(0)),
+            lifespan_ms,
+        }
+    }
+
+    /// Resolves the hub notification once with `reaction`, unless this VM
+    /// already resolved it or is disposed.
+    fn resolve(&self, reaction: NotificationReaction) {
+        let should_resolve = {
+            let mut flags = lock(&self.flags);
+            if flags.resolved || flags.disposed {
+                false
+            } else {
+                flags.resolved = true;
+                true
+            }
+        };
+        if should_resolve {
+            self.hub.resolve(self.notification.id, reaction);
+        }
+    }
+
+    fn is_resolved(&self) -> bool {
+        {
+            let flags = lock(&self.flags);
+            if flags.resolved {
+                return true;
+            }
+            // A disposed VM no longer follows the hub, as in the other
+            // flavors, where disposal releases the pending subscription.
+            if flags.disposed {
+                return false;
+            }
+        }
+        // Removal from the pending list, not the reaction, marks an external
+        // resolution: a hub may resolve with `Pending` (NOTIF-015).
+        self.hub.was_resolved(self.notification.id)
+    }
+
+    /// Reports whether the lifespan clock must stop: the VM is resolved or
+    /// disposed.
+    fn is_inert(&self) -> bool {
+        // Release the flags lock before is_resolved() takes it again.
+        let disposed = lock(&self.flags).disposed;
+        disposed || self.is_resolved()
+    }
+
+    /// Advances the clock and returns the remaining lifespan.
+    fn advance(&self, millis: u64) -> u64 {
+        let mut elapsed = lock(&self.elapsed_ms);
+        *elapsed = elapsed.saturating_add(millis).min(self.lifespan_ms);
+        self.lifespan_ms.saturating_sub(*elapsed)
+    }
+
+    fn remaining_time_ms(&self) -> u64 {
+        self.lifespan_ms.saturating_sub(*lock(&self.elapsed_ms))
+    }
+
+    /// Claims disposal once. The first claim keeps the current resolved
+    /// state and returns `true`; every later claim returns `false`.
+    fn claim_dispose(&self) -> bool {
+        // Read the hub before taking the flags lock, so no lock nests.
+        let resolved_by_hub = self.hub.was_resolved(self.notification.id);
+        let mut flags = lock(&self.flags);
+        if flags.disposed {
+            return false;
+        }
+        flags.resolved |= resolved_by_hub;
+        flags.disposed = true;
+        true
+    }
+}
+
+#[derive(Clone)]
+/// Presentation state and deterministic lifespan behavior for one notification.
+///
+/// Clones share one state and one dismiss command. [`dispose`](Self::dispose)
+/// makes the VM and every clone of its command inert.
+pub struct NotificationVm {
+    state: NotificationState,
+    dismiss_command: RelayCommand,
 }
 
 impl NotificationVm {
@@ -98,83 +196,94 @@ impl NotificationVm {
 
     /// Creates a notification VM with an explicit hub and lifespan in milliseconds.
     pub fn with_hub(notification: Notification, hub: NotificationHub, lifespan_ms: u64) -> Self {
+        let state = NotificationState::new(notification, hub, lifespan_ms);
+        let dismiss_command = {
+            let state = state.clone();
+            RelayCommand::new_shared(move || state.resolve(NotificationReaction::Approve))
+        };
         Self {
-            notification,
-            hub,
-            resolved: Arc::new(Mutex::new(false)),
-            elapsed_ms: Arc::new(Mutex::new(0)),
-            lifespan_ms,
+            state,
+            dismiss_command,
         }
     }
 
     /// Returns the notification being presented.
     pub fn notification(&self) -> Notification {
-        self.notification.clone()
+        self.state.notification.clone()
     }
 
     /// Resolves the notification as approved if it is still pending.
+    ///
+    /// Has no effect after [`dispose`](Self::dispose).
     pub fn dismiss(&self) {
-        let should_resolve = {
-            let mut resolved = lock(&self.resolved);
-            if *resolved {
-                false
-            } else {
-                *resolved = true;
-                true
-            }
-        };
-        if should_resolve {
-            self.hub
-                .resolve(self.notification.id, NotificationReaction::Approve);
-        }
+        self.state.resolve(NotificationReaction::Approve);
     }
 
     /// Reports whether local or hub state has resolved the notification.
+    ///
+    /// After [`dispose`](Self::dispose), the VM no longer follows the hub and
+    /// keeps the value it had when it was disposed.
     pub fn is_resolved(&self) -> bool {
-        // Removal from the pending list, not the reaction, marks an external
-        // resolution: a hub may resolve with `Pending` (NOTIF-015).
-        *lock(&self.resolved) || self.hub.was_resolved(self.notification.id)
+        self.state.is_resolved()
     }
 
     /// Returns the remaining lifespan in milliseconds.
     pub fn remaining_time_ms(&self) -> u64 {
-        self.lifespan_ms.saturating_sub(*lock(&self.elapsed_ms))
+        self.state.remaining_time_ms()
     }
 
     /// Returns the linear remaining-lifetime opacity in the range `0.0..=1.0`.
     pub fn opacity(&self) -> f64 {
-        if self.lifespan_ms == 0 {
+        if self.state.lifespan_ms == 0 {
             return 0.0;
         }
-        self.remaining_time_ms() as f64 / self.lifespan_ms as f64
+        self.remaining_time_ms() as f64 / self.state.lifespan_ms as f64
     }
 
     /// Advances the deterministic clock and dismisses at expiration.
+    ///
+    /// Has no effect once the notification is resolved or the VM is disposed.
     pub fn advance_by_ms(&self, millis: u64) {
-        if self.is_resolved() {
+        if self.state.is_inert() {
             return;
         }
-        let remaining = {
-            let mut elapsed = lock(&self.elapsed_ms);
-            *elapsed = elapsed.saturating_add(millis).min(self.lifespan_ms);
-            self.lifespan_ms.saturating_sub(*elapsed)
-        };
-        if remaining == 0 {
+        if self.state.advance(millis) == 0 {
             self.dismiss();
         }
     }
 
-    /// Creates a command that dismisses this notification.
+    /// Returns the command that dismisses this notification.
+    ///
+    /// Every call returns a clone of the same command, which
+    /// [`dispose`](Self::dispose) disposes.
     pub fn dismiss_command(&self) -> RelayCommand {
-        let vm = self.clone();
-        RelayCommand::new_shared(move || vm.dismiss())
+        self.dismiss_command.clone()
+    }
+
+    /// Disposes the VM once and does not resolve the notification.
+    ///
+    /// The dismiss command, and every clone of it, becomes inert: its
+    /// `can_execute` is `false` and `execute` no longer resolves the hub. The
+    /// lifespan clock stops, and a pending notification stays pending. A
+    /// first resolution stays authoritative, and a second call has no effect
+    /// (`DISP-004`). Disposal never disposes the hub.
+    pub fn dispose(&self) {
+        if self.state.claim_dispose() {
+            self.dismiss_command.dispose();
+        }
     }
 }
 
 #[derive(Clone)]
 /// A confirmation notification with approve and reject reactions.
+///
+/// Clones share one state and one set of commands.
+/// [`dispose`](Self::dispose) makes the VM and every clone of its commands
+/// inert.
 pub struct ConfirmationVm {
     notification_vm: NotificationVm,
+    approve_command: RelayCommand,
+    reject_command: RelayCommand,
 }
 
 impl ConfirmationVm {
@@ -185,43 +294,69 @@ impl ConfirmationVm {
 
     /// Creates a confirmation that resolves through `hub`.
     pub fn with_hub(notification: Notification, hub: NotificationHub) -> Self {
+        let notification_vm = NotificationVm::with_hub(notification, hub, 300_000);
+        let command = |reaction| {
+            let state = notification_vm.state.clone();
+            RelayCommand::new_shared(move || state.resolve(reaction))
+        };
+        let approve_command = command(NotificationReaction::Approve);
+        let reject_command = command(NotificationReaction::Reject);
         Self {
-            notification_vm: NotificationVm::with_hub(notification, hub, 300_000),
+            notification_vm,
+            approve_command,
+            reject_command,
         }
     }
 
     /// Resolves the confirmation with [`NotificationReaction::Approve`].
+    ///
+    /// Has no effect after [`dispose`](Self::dispose).
     pub fn approve(&self) {
-        self.resolve(NotificationReaction::Approve);
+        self.notification_vm
+            .state
+            .resolve(NotificationReaction::Approve);
     }
 
     /// Resolves the confirmation with [`NotificationReaction::Reject`].
+    ///
+    /// Has no effect after [`dispose`](Self::dispose).
     pub fn reject(&self) {
-        self.resolve(NotificationReaction::Reject);
+        self.notification_vm
+            .state
+            .resolve(NotificationReaction::Reject);
     }
 
     /// Returns the hub's current reaction for this confirmation.
+    ///
+    /// This reads the hub even after [`Self::dispose`], so it can report a
+    /// reaction that arrived after disposal while `is_resolved()` stays frozen.
     pub fn reaction(&self) -> NotificationReaction {
-        self.notification_vm
-            .hub
-            .reaction(self.notification_vm.notification.id)
+        let state = &self.notification_vm.state;
+        state.hub.reaction(state.notification.id)
     }
 
     /// Reports whether this confirmation has resolved.
+    ///
+    /// After [`dispose`](Self::dispose), the VM no longer follows the hub and
+    /// keeps the value it had when it was disposed.
     pub fn is_resolved(&self) -> bool {
         self.notification_vm.is_resolved()
     }
 
-    /// Creates a command that approves this confirmation.
+    /// Returns the command that approves this confirmation.
+    ///
+    /// Every call returns a clone of the same command, which
+    /// [`dispose`](Self::dispose) disposes.
     pub fn approve_command(&self) -> RelayCommand {
-        let vm = self.clone();
-        RelayCommand::new_shared(move || vm.approve())
+        self.approve_command.clone()
     }
 
-    /// Creates a command that rejects this confirmation.
+    /// Returns the command that rejects this confirmation.
+    ///
+    /// Every call returns a clone of the same command, which
+    /// [`dispose`](Self::dispose) disposes.
     pub fn reject_command(&self) -> RelayCommand {
-        let vm = self.clone();
-        RelayCommand::new_shared(move || vm.reject())
+        self.reject_command.clone()
     }
 
     /// Returns the confirmation being presented.
@@ -231,14 +366,19 @@ impl ConfirmationVm {
 
     /// Dismisses the confirmation, which resolves it with
     /// [`NotificationReaction::Approve`] (spec/16 §7).
+    ///
+    /// Has no effect after [`dispose`](Self::dispose).
     pub fn dismiss(&self) {
         self.approve();
     }
 
-    /// Creates a command that dismisses this confirmation.
+    /// Returns the inherited command that dismisses this confirmation with
+    /// [`NotificationReaction::Approve`].
+    ///
+    /// Every call returns a clone of the same command, which
+    /// [`dispose`](Self::dispose) disposes.
     pub fn dismiss_command(&self) -> RelayCommand {
-        let vm = self.clone();
-        RelayCommand::new_shared(move || vm.dismiss())
+        self.notification_vm.dismiss_command()
     }
 
     /// Returns the remaining lifespan in milliseconds.
@@ -253,29 +393,136 @@ impl ConfirmationVm {
 
     /// Advances the deterministic clock. Unlike a plain notification, a
     /// confirmation stays pending when its lifespan expires (spec/16 §7).
+    ///
+    /// Has no effect once the confirmation is resolved or the VM is disposed.
     pub fn advance_by_ms(&self, millis: u64) {
-        if self.is_resolved() {
+        let state = &self.notification_vm.state;
+        if state.is_inert() {
             return;
         }
-        let vm = &self.notification_vm;
-        let mut elapsed = lock(&vm.elapsed_ms);
-        *elapsed = elapsed.saturating_add(millis).min(vm.lifespan_ms);
+        state.advance(millis);
     }
 
-    fn resolve(&self, reaction: NotificationReaction) {
-        let should_resolve = {
-            let mut resolved = lock(&self.notification_vm.resolved);
-            if *resolved {
-                false
-            } else {
-                *resolved = true;
-                true
-            }
-        };
-        if should_resolve {
-            self.notification_vm
-                .hub
-                .resolve(self.notification_vm.notification.id, reaction);
+    /// Disposes the confirmation once and does not resolve it.
+    ///
+    /// The approve, reject and dismiss commands, and every clone of them,
+    /// become inert: `can_execute` is `false` and `execute` no longer
+    /// resolves the hub. A pending confirmation stays pending. A first
+    /// resolution stays authoritative, and a second call has no effect
+    /// (`DISP-004`). Disposal never disposes the hub.
+    pub fn dispose(&self) {
+        if self.notification_vm.state.claim_dispose() {
+            self.notification_vm.dismiss_command.dispose();
+            self.approve_command.dispose();
+            self.reject_command.dispose();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Command, NotificationType};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn posted(kind: NotificationType) -> (NotificationHub, Notification) {
+        let hub = NotificationHub::new();
+        let notification = hub.post(kind, "message");
+        (hub, notification)
+    }
+
+    #[test]
+    fn notification_dispose_makes_a_kept_dismiss_command_inert() {
+        let (hub, notification) = posted(NotificationType::Notification);
+        let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+        let kept = vm.dismiss_command();
+        let changes = Arc::new(AtomicUsize::new(0));
+        let observed = changes.clone();
+        let _subscription = kept.can_execute_changed().subscribe(move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+        });
+
+        vm.dispose();
+        drop(vm);
+        kept.execute();
+
+        assert!(!kept.can_execute());
+        assert_eq!(changes.load(Ordering::SeqCst), 1);
+        assert_eq!(hub.pending(), vec![notification.clone()]);
+        assert_eq!(hub.reaction(notification.id), NotificationReaction::Pending);
+    }
+
+    #[test]
+    fn notification_dispose_stops_the_clock_and_the_hub_tracking() {
+        let (hub, notification) = posted(NotificationType::Notification);
+        let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+        vm.advance_by_ms(4_000);
+
+        vm.dispose();
+        vm.advance_by_ms(10_000);
+        vm.dismiss();
+
+        assert_eq!(vm.remaining_time_ms(), 6_000);
+        assert!(!vm.is_resolved());
+        assert_eq!(hub.reaction(notification.id), NotificationReaction::Pending);
+
+        hub.resolve(notification.id, NotificationReaction::Reject);
+        assert!(!vm.is_resolved(), "a disposed VM no longer follows the hub");
+    }
+
+    #[test]
+    fn dispose_keeps_an_external_resolution_seen_before_it() {
+        let (hub, notification) = posted(NotificationType::Confirmation);
+        let vm = ConfirmationVm::with_hub(notification.clone(), hub.clone());
+        hub.resolve(notification.id, NotificationReaction::Reject);
+
+        vm.dispose();
+        vm.dispose();
+
+        assert!(vm.is_resolved());
+        assert_eq!(vm.reaction(), NotificationReaction::Reject);
+    }
+
+    #[test]
+    fn confirmation_commands_are_stable_and_clones_share_disposal() {
+        let (hub, notification) = posted(NotificationType::Confirmation);
+        let vm = ConfirmationVm::with_hub(notification.clone(), hub.clone());
+        let commands = [
+            vm.approve_command(),
+            vm.reject_command(),
+            vm.dismiss_command(),
+            vm.clone().approve_command(),
+        ];
+
+        vm.clone().dispose();
+        vm.approve();
+        vm.reject();
+        vm.advance_by_ms(1_000);
+        for command in &commands {
+            command.execute();
+            assert!(!command.can_execute());
+        }
+
+        assert!(!vm.approve_command().can_execute());
+        assert_eq!(vm.remaining_time_ms(), 300_000);
+        assert_eq!(vm.reaction(), NotificationReaction::Pending);
+        assert_eq!(hub.pending(), vec![notification]);
+    }
+
+    #[test]
+    fn kept_commands_do_not_keep_the_state_in_a_cycle() {
+        let (hub, notification) = posted(NotificationType::Confirmation);
+        let vm = ConfirmationVm::with_hub(notification, hub);
+        let flags = Arc::downgrade(&vm.notification_vm.state.flags);
+        let kept = vm.reject_command();
+
+        drop(vm);
+        assert!(flags.upgrade().is_some(), "a kept command holds the state");
+
+        drop(kept);
+        assert!(
+            flags.upgrade().is_none(),
+            "dropping the VM and its commands releases the state"
+        );
     }
 }

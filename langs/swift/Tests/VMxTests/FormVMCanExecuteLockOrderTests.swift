@@ -28,6 +28,22 @@ private let reentrantStressDuration: TimeInterval = 3.0
 private let mutatingSinkThread = "FormVMCanExecuteLockOrderTests.mutatingSink"
 /// Marks the thread whose `errorsChanged` sink updates the form.
 private let errorsSinkThread = "FormVMCanExecuteLockOrderTests.errorsSink"
+/// Marks a thread that is inside a mutating sink.
+private let insideMutatingSink = "FormVMCanExecuteLockOrderTests.insideSink"
+
+/// Runs `body` unless this thread is already inside a mutating sink. The
+/// sink's own update sends `canExecuteChanged` again on this thread; with
+/// another thread editing the form in between, an unguarded sink would
+/// recurse without bound. Combine's delivery lock used to bound it by
+/// blocking the other thread's send; `FormVM` now holds no delivery lock
+/// (ADR-0174 §2.1), as in C# and Python.
+private func withoutSinkReentry(_ body: () -> Void) {
+    let dictionary = Thread.current.threadDictionary
+    guard dictionary[insideMutatingSink] as? Bool != true else { return }
+    dictionary[insideMutatingSink] = true
+    defer { dictionary[insideMutatingSink] = false }
+    body()
+}
 
 final class FormVMCanExecuteLockOrderTests: XCTestCase {
     private var cancellables = Set<AnyCancellable>()
@@ -247,7 +263,7 @@ final class FormVMCanExecuteLockOrderTests: XCTestCase {
         form.approveCommand.canExecuteChanged
             .sink { [weak form] _ in
                 guard Thread.current.threadDictionary[mutatingSinkThread] as? Bool == true else { return }
-                form?.setModel("sink")
+                withoutSinkReentry { form?.setModel("sink") }
             }
             .store(in: &cancellables)
         race([
@@ -268,13 +284,13 @@ final class FormVMCanExecuteLockOrderTests: XCTestCase {
             .sink { [weak form] errors in
                 guard Thread.current.threadDictionary[errorsSinkThread] as? Bool == true,
                       !errors.isEmpty else { return }
-                form?.setModel("fixed")
+                withoutSinkReentry { form?.setModel("fixed") }
             }
             .store(in: &cancellables)
         form.approveCommand.canExecuteChanged
             .sink { [weak form] _ in
                 guard Thread.current.threadDictionary[mutatingSinkThread] as? Bool == true else { return }
-                form?.setModel("sink")
+                withoutSinkReentry { form?.setModel("sink") }
             }
             .store(in: &cancellables)
         race([

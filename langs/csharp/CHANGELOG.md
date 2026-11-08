@@ -85,6 +85,98 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: the `CompositeVMBase` index setter keeps the replaced child owned
+  until the commit (#1219). The commit now frees the child and clears
+  `Current` in one locked section. Before, the setter freed the child first
+  and cleared `Current` only at the commit. A construct hook of the
+  replacement could adopt the freed child into another composite and select
+  it there. The commit then reset the child's `IsCurrent` flag while the
+  other composite kept it current. A hook that adopted the child and then
+  failed left it in both composites. Now the adoption fails while the
+  replacement is in progress. A failed replacement still restores the child
+  and `Current` with no notification.
+- Fixed: `SelectComponent` now checks `Constructed` again at the commit,
+  under the coordination lane and the membership gate, also at an
+  `AsyncSelection(true)` delivery (spec/06 §3.1, #1220). Before, a destruct on
+  another thread after `CanSelectComponent`, or before the delivery, let the
+  call select a `Destructed` child. Now the call throws its predicate error,
+  and the delivery does nothing.
+- Fixed: lifecycle publication waits and hook-lease waits now join the one
+  wait-for graph that hub, membership and ownership waits use (#1156,
+  ADR-0172). A thread that drains a VM's publications or runs its hook can
+  wait to send on a hub that another thread drains, while that thread
+  disposes the VM. These two threads no longer deadlock. The wait that would
+  close the cycle takes its escape instead: the hub send enqueues for the
+  active drain, the publication stays queued for its drainer, or terminal
+  cleanup is deferred to the hook's completion. The separate lifecycle graph
+  is gone.
+- Fixed: a foreign `Dispose()` no longer returns before another thread's
+  admitted hook or delivery of `Disposed` finishes because of a wait that had
+  already ended (#1183). Each lifecycle wait edge is keyed by its delivery or
+  hook lease, and the finishing thread removes the edges on it before it wakes
+  the waiters. Before this fix, `OnDispose` could run on the hook's thread
+  after `Dispose()` returned, and a failure it threw was lost, or `OnDispose`
+  ran before subscribers received `Disposed`.
+- Fixed: an open borrowed `MessageHub` batch scope is now a wait-for owner
+  (#1159, ADR-0172). A `Send`, `Batch`, `Dispose()` or drain that waits for a
+  borrowed scope records an edge to the borrower, so a borrower that waits for
+  the waiting thread no longer deadlocks both threads. A drainer whose queue
+  is empty releases the drain instead of waiting, and the borrowed scope's
+  exit drains what its body sent. A drainer with queued messages whose wait
+  would close a cycle also releases the drain. Its outermost `Send` then
+  returns before those messages are delivered, and the exit of the last
+  borrowed scope delivers them on the borrower's thread (spec/03 §4.2). A
+  borrower that leaves while other borrowers remain wakes the waiters. A
+  `Send` from inside a hub callback to a hub with an open borrowed scope now
+  waits for that scope like any other `Send`, so it delivers before it returns
+  (HUB-013). It enqueues without waiting only when its wait would close a
+  cycle. After a borrower's `Dispose()`, the last of the batch owner and the
+  borrowers to release the hub completes `Messages`. The batch owner's exit no
+  longer completes it inside an open borrowed scope, and a borrower's exit no
+  longer completes it while the batch is still open (spec/03 §4.2 rule 3).
+- Fixed: the thread that owns a `MessageHub` batch now waits for another
+  thread's open borrowed scope before its nested `Batch` body runs (#1223,
+  ADR-0172). The wait records an edge to the borrower, as the owner's `Send`
+  and `Dispose()` already did. Before this fix, the nested body ran inside the
+  other thread's borrowed scope. When the wait would close a cycle, the
+  nested `Batch` enters a borrowed scope (spec/03 §4.1 and §4.2 rule 3).
+  Python and Swift already behaved this way.
+- Fixed: a `Construct()`, `Destruct()` or `Reconstruct()` call, or its async
+  form, that starts during a VM's inline dispose cascade now throws
+  `StatusTransitionException(Disposed, operation)` (#1174, ADR-0175, spec/02
+  §7.2, LIFE-021). The inline cascade is the part of the first `Dispose()`
+  that disposes the children of a `CompositeVM`, `GroupVM` or
+  `AggregateVM1`–`AggregateVM6`, or the members that a leaf registered with
+  `OwnMember`, while no hook of the VM runs on another thread. The check runs
+  before the idempotent no-op, so `Construct()` from `Constructed` also
+  throws. The call publishes no status and runs no hook. Before, a composite
+  or group published `Constructing` or `Destructing`, ran no hook and
+  returned, and an aggregate ran its hook. `CanConstruct()`, `CanDestruct()`
+  and `CanReconstruct()` still read `Status`.
+- Fixed: once the inline dispose cascade has started, a VM commits no status
+  other than `Disposed` (#1167, ADR-0175, LIFE-021). A transition whose hook
+  returned before a `Dispose()` on another thread started the cascade no
+  longer publishes `Constructed` or `Destructed` over its disposed children or
+  members. The same applies to its rollback after a failure, to the restore
+  after a failed publication, to the `Constructed` or `Destructed` commit that
+  a background transition queued on the foreground, and to the construct
+  phase of `Reconstruct()`. Such a call returns as a call that disposal
+  superseded: it raises no error of its own, and a hook failure still
+  propagates.
+- Fixed: `AggregateVM1`–`AggregateVM6` dispose their slots at the same hook
+  boundary as `CompositeVM` and `GroupVM` (#1166, LIFE-015). A `Dispose()` on
+  another thread while the aggregate's construct or destruct hook runs now
+  publishes `Disposed` first and disposes no slot until the hook returns.
+  Before, it disposed the slots during the hook, so `Destruct()` threw
+  `InvalidOperationException` and the aggregate published `Constructed` before
+  `Disposed`, or it waited for the construct hook and the aggregate published
+  `Constructed` first. A `Construct()` racing `Dispose()`, and two aggregates
+  whose slot factories dispose each other, no longer deadlock. The slot
+  snapshot is taken when the cascade starts, and a further `Dispose()` call
+  during the cascade does nothing. A slot replacement checks for disposal and
+  assigns its slots in one step under the lifecycle lock, so a concurrent
+  `Dispose()` never leaves a slot committed to a disposed aggregate (spec/08
+  §4, AGG-007).
 - Fixed: `ServicedObservableCollection<T>`,
   `KeyedServicedObservableCollection<TKey, TItem>` and `ObservableDictionary`
   now send the hub `CollectionChangedMessage` when a local handler throws
@@ -124,6 +216,16 @@ All notable changes to the C# flavor are documented here. The format is based on
   (#1147). Before, a deferred `Dispose()` that waited for that transaction ran
   its whole cascade under the lane. A `Current` change on any other composite
   then waited for the cascade, and a child hook that made one deadlocked it.
+- Fixed: a `GroupVMBase` whose owner thread called `Dispose()` inside its own
+  membership transaction now keeps that deferred disposal pending until the
+  handoff `Dispose()` admits it (#1153, spec/06 §4.2). Before, the transaction
+  end cleared the deferral before it called `Dispose()`. In that gap another
+  thread's `Add`, `Insert`, index replacement, `Remove`, `RemoveAt`, `Move` or
+  `Clear` was admitted, the disposal cascade then disposed an added child, and
+  the handoff `Dispose()` waited for that thread's transaction. A handler on
+  that thread that waited for the owner deadlocked both threads. Those calls
+  now throw `ObjectDisposedException` and change nothing. `CompositeVMBase`
+  already kept its deferral (#1064).
 - Fixed: `ObservableDictionary`: `Remove` and `Clear` now update `Keys2`
   before `Keys1`, as `Add` does (#1075). A `Keys1` subscriber now sees the
   updated `Keys2`. Before, an entry that a `Keys1` subscriber added during
@@ -413,6 +515,47 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Fixed: `DerivedProperty` and `SearchableState` now run every teardown step
   when a completion observer throws, then rethrow the first failure. Before,
   the remaining subjects were never completed or disposed (#538).
+- Fixed: `FormVM` queues a `SetModel` or deny that the approving thread makes
+  during approval publication, and replays it after the `OnApproved` delivery
+  (#1168, #1050, ADR-0174, FORM-039, FORM-040). The queue now opens with the
+  post-persist commit, so it also covers calls from `resetOnApproved`, the
+  snapshotter and the validators. Before, such a call committed and published
+  at once, and the reset then overwrote it. A deny from a settlement observer
+  is now queued like `SetModel`, so `OnApproved` observers no longer see a
+  reverted model. A queued call now runs its full preparation (the equality
+  checks and the validators, and the snapshotter for deny) at call time, so a
+  failing callback throws to the caller and nothing is queued. Equality never
+  skips the enqueue. Each queued call replays as a new call. A replay failure
+  no longer stops the later replays or fails the settled approval in place.
+  After the last replay, the first replay failure reaches the `ApproveAsync`
+  awaiter, or `ApproveErrors` once on the command path. A failure that the
+  approval already carries wins, such as a failed reset or a failing
+  `OnApproved` subscriber. Calls queued by a failed reset replay after its
+  settlement's `CanExecuteChanged` and before the reset failure is routed.
+  Each queued update adds one validator call at call time.
+- Fixed: `FormVM` publication waits now join the wait-for graph (#1170,
+  ADR-0176, spec/20 §5.5). A form notification sink can send on a hub that
+  another thread drains while that thread calls the form. The two threads no
+  longer deadlock. Another thread's `SetModel`, deny, approve admission,
+  settlement and `Dispose()` record an edge to the publishing thread. When
+  that edge would close a cycle, the call does not wait. A `SetModel` or deny
+  runs its preparation, joins the publisher's queue and returns before it
+  takes effect. A call in its own thread's pre-publication window joins that
+  thread's queue instead, as in the other flavors. The publisher replays its
+  queue after its outermost scope ends. An approve call is admitted, and a
+  settlement commits and opens its own scope.
+  A `Dispose()` marks the form disposed and returns, and the publisher tears
+  it down after its outermost scope ends.
+- Changed: `FormVM` no longer delivers a notification while it holds its
+  state lock or the old `ApproveErrors` lock (ADR-0176). `SetModel` and deny
+  deliver `ErrorsChanged` in an update scope, and `CanExecuteChanged` after
+  it. Other threads' form calls wait for that scope, so error maps still reach
+  observers in commit order. The admission `CanExecuteChanged` no longer opens
+  a scope, so another thread's `SetModel` or deny runs during it. A
+  `Dispose()` on another thread no longer waits for an `ApproveErrors`
+  delivery. It defers the teardown until that delivery returns. A `Dispose()`
+  from an `ApproveErrors` observer on the delivering thread also defers it.
+  Before, it completed the channels during that delivery.
 
 ### VMx.Notifications
 

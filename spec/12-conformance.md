@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 446 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 449 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -283,6 +283,37 @@ parent then publishes `Constructed`
 
 > Normatively defined in `02-lifecycle.md §6.1`.
 
+### LIFE-021 — A lifecycle call during the inline dispose cascade fails
+
+**Given** a container `box` (`CompositeVM`, `GroupVM`, and `AggregateVM1`, each
+in turn) on an inline dispatcher that holds child `c1`, with no hook running on
+another thread (an aggregate is constructed once first, so that `c1` exists)
+**And** `c1`'s dispose hook calls `box.construct()` while
+`box.Status == Destructed`, or `box.destruct()` while
+`box.Status == Constructed`, and records the error it catches
+**And** a hub subscriber records each `ConstructionStatusChangedMessage` of
+`box`
+**When** `box.dispose()` is called
+**Then** the recorded error is the one that the same call raises on a
+`Disposed` VM: a `StatusTransitionError` / `StatusTransitionException` that
+names `Disposed` and the attempted operation, or `VmxError::Disposed` in Rust
+**And** no construct or destruct hook of `box` runs, and the aggregate's slot
+factory is not called again
+**And** the subscriber records only `Disposed` for `box`
+**And** when `dispose()` returns, `box` and every child or slot it holds are
+`Disposed`, and each child publishes `Disposed` once
+**And** `box.construct()` from `Constructed` and `box.reconstruct()` from
+`Constructed`, called from `c1`'s dispose hook, fail in the same way
+**And** for a leaf VM with one member registered through the member-disposal
+helper, a `construct()` of the leaf from the member's dispose hook fails in the
+same way, runs no leaf hook, and the leaf publishes only `Disposed`
+**And** for a background leaf VM with one member, whose construct hook has run
+and whose `Constructed` commit is queued on a manual foreground scheduler,
+draining that scheduler from the member's dispose hook publishes no
+`Constructed`: after its `Constructing`, the leaf publishes only `Disposed`
+
+> Normatively defined in `02-lifecycle.md §7.2`. See ADR-0175.
+
 ______________________________________________________________________
 
 ## 4. Message hub (`HUB-NNN`)
@@ -364,6 +395,10 @@ outer transaction then sends `C`
 **Then** both subscribers observe `A` before either observes `B`
 **And** the outer send returns only after both have observed `B`
 **And** delivery uses an iterative queue rather than recursive dispatch
+
+The one exception is the wait-for cycle of chapter 03 §4.2 rule 5, where a
+drainer with queued messages releases the drain to a borrowed scope's exit
+(ADR-0172). No `HUB-010` test forms that cycle.
 
 ### HUB-011 — Subscriber failure does not abort a transaction drain
 
@@ -4143,6 +4178,67 @@ candidate
 **Then** the model is not reverted and no deny message is published
 
 > Spec: `20-form-vm.md §5.4/§10`, ADR-0144.
+
+### FORM-039 — updates during approval publication replay after `OnApproved`
+
+**Given** a valid `FormVM<TM>` with a succeeding persister, a validator that
+rejects `x`, and a `resetOnApproved` that calls `SetModel(x)` and returns
+`pristine`
+**When** an approval succeeds
+**Then** the nested call publishes no `ErrorsChanged`, `CanExecuteChanged`, or
+model `PropertyChangedMessage` before `OnApproved`
+**And** an `OnApproved` observer sees `Model == pristine`, `IsDirty == false`,
+and `IsValid == true`
+**And** after the `OnApproved` delivery returns, `Model == x`, `Errors` holds
+the error for `x`, and one model `PropertyChangedMessage` is published for it
+**And** the last map that an `ErrorsChanged` observer received equals `Errors`
+
+**Given** a form without a reset whose model is edited to `newer` while the
+persister of an approval that captured `saved` runs, and a settlement
+`CanExecuteChanged` observer that calls `DenyCommand.Execute()`
+**When** the approval succeeds
+**Then** an `OnApproved` observer sees `Model == newer` and `IsDirty == true`
+**And** `FormRevertedMessage` is published after the `OnApproved` delivery,
+and `Model == saved` afterwards
+
+**When** the `resetOnApproved` calls `SetModel(a)` and then
+`DenyCommand.Execute()`
+**Then** the queued calls replay in call order after `OnApproved`: the model
+becomes `a`, then reverts to `pristine`
+
+> Spec: `20-form-vm.md §5.1/§5.3`, ADR-0174.
+
+### FORM-040 — a queued update prepares at call time and replays in isolation
+
+**Given** a valid `FormVM<TM>` with initial model `1`, a succeeding persister,
+and a validator that fails (throws, or panics in Rust) for `13`
+**And** the model was set to `2`
+**And** a settlement `CanExecuteChanged` observer that calls `SetModel(13)`,
+catches its failure, and then calls `SetModel(42)`
+**When** `ApproveAsync` is awaited, and separately when
+`ApproveCommand.Execute()` runs
+**Then** `SetModel(13)` fails at call time and nothing is queued for it
+**And** `OnApproved` emits `2` once, the awaited approval completes normally,
+and the command path emits nothing on `ApproveErrors`
+**And** `Model == 42` after the approval settles
+
+**Given** the same form with model `2` and a settlement observer that calls
+`SetModel(5)` and then `SetModel(2)`
+**Then** both calls are queued, and `Model == 2` after the approval settles
+
+**Given** two queued updates, where the first passes its call-time
+preparation and fails when it replays
+**Then** the second update still commits after it, and the approval stays
+settled: its commit stands and `OnApproved` emitted once
+**And** after the last replay, the first replay failure reaches the awaiter,
+or, on the command path, is emitted once on `ApproveErrors`
+**And** in a flavor where an `OnApproved` subscriber's failure propagates, a
+failing `OnApproved` subscriber's failure is the one reported instead
+
+Swift callbacks cannot fail, so a Swift test covers only the call-time
+equality and replay-order clauses.
+
+> Spec: `20-form-vm.md §5.3/§5.4`, ADR-0174.
 
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 

@@ -1,6 +1,6 @@
 # ADR 0119 — Coordinate cross-hub waits by actual dependency cycles
 
-**Status:** Accepted (2026-07-18)
+**Status:** Accepted (2026-07-18; clarified by ADR-0172)
 **Spec version:** clarified in 3.22.0
 **Clarifies:** [ADR-0082](0082-message-hub-transactions.md)
 

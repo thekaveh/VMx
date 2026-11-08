@@ -240,7 +240,7 @@ transaction (ADR-0173). A builder throws `BuilderValidationError` from `build()`
 required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> full lifecycle contract (`LIFE-001..020`),
+> full lifecycle contract (`LIFE-001..021`),
 > including the transition table and admitted-hook/disposal coordination.
 
 ______________________________________________________________________

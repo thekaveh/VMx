@@ -32,15 +32,15 @@ resource cancellation.
 
 ## 6.8.2. The Seven Disposal Families
 
-| Family                        | Representative surfaces                                             | Cross-cutting ID | Detailed coverage                                         |
-| ----------------------------- | ------------------------------------------------------------------- | ---------------- | --------------------------------------------------------- |
-| VM and owner cascades         | Component, composite, group, aggregate, hierarchy, forwarding       | `DISP-001`       | `LIFE-004`, `LIFE-012`, `LIFE-013`, `LIFE-018`, `CVM-009` |
-| Commands                      | Relay, async relay, composite/decorator, modeled CRUD               | `DISP-002`       | `CMD-012`, `CMD-013`, `CMDD-010`..`CMDD-013`              |
-| Hubs and services             | Message hub, notification hub                                       | `DISP-003`       | `HUB-012`, `NOTIF-017`                                    |
-| Interaction owners            | Form, modal, notification rendering VMs                             | `DISP-004`       | `DIA-011`, `DIA-012`, `FORM-014`, `NOTIF-017`             |
-| Reactive helpers              | Derived property, expansion/search state, discriminator             | `DISP-005`       | `DPROP-011`                                               |
-| Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections | `DISP-006`       | `COMP-013`, `COMP-035`, `GRP-006`, `COL-024..031`         |
-| Async resource owners         | AsyncResourceVM loader, commands, and accepted value                | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`                        |
+| Family                        | Representative surfaces                                             | Cross-cutting ID | Detailed coverage                                                     |
+| ----------------------------- | ------------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------- |
+| VM and owner cascades         | Component, composite, group, aggregate, hierarchy, forwarding       | `DISP-001`       | `LIFE-004`, `LIFE-012`, `LIFE-013`, `LIFE-018`, `LIFE-021`, `CVM-009` |
+| Commands                      | Relay, async relay, composite/decorator, modeled CRUD               | `DISP-002`       | `CMD-012`, `CMD-013`, `CMDD-010`..`CMDD-013`                          |
+| Hubs and services             | Message hub, notification hub                                       | `DISP-003`       | `HUB-012`, `NOTIF-017`                                                |
+| Interaction owners            | Form, modal, notification rendering VMs                             | `DISP-004`       | `DIA-011`, `DIA-012`, `FORM-014`, `NOTIF-017`                         |
+| Reactive helpers              | Derived property, expansion/search state, discriminator             | `DISP-005`       | `DPROP-011`                                                           |
+| Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections | `DISP-006`       | `COMP-013`, `COMP-035`, `GRP-006`, `COL-024..031`                     |
+| Async resource owners         | AsyncResourceVM loader, commands, and accepted value                | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`                                    |
 
 `AggregateChangeStream` disposal is covered by `AGCH-010`.
 
@@ -68,9 +68,15 @@ model.
 - While a construct or destruct hook of the VM runs on another thread, the VM
   publishes `Disposed` first and waits for that hook. After the hook returns,
   the VM disposes its children and members, before its subclass hook
-  (`LIFE-015`, spec 02 §2.4, §7.1). C# fixed aggregates do not follow this rule
-  yet
-  ([open decision 2.11](../../maintenance/2026-10-18-open-cross-flavor-decisions.md#211-lifecycle-call-during-a-containers-inline-dispose-cascade)).
+  (`LIFE-015`, spec 02 §2.4, §7.1).
+- With no hook running on another thread, the VM disposes its children and
+  members inline, before it publishes `Disposed`. A `construct()`,
+  `destruct()`, or `reconstruct()` call that starts during that cascade fails
+  with the error that the call raises on a `Disposed` VM. It publishes nothing
+  and runs no hook, even when a child's or member's dispose hook makes the
+  call. A transition that started before the cascade commits no status other
+  than `Disposed`, and its call returns as a call that disposal superseded
+  (`LIFE-021`, spec 02 §7.2, ADR-0175).
 - A child view-model registered with the owned-resource helper is not a
   container child. It is disposed parent-first: the parent publishes
   `Disposed`, runs its subclass hook, and then disposes owned registrations,
@@ -211,10 +217,10 @@ flavor unless the exceptions below say otherwise.
 - `AsyncResourceVM<T>` releases an abort controller.
 - `AggregateChangeStream.withBatch` throws `Error` after disposal.
 - Lifecycle hooks run on one thread, so no hook runs on another thread during
-  disposal. A `construct()` or `destruct()` of a container from a child's
-  dispose hook runs the container's hook. C# composites and groups, and Python,
-  Swift and Rust containers, admit no hook during the child cascade
-  ([open decision 2.11](../../maintenance/2026-10-18-open-cross-flavor-decisions.md#211-lifecycle-call-during-a-containers-inline-dispose-cascade)).
+  disposal. A `construct()`, `destruct()`, or `reconstruct()` of a container
+  from a child's dispose hook, or of a leaf from a member's dispose hook,
+  throws `StatusTransitionError` for `Disposed` and runs no hook,
+  as in the other flavors ([Ownership Rules](#683-ownership-rules)).
 
 ### 6.8.5.4. Swift
 
@@ -242,10 +248,14 @@ flavor unless the exceptions below say otherwise.
 
 ### 6.8.5.5. Rust
 
-- `PagedComposition`, rendering `NotificationVm`, `ConfirmationVm`, and
-  `ModeledCrudCommands` have no public disposal member. VMx does not treat them
-  as disposable. Adding one is a separate API decision with its own inventory
-  row and conformance coverage.
+- `PagedComposition` and `ModeledCrudCommands` have no public disposal member.
+  VMx does not treat them as disposable. Adding one is a separate API decision
+  with its own inventory row and conformance coverage.
+- `NotificationVm` and `ConfirmationVm` have no property-change stream.
+  `dispose()` disposes their stable dismiss, approve and reject commands, so a
+  kept command clone no longer resolves the hub. It stops the lifespan clock
+  and keeps `is_resolved()` at its value at disposal. Clones share the disposed
+  state (ADR-0178).
 - VM families, including modeled composite and forwarding, dispose through
   `VmNode::dispose`. It returns `Ok(())` on a repeated call with no new work.
 - A VM sends one `Disposed` message. It releases children, LIFO owned
@@ -283,14 +293,9 @@ flavor unless the exceptions below say otherwise.
 - `ModalVm` sets its result once.
 - `AggregateChangeSubscription` detaches one output subscription.
   `AggregateChangeStream::batch` panics after disposal.
-- A leaf `ComponentVm` disposes its `own_member` members before it waits for an
-  admitted hook on another thread
-  ([Rust parity ledger §12.13](../../maintenance/2026-07-16-rust-capability-parity.md#1213-open-item-leaf-member-disposal-and-admitted-hooks)).
-- A `construct()` or `destruct()` of a container during its inline child
+- A `construct()`, `destruct()`, or `reconstruct()` of a VM during its inline
   cascade, before it publishes `Disposed`, returns `VmxError::Disposed` and
-  publishes nothing. C# composites and groups, and
-  Python and Swift containers, publish the transient status and run no hook
-  ([open decision 2.11](../../maintenance/2026-10-18-open-cross-flavor-decisions.md#211-lifecycle-call-during-a-containers-inline-dispose-cascade)).
+  publishes nothing ([Ownership Rules](#683-ownership-rules)).
 
 ## 6.8.6. Practical Teardown Pattern
 

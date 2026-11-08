@@ -1,6 +1,6 @@
 use vmx::{
-    make_confirm, Command, Notification, NotificationHub, NotificationReaction, NotificationType,
-    NotificationVm, NullNotificationHub,
+    make_confirm, Command, ConfirmationVm, Notification, NotificationHub, NotificationReaction,
+    NotificationType, NotificationVm, NullNotificationHub,
 };
 
 /// NOTIF-001 — Post returns an awaitable that completes when Resolve is called
@@ -560,6 +560,69 @@ fn external_pending_resolve_marks_notification_vm_resolved() {
         !reposted_vm.is_resolved(),
         "a re-posted notification is pending"
     );
+}
+
+/// DISP-004 — a disposed confirmation's kept commands no longer resolve the hub
+#[test]
+fn disposed_confirmation_kept_commands_do_not_resolve() {
+    let hub = NotificationHub::new();
+    let (notification, waiter) = hub.post_with_waiter(NotificationType::Confirmation, "delete?");
+    let vm = ConfirmationVm::with_hub(notification.clone(), hub.clone());
+    let kept = [
+        vm.approve_command(),
+        vm.reject_command(),
+        vm.dismiss_command(),
+    ];
+    assert!(kept.iter().all(Command::can_execute));
+
+    vm.dispose();
+    for command in &kept {
+        command.execute();
+    }
+
+    assert!(kept.iter().all(|command| !command.can_execute()));
+    assert_eq!(vm.reaction(), NotificationReaction::Pending);
+    assert_eq!(hub.pending(), vec![notification]);
+    assert!(!vm.is_resolved());
+    assert_eq!(waiter.try_get(), None);
+}
+
+/// DISP-004 — repeated rendering-VM disposal keeps the first reaction
+#[test]
+fn repeated_rendering_vm_dispose_keeps_the_first_reaction() {
+    let hub = NotificationHub::new();
+    let (confirmation, confirmation_waiter) =
+        hub.post_with_waiter(NotificationType::Confirmation, "proceed?");
+    let confirmation_vm = ConfirmationVm::with_hub(confirmation.clone(), hub.clone());
+    let kept_reject = confirmation_vm.reject_command();
+
+    confirmation_vm.approve();
+    confirmation_vm.dispose();
+    confirmation_vm.dispose();
+    kept_reject.execute();
+    confirmation_vm.reject();
+
+    assert_eq!(confirmation_vm.reaction(), NotificationReaction::Approve);
+    assert!(confirmation_vm.is_resolved());
+    assert_eq!(confirmation_waiter.wait(), NotificationReaction::Approve);
+
+    let (notification, notification_waiter) =
+        hub.post_with_waiter(NotificationType::Notification, "info");
+    let notification_vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+    let kept_dismiss = notification_vm.dismiss_command();
+
+    notification_vm.dispose();
+    notification_vm.dispose();
+    kept_dismiss.execute();
+    notification_vm.advance_by_ms(10_000);
+
+    assert!(!kept_dismiss.can_execute());
+    assert!(!notification_vm.is_resolved());
+    assert_eq!(hub.reaction(notification.id), NotificationReaction::Pending);
+    assert_eq!(hub.pending(), vec![notification]);
+
+    hub.dispose();
+    assert_eq!(notification_waiter.wait(), NotificationReaction::Pending);
 }
 
 /// NOTIF-016 — Deterministic behavior under injected TestScheduler / fake clock

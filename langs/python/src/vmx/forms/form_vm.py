@@ -10,6 +10,7 @@ import contextlib
 import copy
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import Future
+from functools import partial
 from threading import Condition, RLock, get_ident
 from typing import Any, Generic, TypeVar
 
@@ -19,6 +20,7 @@ from reactivex.subject import Subject
 
 from vmx._asyncio_runner import ScheduledRun, submit_background
 from vmx._disposal import _run_disposal_steps
+from vmx._wait_for_graph import WAITS
 from vmx.commands.relay_command import RelayCommand
 from vmx.forms.builders import FormVMBuilder
 from vmx.messages.form_reverted import FormRevertedMessage
@@ -30,6 +32,36 @@ TM = TypeVar("TM")
 
 FieldValidator = Callable[[TM], str | None]
 ModelValidator = Callable[[TM], Mapping[str, str | None]]
+
+
+class _PublicationScope:
+    """The wait-for graph resource of one form's publication scopes."""
+
+    __slots__ = ()
+
+
+class _ThreadPublication:
+    """One thread's publication state on one form (spec/20 §5.3, §5.5).
+
+    ``depth`` counts the publication scopes the thread holds; scopes nest on
+    their thread. ``pre_publishing`` marks settlement steps 2 and 3 of the
+    innermost scope. ``commit_window`` marks the thread's post-persist commit,
+    which is part of the pre-publication window but holds no other thread.
+    ``queue`` holds the thread's own pre-publication updates and other
+    threads' refused updates, in the order they joined it. Each item is a set
+    or a deny that replays as a new call when the outermost scope ends.
+    """
+
+    __slots__ = ("commit_window", "depth", "pre_publishing", "queue")
+
+    def __init__(self) -> None:
+        self.depth = 0
+        self.pre_publishing = False
+        self.commit_window = False
+        self.queue: list[Callable[[], None]] = []
+
+    def in_pre_publication_window(self) -> bool:
+        return (self.depth > 0 and self.pre_publishing) or self.commit_window
 
 
 class FormVM(Generic[TM]):
@@ -89,14 +121,20 @@ class FormVM(Generic[TM]):
         # Single-flight approval admission (spec/20 §5.3, ADR-0143): set when an
         # approve call is admitted, cleared first thing at settlement.
         self._approval_in_flight = False
-        self._approval_pre_publishing = False
-        self._approval_publisher_thread: int | None = None
-        self._deferred_approval_models: list[TM] = []
+        # Per-thread publication state (spec/20 §5.5, ADR-0176): the threads
+        # that hold publication scopes, are in a post-persist commit, or keep
+        # a queue. Two threads can hold scopes when a cyclic settlement wait
+        # was refused, so nothing here is form-wide.
+        self._publications: dict[int, _ThreadPublication] = {}
+        # The resource that publication-scope waits name in the wait-for
+        # graph: one per form, owned by a publisher (ADR-0176 rule 4).
+        self._publication_scope = _PublicationScope()
         self._active_mutations = 0
         self._mutation_teardown_pending = False
-        # Commit generation (spec/20 §5.4): advanced by every commit of model,
-        # snapshot, or errors, so an update whose callbacks re-entered the form
-        # can tell that its preparation went stale.
+        # Update generation (spec/20 §5.4): advanced by every commit of model,
+        # snapshot, or errors, and by every queued update (§5.3), so an update
+        # whose callbacks re-entered the form can tell that its preparation
+        # went stale.
         self._generation = 0
 
         # Construction runs the same preparation as an update (spec/20 §5.4):
@@ -224,37 +262,57 @@ class FormVM(Generic[TM]):
         errors, and command state, with nothing published. If a callback
         re-enters the form and another update commits, or the form is disposed,
         this call commits and publishes nothing.
+
+        Inside an approval's pre-publication window on the approving thread
+        (spec/20 §5.3, ADR-0174), the call prepares at call time, so a failing
+        callback still raises here, and is then queued: it changes and
+        publishes nothing until it replays after ``on_approved``.
+
+        While another thread holds a publication scope (spec/20 §5.5), the
+        call waits for it. When that wait would close a wait-for cycle, the
+        call prepares, joins that publisher's queue, and returns before it
+        takes effect.
         """
         caller = get_ident()
         admitted = False
         in_flight: BaseException | None = None
+        replays: list[Callable[[], None]] | None = None
         try:
             with self._state_changed:
-                self._wait_for_other_publication(caller)
+                refused = self._wait_for_other_publication(caller)
                 if self._disposed:
                     return
                 if model is None:
                     # Reject before any deferral, so the caller sees the error.
                     raise ValueError("model must not be None")
-                if self._approval_publisher_thread is not None and self._approval_pre_publishing:
-                    self._deferred_approval_models.append(model)
-                    return
+                queue = self._queue_for(caller, refused)
                 self._active_mutations += 1
                 admitted = True
                 # Prepare (spec/20 §5.4) without touching form state. Callbacks
                 # run under the re-entrant state lock: one may re-enter
                 # set_model, deny, or dispose on this thread, while another
-                # thread's update or dispose waits for this one.
+                # thread's update or dispose waits for this one. A call in the
+                # approval's pre-publication window runs the same preparation
+                # and is then queued (§5.3 rule 2): equality never skips the
+                # enqueue, because earlier queued updates can change the live
+                # model before this one replays. The replay prepares again.
                 generation = self._generation
                 current, snapshot = self._model, self._snapshot
-                if current == model:
+                if current == model and queue is None:
                     return
                 was_dirty = current != snapshot
                 was_valid = not self._errors
                 next_errors = self._validate(model)
                 is_dirty = model != snapshot
-                # A re-entrant dispose or commit made this preparation stale.
+                # A re-entrant dispose, commit, or queued update made this
+                # preparation stale.
                 if self._disposed or self._generation != generation:
+                    return
+                queue = self._live_queue(caller, queue)
+                if queue is not None:
+                    self._queue_update(queue, partial(self.set_model, model))
+                    return
+                if current == model:
                     return
                 # Commit in one step, then notify.
                 errors_changed = next_errors != self._errors
@@ -262,10 +320,26 @@ class FormVM(Generic[TM]):
                 self._errors = next_errors
                 self._generation += 1
                 is_valid = not next_errors
-                if errors_changed:
+                notify_can_execute = (
+                    self._strict and is_dirty != was_dirty
+                ) or is_valid != was_valid
+                # The update scope covers the error map, so error maps reach
+                # observers in commit order (spec/20 §5.5).
+                scope_outer = (
+                    self._enter_publication(caller, pre_publishing=False)
+                    if errors_changed
+                    else None
+                )
+            if scope_outer is not None:
+                try:
                     self._errors_changed.on_next(dict(next_errors))
-                if (self._strict and is_dirty != was_dirty) or is_valid != was_valid:
-                    self._can_execute_trigger.on_next(None)
+                finally:
+                    # The teardown claim cannot succeed here: this update still
+                    # counts in _active_mutations, so its _end_mutation runs a
+                    # deferred teardown. Keep the update inside that count.
+                    replays, _ = self._exit_scope(caller, scope_outer)
+            if notify_can_execute:
+                self._can_execute_trigger.on_next(None)
             self._hub.send(
                 PropertyChangedMessage.create(
                     sender=self,
@@ -277,8 +351,7 @@ class FormVM(Generic[TM]):
             in_flight = error
             raise
         finally:
-            if admitted:
-                self._end_mutation(in_flight)
+            self._finish_update(admitted, in_flight, replays)
 
     # ── Async core ────────────────────────────────────────────────────────────
 
@@ -310,6 +383,9 @@ class FormVM(Generic[TM]):
         """
         caller = get_ident()
         with self._state_changed:
+            # A wait for another thread's scope that would close a wait-for
+            # cycle is refused, and the call is admitted without waiting
+            # (spec/20 §5.5). Its settlement waits like any other.
             self._wait_for_other_publication(caller)
             if self._disposed or self._errors or self._approval_in_flight:
                 return None
@@ -349,17 +425,41 @@ class FormVM(Generic[TM]):
         try:
             # May raise — intentional.  No state mutation if this raises.
             await self._persister(current)
+        except BaseException:
+            # Persister failure or cancellation.
+            self._settle_failed_approval()
+            raise
+        self._settle_approval(current)
 
-            # dispose() may have run during the await; disposal suppresses the
-            # whole settlement (spec/20 §5.3/§10): the subjects are completed
-            # and disposed, so emitting would raise DisposedException.
-            with self._state_changed:
-                if self._disposed:
-                    self._approval_in_flight = False
-                    return
+    def _settle_approval(self, current: TM) -> None:
+        """Run the post-persist commit of a successful approval and settle it.
 
-            # Success: prepare the configured reset state, or the legacy
-            # snapshot advance, before committing any local state.
+        Order (spec/20 §5.1, §5.3): prepare the configured reset state, or the
+        legacy snapshot advance, before committing any local state; clear the
+        in-flight mark with the commit; ``errors_changed`` when the effective
+        map changed; ``can_execute_changed`` exactly once; then ``on_approved``.
+
+        The pre-publication window opens with the commit (ADR-0174): an update
+        this thread makes from the reset, the snapshotter, a validator, or a
+        settlement step 2 or 3 observer is queued. The commit marks only this
+        thread, so another thread is not held until the settlement scope
+        opens at settlement step 1 (rule 7). The queue replays when the
+        outermost scope on this thread ends. The first replay failure then
+        propagates to this approval's failure route unless the approval
+        already carries a failure, which wins.
+        """
+        caller = get_ident()
+        with self._state_changed:
+            # dispose() may have run during the persister await; disposal
+            # suppresses the whole settlement (spec/20 §5.3/§10): the subjects
+            # are completed and disposed, so emitting would raise.
+            if self._disposed:
+                self._approval_in_flight = False
+                return
+            publication = self._publication_of(caller)
+            outer_window = publication.commit_window
+            publication.commit_window = True
+        try:
             if self._reset_on_approved is not None:
                 reset = self._reset_on_approved(current)
                 next_model = self._snapshotter(reset)
@@ -374,30 +474,25 @@ class FormVM(Generic[TM]):
                 reset_state = None
                 next_snapshot = self._snapshotter(current)
         except BaseException:
-            # Persister failure or cancellation, or a failed reset transaction.
+            # A failed post-persist commit: the window ends with the failure.
+            # The calls it queued replay after the failure settlement's
+            # can_execute_changed, and the commit failure wins (FORM-033).
+            with self._state_changed:
+                publication.commit_window = outer_window
             self._settle_failed_approval()
             raise
-        self._settle_approval(current, reset_state, next_snapshot)
 
-    def _settle_approval(
-        self,
-        current: TM,
-        reset_state: tuple[TM, TM, dict[str, str]] | None,
-        next_snapshot: TM,
-    ) -> None:
-        """Commit a successful approval, then publish its settlement in order.
-
-        Order (spec/20 §5.3): clear the in-flight mark with the commit,
-        ``errors_changed`` when the effective map changed, ``can_execute_changed``
-        exactly once, then ``on_approved``.
-        """
-        caller = get_ident()
         with self._state_changed:
-            # Unlike the other waits, disposal does not end this one.
+            # Unlike the other waits, disposal does not end this one. A wait
+            # that would close a wait-for cycle is refused, and the settlement
+            # commits at once in its own scope (spec/20 §5.5).
             self._wait_for_other_publication(caller, stop_on_disposal=False)
+            publication.commit_window = outer_window
             self._approval_in_flight = False
             if self._disposed:
+                self._drop_queue_after_disposal(caller)
                 return
+            # Settlement step 1 opens the settlement scope.
             outer = self._enter_publication(caller, pre_publishing=True)
             # The approval commit (snapshot advance or reset) supersedes any
             # update still preparing on this thread (spec/20 §5.4).
@@ -413,24 +508,42 @@ class FormVM(Generic[TM]):
             else:
                 self._snapshot = next_snapshot
 
+        replay_failure: BaseException | None = None
         try:
-            if published_errors is not None:
-                self._errors_changed.on_next(published_errors)
-                if self._disposed:
-                    return
-            self._can_execute_trigger.on_next(None)
+            self._publish_approval(caller, current, published_errors)
+        finally:
+            # The queue replays here, after on_approved delivery returns. A
+            # settlement observer failure propagates past this block and wins
+            # over a replay failure.
+            replay_failure = self._exit_publication(caller, outer)
+        if replay_failure is not None:
+            raise replay_failure
+
+    def _publish_approval(
+        self, caller: int, current: TM, published_errors: dict[str, str] | None
+    ) -> None:
+        """Publish settlement steps 2 to 4 of a committed approval.
+
+        A disposing observer stops the remaining notifications. So does a
+        disposal from another thread whose wait for this scope was refused.
+        """
+        if published_errors is not None:
+            self._errors_changed.on_next(published_errors)
             if self._disposed:
                 return
+        self._can_execute_trigger.on_next(None)
+        if self._disposed:
+            return
 
-            with self._state_changed:
-                self._approval_pre_publishing = False
+        with self._state_changed:
+            # A nested approval suspends the outer window while it delivers
+            # on_approved; the exit of its scope restores it (spec/20 §5.5).
+            self._publications[caller].pre_publishing = False
 
-            # Emit the value that was actually persisted (parity with C#'s
-            # captured `current`): a set_model racing the persister await must
-            # not swap the approved payload for a newer un-persisted model.
-            self._on_approved.on_next(current)
-        finally:
-            self._exit_publication(outer)
+        # Emit the value that was actually persisted (parity with C#'s
+        # captured `current`): a set_model racing the persister await must
+        # not swap the approved payload for a newer un-persisted model.
+        self._on_approved.on_next(current)
 
     def _settle_failed_approval(self) -> None:
         """Clear the in-flight mark and raise ``can_execute_changed`` once.
@@ -438,77 +551,264 @@ class FormVM(Generic[TM]):
         The caller then routes the failure to the awaiter (or, on the command
         path, ``approve_errors``). That failure is the first error and wins: an
         observer raising from this notification must not replace it (the
-        ``_end_mutation`` first-error policy).
+        ``_end_mutation`` first-error policy). The notification runs in a
+        settlement scope (spec/20 §5.5).
         """
         caller = get_ident()
         with self._state_changed:
             self._wait_for_other_publication(caller)
             self._approval_in_flight = False
             if self._disposed:
+                self._drop_queue_after_disposal(caller)
                 return
-            outer = self._enter_publication(caller, pre_publishing=False)
+            # A failed settlement keeps an enclosing approval's window: only a
+            # nested on_approved delivery suspends it (spec/20 §5.5).
+            outer = self._enter_publication(
+                caller, pre_publishing=self._publication_of(caller).pre_publishing
+            )
         try:
             with contextlib.suppress(BaseException):
                 self._can_execute_trigger.on_next(None)
         finally:
-            self._exit_publication(outer)
+            # Calls a failed post-persist commit queued replay here, before
+            # the caller routes the failure. That failure wins, so a replay
+            # failure is discarded (spec/20 §5.3, ADR-0174).
+            self._exit_publication(caller, outer)
 
-    def _wait_for_other_publication(self, caller: int, *, stop_on_disposal: bool = True) -> None:
-        """Wait until no thread other than *caller* is publishing an approval.
+    def _other_publisher(self, caller: int) -> int | None:
+        """Return a thread other than *caller* that holds a publication scope.
+
+        Must be called holding the state lock.
+        """
+        for thread, publication in self._publications.items():
+            if thread != caller and publication.depth > 0:
+                return thread
+        return None
+
+    def _publishers(self) -> list[int]:
+        """The threads that hold publication scopes. Call holding the state lock."""
+        return [thread for thread, publication in self._publications.items() if publication.depth]
+
+    def _wait_for_other_publication(
+        self, caller: int, *, stop_on_disposal: bool = True
+    ) -> int | None:
+        """Wait until no thread other than *caller* holds a publication scope.
 
         Must be called holding the state lock. When *stop_on_disposal* is set,
-        disposal also ends the wait.
+        disposal also ends the wait. Returns ``None`` once the caller may
+        proceed. Each wait records an edge to one publisher in the
+        process-wide wait-for graph (spec/20 §5.5, ADR-0176). When that wait
+        would close a cycle, it is refused, and this returns the publisher it
+        named; the caller then takes its refused-wait result.
         """
-        while (
-            self._approval_publisher_thread is not None
-            and self._approval_publisher_thread != caller
-            and not (stop_on_disposal and self._disposed)
-        ):
-            self._state_changed.wait()
+        while not (stop_on_disposal and self._disposed):
+            publisher = self._other_publisher(caller)
+            if publisher is None:
+                return None
+            if not WAITS.try_begin_owner_wait(
+                self._publication_scope, owner=publisher, caller=caller
+            ):
+                return publisher
+            try:
+                self._state_changed.wait()
+            finally:
+                WAITS.end_wait(caller)
+        return None
 
-    def _enter_publication(self, caller: int, *, pre_publishing: bool) -> tuple[bool, int | None]:
-        """Mark *caller* as the approval publisher; return the state to restore.
+    def _publication_of(self, caller: int) -> _ThreadPublication:
+        """Return *caller*'s publication state, creating it. Call holding the state lock."""
+        publication = self._publications.get(caller)
+        if publication is None:
+            publication = self._publications[caller] = _ThreadPublication()
+        return publication
+
+    def _forget_if_idle(self, caller: int) -> None:
+        """Drop *caller*'s publication state once nothing uses it. Call holding the state lock."""
+        publication = self._publications.get(caller)
+        if (
+            publication is not None
+            and publication.depth == 0
+            and not publication.commit_window
+            and not publication.queue
+        ):
+            del self._publications[caller]
+
+    def _enter_publication(self, caller: int, *, pre_publishing: bool) -> bool:
+        """Open a publication scope on *caller*; return the state to restore.
 
         Must be called holding the state lock, after waiting out any other
-        thread's publication. Other threads' mutations and disposal wait until
-        :meth:`_exit_publication`; same-thread edits made while
-        ``pre_publishing`` is set are deferred until it ends.
+        thread's scope (or having that wait refused). Other threads' updates,
+        approvals and disposal wait until :meth:`_exit_scope`; same-thread
+        updates made while ``pre_publishing`` is set are queued and replay
+        when the outermost scope on this thread ends.
         """
-        outer = (self._approval_pre_publishing, self._approval_publisher_thread)
-        self._approval_pre_publishing = pre_publishing
-        self._approval_publisher_thread = caller
+        publication = self._publication_of(caller)
+        outer = publication.pre_publishing
+        publication.pre_publishing = pre_publishing
+        publication.depth += 1
         return outer
 
-    def _exit_publication(self, outer: tuple[bool, int | None]) -> None:
-        """End a publication; replay deferred edits once the outermost one ends."""
+    def _exit_scope(self, caller: int, outer: bool) -> tuple[list[Callable[[], None]], bool]:
+        """Close one publication scope on *caller*.
+
+        Returns the queue to replay and whether this thread must run a
+        deferred teardown. Both are empty unless the outermost scope on this
+        thread ended. Before it wakes the waiters, the thread removes the
+        wait-for edges that name it (ADR-0172 rule 3).
+        """
         with self._state_changed:
-            if outer[1] is not None:
-                # Nested inside this thread's own publication: restore it and
-                # leave the deferred edits to the outer publication.
-                self._approval_pre_publishing, self._approval_publisher_thread = outer
-                return
-            self._approval_pre_publishing = False
-            self._approval_publisher_thread = None
-            deferred_models = self._deferred_approval_models
-            self._deferred_approval_models = []
+            publication = self._publications[caller]
+            publication.depth -= 1
+            publication.pre_publishing = outer
+            if publication.depth:
+                return [], False
+            queue = publication.queue
+            publication.queue = []
+            self._forget_if_idle(caller)
+            WAITS.release_waiters(self._publication_scope, self._publishers())
             self._state_changed.notify_all()
-        for deferred_model in deferred_models:
-            self.set_model(deferred_model)
+            return queue, self._claim_deferred_teardown()
+
+    def _exit_publication(self, caller: int, outer: bool) -> BaseException | None:
+        """Close a settlement scope; replay the queue once the outermost one ends.
+
+        The replay runs after other threads are released (spec/20 §5.3 rule 7).
+        A teardown that a refused disposal deferred runs first, so the replays
+        are no-ops (§5.5). Returns the first failure, which the caller routes
+        to its approval's failure route unless the approval already carries a
+        failure.
+        """
+        queue, tear_down = self._exit_scope(caller, outer)
+        first_failure: BaseException | None = None
+        if tear_down:
+            try:
+                self._tear_down()
+            except BaseException as error:
+                first_failure = error
+        replay_failure = self._replay(queue)
+        return first_failure if first_failure is not None else replay_failure
+
+    @staticmethod
+    def _replay(queue: list[Callable[[], None]] | None) -> BaseException | None:
+        """Replay queued updates as new calls, in order and in isolation.
+
+        A failing replay does not stop the later ones. Returns the first
+        failure.
+        """
+        first_failure: BaseException | None = None
+        for replay in queue or ():
+            try:
+                replay()
+            except BaseException as error:
+                if first_failure is None:
+                    first_failure = error
+        return first_failure
+
+    def _finish_update(
+        self,
+        admitted: bool,
+        in_flight: BaseException | None,
+        replays: list[Callable[[], None]] | None,
+    ) -> None:
+        """End an update: replay its scope's queue, then release the mutation.
+
+        An update replays after its last notification and before it returns
+        (spec/20 §5.5). The first replay failure propagates from the update,
+        unless the update already carries a failure, which wins.
+        """
+        replay_failure = self._replay(replays)
+        if admitted:
+            self._end_mutation(in_flight if in_flight is not None else replay_failure)
+        if replay_failure is not None and in_flight is None:
+            raise replay_failure
+
+    def _queue_for(self, caller: int, refused: int | None) -> _ThreadPublication | None:
+        """Return the queue an update by *caller* joins, or ``None`` to commit.
+
+        Must be called holding the state lock, after the caller's wait for
+        other threads' scopes. A call in the caller's own pre-publication
+        window joins its own queue (spec/20 §5.3 rule 1). A call whose wait
+        was refused joins the queue of the publisher that its edge named
+        (§5.5).
+        """
+        own = self._publications.get(caller)
+        if own is not None and own.in_pre_publication_window():
+            return own
+        if refused is not None:
+            return self._publications.get(refused)
+        return None
+
+    def _live_queue(
+        self, caller: int, queue: _ThreadPublication | None
+    ) -> _ThreadPublication | None:
+        """Recheck the chosen queue after preparation. Call holding the state lock.
+
+        A preparation callback can release the lock while it waits, so the
+        publisher whose queue a refused call chose may have closed its scope.
+        The call then joins another thread's open scope, or commits when none
+        remains.
+        """
+        if queue is None or queue.in_pre_publication_window() or queue.depth:
+            return queue
+        publisher = self._other_publisher(caller)
+        return None if publisher is None else self._publications[publisher]
+
+    def _queue_update(self, queue: _ThreadPublication, replay: Callable[[], None]) -> None:
+        """Queue a prepared update that is not stale (spec/20 §5.3 rule 2).
+
+        Must be called holding the state lock. Advancing the generation makes
+        any update still preparing on this thread stale, so the newest call
+        wins, as it does for a committed update.
+        """
+        self._generation += 1
+        queue.queue.append(replay)
+
+    def _drop_queue_after_disposal(self, caller: int) -> None:
+        """Drop *caller*'s queued updates once disposal suppressed the settlement.
+
+        Must be called holding the state lock. A queued update would replay as
+        a no-op on the disposed form. An open scope on this thread keeps the
+        queue: its exit replays it, and each replay does nothing.
+        """
+        publication = self._publications.get(caller)
+        if publication is not None and publication.depth == 0:
+            publication.queue.clear()
+            self._forget_if_idle(caller)
+
+    def _claim_deferred_teardown(self) -> bool:
+        """Claim a deferred teardown once no update or scope holds it off.
+
+        Must be called holding the state lock.
+        """
+        if (
+            self._mutation_teardown_pending
+            and self._active_mutations == 0
+            and not self._publishers()
+        ):
+            self._mutation_teardown_pending = False
+            return True
+        return False
 
     # ── Dispose ───────────────────────────────────────────────────────────────
 
     def dispose(self) -> None:
-        """Complete the ``on_approved`` observable and dispose resources. Idempotent."""
+        """Complete the ``on_approved`` observable and dispose resources. Idempotent.
+
+        Waits while another thread holds a publication scope (spec/20 §5.5).
+        When that wait would close a wait-for cycle, the form is marked
+        disposed at once and the publisher runs the teardown after its
+        outermost scope ends.
+        """
         # reactivex Subjects raise DisposedException on a second on_completed,
         # unlike rxjs (no-op) and the guarded C# FormVM — guard for parity.
         caller = get_ident()
         tear_down = False
         with self._state_changed:
-            self._wait_for_other_publication(caller)
+            refused = self._wait_for_other_publication(caller)
             if self._disposed:
                 return
             self._disposed = True
-            if self._active_mutations == 0:
+            if refused is None and self._active_mutations == 0:
                 tear_down = True
             else:
                 self._mutation_teardown_pending = True
@@ -521,14 +821,12 @@ class FormVM(Generic[TM]):
         ``in_flight`` is the error the mutation is already unwinding with, if
         any. It is the first failure and wins: a deferred-teardown failure
         must not replace it (the ``_run_disposal_steps`` first-error policy).
-        Every teardown step still runs either way.
+        Every teardown step still runs either way. While a thread holds a
+        publication scope, that thread's scope exit runs the teardown instead.
         """
-        tear_down = False
         with self._state_changed:
             self._active_mutations -= 1
-            if self._active_mutations == 0 and self._mutation_teardown_pending:
-                self._mutation_teardown_pending = False
-                tear_down = True
+            tear_down = self._claim_deferred_teardown()
         if not tear_down:
             return
         if in_flight is None:
@@ -565,15 +863,20 @@ class FormVM(Generic[TM]):
         caller = get_ident()
         admitted = False
         in_flight: BaseException | None = None
+        replays: list[Callable[[], None]] | None = None
         try:
             with self._state_changed:
-                self._wait_for_other_publication(caller)
+                refused = self._wait_for_other_publication(caller)
                 if self._disposed:
                     return
+                queue = self._queue_for(caller, refused)
                 self._active_mutations += 1
                 admitted = True
                 # Prepare the revert (spec/20 §5.4): the snapshotter, equality,
                 # and validators run before anything is committed or published.
+                # Inside the approving thread's pre-publication window the
+                # prepared revert is discarded and the deny is queued (§5.3,
+                # ADR-0174); it replays as a new call.
                 generation = self._generation
                 current, snapshot = self._model, self._snapshot
                 was_dirty = current != snapshot
@@ -581,20 +884,36 @@ class FormVM(Generic[TM]):
                 next_model = self._snapshotter(snapshot)
                 next_errors = self._validate(next_model)
                 is_dirty = next_model != snapshot
-                # A re-entrant dispose or commit made this preparation stale.
+                # A re-entrant dispose, commit, or queued update made this
+                # preparation stale.
                 if self._disposed or self._generation != generation:
+                    return
+                queue = self._live_queue(caller, queue)
+                if queue is not None:
+                    self._queue_update(queue, self._deny)
                     return
                 errors_changed = next_errors != self._errors
                 self._model = next_model
                 self._errors = next_errors
                 self._generation += 1
                 is_valid = not next_errors
-
-                if errors_changed:
-                    self._errors_changed.on_next(dict(next_errors))
                 can_execute_changed = (
                     self._strict and was_dirty != is_dirty
                 ) or is_valid != was_valid
+                # The update scope covers the error map (spec/20 §5.5).
+                scope_outer = (
+                    self._enter_publication(caller, pre_publishing=False)
+                    if errors_changed
+                    else None
+                )
+            if scope_outer is not None:
+                try:
+                    self._errors_changed.on_next(dict(next_errors))
+                finally:
+                    # The teardown claim cannot succeed here: this update still
+                    # counts in _active_mutations, so its _end_mutation runs a
+                    # deferred teardown. Keep the update inside that count.
+                    replays, _ = self._exit_scope(caller, scope_outer)
 
             self._hub.send(FormRevertedMessage(sender=self, sender_name="FormVM"))
             self._hub.send(
@@ -605,14 +924,12 @@ class FormVM(Generic[TM]):
                 )
             )
             if can_execute_changed:
-                with self._state_changed:
-                    self._can_execute_trigger.on_next(None)
+                self._can_execute_trigger.on_next(None)
         except BaseException as error:
             in_flight = error
             raise
         finally:
-            if admitted:
-                self._end_mutation(in_flight)
+            self._finish_update(admitted, in_flight, replays)
 
     def _validate(self, model: TM) -> dict[str, str]:
         errors: dict[str, str] = {}
@@ -681,18 +998,21 @@ class FormVM(Generic[TM]):
     def _emit_approve_error(self, exc: BaseException) -> None:
         # The subject is completed+disposed on dispose(); a persister failure
         # arriving after dispose must not raise reactivex DisposedException.
-        # Publish as an approval publication rather than under the lock, so a
-        # concurrent dispose still waits for delivery but observers run unlocked.
-        caller = get_ident()
+        # The delivery opens no publication scope (spec/20 §5.5) and runs with
+        # no lock held. It counts as a mutation instead, so a concurrent
+        # dispose defers its teardown until the delivery returns.
         with self._state_changed:
-            self._wait_for_other_publication(caller)
             if self._disposed:
                 return
-            outer = self._enter_publication(caller, pre_publishing=False)
+            self._active_mutations += 1
+        failure: BaseException | None = None
         try:
             self._approve_errors.on_next(exc)
+        except BaseException as error:
+            failure = error
+            raise
         finally:
-            self._exit_publication(outer)
+            self._end_mutation(failure)
 
     def _can_approve(self) -> bool:
         """``approve_command`` predicate: validity, strict mode, and admission."""

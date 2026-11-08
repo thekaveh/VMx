@@ -79,6 +79,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
   every component, as `reconstruct()` does. `reconstruct()` and
   `reconstruct_command()` run only the component's hooks and never a walk, so
   a consumer type reconstructs through `reconstruct_with_children`.
+- `NotificationVm::dispose()` and `ConfirmationVm::dispose()` (#1067,
+  ADR-0178, `DISP-004`). Disposal disposes the dismiss, approve and reject
+  commands, so a kept command clone reports `can_execute()` false and no
+  longer resolves the hub. It does not resolve the notification, stops the
+  lifespan clock, and keeps `is_resolved()` at its value at disposal. A first
+  reaction stays authoritative, and a second call has no effect. Disposal
+  never disposes the hub. Before this change, a kept command still resolved
+  the hub after the host dropped the view model.
 
 ### Changed
 
@@ -127,9 +135,96 @@ project adheres to [Semantic Versioning](https://semver.org/).
   and publishes it afterwards, so two concurrent selections leave the flags
   in commit order. Wrapper nodes should forward both methods; the defaults
   keep the old behavior through `set_current_flag`.
+- `NotificationVm::dismiss_command()`, `ConfirmationVm::approve_command()`,
+  `reject_command()` and `dismiss_command()` return a clone of one command
+  that the view model owns, not a new command for each call (#1067,
+  ADR-0178). Clones of the view model share the commands. A command holds
+  only the shared notification state, so a kept command makes no reference
+  cycle.
 
 ### Fixed
 
+- `CompositeVm::replace` now clears the replaced child as `current` before it
+  frees the child, as `remove_at` does (#1219). Before, the commit freed the
+  child first. Another thread could adopt the freed child into another
+  composite and select it there. The clear then reset the child's current
+  flag while the other composite kept it current (`COMP-006`).
+- Every blocking wait between VMx resources now records in one process-wide
+  wait-for graph, following ADR-0172 (spec/03 §4.1 and §4.2, spec/02 §2.4,
+  `HUB-013`, #1158, #1180, #1183). Hub `send`, `batch` and `dispose` waits,
+  a hub drainer's wait for a borrowed scope, a foreign `dispose()` wait for an
+  admitted hook, and a container disposal's wait for a membership
+  transaction now see one another. So a cross-thread container `dispose()`
+  and the owner of that container's transaction no longer hang when they
+  wait for each other through a hub drain or a hook, in either order. Each
+  resource has a typed, address-derived key. The thread that ends a batch,
+  releases a drain, leaves its borrowed scopes, or finishes a hook removes
+  the edges that name it before it wakes the waiters. So an ended wait no
+  longer makes `batch` borrow a hub, or a foreign `dispose()` defer its
+  cleanup to a hook that has returned, and the dispose hook's failure now
+  returns from that `dispose()`. A hub records each borrower thread: a
+  borrower's own `send` enqueues for the drain at its last borrowed scope's
+  exit, its `batch` nests another borrowed scope, and its `dispose` records
+  terminal intent. None of them waits for its own borrow. Every wait on a
+  borrowed scope records an edge, and a borrower that leaves its last scope
+  while others remain wakes the waiters. A drainer whose queue is empty
+  releases the drain to the last borrowed scope's exit instead of waiting.
+  A drainer with queued messages whose wait would close a cycle also
+  releases it, and that exit delivers the queue in FIFO order on the
+  borrower's thread, after the drainer's `send` has returned (the documented
+  `HUB-010` limitation). A `send` from inside a hub callback no longer skips
+  its wait for a borrowed scope, so it stays synchronous unless its wait is
+  refused. After a borrower's `dispose`, the last of the batch owner, the
+  drainer, and the borrowers to release the hub completes it: a borrower's
+  exit no longer completes a hub whose batch is still open, and a drainer
+  stops waiting for the borrowed scopes once a disposal is requested (spec/03
+  §4.2 rule 3). A borrower's exit also no longer completes the hub while
+  another thread's drain is still delivering a message on it; that drain
+  completes the hub when the delivery returns.
+  `vmx::wait_registered_for_testing` is a new hidden test seam that reports
+  any recorded wait.
+- The thread that owns a `MessageHub` batch now waits for another thread's
+  open borrowed scope before its nested `batch` closure runs (#1223,
+  ADR-0172). The wait records an edge to the borrower, as the owner's `send`
+  and `dispose` already did. Before this fix, the nested closure ran inside
+  the other thread's borrowed scope. When the wait would close a cycle, the
+  nested `batch` enters a borrowed scope (spec/03 §4.1 and §4.2 rule 3).
+- `MessageHub` `send`, `batch` and `dispose` no longer wait for a hub owner
+  once the hub is disposed or its disposal is requested (#1224, spec/03
+  §3.3). A woken waiter stops waiting at the disposal. Before this fix, these
+  calls waited for another thread's batch, drain or borrowed scope, and then
+  did nothing. A `batch` on such a hub runs its closure and returns its
+  value, but it no longer claims the batch owner. So a later call does not
+  wait for that closure. A second `dispose` returns at once. C#, Python and
+  Swift already behaved this way.
+- The inline dispose cascade follows ADR-0175 (spec/02 §7.2, `LIFE-021`,
+  #1174, #1167). Once `dispose()` closes hook admission and starts disposing
+  children or members, `construct()`, `destruct()` and `reconstruct()` return
+  `VmxError::Disposed` before the idempotent no-op and the legality check.
+  So `construct()` from `Constructed` and `reconstruct()` from `Destructed`
+  now fail too. The background form refuses in the same way, and a queued
+  background hook does not run. A transition whose hook returned before the
+  cascade started commits nothing more: no settled status, no rollback, no
+  queued foreground commit, no deferred child-walk completion, and no
+  construct phase of `reconstruct()`. The call returns the hook's own result;
+  a container or leaf `reconstruct()` whose destruct phase ended before the
+  cascade started returns `Ok(())`. The settled commit and its publication
+  now run under one guard, so a cascade that starts in between drops both.
+  `status()` can still read the transient or prior status until the cascade
+  publishes `Disposed`. Because the settled status now commits inside that
+  guard, it changes only after another thread's hub batch or drain ends: a
+  `construct()` from inside that batch or drain returns
+  `VmxError::ConcurrentOperation` instead of the idempotent `Ok(())`, and a
+  subscriber that holds the hub while it waits for the status to settle
+  waits forever.
+- A leaf `ComponentVm` with `own_member` members disposes them at the same
+  admitted-hook boundary as a container's children (#1164, LIFE-015). A
+  `dispose()` from another thread while the leaf's construct or destruct hook
+  runs publishes `Disposed` first and disposes the members after the hook
+  returns. With no hook running on another thread, the members are still
+  disposed before `Disposed`. A leaf without members disposes as before. The
+  background construct and destruct paths and `reconstruct()` check closed
+  hook admission, as `transition_with_body` already did.
 - `walk`, `walk_expanded` and `find` no longer panic when they reach a
   `HierarchicalVm` whose lazy children factory returns invalid output (#1060,
   ADR-0170, spec/13 §6.1). `walk` and `walk_expanded` now return
@@ -144,6 +239,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
   refetched page 1 and appended it again, and `has_more()` stayed true. The load
   now changes nothing and does not supersede an in-flight refresh. The ad hoc
   `load_more(loader)` call is unchanged.
+- `TokenPagedComposition` no longer deadlocks when a `Token::clone` waits for
+  another load or refresh of the same pager (#1162). `current_token()` and
+  each load cloned the stored token under the cursor lock. Every commit takes
+  that lock, and since #1045 it holds the operation gate while it waits. So a
+  clone that waited for a refresh to finish, or for a start while another
+  commit waited, blocked forever. The pager now stores the token behind its
+  own lock, which no commit takes. A reader takes the cursor lock only to copy
+  that handle, and runs `Token::clone` after it releases the lock. The bound
+  stays `Token: Clone + Send + 'static`. The `current_token()` rustdoc states
+  the remaining limits: clones of one stored token take turns, and a clone
+  must not read the cursor again on its own thread.
 - The `CompositeVm` construct walk's `Current(selector)` assignment follows
   ADR-0165 (#1151). It skips a child that an add, insert, replacement or
   population has attached but not admitted, skips while disposal is pending,
@@ -159,6 +265,56 @@ project adheres to [Semantic Versioning](https://semver.org/).
   deferred until the clear's publication ends instead of running inside the
   callback. The clear still runs while another thread holds a transaction,
   inside the composite's own transaction and while disposal is deferred.
+- `FormVm` applies ADR-0174 rule 7 like the other threaded flavors, with
+  the wait-for graph of ADR-0176 (spec/20 §5.5, #1160, #1170). Before,
+  another thread's `approve()`, `set_model` and `revert()` ran during an
+  approval's publication. Its `set_model` was queued, and its settlement
+  replayed this thread's queued edits early. Now a `set_model`, `revert()`,
+  approval admission, settlement or `dispose()` waits while another thread
+  holds a publication scope on the form. An update holds one over its
+  `errors_changed` send. A successful settlement holds one until its approval
+  subscribers return. A failed settlement holds one over its eligibility
+  change. An edit made in the caller's own pre-publication window also
+  waits, and only then joins the caller's queue. Disposal ends every such
+  wait. Each wait records an edge in the process-wide wait-for graph. A
+  wait that would close a cycle does not wait. An example is a hub drainer
+  that calls the form while the publisher sends on that hub. A refused
+  `set_model` or `revert()` prepares, joins the publisher's queue and returns
+  before it takes effect. A refused approval is admitted, and a refused
+  settlement commits in its own scope. A refused `dispose()` marks the form
+  disposed and returns. The last thread to end its publications tears the
+  form down, and a panic in that teardown takes the replay failure route. Each
+  thread keeps its own queue and replays it when its outermost publication
+  ends. A `dispose()` from another thread now waits for the approval
+  subscribers, so they all run. The test
+  `another_threads_approval_replays_its_own_deferred_edit` is now
+  `another_threads_approval_waits_and_replays_only_its_own_deferred_edit`.
+  `disposal_during_an_emission_skips_the_callbacks_not_yet_invoked` now
+  disposes from an approval subscriber on the approving thread.
+- `FormVm::dispose` no longer completes the channels while another thread
+  delivers a form notification outside a publication scope (spec/20 §5.5,
+  ADR-0176, #1228). Such deliveries are an approval's admission eligibility
+  change, an update's notifications after its `errors_changed` send, and the
+  approve command's `approve_errors` send. Before, `dispose()` tore the form
+  down at once. Now it marks the form disposed and returns. The delivering
+  thread completes the hubs and disposes the commands when the delivery
+  returns, as in C# and Python. A `dispose()` from that delivery's own
+  observer defers in the same way.
+- A validator registration on a live `FormVm` now revalidates as an update
+  (spec/20 §5.5, ADR-0176, #1231). `with_validator`, `with_field_validator`,
+  `with_model_validator` and `with_clearing_model_validator` revalidated at
+  once, without waiting for another thread's publication scope. Their
+  `errors_changed` send opened no scope. Now the revalidation waits like
+  `set_model`, records its wait in the wait-for graph and sends in an update
+  scope. When the wait would close a cycle, the revalidation joins the
+  publisher's queue and replays there. The validator itself is registered at
+  once.
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command admitted the run. The load then
+  refetched page 1 and appended it again, and `has_more()` stayed true. The load
+  now changes nothing and does not supersede an in-flight refresh. The ad hoc
+  `load_more(loader)` call is unchanged.
 - A `FormVm` approval started from another approval's settlement notification
   now runs its approval subscribers with model edits applied at once (#1160).
   Before, the outer approval's pre-publication window stayed active, so those
@@ -166,6 +322,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
   settlement now saves the enclosing pre-publication state, clears it before
   its subscribers run and restores it when it ends, as C# and Python do. Edits
   made by the outer notification still wait for the outer subscribers.
+- `FormVm` now queues every update made during an approval's
+  pre-publication window (spec 3.30.0, ADR-0174, `FORM-039`, `FORM-040`)
+  (#1168, #1050). The window opens when the post-persist commit starts. A
+  `set_model` or `revert` (deny) from `reset_on_approved`, the snapshotter, a
+  validator, or a settlement `errors_changed` or eligibility-change observer is
+  queued and replays after the approval subscribers return. Before, a call
+  from `reset_on_approved` committed at once and the reset overwrote it, and a
+  deny from a settlement observer committed at once, so approval subscribers
+  saw a reverted model. A queued call now prepares when it is called: a
+  validator, `PartialEq` or snapshotter panic reaches the caller and queues
+  nothing, and a model equal to the live one is still queued. Before, the
+  call queued without preparing, so its panic surfaced only at replay, failed
+  the settled approval and dropped the later queued updates. Each update now
+  replays under its own unwind guard. After the last replay, the first replay
+  panic resumes from `approve()`, unless a failed commit or a panicking
+  approval subscriber wins. When the post-persist commit fails, the updates it
+  queued replay after the failed settlement's eligibility change and before
+  the failure is returned. Call-time preparation runs the validators once more
+  for each queued update. Calls from other threads now wait for the
+  publication instead of joining the queue (see the ADR-0176 entry).
 - `CompositeVm`, `GroupVm` and `AggregateVm1`…`AggregateVm6` no longer dispose
   their children while their admitted construct or destruct hook runs on another
   thread (#1062, LIFE-015). The child cascade now runs at the hook boundary of

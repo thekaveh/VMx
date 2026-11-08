@@ -100,6 +100,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `setAt` keeps the replaced child owned until the commit (#1219). The
+  commit now frees the child and clears `current` in one step. Before,
+  `setAt` freed the child first and cleared `current` only at the commit. A
+  construct hook of the replacement could adopt the freed child into another
+  composite and select it there. The commit then reset the child's
+  `isCurrent` flag while the other composite kept it current. A hook that
+  adopted the child and then failed left it in both composites. Now the
+  adoption fails while the replacement is in progress. A failed replacement
+  still restores the child and `current` with no notification.
+- An `asyncSelection(true)` delivery of `selectComponent` now checks
+  `Constructed` again (spec/06 §3.1, #1220). Before, a child destructed
+  between the call and the delivery became `current`. Now the delivery does
+  nothing. `selectComponent` no longer goes through the `current` setter, as
+  in C# and Swift. A subclass that overrides that setter no longer sees these
+  selections.
+- A child's `select()` no longer makes a member current that is not
+  `Constructed` (spec/05 §6, spec/06 §3.1, #1229). Before, `selectChild`
+  checked only membership, so `select()` on a `Destructed` member selected it.
+  Now the call does nothing, as for a non-member and as in Swift and Rust. C#
+  also refuses it, with its `SelectComponent` exception. Inside the caller's
+  own uncommitted transaction it still throws the transaction error. An
+  `asyncSelection(true)` delivery checks `Constructed` again and drops such a
+  child. The check runs before the disposing check. So while the composite
+  disposes, the call no longer throws the disposing error, as in Swift.
+- A lifecycle call during the inline dispose cascade now fails (#1174,
+  #1167, ADR-0175, LIFE-021). A container disposes its children, and a leaf
+  its members, before it publishes `Disposed`.
+  - A `construct()`, `destruct()` or `reconstruct()` call that starts in that
+    window throws `StatusTransitionError(Disposed, op)`, the error of the same
+    call on a `Disposed` VM. This holds for `CompositeVM`, `GroupVM`,
+    `AggregateVM1` to `AggregateVM6` and a leaf with `ownMember` members, and
+    for `construct()` from `Constructed` too. The call publishes no status,
+    runs no hook and calls no slot factory. Before, the container hook ran and
+    failed in its own child step, and an `AggregateVM1` `construct()` created
+    a second slot that stayed `Constructed` after `dispose()` returned. A
+    leaf ran its hook and published `Constructed` before `Disposed`.
+  - Once the cascade has started, no status other than `Disposed` commits. A
+    background `Constructed` or `Destructed` commit, a rollback or a queued
+    background hook that a dispose hook drains from the scheduler publishes
+    nothing, and the call returns as one that disposal superseded.
+- `FormVM` now queues every `setModel` and deny made during an approval's
+  post-persist commit and settlement, and replays them after `onApproved`
+  (#1168, #1050, ADR-0174, FORM-039, FORM-040). The queue now opens when the
+  commit starts, so it covers calls from `resetOnApproved`, the snapshotter
+  and the validators. Before, such a call committed and published at once, and
+  the reset then overwrote it. A deny from a settlement observer is queued like
+  `setModel`, so `onApproved` observers no longer see a reverted model. A
+  queued call runs its validators, equality and snapshotter when it is called.
+  A failure throws to the caller and queues nothing, and an equal candidate is
+  still queued. Before, a queued candidate was not prepared. Its failure
+  surfaced after `onApproved`, failed the settled approval and dropped the
+  later queued edits. Each queued call now replays as a new call. A failing
+  replay no longer stops the later ones. The first replay failure reaches the
+  `approveAsync` awaiter, or `approveErrors` once on the command path, after
+  the last replay. A failed reset commit still wins over it. Calls queued
+  before a failed reset commit replay before that failure is routed. Each
+  queued call runs its validators once more, at call time.
 - `CompositeVM` and `CompositeVMOf` selection now follows spec/06 §4.3
   (#1149, ADR-0165, ADR-0173). No selection path opens a membership
   transaction.
@@ -134,6 +191,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     parent, the destination admits it after the old parent's detach commit,
     as in every flavor (`COMP-006`). During the old parent's commit
     callbacks, the destination no longer offers the child for selection.
+- `FormVM` now queues every `setModel` and deny made during an approval's
+  post-persist commit and settlement, and replays them after `onApproved`
+  (#1168, #1050, ADR-0174, FORM-039, FORM-040). The queue now opens when the
+  commit starts, so it covers calls from `resetOnApproved`, the snapshotter
+  and the validators. Before, such a call committed and published at once, and
+  the reset then overwrote it. A deny from a settlement observer is queued like
+  `setModel`, so `onApproved` observers no longer see a reverted model. A
+  queued call runs its validators, equality and snapshotter when it is called.
+  A failure throws to the caller and queues nothing, and an equal candidate is
+  still queued. Before, a queued candidate was not prepared. Its failure
+  surfaced after `onApproved`, failed the settled approval and dropped the
+  later queued edits. Each queued call now replays as a new call. A failing
+  replay no longer stops the later ones. The first replay failure reaches the
+  `approveAsync` awaiter, or `approveErrors` once on the command path, after
+  the last replay. A failed reset commit still wins over it. Calls queued
+  before a failed reset commit replay before that failure is routed. Each
+  queued call runs its validators once more, at call time.
 - A background VM that waits on a child now rolls back and clears its in-flight
   guard when that wait fails (#1053). The wait can fail in a deferred
   `_transitionChildren` walk, a member hook, a `CompositeVM` selector or a
@@ -259,12 +333,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   status and releases its in-flight guard. A background VM therefore rejects a
   reentrant transition from an observer of its terminal status, as a
   synchronous VM does.
-- When a container's deferred continuation fails, the container rolls back and
-  the error comes from the dispatcher work that settled the child, as for a
-  throwing background hook (VMX-049). Examples: a throwing `current` selector,
-  or a synchronous sibling whose construct throws after a background child.
-  Before, rxjs reported the error as an unhandled subscriber error. A container
-  whose children are all synchronous still throws from `construct()`.
+- When a container's deferred continuation fails, the container rolls back
+  (VMX-049). Examples: a throwing `current` selector, or a synchronous sibling
+  whose construct throws after a background child. The error follows the #1053
+  rule in this list. On a shared `queueScheduler`, the outermost background
+  `construct()` or `destruct()` in the flush throws it after the flush drains.
+  Otherwise a foreground action throws it after the queued lifecycle actions
+  have run. With a `queueScheduler` foreground, such as
+  `RxDispatcher.default()`, that action runs at once. So the error throws
+  inside the background work that settled the child. Before, rxjs reported the
+  error as an unhandled subscriber error. A container whose children are all
+  synchronous still throws from `construct()`.
 - `FilteredCompositeVM.setPredicate` restores the previous predicate when the
   new one throws, so later source changes keep using the working predicate.
 - `CompositeVM` and `GroupVM` `insert`/`removeAt`/`setAt` reject a

@@ -125,18 +125,10 @@ name.
 ### 2.5. Delivery order across subscribers
 
 No rule fixes the order in which several subscribers receive one event. Swift's
-per-VM `propertyChanged` subject and `AggregateChangeStream` store observers in
-dictionaries, so their order is unspecified. The other flavors deliver in
-subscription order.
-
-### 2.6. `SetModel` while approval publishes
-
-`spec/20-form-vm.md` and FORM-034 cover `SetModel` during approval, and all
-flavors pass. The spec does not describe the pre-publication window of a
-successful approval. There every flavor queues a `SetModel` call and replays
-it after publication. C#, Python and Swift queue only a call on the approving
-thread and block a call from another thread; Rust queues calls from any
-thread.
+`AggregateChangeStream` stores observers in a dictionary, so its order is
+unspecified. The other flavors, and Swift's `VMxConcurrentSubject` (the per-VM
+`propertyChanged` subject and the `FormVM` channels, ADR-0174), deliver one
+event in subscription order.
 
 ### 2.7. Initial-current selector input after late adds
 
@@ -203,34 +195,6 @@ Removal differs again. Swift `remove`, `removeAt` and `clear` also wait for
 another thread's transaction. In C# composites and groups and in Python, these
 calls fail instead.
 
-### 2.11. Lifecycle call during a container's inline dispose cascade
-
-With no hook running on another thread, a container disposes its children
-before it publishes `Disposed` (LIFE-013). The spec does not say whether a
-construct or destruct hook of the container can run while that cascade runs. A
-`construct()` or `destruct()` of the container in that window has different
-results. A child's dispose hook can make such a call. The rows below describe
-composites and groups. Python and Swift fixed aggregates behave like their
-composites and groups.
-
-| Flavor     | Result                                                                                                                                                                          |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C#         | Publishes `Constructing` or `Destructing`, runs no hook and returns ([`ComponentVMBase.cs`](../../langs/csharp/src/VMx/Components/ComponentVMBase.cs), `TryClaimLifecycleHook`) |
-| Python     | Publishes the transient status, runs no hook and returns ([`base.py`](../../langs/python/src/vmx/components/base.py), `_invoke_lifecycle_hook`)                                 |
-| Swift      | Publishes the transient status, runs no hook and returns ([`ComponentVMBase.swift`](../../langs/swift/Sources/VMx/Lifecycle/ComponentVMBase.swift), `_claimHook`)               |
-| Rust       | Returns `VmxError::Disposed` and publishes nothing ([`runtime.rs`](../../langs/rust/src/runtime.rs), `transition_with_body`)                                                    |
-| TypeScript | Publishes the transient status and runs the hook ([`compositeVMBase.ts`](../../langs/typescript/src/composites/compositeVMBase.ts), `_onConstruct`; no admission flag)          |
-
-Rust admits the hook in the same step that publishes the transient status, so
-it refuses the call before it publishes. Rust fixed aggregates refuse the call
-in the same way.
-
-C# fixed aggregates dispose their slots before the base disposal starts, so
-they admit and run the hook. They also do not follow LIFE-015 for a hook on
-another thread. No issue covers these cases yet.
-
-After the cascade, the container publishes `Disposed` in every flavor.
-
 ## 3. Swift signatures that cannot throw
 
 Swift `Command.execute()` cannot throw
@@ -253,6 +217,6 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 ## 5. Related records
 
 - Rust parity backlog: [Rust parity status](2026-07-16-rust-capability-parity.md),
-  §12.4.7 and §12.7–§12.13.
+  §12.4.7 and §12.7–§12.12.
 - The remaining Notes Showcase UX policies stay with the owner and are not
   listed here.

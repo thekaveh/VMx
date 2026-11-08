@@ -108,6 +108,13 @@ public final class MessageHub: TransactionalMessageHubProtocol {
     // remains, before the waiter ends its own edge. Called under `gate`.
     internal var onWaitEndedForTesting: (() -> Void)?
 
+    /// Test-only seam: the number of open borrowed batch scopes on this hub.
+    internal var borrowedScopeDepthForTesting: Int {
+        gate.lock()
+        defer { gate.unlock() }
+        return borrowedBatchDepth
+    }
+
     public init() {
         self.diagnosticHandler = nil
     }
@@ -124,7 +131,9 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         let caller = Self.currentThread
         var shouldDrain = false
         gate.lock()
-        while !disposed, let owner = foreignOwner(for: caller) {
+        // A borrower's own send enqueues for the drain at its borrowed scope's
+        // exit and does not wait (spec/03 §4.2 rule 3).
+        while !disposed, borrowedBatchOwners[caller] == nil, let owner = foreignOwner(for: caller) {
             if !registerWaitLocked(caller: caller, owner: owner) {
                 // The target owner already waits (possibly transitively) on this
                 // caller. Enqueue and return so that owner can finish its drain.
@@ -156,7 +165,9 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         var entered = false
         var borrowed = false
         gate.lock()
-        if borrowedBatchOwners[caller] != nil {
+        // On a disposed hub a borrower's body runs with no new scope, as in
+        // C#, Python and Rust (#1230).
+        if !disposed, borrowedBatchOwners[caller] != nil {
             borrowedBatchDepth += 1
             borrowedBatchOwners[caller, default: 0] += 1
             borrowed = true
@@ -191,12 +202,19 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         if borrowed {
             gate.lock()
             borrowedBatchDepth -= 1
+            var leftBorrow = false
             if let ownerDepth = borrowedBatchOwners[caller], ownerDepth > 1 {
                 borrowedBatchOwners[caller] = ownerDepth - 1
             } else {
                 borrowedBatchOwners.removeValue(forKey: caller)
+                leftBorrow = true
             }
-            if borrowedBatchDepth == 0 {
+            if borrowedBatchDepth > 0 && leftBorrow {
+                // Other borrowers remain. Edges to this borrower go before the
+                // waiters wake, and each waiter records its wait again
+                // (spec/03 §4.2 rule 1).
+                wakeWaitersLocked()
+            } else if borrowedBatchDepth == 0 {
                 if !disposed && pendingHead < pending.count
                     && batchOwnerThread == nil && drainerThread == nil {
                     drainerThread = caller
@@ -214,7 +232,9 @@ public final class MessageHub: TransactionalMessageHubProtocol {
             batchDepth -= 1
             if batchDepth == 0 {
                 batchOwnerThread = nil
-                if !disposed && pendingHead < pending.count && drainerThread == nil {
+                // With a borrowed scope open, the exit of the last one drains.
+                if !disposed && pendingHead < pending.count && drainerThread == nil
+                    && borrowedBatchDepth == 0 {
                     drainerThread = caller
                     shouldDrain = true
                 } else if disposed && completionRequested && !completionStarted
@@ -246,8 +266,23 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         while true {
             var shouldComplete = false
             gate.lock()
-            while !disposed && borrowedBatchDepth > 0 {
+            // An empty queue never waits for a borrowed scope: the drain is
+            // released below, and the last borrowed-scope exit drains what the
+            // bodies enqueue (spec/03 §4.2 rule 2). With queued messages the
+            // drainer waits for a borrower with an edge, and releases the drain
+            // to the last borrowed-scope exit when that wait would close a
+            // cycle (rule 5).
+            while !disposed && borrowedBatchDepth > 0 && pendingHead < pending.count {
+                let caller = Self.currentThread
+                guard let owner = foreignOwner(for: caller),
+                      registerWaitLocked(caller: caller, owner: owner) else {
+                    drainerThread = nil
+                    wakeWaitersLocked()
+                    gate.unlock()
+                    return
+                }
                 gate.wait()
+                ThreadWaitGraph.shared.endWait(caller: caller)
             }
             if disposed || pendingHead >= pending.count {
                 // Queued messages are released after `gate` unlocks: a
@@ -256,7 +291,10 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 pending.removeAll(keepingCapacity: true)
                 pendingHead = 0
                 drainerThread = nil
-                if disposed && completionRequested && !completionStarted {
+                // With a borrowed scope open, the exit of the last one
+                // completes the disposal.
+                if disposed && completionRequested && !completionStarted
+                    && borrowedBatchDepth == 0 {
                     completionStarted = true
                     shouldComplete = true
                 }
@@ -349,7 +387,11 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         var shouldComplete = false
         gate.lock()
         while !disposed, let owner = foreignOwner(for: caller) {
-            if !registerWaitLocked(caller: caller, owner: owner) {
+            // A borrower records terminal intent without waiting; the exit of
+            // the last borrowed scope finishes the disposal (spec/03 §4.2
+            // rule 3). A wait that would close a cycle does the same for the
+            // owner it would have waited for.
+            if borrowedBatchOwners[caller] != nil || !registerWaitLocked(caller: caller, owner: owner) {
                 // The owner already waits (possibly transitively) on this
                 // caller. Mark the hub disposed and let that owner claim
                 // completion when it releases its batch/drain boundary.

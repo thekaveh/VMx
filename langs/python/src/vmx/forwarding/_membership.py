@@ -128,6 +128,7 @@ class _ForwardingMembership(_ComponentVMBase):
     def _init_membership(self) -> None:
         self._parent: _ParentCompositeVM | None = None
         self._ownership_lock = RLock()
+        self._ownership_holds = 0
         self._ownership_in_progress = False
 
     @property
