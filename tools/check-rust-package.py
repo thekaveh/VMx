@@ -42,6 +42,8 @@ src/modeled_crud.rs
 src/notifications.rs
 src/paged_composition.rs
 src/runtime.rs
+src/runtime/commit_after_cascade_tests.rs
+src/runtime/wait_graph_tests.rs
 src/searchable_state.rs
 src/specialized_vms.rs
 src/token_paging.rs
@@ -78,6 +80,7 @@ tests/conformance/expandable.rs
 tests/conformance/expandable_support.rs
 tests/conformance/filtered_composite.rs
 tests/conformance/form_approval_admission.rs
+tests/conformance/form_approval_update_queue.rs
 tests/conformance/form_model_hub_publication.rs
 tests/conformance/form_approval_subscription.rs
 tests/conformance/form_failure_atomic_updates.rs
@@ -90,6 +93,8 @@ tests/conformance/hierarchical.rs
 tests/conformance/hierarchical_batch.rs
 tests/conformance/hub_collection_changes.rs
 tests/conformance/hub_membership_wait_cycle.rs
+tests/conformance/inline_dispose_cascade.rs
+tests/conformance/leaf_hook_disposal.rs
 tests/conformance/lifecycle.rs
 tests/conformance/localization.rs
 tests/conformance/message_hub.rs
