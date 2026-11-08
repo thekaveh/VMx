@@ -217,8 +217,9 @@ flavor unless the exceptions below say otherwise.
 - `AsyncResourceVM<T>` releases an abort controller.
 - `AggregateChangeStream.withBatch` throws `Error` after disposal.
 - Lifecycle hooks run on one thread, so no hook runs on another thread during
-  disposal. A `construct()` or `destruct()` of a container from a child's
-  dispose hook throws `StatusTransitionError` for `Disposed` and runs no hook,
+  disposal. A `construct()`, `destruct()`, or `reconstruct()` of a container
+  from a child's dispose hook, or of a leaf from a member's dispose hook,
+  throws `StatusTransitionError` for `Disposed` and runs no hook,
   as in the other flavors ([Ownership Rules](#683-ownership-rules)).
 
 ### 6.8.5.4. Swift

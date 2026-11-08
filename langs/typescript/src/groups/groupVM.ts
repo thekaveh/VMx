@@ -466,7 +466,7 @@ export class GroupVM<VM extends ComponentVMBase>
     // Dispose cascade (LIFE-013): depth-first dispose each child, in the
     // configured destruct order (ADR-0161), then self.
     disposeBestEffort([
-      () => this._abandonChildTransition(),
+      () => this._beginDisposeCascade(),
       ...destructWalk(this._children, this.#destructOrder).map((child) => () => child.dispose()),
       () => super.dispose(),
     ]);

@@ -88,6 +88,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A lifecycle call during the inline dispose cascade now fails (#1174,
+  #1167, ADR-0175, LIFE-021). A container disposes its children, and a leaf
+  its members, before it publishes `Disposed`.
+  - A `construct()`, `destruct()` or `reconstruct()` call that starts in that
+    window throws `StatusTransitionError(Disposed, op)`, the error of the same
+    call on a `Disposed` VM. This holds for `CompositeVM`, `GroupVM`,
+    `AggregateVM1` to `AggregateVM6` and a leaf with `ownMember` members, and
+    for `construct()` from `Constructed` too. The call publishes no status,
+    runs no hook and calls no slot factory. Before, the container hook ran and
+    failed in its own child step, and an `AggregateVM1` `construct()` created
+    a second slot that stayed `Constructed` after `dispose()` returned. A
+    leaf ran its hook and published `Constructed` before `Disposed`.
+  - Once the cascade has started, no status other than `Disposed` commits. A
+    background `Constructed` or `Destructed` commit, a rollback or a queued
+    background hook that a dispose hook drains from the scheduler publishes
+    nothing, and the call returns as one that disposal superseded.
+
 - `CompositeVM` and `CompositeVMOf` selection now follows spec/06 §4.3
   (#1149, ADR-0165, ADR-0173). No selection path opens a membership
   transaction.
