@@ -377,3 +377,385 @@ private final class LockedInt {
         lock.withLock { storage }
     }
 }
+
+// ── Borrowed batch scopes (spec/03 §4.2, ADR-0172, #1178) ───────────────────
+//
+// These tests run the #1178 shape on dedicated threads P and Q with hubs h,
+// h2 and h3. P drains h2. Q drains or batches h and then waits for P on h2.
+// P's h2 subscriber borrows h (its wait for Q would close a cycle), disposes
+// h2 inside the borrowed body, and then acts. Every wait is bounded, so a
+// regression fails instead of hanging the suite.
+
+private final class BorrowBox<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: T
+    init(_ value: T) { storage = value }
+    var value: T {
+        get { lock.withLock { storage } }
+        set { lock.withLock { storage = newValue } }
+    }
+    func mutate(_ body: (inout T) -> Void) { lock.withLock { body(&storage) } }
+}
+
+/// One delivered or logged event: its name and the thread it ran on.
+private struct BorrowEvent: Equatable {
+    let name: String
+    let thread: UInt64
+}
+
+private final class BorrowCycle {
+    let h = MessageHub()
+    let h2 = MessageHub()
+    let h3 = MessageHub()
+    let p = BorrowBox<UInt64>(0)
+    let q = BorrowBox<UInt64>(0)
+    let events = BorrowBox<[BorrowEvent]>([])
+    let qWaitingForP = DispatchSemaphore(value: 0)
+    let pWaitingForQ = DispatchSemaphore(value: 0)
+    /// Set by P just before the action whose accepted wait it reports.
+    let pActing = BorrowBox(false)
+    let timeout: TimeInterval = 5
+    private var cancellables: [AnyCancellable] = []
+    /// Extra behavior for each `h` delivery, after it is logged.
+    var onH: ((String) -> Void)?
+
+    init() {
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { [p, q, pActing, qWaitingForP, pWaitingForQ] caller, accepted in
+            guard accepted else { return }
+            if caller == q.value { qWaitingForP.signal() }
+            if caller == p.value, pActing.value { pWaitingForQ.signal() }
+        }
+        cancellables.append(h.messages.sink { [weak self] message in
+            guard let self, let name = (message as? PropertyChangedMessage)?.propertyName else { return }
+            self.log("h:" + name)
+            self.onH?(name)
+        })
+        cancellables.append(h3.messages.sink { [weak self] message in
+            guard let self, let name = (message as? PropertyChangedMessage)?.propertyName else { return }
+            self.log("h3:" + name)
+        })
+    }
+
+    func msg(_ name: String) -> PropertyChangedMessage {
+        PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: name)
+    }
+
+    func log(_ name: String) {
+        let thread = ThreadWaitGraph.currentThread
+        events.mutate { $0.append(BorrowEvent(name: name, thread: thread)) }
+    }
+
+    func count(_ name: String) -> Int { events.value.filter { $0.name == name }.count }
+
+    func index(_ name: String) -> Int? { events.value.firstIndex { $0.name == name } }
+
+    func thread(of name: String) -> UInt64? { events.value.first { $0.name == name }?.thread }
+
+    /// Runs the shape. `qAction` runs on Q once P drains h2, and must wait
+    /// for P on h2. `pAction` runs on P inside its borrowed scope on h, after
+    /// P disposes h2 and waits `pause`.
+    func run(
+        pause: TimeInterval = 0.3,
+        qAction: @escaping (BorrowCycle) -> Void,
+        pAction: @escaping (BorrowCycle) -> Void
+    ) -> (pFinished: Bool, qFinished: Bool) {
+        let pInSubscriber = DispatchSemaphore(value: 0)
+        let pDone = DispatchSemaphore(value: 0)
+        let qDone = DispatchSemaphore(value: 0)
+        let once = BorrowBox(true)
+        let waitTimeout = timeout
+        cancellables.append(h2.messages.sink { [weak self] message in
+            guard let self, (message as? PropertyChangedMessage)?.propertyName == "p0" else { return }
+            var first = false
+            once.mutate { first = $0; $0 = false }
+            guard first else { return }
+            pInSubscriber.signal()
+            guard self.qWaitingForP.wait(timeout: .now() + waitTimeout) == .success else { return }
+            try? self.h.batch {
+                self.h2.dispose()
+                if pause > 0 { Thread.sleep(forTimeInterval: pause) }
+                pAction(self)
+                self.log("body-end")
+            }
+        })
+        Thread.detachNewThread { [self] in
+            p.value = ThreadWaitGraph.currentThread
+            h2.send(msg("p0"))
+            pDone.signal()
+        }
+        guard pInSubscriber.wait(timeout: .now() + timeout) == .success else { return (false, false) }
+        Thread.detachNewThread { [self] in
+            q.value = ThreadWaitGraph.currentThread
+            qAction(self)
+            qDone.signal()
+        }
+        let pFinished = pDone.wait(timeout: .now() + timeout) == .success
+        let qFinished = qDone.wait(timeout: .now() + timeout) == .success
+        return (pFinished, qFinished)
+    }
+
+    /// Q batches h3, sends q0 on h and drains it; Q's h subscriber for q0
+    /// sends on h2 and waits for P.
+    static func drainThenWaitForP(_ cycle: BorrowCycle) {
+        cycle.onH = { name in
+            guard name == "q0" else { return }
+            cycle.h2.send(cycle.msg("q1"))
+        }
+        try? cycle.h3.batch { cycle.h.send(cycle.msg("q0")) }
+    }
+}
+
+final class MessageHubBorrowedScopeTests: XCTestCase {
+
+    override func tearDown() {
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = nil
+        super.tearDown()
+    }
+
+    private func assertFinished(
+        _ outcome: (pFinished: Bool, qFinished: Bool),
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(outcome.pFinished, "thread P hung", file: file, line: line)
+        XCTAssertTrue(outcome.qFinished, "thread Q hung", file: file, line: line)
+    }
+
+    /// HUB-013, #1178 variant 1. Q's drain of h has an empty queue when it
+    /// meets P's borrowed scope, so it releases the drain instead of waiting.
+    func testEmptyQueueDrainerReleasesTheDrainToABorrowedScope() {
+        let cycle = BorrowCycle()
+        let outcome = cycle.run(qAction: BorrowCycle.drainThenWaitForP) { cycle in
+            cycle.h3.send(cycle.msg("pm"))
+        }
+        assertFinished(outcome)
+        XCTAssertEqual(cycle.count("h3:pm"), 1)
+        XCTAssertEqual(cycle.count("h:q0"), 1)
+    }
+
+    /// HUB-013, #1178 variant 3. The exit of Q's owned h batch does not claim
+    /// the drain while P's borrowed scope is open; the borrowed exit drains.
+    func testOwnedBatchExitLeavesTheDrainToTheLastBorrowedScope() {
+        let cycle = BorrowCycle()
+        let outcome = cycle.run(qAction: { cycle in
+            try? cycle.h3.batch {
+                try? cycle.h.batch {
+                    cycle.h.send(cycle.msg("q2"))
+                    cycle.h2.send(cycle.msg("q1"))
+                }
+            }
+        }, pAction: { cycle in
+            cycle.h3.send(cycle.msg("pm"))
+        })
+        assertFinished(outcome)
+        XCTAssertEqual(cycle.count("h3:pm"), 1)
+        XCTAssertEqual(cycle.count("h:q2"), 1)
+    }
+
+    /// HUB-013, #1178 variant 4. The borrower's own send enqueues without a
+    /// wait, and h delivers it once, after the borrowed body exits.
+    func testBorrowerSendEnqueuesForTheBorrowedScopeExit() {
+        let cycle = BorrowCycle()
+        let outcome = cycle.run(qAction: BorrowCycle.drainThenWaitForP) { cycle in
+            cycle.pActing.value = true
+            cycle.h.send(cycle.msg("pb"))
+        }
+        assertFinished(outcome)
+        XCTAssertEqual(cycle.count("h:pb"), 1)
+        XCTAssertEqual(
+            cycle.pWaitingForQ.wait(timeout: .now()), .timedOut,
+            "the borrower's own send waited"
+        )
+        if let pb = cycle.index("h:pb"), let end = cycle.index("body-end") {
+            XCTAssertGreaterThan(pb, end, "pb reached subscribers inside the borrowed body")
+        } else {
+            XCTFail("missing events: \(cycle.events.value)")
+        }
+    }
+
+    /// HUB-013, #1178 variant 5. After Q's nested h batch, Q's send, batch or
+    /// dispose on h waits for P's borrowed scope with an edge.
+    func testOwnerCallAfterItsNestedBatchWaitsForTheBorrowedScope() {
+        let followUps: [(String, (BorrowCycle) -> Void)] = [
+            ("send", { $0.h.send($0.msg("qx")) }),
+            ("batch", { cycle in try? cycle.h.batch { cycle.h.send(cycle.msg("qx")) } }),
+            ("dispose", { $0.h.dispose() }),
+        ]
+        for (label, followUp) in followUps {
+            let cycle = BorrowCycle()
+            let outcome = cycle.run(qAction: { cycle in
+                try? cycle.h3.batch {
+                    try? cycle.h.batch { cycle.h2.send(cycle.msg("q1")) }
+                    followUp(cycle)
+                }
+            }, pAction: { cycle in
+                cycle.h3.send(cycle.msg("pm"))
+            })
+            XCTAssertTrue(outcome.pFinished, "\(label): thread P hung")
+            XCTAssertTrue(outcome.qFinished, "\(label): thread Q hung")
+            XCTAssertEqual(cycle.count("h3:pm"), 1, label)
+            ThreadWaitGraph.shared.onWaitDecidedForTesting = nil
+        }
+    }
+
+    /// HUB-013, #1178 variant 6. Q's h subscriber returns only after P's send
+    /// on h3 waits for Q. Q's drain then finds an empty queue and releases it.
+    func testDrainerReleasesAfterTheBorrowerAlreadyWaitsForIt() {
+        let cycle = BorrowCycle()
+        let outcome = cycle.run(pause: 0, qAction: { cycle in
+            cycle.onH = { name in
+                guard name == "q0" else { return }
+                cycle.h2.send(cycle.msg("q1"))
+                _ = cycle.pWaitingForQ.wait(timeout: .now() + cycle.timeout)
+            }
+            try? cycle.h3.batch { cycle.h.send(cycle.msg("q0")) }
+        }, pAction: { cycle in
+            cycle.pActing.value = true
+            cycle.h3.send(cycle.msg("pm"))
+        })
+        assertFinished(outcome)
+        XCTAssertEqual(cycle.count("h3:pm"), 1)
+    }
+
+    /// spec/03 §4.2 rule 5 (the documented HUB-010 limitation). Q's drain of h
+    /// still has `qLate` queued when it meets P's borrowed scope, and P
+    /// already waits for Q. Q's wait would close the cycle, so Q releases the
+    /// drain and its outermost send returns before `qLate` is delivered. P's
+    /// last borrowed-scope exit delivers `qLate` on P's thread, in FIFO order.
+    func testDrainerWithQueuedMessagesReleasesTheDrainOnARefusedWait() {
+        let cycle = BorrowCycle()
+        let qLateBeforeReturn = BorrowBox<Bool?>(nil)
+        let outcome = cycle.run(pause: 0, qAction: { cycle in
+            cycle.onH = { name in
+                guard name == "q0" else { return }
+                cycle.h.send(cycle.msg("qLate"))
+                cycle.h2.send(cycle.msg("q1"))
+                _ = cycle.pWaitingForQ.wait(timeout: .now() + cycle.timeout)
+            }
+            try? cycle.h3.batch {
+                cycle.h.send(cycle.msg("q0"))
+                qLateBeforeReturn.value = cycle.count("h:qLate") > 0
+            }
+        }, pAction: { cycle in
+            cycle.pActing.value = true
+            cycle.h3.send(cycle.msg("pm"))
+        })
+        assertFinished(outcome)
+        XCTAssertEqual(cycle.count("h3:pm"), 1)
+        XCTAssertEqual(cycle.count("h:qLate"), 1)
+        XCTAssertEqual(qLateBeforeReturn.value, false, "the drainer delivered during the borrowed scope")
+        XCTAssertEqual(cycle.thread(of: "h:qLate"), cycle.p.value, "the last borrowed-scope exit did not deliver")
+        if let late = cycle.index("h:qLate"), let end = cycle.index("body-end"), let q0 = cycle.index("h:q0") {
+            XCTAssertGreaterThan(late, end)
+            XCTAssertGreaterThan(late, q0)
+        } else {
+            XCTFail("missing events: \(cycle.events.value)")
+        }
+    }
+
+    /// spec/03 §4.2 rule 1. Two threads borrow h. A waiter W records a wait
+    /// for borrower B2. When B2 exits while B1 still borrows, W's edge to B2
+    /// goes and W waits again for B1. B2 then sends on a hub that W drains.
+    /// That wait closes no live cycle, so B2's send stays synchronous instead
+    /// of taking the refused-wait escape on W's stale edge.
+    func testPartialBorrowerExitRetargetsTheWaiters() {
+        let h = MessageHub()   // borrowed by B2, then by B1
+        let a = MessageHub()   // B2 drains it; D waits for B2 on it
+        let b = MessageHub()   // B1 drains it; B2 waits for B1 on it
+        let c = MessageHub()   // W drains it
+        let timeout: TimeInterval = 5
+        let d = BorrowBox<UInt64>(0), b1 = BorrowBox<UInt64>(0)
+        let b2 = BorrowBox<UInt64>(0), w = BorrowBox<UInt64>(0)
+        let phase = BorrowBox("")
+        let dWaiting = DispatchSemaphore(value: 0)
+        let wWaiting = DispatchSemaphore(value: 0)
+        let b2WaitingForB1 = DispatchSemaphore(value: 0)
+        let b2WaitingForW = DispatchSemaphore(value: 0)
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            guard accepted else { return }
+            if caller == d.value { dWaiting.signal() }
+            if caller == w.value { wWaiting.signal() }
+            if caller == b2.value, phase.value == "b2-on-b" { b2WaitingForB1.signal() }
+            if caller == b2.value, phase.value == "b2-on-c" { b2WaitingForW.signal() }
+        }
+        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
+        func msg(_ name: String) -> PropertyChangedMessage {
+            PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: name)
+        }
+        func name(_ message: any Message) -> String? { (message as? PropertyChangedMessage)?.propertyName }
+
+        let b1Draining = DispatchSemaphore(value: 0)
+        let b2Draining = DispatchSemaphore(value: 0)
+        let dBatchReturned = DispatchSemaphore(value: 0)
+        let b2Exited = DispatchSemaphore(value: 0)
+        let xDelivered = BorrowBox(false)
+        let xBeforeReturn = BorrowBox<Bool?>(nil)
+        var subscriptions: [AnyCancellable] = []
+        // B2's a subscriber: borrow h (D, its batch owner, waits for B2).
+        subscriptions.append(a.messages.sink { message in
+            guard name(message) == "a0" else { return }
+            b2Draining.signal()
+            _ = dWaiting.wait(timeout: .now() + timeout)
+            try? h.batch {
+                a.dispose()
+                _ = dBatchReturned.wait(timeout: .now() + timeout)
+                Thread.detachNewThread {
+                    w.value = ThreadWaitGraph.currentThread
+                    c.send(msg("c0"))
+                }
+                _ = wWaiting.wait(timeout: .now() + timeout)
+                phase.value = "b2-on-b"
+                b.send(msg("b0"))
+            }
+            b2Exited.signal()
+        })
+        // B1's b subscriber: borrow h (B2, the only borrower, waits for B1).
+        subscriptions.append(b.messages.sink { message in
+            guard name(message) == "b1" else { return }
+            b1Draining.signal()
+            _ = b2WaitingForB1.wait(timeout: .now() + timeout)
+            try? h.batch {
+                b.dispose()
+                _ = b2Exited.wait(timeout: .now() + timeout)
+                // Hold the last borrowed scope until B2's send has decided.
+                _ = b2WaitingForW.wait(timeout: .now() + 1)
+            }
+        })
+        // W's c subscriber: send on h, which waits for a borrower.
+        subscriptions.append(c.messages.sink { message in
+            if name(message) == "c0" { h.send(msg("w")) }
+            if name(message) == "x" { xDelivered.value = true }
+        })
+        defer { subscriptions.forEach { $0.cancel() } }
+
+        let b1Done = DispatchSemaphore(value: 0)
+        let b2Done = DispatchSemaphore(value: 0)
+        let dDone = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            b1.value = ThreadWaitGraph.currentThread
+            b.send(msg("b1"))
+            b1Done.signal()
+        }
+        XCTAssertEqual(b1Draining.wait(timeout: .now() + timeout), .success)
+        Thread.detachNewThread {
+            b2.value = ThreadWaitGraph.currentThread
+            a.send(msg("a0"))
+            phase.value = "b2-on-c"
+            c.send(msg("x"))
+            xBeforeReturn.value = xDelivered.value
+            b2Done.signal()
+        }
+        XCTAssertEqual(b2Draining.wait(timeout: .now() + timeout), .success)
+        Thread.detachNewThread {
+            d.value = ThreadWaitGraph.currentThread
+            try? h.batch { a.send(msg("d")) }
+            dBatchReturned.signal()
+            dDone.signal()
+        }
+
+        XCTAssertEqual(dDone.wait(timeout: .now() + timeout), .success, "D hung")
+        XCTAssertEqual(b2Done.wait(timeout: .now() + timeout), .success, "B2 hung")
+        XCTAssertEqual(b1Done.wait(timeout: .now() + timeout), .success, "B1 hung")
+        XCTAssertEqual(xBeforeReturn.value, true, "B2's send escaped on a stale edge to W")
+    }
+}
