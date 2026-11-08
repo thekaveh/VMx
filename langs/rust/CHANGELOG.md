@@ -100,6 +100,33 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVm` approval started from another approval's settlement notification
+  now runs its approval subscribers with model edits applied at once (#1160).
+  Before, the outer approval's pre-publication window stayed active, so those
+  subscribers' edits were deferred until the outer approval ended. Each
+  settlement now saves the enclosing pre-publication state, clears it before
+  its subscribers run and restores it when it ends, as C# and Python do. Edits
+  made by the outer notification still wait for the outer subscribers.
+- `FormVm` now queues every update made during an approval's
+  pre-publication window (spec 3.30.0, ADR-0174, `FORM-039`, `FORM-040`)
+  (#1168, #1050). The window opens when the post-persist commit starts. A
+  `set_model` or `revert` (deny) from `reset_on_approved`, the snapshotter, a
+  validator, or a settlement `errors_changed` or eligibility-change observer is
+  queued and replays after the approval subscribers return. Before, a call
+  from `reset_on_approved` committed at once and the reset overwrote it, and a
+  deny from a settlement observer committed at once, so approval subscribers
+  saw a reverted model. A queued call now prepares when it is called: a
+  validator, `PartialEq` or snapshotter panic reaches the caller and queues
+  nothing, and a model equal to the live one is still queued. Before, the
+  call queued without preparing, so its panic surfaced only at replay, failed
+  the settled approval and dropped the later queued updates. Each update now
+  replays under its own unwind guard. After the last replay, the first replay
+  panic resumes from `approve()`, unless a failed commit or a panicking
+  approval subscriber wins. When the post-persist commit fails, the updates it
+  queued replay after the failed settlement's eligibility change and before
+  the failure is returned. Call-time preparation runs the validators once more
+  for each queued update. Calls from other threads are still queued rather
+  than waiting for the publication (#1160).
 - `CompositeVm`, `GroupVm` and `AggregateVm1`…`AggregateVm6` no longer dispose
   their children while their admitted construct or destruct hook runs on another
   thread (#1062, LIFE-015). The child cascade now runs at the hook boundary of
