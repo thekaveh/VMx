@@ -140,6 +140,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
   refetched page 1 and appended it again, and `has_more()` stayed true. The load
   now changes nothing and does not supersede an in-flight refresh. The ad hoc
   `load_more(loader)` call is unchanged.
+- `TokenPagedComposition` no longer deadlocks when a `Token::clone` waits for
+  another load or refresh of the same pager (#1162). `current_token()` and
+  each load cloned the stored token under the cursor lock. Every commit takes
+  that lock, and since #1045 it holds the operation gate while it waits. So a
+  clone that waited for a refresh to finish, or for a start while another
+  commit waited, blocked forever. The pager now stores the token behind its
+  own lock, which no commit takes. A reader takes the cursor lock only to copy
+  that handle, and runs `Token::clone` after it releases the lock. The bound
+  stays `Token: Clone + Send + 'static`. The `current_token()` rustdoc states
+  the remaining limits: clones of one stored token take turns, and a clone
+  must not read the cursor again on its own thread.
 - The `CompositeVm` construct walk's `Current(selector)` assignment follows
   ADR-0165 (#1151). It skips a child that an add, insert, replacement or
   population has attached but not admitted, skips while disposal is pending,

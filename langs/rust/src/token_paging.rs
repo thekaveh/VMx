@@ -210,23 +210,53 @@ impl RefreshPlan {
         }
     }
 
-    /// Commits the plan's cursor and returns the displaced token, which
-    /// callers drop only after releasing the commit.
+    /// Commits the plan's cursor and returns the displaced token, or the
+    /// unadopted `next`, which callers drop only after releasing the commit.
     fn apply_token<Token>(
         &self,
-        token: &Mutex<Option<Token>>,
+        cursor: &Cursor<Token>,
         has_more: &Mutex<bool>,
         next: Option<Token>,
-    ) -> Option<Token> {
+    ) -> CursorWrite<Token> {
         if self.adopt_token {
-            let more = next.is_some();
-            let previous = std::mem::replace(&mut *lock(token), next);
-            *lock(has_more) = more;
-            previous
+            write_cursor(cursor, has_more, next)
         } else {
-            next
+            (None, next)
         }
     }
+}
+
+/// The stored continuation token. The outer lock guards only the slot, and
+/// readers hold it just long enough to clone the `Arc`. `Token::clone` runs
+/// under the token's own lock, which no commit takes, so a clone can wait for
+/// any load or refresh of the same pager to start or commit (#1162).
+/// `Mutex<Token>` is `Sync` when `Token: Send`, so the pager keeps its
+/// `Token: Clone + Send + 'static` bound.
+type Cursor<Token> = Mutex<Option<Arc<Mutex<Token>>>>;
+
+/// Clones the stored token with no pager lock held while `Token::clone` runs.
+fn read_cursor<Token: Clone>(cursor: &Cursor<Token>) -> Option<Token> {
+    let stored = lock(cursor).clone();
+    stored.map(|token| lock(&token).clone())
+}
+
+/// The values a cursor write displaced: the stored token it replaced, and a
+/// token it did not adopt. Callers drop them only after they release the
+/// commit, so `Token::drop` runs outside every pager lock.
+type CursorWrite<Token> = (Option<Arc<Mutex<Token>>>, Option<Token>);
+
+/// Stores `next` and its `has_more`, and returns the displaced token. No user
+/// code runs here: the slot swap moves an `Arc` and allocates a new one.
+fn write_cursor<Token>(
+    cursor: &Cursor<Token>,
+    has_more: &Mutex<bool>,
+    next: Option<Token>,
+) -> CursorWrite<Token> {
+    let more = next.is_some();
+    let stored = next.map(|token| Arc::new(Mutex::new(token)));
+    let displaced = std::mem::replace(&mut *lock(cursor), stored);
+    *lock(has_more) = more;
+    (displaced, None)
 }
 
 /// Starts a load or refresh; a later start makes every earlier one stale.
@@ -234,9 +264,9 @@ impl RefreshPlan {
 /// The start takes `gate`, which a commit holds from its final check until it
 /// has written the items and the cursor. A start therefore lands before that
 /// check, which makes the commit stale, or after the writes (#1045). No user
-/// code runs under `gate`, but a commit holds it while it waits for the cursor
-/// lock. A `Token::clone` in [`TokenPagedComposition::current_token`] must
-/// therefore not wait for an operation of the same pager to start.
+/// code runs under `gate`. A commit holds it while it takes the cursor slot
+/// lock, but a reader holds that lock only to clone the stored `Arc`, never
+/// while `Token::clone` runs (#1162).
 fn begin_operation(gate: &Mutex<()>, generation: &AtomicUsize) -> usize {
     let _start = lock(gate);
     generation.fetch_add(1, Ordering::SeqCst) + 1
@@ -347,7 +377,7 @@ pub struct TokenPagedComposition<
 > {
     id: usize,
     items: Arc<Mutex<Vec<T>>>,
-    next_token: Arc<Mutex<Option<Token>>>,
+    next_token: Arc<Cursor<Token>>,
     has_more: Arc<Mutex<bool>>,
     hub: MessageHub,
     command_change_trigger: MessageHub,
@@ -422,7 +452,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 else {
                     return Ok(());
                 };
-                let token = lock(&load_more_token).clone();
+                let token = read_cursor(&load_more_token);
                 if load_more_lifecycle.is_terminal() {
                     return Ok(());
                 }
@@ -442,12 +472,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 let changed = !page.is_empty();
                 let ((), previous_token) = current.write(
                     |items| items.extend(page),
-                    || {
-                        let has_more = next.is_some();
-                        let previous = std::mem::replace(&mut *lock(&load_more_token), next);
-                        *lock(&load_more_has_more) = has_more;
-                        previous
-                    },
+                    || write_cursor(&load_more_token, &load_more_has_more, next),
                 );
                 publish_pager_changes(&load_more_hub, id, changed, &commit);
                 let publish_command = commit.is_allowed();
@@ -545,8 +570,23 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
     }
 
     /// Returns the continuation token for the next page.
+    ///
+    /// The pager runs `Token::clone` here, and in each load's cursor read,
+    /// with no pager lock held. A clone can therefore wait for another thread
+    /// to start or commit a load or refresh of this pager (#1162). Two limits
+    /// remain, because every clone of one stored token runs under that
+    /// token's own lock:
+    ///
+    /// - Clones of the same stored token take turns. A `Token::clone` must
+    ///   not wait for another clone of that token, for example for a
+    ///   `current_token()` call or a load on another thread that reads the
+    ///   same cursor.
+    /// - The lock is not re-entrant. A `Token::clone` must not read the
+    ///   cursor again on its own thread, for example by calling
+    ///   `current_token()` or `load_more(loader)`, or by calling
+    ///   `load_next()` and joining its load. That call blocks forever.
     pub fn current_token(&self) -> Option<Token> {
-        lock(&self.next_token).clone()
+        read_cursor(&self.next_token)
     }
 
     /// Reports whether the loader supplied another continuation token.
@@ -595,7 +635,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
             return;
         }
         let operation = begin_operation(&self.operation_gate, &self.operation_generation);
-        let token = lock(&self.next_token).clone();
+        let token = read_cursor(&self.next_token);
         if self.lifecycle.is_terminal() {
             return;
         }
@@ -615,12 +655,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         let changed = !page.is_empty();
         let ((), previous_token) = current.write(
             |items| items.extend(page),
-            || {
-                let has_more = next_token.is_some();
-                let previous = std::mem::replace(&mut *lock(&self.next_token), next_token);
-                *lock(&self.has_more) = has_more;
-                previous
-            },
+            || write_cursor(&self.next_token, &self.has_more, next_token),
         );
         publish_pager_changes(&self.hub, self.id, changed, &commit);
         let publish_command = commit.is_allowed();
@@ -689,7 +724,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 else {
                     return Ok(());
                 };
-                let token = lock(&load_token).clone();
+                let token = read_cursor(&load_token);
                 if load_lifecycle.is_terminal() {
                     return Ok(());
                 }
@@ -712,12 +747,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 let changed = !page.is_empty();
                 let ((), previous_token) = current.write(
                     |items| items.extend(page),
-                    || {
-                        let has_more = next.is_some();
-                        let previous = std::mem::replace(&mut *lock(&load_token), next);
-                        *lock(&load_has_more) = has_more;
-                        previous
-                    },
+                    || write_cursor(&load_token, &load_has_more, next),
                 );
                 publish_pager_changes(&load_hub, id, changed, &commit);
                 let publish_command = commit.is_allowed();
