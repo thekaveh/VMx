@@ -209,14 +209,94 @@ finish. A cyclic cross-hub batch uses a borrowed scope: its body may enqueue,
 but the target owner does not resume draining until the borrowed scope exits.
 Normal and unrelated nested batches retain exclusive ownership. This narrow
 cycle escape preserves liveness without weakening ordinary `HUB-013`
-synchronous delivery (ADR-0119). TypeScript has no shared-memory hub across
-workers; JavaScript jobs using one hub are already serialized by the host event
-loop.
+synchronous delivery (ADR-0119). The hub records these waits in the flavor's
+single wait-for graph (§4.1), and an open borrowed scope is itself a wait-for
+owner (§4.2). TypeScript has no shared-memory hub across workers; JavaScript
+jobs using one hub are already serialized by the host event loop.
 
 VMs that emit `PropertyChangedMessage` (Status changes, model changes, etc.) MAY
 dispatch the emission via `IDispatcher.Foreground` so subscribers can opt into
 foreground-thread delivery via `ObserveOn(dispatcher.Foreground)`. See
 `11-threading.md` for the full contract.
+
+### 4.1 One wait-for graph per flavor (spec v3.30)
+
+Each threaded flavor (C#, Python, Swift, and Rust) records every blocking wait
+between VMx-owned resources in one process-wide wait-for graph (ADR-0172).
+TypeScript is single-threaded and keeps no graph. The graph records these
+waits. When a wait is refused, the operation takes the result in the last
+column instead of blocking.
+
+| Wait                                                                                    | Owner of the resource                        | Result of a refused wait                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A hub `Send`, `Batch`, or `Dispose` waits for the hub's batch, drain, or borrowed scope | The batch owner, the drainer, or a borrower  | `Send` enqueues for the active drain, `Batch` enters a borrowed scope, and `Dispose` records terminal intent for the owner (§4, ADR-0119)                                                                        |
+| A hub drainer with queued messages waits for a borrowed scope                           | A borrower                                   | The drainer releases the drain to the borrowed scope's exit (§4.2)                                                                                                                                               |
+| A foreign lifecycle call waits for one lifecycle delivery                               | The thread that drains the VM's publications | The call enqueues and returns to that drainer (chapter 02 §2.4, ADR-0117)                                                                                                                                        |
+| A foreign `dispose()` waits for an admitted hook (its hook lease)                       | The thread that runs the hook                | Terminal cleanup is deferred to the hook's completion (chapter 02 §2.4, ADR-0126)                                                                                                                                |
+| A cross-thread container disposal waits for a membership transaction                    | The transaction owner                        | Deferred terminal intent that the owner finishes (chapter 06 §4.2, ADR-0153)                                                                                                                                     |
+| A structural operation waits for a child's ownership gate or lock                       | The thread whose transaction holds it        | The operation fails before mutation: `InvalidOperationException` in C#, `RuntimeError` in Python, and the container's attachment failure in Swift. Rust claims ownership without waiting, so it has no such wait |
+
+1. **One graph.** A wait that would close a cycle across any mix of these
+   waits is refused. A wait that closes no cycle blocks as before. No flavor
+   keeps a second graph for one family of waits. A Rust status publication is
+   a hub send, so the hub row covers it.
+1. **Edges per resource instance.** An edge names the waiting thread, the
+   resource instance it waits for, and the thread that owns that resource. The
+   resource instance is one hub, one lifecycle delivery, one hook lease, one
+   container's membership transaction, or one ownership gate or lock object.
+   An edge is never keyed by VM identity: a container that is also a child has
+   a membership transaction and an ownership gate, and they are two resources.
+   A waiting thread has at most one edge. A wait with several possible owners
+   names one: the batch owner, then the drainer, then a borrower other than
+   the caller.
+1. **Live cycles only.** A cycle counts only when every owner on it still holds
+   its resource at the time of the check. The check and the new edge are one
+   atomic step under the graph's own lock. That lock is a leaf: a thread that
+   holds it takes no other lock and runs no consumer code.
+1. **Release before wake.** The thread that ends a wait removes the edges, and
+   the ownership records, that name it as the owner of that resource before it
+   wakes the waiters. This applies when a thread finishes a hook, delivers a
+   publication, ends a membership transaction, releases an ownership gate,
+   ends a batch, releases a drain, and when a borrower ends or partially exits
+   its borrowed scopes. A woken waiter that must still wait records its wait
+   again. A stale edge never makes an operation take its refused-wait result,
+   and a released owner never keeps a waiter blocked.
+
+### 4.2 Borrowed batch scopes (spec v3.30)
+
+A borrowed scope (§4) is open from the start of a cyclic batch's body to its
+exit. These rules apply in every threaded flavor (ADR-0172).
+
+1. **A wait-for owner.** A thread with an open borrowed scope owns the hub
+   with the batch owner and the drainer. A wait on the hub for a borrowed scope
+   records an edge to a borrower (§4.1). When a borrower exits its last
+   borrowed scope while other borrowers remain, the waiters wake.
+1. **Empty queue.** A drainer whose queue is empty does not wait for a
+   borrowed scope. It releases the drain and returns. The exit of the last
+   borrowed scope drains what the bodies enqueued. This is not an escape: the
+   drainer's outermost `Send` returns with an empty queue (§3.3).
+1. **Borrower calls.** A borrower's own `Send`, `Batch`, and `Dispose` on the
+   hub it borrowed do not wait. `Send` enqueues for the drain at the borrowed
+   scope's exit. `Batch` nests another borrowed scope. `Dispose` records
+   terminal intent, and the exit of the last borrowed scope finishes the
+   disposal.
+1. **No callback-context escape.** A wait does not change because the caller
+   is inside a hub callback. A `Send` to a hub with an open borrowed scope
+   waits for it, and enqueues without waiting only when its wait is refused
+   (§4.1, `HUB-013`).
+1. **A drainer with queued messages (limitation).** A drainer with queued
+   messages waits until no borrowed scope is open. A borrower can already
+   wait, directly or through other threads, for that drainer. Then the wait
+   that closes the cycle is refused. When the borrower's wait closes it, the
+   borrower takes the result of its own operation (§4.1). When the drainer's
+   wait closes it, the drainer releases the drain and returns, with its
+   messages still queued. The thread that exits the last borrowed scope
+   delivers them in FIFO order before that exit returns. The observable result
+   is as follows. The drainer's outermost `Send` or batch returns before those
+   messages reach subscribers, and they are delivered on the borrower's
+   thread. This is the one case where an outermost `Send` returns with a
+   non-empty queue (§3.3, `HUB-010`). Per-producer FIFO order (§3.2) still
+   holds.
 
 ## 5. Fixture
 

@@ -1,6 +1,6 @@
 # ADR 0167 — Rust container disposal checks a wait-for graph
 
-- **Status:** Accepted
+- **Status:** Accepted (Extended by ADR-0172)
 - **Date:** 2026-10-30
 - **Spec version:** 3.30.0 (flavor status update in chapter 06 §4.2)
 - **Implements:** [ADR-0153](0153-cyclic-cross-thread-container-disposal-defers-to-the-owner.md)
@@ -38,6 +38,9 @@ thread, and both threads hang.
 
 The graph covers container membership waits only. Rust message-hub waits are
 not recorded in it.
+
+ADR-0172 extends this decision. Rust hub and hook-owner waits join this graph,
+so a cycle that crosses them and a membership wait is refused.
 
 This adds no conformance ID and changes no package or specification version.
 
