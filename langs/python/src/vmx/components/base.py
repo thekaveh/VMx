@@ -26,6 +26,7 @@ from reactivex import operators as ops
 from reactivex.abc import SchedulerBase
 from reactivex.subject import Subject
 
+from vmx._wait_for_graph import WAITS
 from vmx.commands.relay_command import RelayCommand
 from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
@@ -46,6 +47,50 @@ if TYPE_CHECKING:
 _OWNERSHIP_TRANSACTION_GATE = threading.RLock()
 
 
+def _hold_ownership_identity(identity: _ComponentVMBase) -> bool:
+    """Take one hold of *identity*'s ownership lock without waiting.
+
+    The first hold records the calling thread as the lock's holder in the
+    wait-for graph, so a thread that waits for the lock can see the cycle
+    (spec/03 §4.1, #1155). The lock is recursive, so the count keeps the
+    holder recorded until its last hold is released.
+    """
+    if not identity._ownership_lock.acquire(blocking=False):
+        return False
+    identity._ownership_holds += 1
+    if identity._ownership_holds == 1:
+        WAITS.acquire(identity._ownership_lock, threading.get_ident())
+    return True
+
+
+def _release_ownership_identity(identity: _ComponentVMBase) -> None:
+    """Release one hold; the last one clears the holder before it wakes waiters."""
+    identity._ownership_holds -= 1
+    if identity._ownership_holds == 0:
+        WAITS.release(identity._ownership_lock)
+    identity._ownership_lock.release()
+
+
+def _wait_for_ownership_identity(identity: _ComponentVMBase) -> None:
+    """Wait until another thread releases *identity*'s ownership lock.
+
+    The wait records an edge in the wait-for graph. When that edge would close
+    a cycle, raise ``RuntimeError`` before any mutation instead of waiting
+    (spec/03 §4.1, ADR-0172).
+    """
+    caller = threading.get_ident()
+    if not WAITS.try_begin_wait(identity._ownership_lock, caller):
+        raise RuntimeError(
+            "ownership transaction is in progress on a thread that waits for this "
+            "one; waiting would deadlock"
+        )
+    try:
+        identity._ownership_lock.acquire()
+        identity._ownership_lock.release()
+    finally:
+        WAITS.end_wait(caller)
+
+
 def _acquire_ownership_identities(
     identities: Iterable[_ComponentVMBase],
 ) -> list[_ComponentVMBase]:
@@ -56,7 +101,7 @@ def _acquire_ownership_identities(
         blocked: _ComponentVMBase | None = None
         with _OWNERSHIP_TRANSACTION_GATE:
             for identity in ordered:
-                if identity._ownership_lock.acquire(blocking=False):
+                if _hold_ownership_identity(identity):
                     acquired.append(identity)
                 else:
                     blocked = identity
@@ -64,12 +109,12 @@ def _acquire_ownership_identities(
             if blocked is None:
                 return acquired
             for identity in reversed(acquired):
-                identity._ownership_lock.release()
+                _release_ownership_identity(identity)
 
-        # Wait outside the coordinator and without retaining any other child.
-        # Once the blocker moves, retry the complete set atomically.
-        blocked._ownership_lock.acquire()
-        blocked._ownership_lock.release()
+        # Wait outside the coordinator and without retaining any child that
+        # this call acquired. Once the blocker moves, retry the complete set
+        # atomically.
+        _wait_for_ownership_identity(blocked)
 
 
 @contextmanager
@@ -80,7 +125,7 @@ def _ownership_reservation_batch(children: Iterable[_ComponentVMBase]) -> Iterat
         yield
     finally:
         for identity in reversed(identities):
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
 
 
 @contextmanager
@@ -91,7 +136,7 @@ def _exclusive_ownership_reservation_batch(
     identities = _acquire_ownership_identities(child._ownership_identity for child in children)
     if any(identity._ownership_in_progress for identity in identities):
         for identity in reversed(identities):
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
         raise RuntimeError("ownership transaction is already in progress")
     for identity in identities:
         identity._ownership_in_progress = True
@@ -101,7 +146,7 @@ def _exclusive_ownership_reservation_batch(
         for identity in identities:
             identity._ownership_in_progress = False
         for identity in reversed(identities):
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
 
 
 # Child-walk futures that ``_transition_children`` creates. Only these are
@@ -319,7 +364,7 @@ def _begin_parent_transfer(
     identity = child._ownership_identity
     _acquire_ownership_identities((identity,))
     if identity._ownership_in_progress:
-        identity._ownership_lock.release()
+        _release_ownership_identity(identity)
         raise RuntimeError(f"Cannot transfer {child.name!r}: ownership transaction is in progress")
     identity._ownership_in_progress = True
     try:
@@ -340,7 +385,7 @@ def _begin_parent_transfer(
         staged = None if ownership_parent is None else ownership_parent.detach_for_transfer(child)
     except BaseException:
         identity._ownership_in_progress = False
-        identity._ownership_lock.release()
+        _release_ownership_identity(identity)
         raise
 
     def finish(commit: bool) -> None:
@@ -349,7 +394,7 @@ def _begin_parent_transfer(
                 (staged.commit if commit else staged.rollback)()
         finally:
             identity._ownership_in_progress = False
-            identity._ownership_lock.release()
+            _release_ownership_identity(identity)
 
     return _ParentTransfer(lambda: finish(True), lambda: finish(False))
 
@@ -443,6 +488,7 @@ class _ComponentVMBase(ABC):
         # commit/rollback. The recursive lock serializes competing threads;
         # the flag rejects same-thread reparenting from an auto-construct hook.
         self._ownership_lock = threading.RLock()
+        self._ownership_holds = 0
         self._ownership_in_progress = False
 
         # ── property_changed subject ────────────────────────────────────────
