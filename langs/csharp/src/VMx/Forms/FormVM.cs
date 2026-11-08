@@ -357,7 +357,7 @@ public sealed class FormVM<TM> : IDisposable
             if (IsStale(generation, queueGeneration)) return;
             if (queue)
             {
-                retry = !TryEnqueueLocked(publisher, caller, QueuedUpdate.Set(model));
+                retry = !TryEnqueueLocked(QueueOwnerLocked(publisher, caller), caller, QueuedUpdate.Set(model));
                 return;
             }
 
@@ -571,7 +571,7 @@ public sealed class FormVM<TM> : IDisposable
             if (IsStale(generation, queueGeneration)) return;
             if (queue)
             {
-                retry = !TryEnqueueLocked(publisher, caller, QueuedUpdate.Deny);
+                retry = !TryEnqueueLocked(QueueOwnerLocked(publisher, caller), caller, QueuedUpdate.Deny);
                 return;
             }
 
@@ -894,6 +894,14 @@ public sealed class FormVM<TM> : IDisposable
     private bool InPrePublicationWindow(int caller) =>
         (_publishers.TryGetValue(caller, out var publisher) && publisher.Depth > 0 && publisher.PrePublishing) ||
         _commitWindowThreadId == caller;
+
+    // Called under _stateGate after a preparation. A call in its own
+    // thread's pre-publication window joins that thread's queue (publisher 0),
+    // even when its wait for another thread's scope was refused. Otherwise a
+    // refused call joins the queue of the publisher its edge named
+    // (spec/20 §5.5, ADR-0176).
+    private int QueueOwnerLocked(int publisher, int caller) =>
+        InPrePublicationWindow(caller) ? 0 : publisher;
 
     // Called under _stateGate after a preparation.
     private bool IsStale(long generation, long queueGeneration) =>

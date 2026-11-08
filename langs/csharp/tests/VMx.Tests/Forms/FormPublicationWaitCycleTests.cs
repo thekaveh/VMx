@@ -349,4 +349,108 @@ public class FormPublicationWaitCycleTests
         form.Model.Should().Be(new Model("y"), "the queued update still replays");
         form.Dispose();
     }
+
+    // spec/20 §5.5: a call in its own thread's pre-publication window joins
+    // that thread's queue, even when its wait for another thread's scope is
+    // refused. X's update ErrorsChanged sink sends on H while Y drains H.
+    // Y's approval is admitted and settles in a second scope. Its step 3
+    // CanExecuteChanged observer calls SetModel("y2"). The call replays on Y
+    // after Y's OnApproved, is refused again, and moves to X's queue.
+    [Fact]
+    public void An_Own_Window_Call_Joins_Its_Own_Queue_When_Its_Wait_Is_Refused()
+    {
+        var hub = new MessageHub();
+        var validations = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var xThread = 0;
+        var yThread = 0;
+        var xArmed = 0;
+        var yArmed = 0;
+        var approvedBeforeReplay = false;
+        Exception? xError = null;
+        Exception? yError = null;
+        // Not `using`: on a regression an implicit Dispose could block.
+        var form = FormVM<Model>.Builder()
+            .Initial(new Model("bad"))
+            .Persister(_ => Task.CompletedTask)
+            .Snapshotter(model => model)
+            .Validator("Value", model =>
+            {
+                if (model.Value == "y2")
+                {
+                    var thread = Environment.CurrentManagedThreadId;
+                    validations.Enqueue(thread == Volatile.Read(ref xThread) ? "x"
+                        : thread == Volatile.Read(ref yThread) ? "y" : "other");
+                }
+                return model.Value == "bad" ? "rejected" : null;
+            })
+            .Build();
+        using var yDraining = new ManualResetEventSlim();
+        using var releaseY = new ManualResetEventSlim();
+        using var errorsSubscription = form.ErrorsChanged.Subscribe(_ =>
+        {
+            if (Environment.CurrentManagedThreadId != Volatile.Read(ref xThread)) return;
+            if (Interlocked.Exchange(ref xArmed, 0) == 0) return;
+            releaseY.Set();
+            hub.Send(new Marker("x"));
+        });
+        form.ApproveCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (Environment.CurrentManagedThreadId != Volatile.Read(ref yThread)) return;
+            if (!form.ApproveCommand.CanExecute(null)) return;
+            if (Interlocked.Exchange(ref yArmed, 0) == 0) return;
+            form.SetModel(new Model("y2"));
+        };
+        using var approvedSubscription = form.OnApproved.Subscribe(_ =>
+        {
+            if (Environment.CurrentManagedThreadId != Volatile.Read(ref yThread)) return;
+            approvedBeforeReplay = validations.ToArray().SequenceEqual(["y"]);
+        });
+        using var hubSubscription = hub.Messages.OfType<Marker>().Subscribe(message =>
+        {
+            if (message.Tag != "y") return;
+            yDraining.Set();
+            releaseY.Wait(HangGuard).Should().BeTrue();
+            SpinWait.SpinUntil(
+                () => WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref xThread)),
+                HangGuard).Should().BeTrue();
+            try
+            {
+                Volatile.Write(ref yArmed, 1);
+                form.ApproveAsync().Wait(HangGuard).Should().BeTrue();
+            }
+            catch (Exception error)
+            {
+                yError = error;
+            }
+        });
+
+        var y = new Thread(() =>
+        {
+            Volatile.Write(ref yThread, Environment.CurrentManagedThreadId);
+            hub.Send(new Marker("y"));
+        })
+        { IsBackground = true };
+        y.Start();
+        yDraining.Wait(HangGuard).Should().BeTrue();
+        var x = new Thread(() =>
+        {
+            Volatile.Write(ref xThread, Environment.CurrentManagedThreadId);
+            Volatile.Write(ref xArmed, 1);
+            try { form.SetModel(new Model("good")); }
+            catch (Exception error) { xError = error; }
+        })
+        { IsBackground = true };
+        x.Start();
+
+        (x.Join(HangGuard) && y.Join(HangGuard)).Should().BeTrue("the threads must not deadlock");
+        hub.Dispose();
+
+        xError.Should().BeNull();
+        yError.Should().BeNull();
+        approvedBeforeReplay.Should().BeTrue("Y's queue holds the call until Y's OnApproved");
+        validations.Should().Equal(["y", "y", "x"],
+            "the call is prepared on Y, replays on Y, and then moves to X's queue");
+        form.Model.Should().Be(new Model("y2"), "the queued update is applied, not lost");
+        form.Dispose();
+    }
 }

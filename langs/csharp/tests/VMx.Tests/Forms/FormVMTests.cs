@@ -587,6 +587,43 @@ public class FormVMTests
         completedDuringDelivery.Should().BeFalse();
     }
 
+    // spec/20 §5.5: only a nested approval's OnApproved delivery suspends the
+    // outer pre-publication window. An update from a nested failed
+    // settlement's CanExecuteChanged observer is queued, as in Python and Rust.
+    [Fact]
+    public async Task Nested_Failed_Settlement_Keeps_The_Outer_Window()
+    {
+        var persists = 0;
+        using var form = new FormVM<Model>(new Model("initial", 0), _ =>
+            Interlocked.Increment(ref persists) == 2
+                ? Task.FromException(new InvalidOperationException("inner"))
+                : Task.CompletedTask);
+        form.SetModel(new Model("edited", 0));
+        var edges = 0;
+        Model? insideOuter = null;
+        form.ApproveCommand.CanExecuteChanged += (_, _) =>
+        {
+            edges++;
+            if (edges == 2)
+            {
+                // Outer settlement step 3: a nested approval fails at once.
+                form.ApproveAsync().IsFaulted.Should().BeTrue();
+                insideOuter = form.Model;
+            }
+            else if (edges == 4)
+            {
+                // The nested failed settlement's notification.
+                form.SetModel(new Model("from-inner-failure", 0));
+            }
+        };
+
+        await form.ApproveAsync().WaitAsync(HangGuard);
+
+        edges.Should().BeGreaterThanOrEqualTo(4);
+        insideOuter.Should().Be(new Model("edited", 0), "the update joined the outer queue");
+        form.Model.Should().Be(new Model("from-inner-failure", 0), "it replays after OnApproved");
+    }
+
     // ── Test double helpers ───────────────────────────────────────────────────
 
     private sealed class LambdaPersister<TM>(Func<TM, Task> action) : IFormPersister<TM>

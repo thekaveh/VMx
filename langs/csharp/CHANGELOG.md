@@ -505,8 +505,10 @@ All notable changes to the C# flavor are documented here. The format is based on
   settlement and `Dispose()` record an edge to the publishing thread. When
   that edge would close a cycle, the call does not wait. A `SetModel` or deny
   runs its preparation, joins the publisher's queue and returns before it
-  takes effect. The publisher replays it after its outermost scope ends. An
-  approve call is admitted, and a settlement commits and opens its own scope.
+  takes effect. A call in its own thread's pre-publication window joins that
+  thread's queue instead, as in the other flavors. The publisher replays its
+  queue after its outermost scope ends. An approve call is admitted, and a
+  settlement commits and opens its own scope.
   A `Dispose()` marks the form disposed and returns, and the publisher tears
   it down after its outermost scope ends.
 - Changed: `FormVM` no longer delivers a notification while it holds its
