@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 445 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 447 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -4125,6 +4125,67 @@ candidate
 **Then** the model is not reverted and no deny message is published
 
 > Spec: `20-form-vm.md §5.4/§10`, ADR-0144.
+
+### FORM-039 — updates during approval publication replay after `OnApproved`
+
+**Given** a valid `FormVM<TM>` with a succeeding persister, a validator that
+rejects `x`, and a `resetOnApproved` that calls `SetModel(x)` and returns
+`pristine`
+**When** an approval succeeds
+**Then** the nested call publishes no `ErrorsChanged`, `CanExecuteChanged`, or
+model `PropertyChangedMessage` before `OnApproved`
+**And** an `OnApproved` observer sees `Model == pristine`, `IsDirty == false`,
+and `IsValid == true`
+**And** after the `OnApproved` delivery returns, `Model == x`, `Errors` holds
+the error for `x`, and one model `PropertyChangedMessage` is published for it
+**And** the last map that an `ErrorsChanged` observer received equals `Errors`
+
+**Given** a form without a reset whose model is edited to `newer` while the
+persister of an approval that captured `saved` runs, and a settlement
+`CanExecuteChanged` observer that calls `DenyCommand.Execute()`
+**When** the approval succeeds
+**Then** an `OnApproved` observer sees `Model == newer` and `IsDirty == true`
+**And** `FormRevertedMessage` is published after the `OnApproved` delivery,
+and `Model == saved` afterwards
+
+**When** the `resetOnApproved` calls `SetModel(a)` and then
+`DenyCommand.Execute()`
+**Then** the queued calls replay in call order after `OnApproved`: the model
+becomes `a`, then reverts to `pristine`
+
+> Spec: `20-form-vm.md §5.1/§5.3`, ADR-0174.
+
+### FORM-040 — a queued update prepares at call time and replays in isolation
+
+**Given** a valid `FormVM<TM>` with initial model `1`, a succeeding persister,
+and a validator that fails (throws, or panics in Rust) for `13`
+**And** the model was set to `2`
+**And** a settlement `CanExecuteChanged` observer that calls `SetModel(13)`,
+catches its failure, and then calls `SetModel(42)`
+**When** `ApproveAsync` is awaited, and separately when
+`ApproveCommand.Execute()` runs
+**Then** `SetModel(13)` fails at call time and nothing is queued for it
+**And** `OnApproved` emits `2` once, the awaited approval completes normally,
+and the command path emits nothing on `ApproveErrors`
+**And** `Model == 42` after the approval settles
+
+**Given** the same form with model `2` and a settlement observer that calls
+`SetModel(5)` and then `SetModel(2)`
+**Then** both calls are queued, and `Model == 2` after the approval settles
+
+**Given** two queued updates, where the first passes its call-time
+preparation and fails when it replays
+**Then** the second update still commits after it, and the approval stays
+settled: its commit stands and `OnApproved` emitted once
+**And** after the last replay, the first replay failure reaches the awaiter,
+or, on the command path, is emitted once on `ApproveErrors`
+**And** in a flavor where an `OnApproved` subscriber's failure propagates, a
+failing `OnApproved` subscriber's failure is the one reported instead
+
+Swift callbacks cannot fail, so a Swift test covers only the call-time
+equality and replay-order clauses.
+
+> Spec: `20-form-vm.md §5.3/§5.4`, ADR-0174.
 
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 

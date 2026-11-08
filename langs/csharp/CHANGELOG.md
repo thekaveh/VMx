@@ -407,6 +407,24 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Fixed: `DerivedProperty` and `SearchableState` now run every teardown step
   when a completion observer throws, then rethrow the first failure. Before,
   the remaining subjects were never completed or disposed (#538).
+- Fixed: `FormVM` queues a `SetModel` or deny that the approving thread makes
+  during approval publication, and replays it after the `OnApproved` delivery
+  (#1168, #1050, ADR-0174, FORM-039, FORM-040). The queue now opens with the
+  post-persist commit, so it also covers calls from `resetOnApproved`, the
+  snapshotter and the validators. Before, such a call committed and published
+  at once, and the reset then overwrote it. A deny from a settlement observer
+  is now queued like `SetModel`, so `OnApproved` observers no longer see a
+  reverted model. A queued call now runs its full preparation (the equality
+  checks and the validators, and the snapshotter for deny) at call time, so a
+  failing callback throws to the caller and nothing is queued. Equality never
+  skips the enqueue. Each queued call replays as a new call. A replay failure
+  no longer stops the later replays or fails the settled approval in place.
+  After the last replay, the first replay failure reaches the `ApproveAsync`
+  awaiter, or `ApproveErrors` once on the command path. A failure that the
+  approval already carries wins, such as a failed reset or a failing
+  `OnApproved` subscriber. Calls queued by a failed reset replay after its
+  settlement's `CanExecuteChanged` and before the reset failure is routed.
+  Each queued update adds one validator call at call time.
 
 ### VMx.Notifications
 

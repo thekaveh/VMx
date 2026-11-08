@@ -650,6 +650,19 @@ IDs.
 
 See ADR-0151 and chapter 09 §1.
 
+v3.30.0 also defines how `FormVM` handles updates during approval
+publication. A `SetModel` or deny that the approving thread makes before
+`OnApproved`, including from `resetOnApproved`, runs its preparation at call
+time, so a failing callback reaches the caller. It is then queued and publishes
+nothing until it replays in call order after `OnApproved`, so `OnApproved`
+observers see the reset state. Equality never skips the enqueue. Each queued
+update replays in isolation, and the first replay failure reaches the
+approval's failure route unless the approval's own failure wins. Another
+thread's update or disposal waits for the publication scope. Swift `FormVM`
+delivers its events through `VMxConcurrentSubject` (`FORM-039`, `FORM-040`).
+The catalog now contains 446 library IDs plus 5 scenario IDs.
+
+See ADR-0174 and chapter 20 §5.1, §5.3, and §5.4.
 v3.30.0 also makes a failing local subscriber leave the hub message intact. A
 hub-publishing collection or container that commits a change sends exactly one
 `CollectionChangedMessage` for it, even when a local subscriber fails. C# and

@@ -384,7 +384,8 @@ struct NestedApproval {
     records: Arc<Mutex<Vec<(i32, i32)>>>,
     /// The result of the nested approval that `S1` started.
     inner_result: Arc<Mutex<Option<vmx::VmxResult<()>>>>,
-    /// How often the model 9 was assigned.
+    /// How often the validator saw the model 9: once when the queued edit
+    /// prepares at call time and once when it replays (ADR-0174).
     assignments_of_nine: Arc<AtomicUsize>,
     _subscriptions: Vec<ApprovalSubscription>,
     _observer: vmx::Subscription,
@@ -475,7 +476,11 @@ fn a_nested_approval_from_a_subscriber_keeps_the_outer_deferred_edit() {
     assert!(matches!(*inner_result.lock().unwrap(), Some(Ok(()))));
     assert_eq!(*records.lock().unwrap(), vec![(2, 2), (2, 2)]);
     assert_eq!(form.model(), 9);
-    assert_eq!(assignments_of_nine.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        assignments_of_nine.load(Ordering::SeqCst),
+        2,
+        "the edit prepares at call time and replays once"
+    );
 }
 
 /// #1061 — the same when `S2` panics in the outer approval: the panic reaches
@@ -499,7 +504,11 @@ fn a_nested_approval_keeps_the_outer_deferred_edit_when_an_outer_subscriber_pani
     assert!(matches!(*inner_result.lock().unwrap(), Some(Ok(()))));
     assert_eq!(*records.lock().unwrap(), vec![(2, 2), (2, 2)]);
     assert_eq!(form.model(), 9);
-    assert_eq!(assignments_of_nine.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        assignments_of_nine.load(Ordering::SeqCst),
+        2,
+        "the edit prepares at call time and replays once"
+    );
 }
 
 /// #1061 — an edit made by an approval subscriber itself is not deferred.
