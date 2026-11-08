@@ -191,23 +191,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     parent, the destination admits it after the old parent's detach commit,
     as in every flavor (`COMP-006`). During the old parent's commit
     callbacks, the destination no longer offers the child for selection.
-- `FormVM` now queues every `setModel` and deny made during an approval's
-  post-persist commit and settlement, and replays them after `onApproved`
-  (#1168, #1050, ADR-0174, FORM-039, FORM-040). The queue now opens when the
-  commit starts, so it covers calls from `resetOnApproved`, the snapshotter
-  and the validators. Before, such a call committed and published at once, and
-  the reset then overwrote it. A deny from a settlement observer is queued like
-  `setModel`, so `onApproved` observers no longer see a reverted model. A
-  queued call runs its validators, equality and snapshotter when it is called.
-  A failure throws to the caller and queues nothing, and an equal candidate is
-  still queued. Before, a queued candidate was not prepared. Its failure
-  surfaced after `onApproved`, failed the settled approval and dropped the
-  later queued edits. Each queued call now replays as a new call. A failing
-  replay no longer stops the later ones. The first replay failure reaches the
-  `approveAsync` awaiter, or `approveErrors` once on the command path, after
-  the last replay. A failed reset commit still wins over it. Calls queued
-  before a failed reset commit replay before that failure is routed. Each
-  queued call runs its validators once more, at call time.
 - A background VM that waits on a child now rolls back and clears its in-flight
   guard when that wait fails (#1053). The wait can fail in a deferred
   `_transitionChildren` walk, a member hook, a `CompositeVM` selector or a
