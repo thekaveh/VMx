@@ -379,6 +379,9 @@ public sealed class FormVM<TM> : IDisposable
 
         if (publishedErrors is not null)
         {
+            // The teardown claim cannot succeed here: this update still
+            // counts in _activeMutations, so its EndMutation runs a deferred
+            // teardown. Keep the update inside that count.
             try { _errorsChanged.OnNext(publishedErrors); }
             finally { replay = ExitScope(caller, outerPrePublishing, out _); }
         }
@@ -586,6 +589,9 @@ public sealed class FormVM<TM> : IDisposable
 
         if (publishedErrors is not null)
         {
+            // The teardown claim cannot succeed here: this update still
+            // counts in _activeMutations, so its EndMutation runs a deferred
+            // teardown. Keep the update inside that count.
             try { _errorsChanged.OnNext(publishedErrors); }
             finally { replay = ExitScope(caller, outerPrePublishing, out _); }
         }

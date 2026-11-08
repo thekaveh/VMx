@@ -284,7 +284,9 @@ public class FormPublicationWaitCycleTests
     public void A_Refused_Update_Replays_When_The_Publishers_Update_Fails()
     {
         var hub = new MessageHub();
-        using var form = FormVM<Model>.Builder()
+        // Not `using`: on a regression X holds the form's lock, and an
+        // implicit Dispose would block past the hang guard.
+        var form = FormVM<Model>.Builder()
             .Initial(new Model("initial"))
             .Persister(_ => Task.CompletedTask)
             .Snapshotter(model => model)
@@ -345,5 +347,6 @@ public class FormPublicationWaitCycleTests
         yReturnedBeforeReplay.Should().BeTrue("a refused update returns before it takes effect");
         xError.Should().BeSameAs(sinkError, "the publisher's own failure wins");
         form.Model.Should().Be(new Model("y"), "the queued update still replays");
+        form.Dispose();
     }
 }
