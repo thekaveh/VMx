@@ -79,6 +79,11 @@ All notable changes to the C# flavor are documented here. The format is based on
   (#1051, ADR-0171, COL-066). The change stays committed, and the first
   failure is rethrown after the hub send. In `ObservableDictionary`, a
   throwing granular-event handler no longer skips `CollectionChanged`.
+- Fixed: `CompositeVM.Remove` of an item that is not a child now ends its
+  membership transaction after it releases the shared coordination lane
+  (#1147). Before, a deferred `Dispose()` that waited for that transaction ran
+  its whole cascade under the lane. A `Current` change on any other composite
+  then waited for the cascade, and a child hook that made one deadlocked it.
 - Fixed: `ObservableDictionary`: `Remove` and `Clear` now update `Keys2`
   before `Keys1`, as `Add` does (#1075). A `Keys1` subscriber now sees the
   updated `Keys2`. Before, an entry that a `Keys1` subscriber added during
