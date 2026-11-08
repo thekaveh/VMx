@@ -7,7 +7,6 @@
 #![deny(missing_docs)]
 
 use serde::{Deserialize, Serialize};
-use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::future::Future;
@@ -35,7 +34,7 @@ pub use async_resource_vm::{
 pub use async_value::{AsyncValue, AsyncValuePanic};
 pub use value_stream::{ValueStream, ValueSubscription};
 #[doc(hidden)]
-pub use wait_for_graph::container_wait_registered_for_testing;
+pub use wait_for_graph::{container_wait_registered_for_testing, wait_registered_for_testing};
 
 /// Version of the compiled Rust package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

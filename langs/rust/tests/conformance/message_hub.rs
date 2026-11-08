@@ -703,6 +703,84 @@ fn unrelated_hub_callback_send_waits_for_target_batch_and_delivery() {
     source_worker.join().unwrap();
 }
 
+/// Control for #1180: a live cross-hub cycle still borrows the hub. P holds an
+/// `h2` batch, and Q's `h` subscriber waits for it. P's `h.batch` would close
+/// the cycle, so its body runs as a borrowed scope during Q's subscriber call,
+/// and `h` delivers P's message once, after the scope exits (spec/03 §4,
+/// ADR-0119, ADR-0172).
+#[test]
+fn a_live_cross_hub_cycle_borrows_the_hub_and_delivers_once() {
+    use std::sync::atomic::AtomicBool;
+    use std::time::Instant;
+
+    const BOUND: Duration = Duration::from_secs(5);
+    fn eventually(condition: &dyn Fn() -> bool) -> bool {
+        let deadline = Instant::now() + BOUND;
+        while !condition() {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+    let h = MessageHub::new();
+    let h2 = MessageHub::new();
+    let p1_deliveries = Arc::new(AtomicUsize::new(0));
+    let q_subscriber_returned = Arc::new(AtomicBool::new(false));
+    let _subscription = h.subscribe({
+        let (h2, p1_deliveries) = (h2.clone(), p1_deliveries.clone());
+        let q_subscriber_returned = q_subscriber_returned.clone();
+        move |message| match custom_name(message) {
+            "q0" => {
+                h2.send(make_msg("q1"));
+                q_subscriber_returned.store(true, Ordering::SeqCst);
+            }
+            "p1" => {
+                p1_deliveries.fetch_add(1, Ordering::SeqCst);
+            }
+            _ => {}
+        }
+    });
+    let p_in_h2 = Arc::new(AtomicBool::new(false));
+    let q = std::thread::spawn({
+        let (h, p_in_h2) = (h.clone(), p_in_h2.clone());
+        move || {
+            assert!(eventually(&|| p_in_h2.load(Ordering::SeqCst)));
+            h.send(make_msg("q0"));
+        }
+    });
+    let q_id = q.thread().id();
+    let p = std::thread::spawn({
+        let (h, h2) = (h.clone(), h2.clone());
+        let q_subscriber_returned = q_subscriber_returned.clone();
+        move || {
+            h2.batch(|| {
+                p_in_h2.store(true, Ordering::SeqCst);
+                assert!(
+                    eventually(&|| vmx::wait_registered_for_testing(q_id)),
+                    "Q never waited for P's h2 batch"
+                );
+                h.batch(|| {
+                    let during_q = !q_subscriber_returned.load(Ordering::SeqCst);
+                    h.send(make_msg("p1"));
+                    during_q
+                })
+            })
+        }
+    });
+    let deadline = Instant::now() + BOUND;
+    while !(p.is_finished() && q.is_finished()) {
+        assert!(Instant::now() < deadline, "the cycle deadlocked");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let body_ran_during_q = p.join().unwrap();
+    q.join().unwrap();
+
+    assert!(body_ran_during_q, "P's h.batch did not borrow h");
+    assert_eq!(p1_deliveries.load(Ordering::SeqCst), 1);
+}
+
 #[test]
 fn concurrent_producer_waits_for_batch_and_delivers_on_own_thread() {
     let hub = MessageHub::new();

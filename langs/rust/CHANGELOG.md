@@ -123,6 +123,33 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Every blocking wait between VMx resources now records in one process-wide
+  wait-for graph, following ADR-0172 (spec/03 §4.1 and §4.2, spec/02 §2.4,
+  `HUB-013`, #1158, #1180, #1183). Hub `send`, `batch` and `dispose` waits,
+  a hub drainer's wait for a borrowed scope, a foreign `dispose()` wait for an
+  admitted hook, and a container disposal's wait for a membership
+  transaction now see one another. So a cross-thread container `dispose()`
+  and the owner of that container's transaction no longer hang when they
+  wait for each other through a hub drain or a hook, in either order. Each
+  resource has a typed, address-derived key. The thread that ends a batch,
+  releases a drain, leaves its borrowed scopes, or finishes a hook removes
+  the edges that name it before it wakes the waiters. So an ended wait no
+  longer makes `batch` borrow a hub, or a foreign `dispose()` defer its
+  cleanup to a hook that has returned, and the dispose hook's failure now
+  returns from that `dispose()`. A hub records each borrower thread: a
+  borrower's own `send` enqueues for the drain at its last borrowed scope's
+  exit, its `batch` nests another borrowed scope, and its `dispose` records
+  terminal intent. None of them waits for its own borrow. Every wait on a
+  borrowed scope records an edge, and a borrower that leaves its last scope
+  while others remain wakes the waiters. A drainer whose queue is empty
+  releases the drain to the last borrowed scope's exit instead of waiting.
+  A drainer with queued messages whose wait would close a cycle also
+  releases it, and that exit delivers the queue in FIFO order on the
+  borrower's thread, after the drainer's `send` has returned (the documented
+  `HUB-010` limitation). A `send` from inside a hub callback no longer skips
+  its wait for a borrowed scope, so it stays synchronous unless its wait is
+  refused. `vmx::wait_registered_for_testing` is a new hidden test seam that
+  reports any recorded wait.
 - The inline dispose cascade follows ADR-0175 (spec/02 §7.2, `LIFE-021`,
   #1174, #1167). Once `dispose()` closes hook admission and starts disposing
   children or members, `construct()`, `destruct()` and `reconstruct()` return
