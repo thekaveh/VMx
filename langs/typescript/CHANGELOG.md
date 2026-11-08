@@ -66,6 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `TokenPagedComposition`: a load also checks `hasMore` when it starts, as in
+  the other flavors (#1161, ADR-0169). Behavior does not change: the load body
+  already starts in the admission turn.
+
 - Development type checking now runs TypeScript 7.0. `npm run typecheck` and
   `npm run typecheck:tests` use the native `tsc` of the `typescript-7` alias
   (`npm:typescript@^7.0.2`). `typescript` stays at `^6.0.3`, because

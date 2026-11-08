@@ -53,6 +53,7 @@ mod conformance {
     mod search_filter;
     mod subscribe_value;
     mod threading;
+    mod token_load_terminal;
     mod token_refresh_cursor;
     mod tree_selection;
     mod tree_utils;
