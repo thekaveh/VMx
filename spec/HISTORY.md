@@ -658,3 +658,12 @@ normally (`COL-066`). The catalog now contains 445 library IDs plus 5 scenario
 IDs.
 
 See ADR-0171, chapter 01 §1.4, and chapter 21 §2.5.
+
+v3.30.0 also states the `ObservableDictionary` key-view order. A mutation
+changes the entries and `Count`, then both key views, then raises the
+dictionary events and sends the hub message. The order of the two key-view
+notifications is not specified, so a key-view handler must not rely on the
+other view (`COL-067`). No flavor changes behavior. The catalog now contains
+446 library IDs plus 5 scenario IDs.
+
+See ADR-0177 and chapter 21 §4.2.

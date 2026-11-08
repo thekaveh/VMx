@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-067` conformance tests: an `ObservableDictionary` mutation changes the
+  entries and `size`, then `keys1` and `keys2`, then emits the dictionary
+  events and sends the hub message (#1176, ADR-0177). The order of the two
+  key-view notifications is not specified. TypeScript already behaved this way.
 - `COL-066` conformance tests: a failing local collection subscriber does not
   suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). TypeScript
   already behaved this way.

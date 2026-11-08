@@ -22,6 +22,7 @@ mod conformance {
     mod container_hook_disposal;
     mod derived_properties;
     mod dialogs;
+    mod dictionary_key_view_order;
     mod discriminator;
     mod drop_reentry;
     mod expandable;

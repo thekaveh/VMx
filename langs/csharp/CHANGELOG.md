@@ -8,6 +8,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Added: `COL-067` conformance tests. An `ObservableDictionary` mutation
+  changes the entries and `Count`, then `Keys1` and `Keys2`, then raises the
+  dictionary events and sends the hub message (#1176, ADR-0177). The order of
+  the two key-view notifications is not specified. C# already behaved this way.
+
 - Fixed: `TokenPagedComposition`: a load that finds a terminal token when it
   starts now fetches nothing (#1161, ADR-0169). A refresh or another load could
   commit a terminal token after the load command was admitted. The load then
