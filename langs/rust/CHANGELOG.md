@@ -100,9 +100,61 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Implements spec 3.30.0. Forwarding decorators already registered owned
   resources on the wrapped component; `FWD-005` now covers it, including
   nested decorators and registration after disposal (ADR-0151) (#650).
+- `CompositeVm` selection opens no membership transaction (spec/06 §4.3,
+  ADR-0173, #1145). `set_current`, `select_component`, `deselect_component`
+  and a child's `select` and `deselect` commit `current` and both current flags
+  under the membership gate and publish after it. They no longer return
+  `OwnershipTransactionInProgress` because another thread holds a transaction,
+  or from the add's own `CollectionChanged` publication, so a subscriber can
+  select the child that was just added. On the thread whose own add, insert,
+  replacement, population or transfer has not committed, every selection call
+  still returns `OwnershipTransactionInProgress`, also `set_current(None)`. A
+  child that an add has attached but not admitted returns `NonChild`. While
+  disposal is pending, a non-null selection returns `Disposed`, and clearing
+  with `None` or `deselect_component` now succeeds. `can_select_component`
+  answers whether `select_component` would succeed now, so another thread's
+  transaction no longer makes it `false`. With `async_selection`, the call
+  validates under the same rules and the delivery validates again. A
+  disposal requested on another thread while a selection publishes returns at
+  once and runs when the publication ends. The two `COMP-026` tests that were
+  ignored for this gap run again.
+- `VmNode` has two hidden methods with defaults, `commit_current_flag` and
+  `publish_current_flag`. A container commits the current flag under its gate
+  and publishes it afterwards, so two concurrent selections leave the flags
+  in commit order. Wrapper nodes should forward both methods; the defaults
+  keep the old behavior through `set_current_flag`.
 
 ### Fixed
 
+- `walk`, `walk_expanded` and `find` no longer panic when they reach a
+  `HierarchicalVm` whose lazy children factory returns invalid output (#1060,
+  ADR-0170, spec/13 §6.1). `walk` and `walk_expanded` now return
+  `VmxResult<Vec<T>>` and `find` returns `VmxResult<Option<T>>`, with the
+  `try_children` error. They read children through the new provided method
+  `TreeNode::try_children_nodes`, which defaults to `Ok(children_nodes())`.
+  The node keeps no children cache, and a later walk retries the factory.
+  `children` and `is_leaf` still panic on such output.
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command admitted the run. The load then
+  refetched page 1 and appended it again, and `has_more()` stayed true. The load
+  now changes nothing and does not supersede an in-flight refresh. The ad hoc
+  `load_more(loader)` call is unchanged.
+- The `CompositeVm` construct walk's `Current(selector)` assignment follows
+  ADR-0165 (#1151). It skips a child that an add, insert, replacement or
+  population has attached but not admitted, skips while disposal is pending,
+  and skips on the thread whose own transaction of the composite has not
+  committed. A disposal from its `on_current_changed` or current-flag
+  callbacks returns at once and runs after the publication and any open
+  membership transaction end, so the callback reads `Constructing` and a
+  foreign add is refused meanwhile. A transfer commit clears `current` only
+  while the moved child is still current, so it no longer clears a later
+  selection and leaves its flag set.
+- The `CompositeVm::destruct` clear holds the publication lease (#1144, Rust
+  part). A disposal from `on_current_changed(None)` during destruct is
+  deferred until the clear's publication ends instead of running inside the
+  callback. The clear still runs while another thread holds a transaction,
+  inside the composite's own transaction and while disposal is deferred.
 - A `FormVm` approval started from another approval's settlement notification
   now runs its approval subscribers with model edits applied at once (#1160).
   Before, the outer approval's pre-publication window stayed active, so those

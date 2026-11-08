@@ -151,19 +151,8 @@ final class MembershipWaitStaleEdgeTests: XCTestCase {
         XCTAssertEqual(removed.value, true)
     }
 
-    func testCompositeSelectChildAfterAReleasedTransactionWaitsAndSelects() throws {
-        let k = try child("k")
-        let x = try constructedComposite(holding: k)
-        try runAfterAReleasedTransaction(x: x.addResult) { x.selectChild(k) }
-        XCTAssertTrue(x.current === k)
-    }
-
-    func testCompositeSetCurrentAfterAReleasedTransactionWaitsAndSelects() throws {
-        let k = try child("k")
-        let x = try constructedComposite(holding: k)
-        try runAfterAReleasedTransaction(x: x.addResult) { try? x.setCurrent(k) }
-        XCTAssertTrue(x.current === k)
-    }
+    // A selection registers no membership wait (spec/06 §4.3 rule 1,
+    // ADR-0173), so it has no stale-edge case.
 
     func testGroupAddAfterAReleasedTransactionWaitsAndSucceeds() throws {
         let x = GroupVM<ComponentVM>(

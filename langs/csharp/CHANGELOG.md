@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `TokenPagedComposition`: a load that finds a terminal token when it
+  starts now fetches nothing (#1161, ADR-0169). A refresh or another load could
+  commit a terminal token after the load command was admitted. The load then
+  refetched page 1 and appended it again, and `HasMore` stayed true. The load
+  now changes nothing and does not supersede an in-flight refresh.
+
 - Added: the opt-in `TreeSelection<TModel, TVM>` helper (`VMx.Hierarchical`)
   holds one current node of a hierarchical tree (#667, ADR-0164,
   HIER-033..HIER-040). It is constructed on a root node and exposes `Current`,
@@ -79,6 +85,34 @@ All notable changes to the C# flavor are documented here. The format is based on
   (#1051, ADR-0171, COL-066). The change stays committed, and the first
   failure is rethrown after the hub send. In `ObservableDictionary`, a
   throwing granular-event handler no longer skips `CollectionChanged`.
+- Fixed: `CompositeVMBase` selection opens no membership transaction
+  (ADR-0173, spec/06 §4.3). The `Current` setter, `SelectComponent`,
+  `DeselectComponent`, the child `Select` and `Deselect` paths and the
+  `AsyncSelection(true)` setter commit under the coordination lane and the
+  membership gate only. Before, they raised `InvalidOperationException` while
+  another thread held a transaction, so a late child whose construct hook
+  selected during another thread's `Add` rolled its composite back (#1145). A
+  child that `Add`, `Insert`, index replacement or `AttachPopulation` attached
+  but has not admitted is not a member for selection: the setter throws the
+  non-member `InvalidOperationException`, `CanSelectComponent` returns false
+  and the construct walk ignores it. Before, a failed add or population left
+  `Current` on a child that was no longer a member (#1146, #1148). On the
+  thread that owns such an uncommitted transaction, every selection call
+  throws the "membership transaction in progress" `InvalidOperationException`,
+  also a null clear; from the commit on, including the add's
+  `CollectionChanged` publication, it commits. While disposal is requested or
+  deferred, a non-null selection throws `ObjectDisposedException`, also for
+  the child that is already current, and a null clear now succeeds.
+  Re-assigning the current child stays a no-op after `Dispose()`.
+  `CanSelectComponent` returns true only if `SelectComponent` would succeed
+  now. `Destruct()` and the destruct phase of `Reconstruct()` clear `Current`
+  without a transaction and are never refused. Before, the clear threw while
+  another thread held a transaction or while disposal was deferred, and the
+  destruct rolled back (#1144). When `Add`, `Insert`, index replacement or
+  `AttachPopulation` moves a child from another parent, the destination now
+  admits it after the old parent's detach commit. Before, another thread could
+  select the child in the destination before that commit, and the commit then
+  reset its `IsCurrent` flag while it stayed `Current` (`COMP-006`).
 - Fixed: `CompositeVM.Remove` of an item that is not a child now ends its
   membership transaction after it releases the shared coordination lane
   (#1147). Before, a deferred `Dispose()` that waited for that transaction ran
