@@ -10,6 +10,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-066` conformance tests: a panicking local collection subscriber does
+  not suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). Rust
+  already behaved this way.
 - `TreeSelection<M>`, an opt-in helper that keeps one current node for the
   tree under a root `HierarchicalVm` (#667, ADR-0164, `HIER-033`..`HIER-040`).
   `TreeSelection::new(&root)` creates it. `can_select` walks parent links to
@@ -199,6 +202,31 @@ project adheres to [Semantic Versioning](https://semver.org/).
   disposed before `Disposed`. A leaf without members disposes as before. The
   background construct and destruct paths and `reconstruct()` check closed
   hook admission, as `transition_with_body` already did.
+- `walk`, `walk_expanded` and `find` no longer panic when they reach a
+  `HierarchicalVm` whose lazy children factory returns invalid output (#1060,
+  ADR-0170, spec/13 §6.1). `walk` and `walk_expanded` now return
+  `VmxResult<Vec<T>>` and `find` returns `VmxResult<Option<T>>`, with the
+  `try_children` error. They read children through the new provided method
+  `TreeNode::try_children_nodes`, which defaults to `Ok(children_nodes())`.
+  The node keeps no children cache, and a later walk retries the factory.
+  `children` and `is_leaf` still panic on such output.
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command admitted the run. The load then
+  refetched page 1 and appended it again, and `has_more()` stayed true. The load
+  now changes nothing and does not supersede an in-flight refresh. The ad hoc
+  `load_more(loader)` call is unchanged.
+- `TokenPagedComposition` no longer deadlocks when a `Token::clone` waits for
+  another load or refresh of the same pager (#1162). `current_token()` and
+  each load cloned the stored token under the cursor lock. Every commit takes
+  that lock, and since #1045 it holds the operation gate while it waits. So a
+  clone that waited for a refresh to finish, or for a start while another
+  commit waited, blocked forever. The pager now stores the token behind its
+  own lock, which no commit takes. A reader takes the cursor lock only to copy
+  that handle, and runs `Token::clone` after it releases the lock. The bound
+  stays `Token: Clone + Send + 'static`. The `current_token()` rustdoc states
+  the remaining limits: clones of one stored token take turns, and a clone
+  must not read the cursor again on its own thread.
 - The `CompositeVm` construct walk's `Current(selector)` assignment follows
   ADR-0165 (#1151). It skips a child that an add, insert, replacement or
   population has attached but not admitted, skips while disposal is pending,

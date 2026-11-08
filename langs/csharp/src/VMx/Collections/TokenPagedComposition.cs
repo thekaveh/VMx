@@ -107,7 +107,7 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         {
             lock (_gate)
             {
-                return !_loadedOnce || _currentToken is not null;
+                return HasMoreLocked();
             }
         }
     }
@@ -130,7 +130,10 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         long generation;
         lock (_gate)
         {
-            if (_disposed) return;
+            // A refresh or another load can commit a terminal token after this
+            // command was admitted. Such a load is not an operation start: it
+            // fetches nothing and supersedes nothing (spec 21 §6.2, ADR-0169).
+            if (_disposed || !HasMoreLocked()) return;
             generation = ++_operationGeneration;
             token = _currentToken;
         }
@@ -241,9 +244,12 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     {
         lock (_gate)
         {
-            return !_disposed && (!_loadedOnce || _currentToken is not null);
+            return !_disposed && HasMoreLocked();
         }
     }
+
+    // Caller holds _gate.
+    private bool HasMoreLocked() => !_loadedOnce || _currentToken is not null;
 
     private bool IsLive()
     {

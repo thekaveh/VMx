@@ -62,6 +62,7 @@ tests/conformance/background_child_settle.rs
 tests/conformance/builders.rs
 tests/conformance/capabilities.rs
 tests/conformance/child_transition_helper.rs
+tests/conformance/collection_failing_local_subscriber.rs
 tests/conformance/collection_lookup_clones.rs
 tests/conformance/collections.rs
 tests/conformance/command_decorators.rs
@@ -111,6 +112,8 @@ tests/conformance/search_filter.rs
 tests/conformance/selection_transactions.rs
 tests/conformance/subscribe_value.rs
 tests/conformance/threading.rs
+tests/conformance/token_clone_reentry.rs
+tests/conformance/token_load_terminal.rs
 tests/conformance/token_refresh_cursor.rs
 tests/conformance/tree_selection.rs
 tests/conformance/tree_utils.rs

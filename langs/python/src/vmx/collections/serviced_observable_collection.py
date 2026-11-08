@@ -14,6 +14,7 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx._indexes import _reject_bool_index
+from vmx.collections._delivery import deliver_then_publish
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
 
@@ -191,9 +192,13 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _emit(self, msg: CollectionChangedMessage[T]) -> None:
-        """Notify local observers then publish to hub (if present)."""
-        # 1. Notify local on_collection_changed subscribers.
-        self._subject.on_next(msg)
-        # 2. Publish to hub (when one is wired).
+        """Notify local observers then publish to hub (if present).
+
+        A failing local subscriber does not suppress the hub message; the
+        first failure is re-raised after publication (ADR-0171).
+        """
+        deliver_then_publish(lambda: self._subject.on_next(msg), lambda: self._publish(msg))
+
+    def _publish(self, msg: CollectionChangedMessage[T]) -> None:
         if self._hub is not None:
             self._hub.send(msg)

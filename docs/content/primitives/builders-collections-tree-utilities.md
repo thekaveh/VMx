@@ -35,6 +35,8 @@ The main operational rules:
   [ObservableList Whole-List Refresh](#679-observablelist-whole-list-refresh)
 - `ServicedObservableCollection` publishes local collection events before hub
   messages
+- a failing local collection subscriber does not suppress the hub message; C#
+  and Python rethrow the first failure after the hub send (ADR-0171)
 - `KeyedServicedObservableCollection` adds a captured-key index without
   changing the ordered serviced message contract
 - `TokenPagedComposition` uses `null` as its first and last token, so a C#
