@@ -200,6 +200,32 @@ project adheres to [Semantic Versioning](https://semver.org/).
   deferred until the clear's publication ends instead of running inside the
   callback. The clear still runs while another thread holds a transaction,
   inside the composite's own transaction and while disposal is deferred.
+- `FormVm` applies ADR-0174 rule 7 like the other threaded flavors, with
+  the wait-for graph of ADR-0176 (spec/20 §5.5, #1160, #1170). Before,
+  another thread's `approve()`, `set_model` and `revert()` ran during an
+  approval's publication. Its `set_model` was queued, and its settlement
+  replayed this thread's queued edits early. Now a `set_model`, `revert()`,
+  approval admission, settlement or `dispose()` waits while another thread
+  holds a publication scope on the form. An update holds one over its
+  `errors_changed` send. A successful settlement holds one until its approval
+  subscribers return. A failed settlement holds one over its eligibility
+  change. An edit made in the caller's own pre-publication window also
+  waits, and only then joins the caller's queue. Disposal ends every such
+  wait. Each wait records an edge in the process-wide wait-for graph. A
+  wait that would close a cycle does not wait. An example is a hub drainer
+  that calls the form while the publisher sends on that hub. A refused
+  `set_model` or `revert()` prepares, joins the publisher's queue and returns
+  before it takes effect. A refused approval is admitted, and a refused
+  settlement commits in its own scope. A refused `dispose()` marks the form
+  disposed and returns. The last thread to end its publications tears the
+  form down, and a panic in that teardown takes the replay failure route. Each
+  thread keeps its own queue and replays it when its outermost publication
+  ends. A `dispose()` from another thread now waits for the approval
+  subscribers, so they all run. The test
+  `another_threads_approval_replays_its_own_deferred_edit` is now
+  `another_threads_approval_waits_and_replays_only_its_own_deferred_edit`.
+  `disposal_during_an_emission_skips_the_callbacks_not_yet_invoked` now
+  disposes from an approval subscriber on the approving thread.
 - A `FormVm` approval started from another approval's settlement notification
   now runs its approval subscribers with model edits applied at once (#1160).
   Before, the outer approval's pre-publication window stayed active, so those
@@ -225,8 +251,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   approval subscriber wins. When the post-persist commit fails, the updates it
   queued replay after the failed settlement's eligibility change and before
   the failure is returned. Call-time preparation runs the validators once more
-  for each queued update. Calls from other threads are still queued rather
-  than waiting for the publication (#1160).
+  for each queued update. Calls from other threads now wait for the
+  publication instead of joining the queue (see the ADR-0176 entry).
 - `CompositeVm`, `GroupVm` and `AggregateVm1`…`AggregateVm6` no longer dispose
   their children while their admitted construct or destruct hook runs on another
   thread (#1062, LIFE-015). The child cascade now runs at the hook boundary of

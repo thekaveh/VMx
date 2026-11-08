@@ -46,7 +46,7 @@ impl Drop for MessageHubDeliveryGuard {
 /// with no waiter skips the graph. The releasing owner removes the edge before
 /// it wakes the waiter; the waiter removes any edge that a wake for another
 /// reason left, and records its wait again if it must still wait.
-fn wait_for_owner<'a, T>(
+pub(crate) fn wait_for_owner<'a, T>(
     mutex: &'a Mutex<T>,
     condition: &Condvar,
     mut guard: MutexGuard<'a, T>,
