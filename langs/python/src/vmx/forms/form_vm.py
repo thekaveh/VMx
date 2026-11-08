@@ -334,6 +334,9 @@ class FormVM(Generic[TM]):
                 try:
                     self._errors_changed.on_next(dict(next_errors))
                 finally:
+                    # The teardown claim cannot succeed here: this update still
+                    # counts in _active_mutations, so its _end_mutation runs a
+                    # deferred teardown. Keep the update inside that count.
                     replays, _ = self._exit_scope(caller, scope_outer)
             if notify_can_execute:
                 self._can_execute_trigger.on_next(None)
@@ -907,6 +910,9 @@ class FormVM(Generic[TM]):
                 try:
                     self._errors_changed.on_next(dict(next_errors))
                 finally:
+                    # The teardown claim cannot succeed here: this update still
+                    # counts in _active_mutations, so its _end_mutation runs a
+                    # deferred teardown. Keep the update inside that count.
                     replays, _ = self._exit_scope(caller, scope_outer)
 
             self._hub.send(FormRevertedMessage(sender=self, sender_name="FormVM"))
