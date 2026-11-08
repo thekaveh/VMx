@@ -42,6 +42,7 @@ src/modeled_crud.rs
 src/notifications.rs
 src/paged_composition.rs
 src/runtime.rs
+src/runtime/wait_graph_tests.rs
 src/searchable_state.rs
 src/specialized_vms.rs
 src/token_paging.rs
