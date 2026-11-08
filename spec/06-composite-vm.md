@@ -303,6 +303,9 @@ paths. Every flavor follows these rules (ADR-0165, ADR-0173):
    member for selection, on any thread. The setter raises the non-member
    error, and `can_select_component` returns `false`. The child becomes
    selectable when its add admits it, before `CollectionChanged` publishes.
+   When the add moves the child from another parent, it admits the child
+   after that parent's detach commit, so the old parent's detach clear never
+   resets the `IsCurrent` flag of a selection in the new parent (`COMP-006`).
 1. **Disposal.** While disposal of the composite is requested or deferred, a
    non-null selection is refused. A null clear is never refused because of
    disposal.
