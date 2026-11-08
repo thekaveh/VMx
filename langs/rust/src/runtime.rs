@@ -1313,7 +1313,13 @@ impl MessageHub {
             }
             (outermost, outermost)
         };
-        let completions = if outermost && inner.dispose_requested {
+        // The last batch owner or borrower to release the hub finishes a
+        // requested disposal (spec/03 §4.2 rule 3).
+        let completions = if outermost
+            && inner.dispose_requested
+            && inner.batch_owner.is_none()
+            && !inner.has_borrowers()
+        {
             Self::finish_dispose(&mut inner)
         } else {
             HubTeardown::default()
@@ -1402,9 +1408,11 @@ impl MessageHub {
             // bodies enqueue (spec/03 §4.2 rule 2). With queued messages, the
             // drainer waits for the borrowers; when that wait would close a
             // cycle, it releases the drain to the last borrowed scope's exit,
-            // which delivers the queue in FIFO order (§4.2 rule 5).
+            // which delivers the queue in FIFO order (§4.2 rule 5). Once a
+            // disposal is requested, the drainer stops waiting and leaves the
+            // disposal to the last borrowed scope's exit (§4.2 rule 3).
             while let Some(borrower) = inner.foreign_borrower(current) {
-                let release = inner.pending.is_empty() || {
+                let release = inner.pending.is_empty() || inner.dispose_requested || {
                     let refused;
                     (inner, refused) = self.wait_for(inner, borrower);
                     refused

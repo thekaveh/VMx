@@ -148,8 +148,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   borrower's thread, after the drainer's `send` has returned (the documented
   `HUB-010` limitation). A `send` from inside a hub callback no longer skips
   its wait for a borrowed scope, so it stays synchronous unless its wait is
-  refused. `vmx::wait_registered_for_testing` is a new hidden test seam that
-  reports any recorded wait.
+  refused. After a borrower's `dispose`, the last of the batch owner and the
+  borrowers to release the hub completes it: a borrower's exit no longer
+  completes a hub whose batch is still open, and a drainer stops waiting for
+  the borrowed scopes once a disposal is requested (spec/03 §4.2 rule 3).
+  `vmx::wait_registered_for_testing` is a new hidden test seam that reports
+  any recorded wait.
 - The inline dispose cascade follows ADR-0175 (spec/02 §7.2, `LIFE-021`,
   #1174, #1167). Once `dispose()` closes hook admission and starts disposing
   children or members, `construct()`, `destruct()` and `reconstruct()` return

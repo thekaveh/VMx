@@ -279,7 +279,9 @@ fn a_borrowers_own_calls_do_not_wait_for_a_waiting_drainer(drainer_waits_first: 
                 }
                 op.run(&h, "p1");
                 p_op_done.store(true, Ordering::SeqCst);
-                if !drainer_waits_first {
+                // After P's dispose, Q no longer waits for the borrowed scope
+                // (spec/03 §4.2 rule 3).
+                if !drainer_waits_first && !matches!(op, HubOp::Dispose) {
                     assert!(
                         eventually(BOUND, || wait_registered_for_testing(q_id)),
                         "Q never waited for the borrowed scope"
@@ -687,4 +689,122 @@ fn a_live_hook_cycle_still_defers_the_disposal() {
     assert_eq!(a.status(), ConstructionStatus::Disposed);
     assert_eq!(b.status(), ConstructionStatus::Disposed);
     assert_eq!(dispose_hook_runs.load(Ordering::SeqCst), 1);
+}
+
+/// spec/03 §4.2 rule 3 with a batch owner: the last owner to release the hub
+/// finishes a borrower's disposal. O holds an `h` batch, and B borrows `h`
+/// and disposes it. O's batch exits while B's borrowed scope is still open,
+/// so it leaves the disposal to B, and B's borrowed exit completes `h` on B.
+#[test]
+fn a_batch_owner_exit_leaves_a_borrowers_dispose_to_the_borrowed_exit() {
+    let h = MessageHub::new();
+    let completed_on: Arc<Mutex<Vec<ThreadId>>> = Arc::default();
+    let _completion = h.subscribe_with_completion(|_| {}, {
+        let completed_on = Arc::clone(&completed_on);
+        move || completed_on.lock().unwrap().push(thread::current().id())
+    });
+    let o_in_batch = Arc::new(AtomicBool::new(false));
+    let b_disposed = Arc::new(AtomicBool::new(false));
+    let o_returned = Arc::new(AtomicBool::new(false));
+    let o = thread::spawn({
+        let h = h.clone();
+        let (o_in_batch, b_disposed) = (Arc::clone(&o_in_batch), Arc::clone(&b_disposed));
+        let o_returned = Arc::clone(&o_returned);
+        move || {
+            h.batch(|| {
+                o_in_batch.store(true, Ordering::SeqCst);
+                assert!(eventually(BOUND, || b_disposed.load(Ordering::SeqCst)));
+            });
+            o_returned.store(true, Ordering::SeqCst);
+        }
+    });
+    let b = thread::spawn({
+        let (h, completed_on) = (h.clone(), Arc::clone(&completed_on));
+        move || {
+            assert!(eventually(BOUND, || o_in_batch.load(Ordering::SeqCst)));
+            let during = h.borrow_for_testing(|| {
+                h.dispose();
+                b_disposed.store(true, Ordering::SeqCst);
+                assert!(
+                    eventually(BOUND, || o_returned.load(Ordering::SeqCst)),
+                    "O's h batch did not return"
+                );
+                completed_on.lock().unwrap().len()
+            });
+            (during, thread::current().id())
+        }
+    });
+    let deadline = Instant::now() + BOUND;
+    let (completed_during_borrow, b_id) = join_by(b, deadline, "the borrower");
+    join_by(o, deadline, "the batch owner");
+
+    assert_eq!(
+        completed_during_borrow, 0,
+        "the batch owner's exit completed h inside the borrowed scope"
+    );
+    assert_eq!(*completed_on.lock().unwrap(), vec![b_id]);
+}
+
+/// spec/03 §4.2 rule 3 — a drainer stops waiting for borrowed scopes once a
+/// disposal is requested. Q drains `h` with `m2` queued and waits for P's
+/// borrowed scope. P disposes `h` in the scope, so Q releases the drain and
+/// its send returns while the scope is still open. P's exit completes `h`.
+#[test]
+fn a_drainer_stops_waiting_for_a_borrowed_scope_once_disposal_is_requested() {
+    let h = MessageHub::new();
+    let completed_on: Arc<Mutex<Vec<ThreadId>>> = Arc::default();
+    let _completion = h.subscribe_with_completion(|_| {}, {
+        let completed_on = Arc::clone(&completed_on);
+        move || completed_on.lock().unwrap().push(thread::current().id())
+    });
+    let borrowed = Arc::new(AtomicBool::new(false));
+    let q_ready = Arc::new(AtomicBool::new(false));
+    let q_returned = Arc::new(AtomicBool::new(false));
+    let _m1 = h.subscribe({
+        let (h, borrowed, q_ready) = (h.clone(), Arc::clone(&borrowed), Arc::clone(&q_ready));
+        move |message| {
+            if name_of(message) == "m1" {
+                // Q drains `h`, so this send only enqueues.
+                h.send(custom("m2"));
+                q_ready.store(true, Ordering::SeqCst);
+                eventually(BOUND, || borrowed.load(Ordering::SeqCst));
+            }
+        }
+    });
+    let q = thread::spawn({
+        let (h, q_returned) = (h.clone(), Arc::clone(&q_returned));
+        move || {
+            h.send(custom("m1"));
+            q_returned.store(true, Ordering::SeqCst);
+        }
+    });
+    let q_id = q.thread().id();
+    let p = thread::spawn({
+        let (h, completed_on) = (h.clone(), Arc::clone(&completed_on));
+        move || {
+            assert!(eventually(BOUND, || q_ready.load(Ordering::SeqCst)));
+            let returned_during_borrow = h.borrow_for_testing(|| {
+                borrowed.store(true, Ordering::SeqCst);
+                assert!(
+                    eventually(BOUND, || wait_registered_for_testing(q_id)),
+                    "the drainer never waited for the borrowed scope"
+                );
+                h.dispose();
+                let returned = eventually(BOUND, || q_returned.load(Ordering::SeqCst));
+                (returned, completed_on.lock().unwrap().len())
+            });
+            (returned_during_borrow, thread::current().id())
+        }
+    });
+    let deadline = Instant::now() + 3 * BOUND;
+    let ((q_returned_during_borrow, completed_during_borrow), p_id) =
+        join_by(p, deadline, "the borrower");
+    join_by(q, deadline, "the drainer");
+
+    assert!(
+        q_returned_during_borrow,
+        "the drainer kept waiting for the borrowed scope after the disposal request"
+    );
+    assert_eq!(completed_during_borrow, 0);
+    assert_eq!(*completed_on.lock().unwrap(), vec![p_id]);
 }
