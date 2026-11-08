@@ -23,6 +23,7 @@ import {
   type IDispatcher,
   type IMessageHub,
 } from "../../src/index.js";
+import { ManualDispatcher } from "../../src/testing/index.js";
 
 interface Hooks {
   construct?: () => void;
@@ -395,5 +396,48 @@ describe("non-VMx throw with separate schedulers", () => {
     expect((flushForeground() as Error).message).toBe("foreground failed");
     expectSettled(vm, ConstructionStatus.Destructed);
     expect(published.at(-1)).toEqual([ConstructionStatus.Destructed, true]);
+  });
+});
+
+describe("a scheduler that cancels its queued work", () => {
+  // ManualDispatcher.dispose() cancels pending work by unsubscribing it. That is
+  // not a flush error, so VMx must not run the cancelled lifecycle actions.
+  function setup() {
+    const dispatcher = new ManualDispatcher();
+    const hub = new MessageHub();
+    let hookRuns = 0;
+    const vm = backgroundVM(dispatcher, hub, "vm", { construct: () => hookRuns++ });
+    const published: ConstructionStatus[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof ConstructionStatusChangedMessage && message.sender === vm) {
+        published.push(message.status);
+      }
+    });
+    return { dispatcher, vm, published, hookRuns: () => hookRuns };
+  }
+
+  it("does not run a cancelled background hook", () => {
+    const { dispatcher, vm, published, hookRuns } = setup();
+    vm.construct();
+    const before = [...published];
+
+    dispatcher.dispose();
+
+    expect(hookRuns()).toBe(0);
+    expect(published).toEqual(before);
+    expect(vm.status).toBe(ConstructionStatus.Constructing);
+  });
+
+  it("does not run a cancelled foreground completion", () => {
+    const { dispatcher, vm, published, hookRuns } = setup();
+    vm.construct();
+    dispatcher.flushBackground();
+    expect(hookRuns()).toBe(1);
+    const before = [...published];
+
+    dispatcher.dispose();
+
+    expect(published).toEqual(before);
+    expect(vm.status).toBe(ConstructionStatus.Constructing);
   });
 });

@@ -21,6 +21,7 @@ import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import { RelayCommand } from "../commands/relayCommand.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
+import { isSchedulerCancelled } from "../services/cancelledSchedulers.js";
 import { declareCapabilities } from "../capabilities/registry.js";
 import { disposeBestEffort } from "./disposal.js";
 
@@ -217,7 +218,11 @@ function drainBackground(scheduler: SchedulerLike | null, schedule: () => void):
 /**
  * The VMx actions that a flush error dropped and that run now, per scheduler
  * (#1052). VMx work queued on that scheduler while they run joins this queue,
- * so it does not start a nested flush.
+ * so it does not start a nested flush. Each dropped action's finalizer starts
+ * or joins this queue in turn, so the order is that of the finalizers plus the
+ * work they queue, not the order of a normal flush. Work that joins the queue
+ * goes straight to it, past any `_scheduleForeground` override; this happens
+ * only while a failed flush tears down.
  */
 const recoveries = new WeakMap<SchedulerLike, Array<() => void>>();
 
@@ -280,9 +285,14 @@ function countedActionsOf(scheduler: SchedulerLike): CountedActions {
  *
  * An error in a flush of `scheduler` unsubscribes the actions queued behind
  * it, including an error from an action that VMx did not queue. The finalizer
- * added here runs `work` if its action is dropped that way, so the VM still
- * settles (#1052). `schedule` returns null when it cannot give the action's
- * subscription, such as for an override of `_scheduleForeground`.
+ * added here runs on any unsubscribe of the action. When the action has not
+ * run and `scheduler` has not marked itself cancelled, the finalizer treats
+ * the action as dropped and runs `work`, so the VM still settles (#1052).
+ * VMx never unsubscribes these actions itself. A custom scheduler that cancels
+ * queued work by unsubscribing it should therefore expect VMx lifecycle work
+ * to run unless it is VMx's own `ManualDispatcher`, which marks itself.
+ * `schedule` returns null when it cannot give the action's subscription, such
+ * as for an override of `_scheduleForeground`.
  */
 function scheduleCounted(
   scheduler: SchedulerLike,
@@ -309,7 +319,7 @@ function scheduleCounted(
   const subscription: Partial<Subscription> | null = schedule(run);
   if (typeof subscription?.add === "function" && subscription.closed !== true) {
     subscription.add(() => {
-      if (!ran) recoverDropped(scheduler, run);
+      if (!ran && !isSchedulerCancelled(scheduler)) recoverDropped(scheduler, run);
     });
   }
 }
