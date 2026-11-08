@@ -90,9 +90,9 @@ is not affected.
      `Send` returns with an empty queue, as chapter 03 §3.3 requires.
    - A borrower's own send, batch and dispose on the hub it borrowed do not
      wait, as in C#. The send enqueues, the batch nests another borrowed scope,
-     and the dispose records terminal intent. The last owner to release the
-     hub finishes that disposal: the last borrowed scope's exit, or the batch
-     owner's outermost exit when the batch owner exits last.
+     and the dispose records terminal intent. The last of the batch owner,
+     the drainer, and the borrowers to release the hub finishes that
+     disposal.
    - The callback-context borrow escape in C# and Rust is removed. Being
      inside a hub callback does not change a wait.
    - A drainer with queued messages waits for the borrowed scopes. If a
@@ -152,15 +152,19 @@ simplest and most common-sense approach chosen.
   names its one active lease.
 - Decided under the owner's 2026-11-07 delegation: when a borrower disposes
   the hub, the last owner to release the hub finishes the disposal and
-  completes the stream. That owner is the batch owner or the last borrower,
-  whichever exits last. A drainer stops waiting for borrowed scopes once a
-  disposal is requested, so it never holds a disposal open. This is what
-  Python and Swift did. C# and Rust completed the stream at whichever of the
+  completes the stream. That owner is the batch owner, the drainer, or the
+  last borrower, whichever releases the hub last. A drainer stops waiting for
+  borrowed scopes once a disposal is requested, so its wait never holds a
+  disposal open. A drain that is still delivering a message when the other
+  owners exit finishes the disposal at its end. This is what Python and Swift
+  did, and what C# did for the drainer. C# and Rust completed the stream at whichever of the
   two exits came first: on the batch owner inside an open borrowed scope, or
   on the borrower while the batch was still open (#1159 review). A Rust
   drainer with queued messages also kept waiting for the borrowers after the
-  disposal request. The rule needs no knowledge of which exit comes first, and
-  every flavor completes the stream only when the hub has no owner left.
+  disposal request, and a Rust borrowed exit completed the stream while
+  another thread's drain was still delivering a message. The rule needs no
+  knowledge of which exit comes first, and every flavor completes the stream
+  only when the hub has no owner left.
 - Decided under the owner's 2026-11-07 delegation: a refused ownership-gate
   wait raises the error that each flavor already uses for an ownership
   conflict. C# throws `InvalidOperationException`, as #1095 does. Python
@@ -204,7 +208,9 @@ implementation PRs confirm the exact sites.
   refused drain wait, release the drain. Delete the `s_deliveryDepth > 0`
   break in `Send`. Update the `WaitForGraph` summary and the reflection seam
   in `ComponentVMLifecycleRaceTests`. A `Batch` exit finishes a requested
-  disposal only when no batch owner and no borrowed scope remain.
+  disposal only when no batch owner and no borrowed scope remain. While a
+  drain is active, `FinishDisposeLocked` still leaves the subject's completion
+  to the drain's end.
 - **Python** (#1155, #1157, #1179, #1181, #1182, #1202). Move the hub graph
   (`_thread_waits_for`) and the lifecycle graph (`_lifecycle_thread_waits_for`)
   into `vmx._wait_for_graph.WAITS`. Record ownership-lock holders and waits,
@@ -235,8 +241,10 @@ implementation PRs confirm the exact sites.
   releases the drain on a refused wait. Delete the
   `is_delivering_message_hub()` breaks in `send` and `send_prepared`. Give
   tests a seam that reports any recorded wait. `run_scope` finishes a
-  requested disposal only when no batch owner and no borrower remain, and the
-  drainer stops waiting for borrowers once a disposal is requested.
+  requested disposal only when no batch owner, no borrower, and no drainer
+  remain. The drainer stops waiting for borrowers once a disposal is
+  requested, and a drain that is still delivering finishes the disposal at
+  its end.
 - **TypeScript.** No change.
 
 ## 4. Conformance

@@ -361,9 +361,10 @@ then deliver on that producer's calling thread, also from inside a callback.
 Unrelated busy targets therefore still wait synchronously.
 
 The only exception is an actual cross-hub thread wait cycle (ADR-0119). C#,
-Python, Swift, and Rust each record hub, lifecycle, container membership, and
-ownership waits in one wait-for graph, so the cycle can also run through any
-of those waits (ADR-0172). The send that would close the cycle enqueues and
+Python, Swift, and Rust each record hub, lifecycle, and container membership
+waits in one wait-for graph, so the cycle can also run through any of those
+waits (ADR-0172). C#, Python, and Swift record their ownership waits there
+too. Rust claims ownership without waiting, so it has no ownership wait. The send that would close the cycle enqueues and
 returns to the active owner's drain. A disposal in that position records
 terminal intent for the owner to finish. A cyclic batch borrows the target
 until its body exits, so the owner cannot resume draining early.

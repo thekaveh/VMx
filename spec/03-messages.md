@@ -278,10 +278,11 @@ exit. These rules apply in every threaded flavor (ADR-0172).
 1. **Borrower calls.** A borrower's own `Send`, `Batch`, and `Dispose` on the
    hub it borrowed do not wait. `Send` enqueues for the drain at the borrowed
    scope's exit. `Batch` nests another borrowed scope. `Dispose` records
-   terminal intent. The last owner to release the hub finishes the disposal:
-   the exit of the last borrowed scope when no batch owner remains, or else
-   the batch owner's outermost exit. A drainer stops waiting for borrowed
-   scopes once a disposal is requested, so it never holds a disposal open.
+   terminal intent. The last of the batch owner, the drainer, and the
+   borrowers to release the hub finishes the disposal. A drainer stops
+   waiting for borrowed scopes once a disposal is requested, so its wait never
+   holds a disposal open. A drain that is still delivering a message when the
+   other owners exit finishes the disposal at its end.
 1. **No callback-context escape.** A wait does not change because the caller
    is inside a hub callback. A `Send` to a hub with an open borrowed scope
    waits for it, and enqueues without waiting only when its wait is refused
