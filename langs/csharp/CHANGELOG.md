@@ -518,7 +518,9 @@ All notable changes to the C# flavor are documented here. The format is based on
   observers in commit order. The admission `CanExecuteChanged` no longer opens
   a scope, so another thread's `SetModel` or deny runs during it. A
   `Dispose()` on another thread no longer waits for an `ApproveErrors`
-  delivery. It defers the teardown until that delivery returns.
+  delivery. It defers the teardown until that delivery returns. A `Dispose()`
+  from an `ApproveErrors` observer on the delivering thread also defers it.
+  Before, it completed the channels during that delivery.
 
 ### VMx.Notifications
 
