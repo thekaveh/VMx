@@ -4,6 +4,7 @@ import {
   type SchedulerAction,
   type SchedulerLike,
 } from "rxjs";
+import { markSchedulerCancelled } from "../services/cancelledSchedulers.js";
 import { RxDispatcher, type IDispatcher } from "../services/dispatcher.js";
 import { RecordingMessageHub } from "./recordingMessageHub.js";
 
@@ -34,6 +35,8 @@ class ManualScheduler implements SchedulerLike {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    // Cancelled VMx lifecycle work must not run as if a flush error dropped it.
+    markSchedulerCancelled(this);
     this.#scheduled.unsubscribe();
   }
 }
