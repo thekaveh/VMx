@@ -327,9 +327,18 @@ class MessageHub(Generic[_THubMessage]):
             self._terminate_subject()
 
     def _release_drainer_locked(self) -> bool:
-        """Release the drainer and claim deferred subject termination."""
+        """Release the drainer and claim deferred subject termination.
+
+        With a batch or borrowed scope still open, the exit of the last one
+        completes the subject instead (spec/03 §4.2).
+        """
         self._drainer_thread = None
-        should_terminate_subject = self._disposed and not self._subject_termination_claimed
+        should_terminate_subject = (
+            self._disposed
+            and not self._subject_termination_claimed
+            and self._batch_owner is None
+            and not self._borrowers
+        )
         if should_terminate_subject:
             self._subject_termination_claimed = True
         self._wake_locked()

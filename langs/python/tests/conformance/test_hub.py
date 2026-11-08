@@ -760,6 +760,52 @@ def test_a_borrowers_own_hub_calls_do_not_wait_for_its_borrow(operation: str) ->
 
 
 @pytest.mark.conformance("HUB-013")
+def test_a_borrowers_dispose_completes_at_the_last_borrowed_scope_exit() -> None:
+    # spec/03 §4.2 rule 3. B borrows h from its drainer D, because D waits for
+    # B's h2 batch. B's dispose of h records terminal intent. D's drain then
+    # ends while B's borrowed scope is still open, so D releases the drain and
+    # B's borrow exit completes h, as in C#, Swift and Rust.
+    h, h2 = _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    h_completed: list[str] = []
+    h.messages.subscribe(on_completed=lambda: h_completed.append(current_thread().name))
+    b_owns_h2 = Event()
+    d_send_returned = Event()
+    completed_during_borrow: list[str] = []
+
+    def on_h(message: PropertyChangedMessage[object]) -> None:
+        if message.property_name == "m1":
+            h2.send(_make_msg("x"))
+
+    h.messages.subscribe(_recording(errors, on_h))
+
+    def d_body() -> None:
+        h.send(_make_msg("m1"))
+        d_send_returned.set()
+
+    def b_body() -> None:
+        with h2.batch():
+            b_owns_h2.set()
+            wait_until_waiting(threads.ident("D"))
+            with h.batch():
+                h.dispose()
+                h2.dispose()
+                if not d_send_returned.wait(HANG_GUARD):
+                    errors.append(TimeoutError("D's h send did not return"))
+                completed_during_borrow.extend(h_completed)
+
+    threads.start("B", b_body)
+    assert b_owns_h2.wait(HANG_GUARD)
+    threads.start("D", d_body)
+    threads.join_all()
+
+    assert errors == []
+    assert completed_during_borrow == []
+    assert h_completed == ["B"]
+
+
+@pytest.mark.conformance("HUB-013")
 @pytest.mark.parametrize("form", ["drain", "batch"])
 @pytest.mark.parametrize("operation", ["send", "dispose", "batch", "batch_send"])
 def test_an_ended_hub_wait_does_not_cause_a_cycle_escape(
