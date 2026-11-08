@@ -100,6 +100,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   still throws on the background (#842). A foreground action throws any other
   failure after the queued lifecycle actions have run. #726 fixed the first
   level of this drop for a throwing background hook.
+- A background VM now settles when work that VMx did not queue throws in the
+  same shared `queueScheduler` flush (#1052). Such a throw dropped the queued
+  hook work, completion or rollback, so the VM stayed `Constructing` or
+  `Destructing` with its in-flight guard held. VMx now runs each dropped
+  lifecycle action from its rxjs finalizer. Other dropped actions stay
+  dropped. A flush still surfaces one error: the outermost background
+  `construct()` or `destruct()` throws the first failure of its flush, such as
+  its hook failure before a queued throw. Otherwise the first throw leaves the
+  flush, and a failure of a recovered action is dropped, as #1053 drops later
+  failures.
 - `observeHub` now labels a tree message from a second package copy as
   `TreeStructureChangedMessage` (#1079). It classifies tree messages with
   `isTreeStructureChanged`, which matches by class and then by shape (ADR-0163).

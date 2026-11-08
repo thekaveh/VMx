@@ -563,6 +563,9 @@ describe("a completion that never runs", () => {
         });
       }),
     ).toThrow("caller failed");
+    // #1052: the dropped completion is recovered, so `dropped` still settles.
+    expect(dropped.status).toBe(ConstructionStatus.Constructed);
+    expect(dropped.canConstruct() && dropped.canDestruct()).toBe(true);
 
     const parent = parentWithBackgroundMember(RxDispatcher.default(), hub);
     parent.failConstructAfter = true;

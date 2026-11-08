@@ -174,9 +174,14 @@ class DeferredLifecycle {
   }
 }
 
-/** The first rollback failure recorded in a background `construct()` or `destruct()` flush. */
+/** The first failure recorded in a background `construct()` or `destruct()` flush. */
 interface BackgroundScheduling {
   failure: { error: unknown } | null;
+  /**
+   * Set when an error left the flush before any failure was recorded (#1052).
+   * That error is then the first failure, and later ones are not recorded.
+   */
+  flushFailed: boolean;
 }
 
 /**
@@ -187,14 +192,64 @@ interface BackgroundScheduling {
  */
 const activeSharedDrains = new WeakMap<SchedulerLike, BackgroundScheduling>();
 
-/** Runs `run` as `scheduling`, the outermost drain of `scheduler` if none is active. */
-function drainAs(scheduler: SchedulerLike | null, scheduling: BackgroundScheduling, run: () => void): void {
+/**
+ * Run `schedule` as the outermost drain of `scheduler` if none is active, then
+ * throw the first failure of the flush. An error that leaves the flush, for
+ * example from an action that VMx did not queue, is that first failure unless
+ * a failure was recorded before it (#1052).
+ */
+function drainBackground(scheduler: SchedulerLike | null, schedule: () => void): void {
+  const scheduling: BackgroundScheduling = { failure: null, flushFailed: false };
   const outermost = scheduler !== null && !activeSharedDrains.has(scheduler);
   if (outermost) activeSharedDrains.set(scheduler, scheduling);
+  let thrown: { error: unknown } | null = null;
   try {
-    run();
+    schedule();
+  } catch (error) {
+    thrown = { error };
   } finally {
     if (outermost) activeSharedDrains.delete(scheduler);
+  }
+  const failure = scheduling.failure ?? thrown;
+  if (failure !== null) throw failure.error;
+}
+
+/**
+ * The VMx actions that a flush error dropped and that run now, per scheduler
+ * (#1052). VMx work queued on that scheduler while they run joins this queue,
+ * so it does not start a nested flush.
+ */
+const recoveries = new WeakMap<SchedulerLike, Array<() => void>>();
+
+/**
+ * Run `run`, a VMx action that an error in a flush of `scheduler` dropped.
+ *
+ * rxjs calls this from the finalizer of the dropped action, while the flush
+ * error is on its way to the caller. That error leaves the flush first, so a
+ * failure of the recovered work is a later failure of the same flush. It is
+ * dropped, as #1053 drops a later failure, and is never thrown from here: a
+ * throw from a finalizer would replace the flush error.
+ */
+function recoverDropped(scheduler: SchedulerLike, run: () => void): void {
+  const drain = activeSharedDrains.get(scheduler);
+  if (drain !== undefined) drain.flushFailed = true;
+  const active = recoveries.get(scheduler);
+  if (active !== undefined) {
+    active.push(run);
+    return;
+  }
+  const queue = [run];
+  recoveries.set(scheduler, queue);
+  try {
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      try {
+        next();
+      } catch {
+        // A later failure of a failed flush (see above).
+      }
+    }
+  } finally {
+    recoveries.delete(scheduler);
   }
 }
 
@@ -220,20 +275,49 @@ function countedActionsOf(scheduler: SchedulerLike): CountedActions {
   return counted;
 }
 
-/** Queue `work` through `schedule` as a counted action of `scheduler` (#1053). */
+/**
+ * Queue `work` through `schedule` as a counted action of `scheduler` (#1053).
+ *
+ * An error in a flush of `scheduler` unsubscribes the actions queued behind
+ * it, including an error from an action that VMx did not queue. The finalizer
+ * added here runs `work` if its action is dropped that way, so the VM still
+ * settles (#1052). `schedule` returns null when it cannot give the action's
+ * subscription, such as for an override of `_scheduleForeground`.
+ */
 function scheduleCounted(
   scheduler: SchedulerLike,
-  schedule: (work: () => void) => void,
+  schedule: (work: () => void) => Subscription | null,
   work: () => void,
 ): void {
   const counted = countedActionsOf(scheduler);
   counted.pending++;
   counted.version++;
-  schedule(() => {
+  let ran = false;
+  const run = (): void => {
+    if (ran) return;
+    ran = true;
     counted.pending = Math.max(0, counted.pending - 1);
     counted.version++;
     work();
-  });
+  };
+  const recovery = recoveries.get(scheduler);
+  if (recovery !== undefined) {
+    recovery.push(run);
+    return;
+  }
+  // A custom SchedulerLike can return an object without rxjs `add`.
+  const subscription: Partial<Subscription> | null = schedule(run);
+  if (typeof subscription?.add === "function" && subscription.closed !== true) {
+    subscription.add(() => {
+      if (!ran) recoverDropped(scheduler, run);
+    });
+  }
+}
+
+/** A foreground schedule whose subscription VMx keeps for recovery (#1052). */
+interface ForegroundTracking {
+  readonly work: () => void;
+  subscription: Subscription | null;
 }
 
 export abstract class ComponentVMBase {
@@ -277,6 +361,8 @@ export abstract class ComponentVMBase {
   #deferredLifecycle: DeferredLifecycle | null = null;
   /** Cancels the active child-settle subscription, if any. */
   #cancelChildWait: (() => void) | null = null;
+  /** The foreground work whose subscription `_scheduleForeground` reports (#1052). */
+  #foregroundTracking: ForegroundTracking | null = null;
 
   readonly #selectCommand: RelayCommand;
   readonly #deselectCommand: RelayCommand;
@@ -497,8 +583,7 @@ export abstract class ComponentVMBase {
         this.#releaseInFlight();
         throw error;
       }
-      const scheduling: BackgroundScheduling = { failure: null };
-      drainAs(this.#sharedScheduler(), scheduling, () => {
+      drainBackground(this.#sharedScheduler(), () => {
         this.#scheduleBackground(() => {
           // dispose() may have run between scheduling and execution; Disposed is
           // terminal (spec/02 invariant 3), so skip the work and the marshalled
@@ -529,7 +614,6 @@ export abstract class ComponentVMBase {
           );
         });
       });
-      if (scheduling.failure) throw scheduling.failure.error;
     } else {
       let pending = false;
       try {
@@ -581,8 +665,7 @@ export abstract class ComponentVMBase {
         this.#releaseInFlight();
         throw error;
       }
-      const scheduling: BackgroundScheduling = { failure: null };
-      drainAs(this.#sharedScheduler(), scheduling, () => {
+      drainBackground(this.#sharedScheduler(), () => {
         this.#scheduleBackground(() => {
           // dispose() may have run between scheduling and execution; Disposed is
           // terminal (spec/02 invariant 3), so skip the work and the marshalled
@@ -613,7 +696,6 @@ export abstract class ComponentVMBase {
           );
         });
       });
-      if (scheduling.failure) throw scheduling.failure.error;
     } else {
       let pending = false;
       try {
@@ -1360,19 +1442,37 @@ export abstract class ComponentVMBase {
     const shared = this.#sharedScheduler();
     const drain = shared === null ? undefined : activeSharedDrains.get(shared);
     if (drain === undefined) return false;
-    drain.failure ??= { error };
+    // An error that already left the flush is its first failure (#1052).
+    if (!drain.flushFailed) drain.failure ??= { error };
     return true;
   }
 
   /** Queue `work` on the foreground as a counted completion (#1053). */
   #queueCompletion(work: () => void): void {
-    scheduleCounted(this.#dispatcher.foreground, (w) => { this._scheduleForeground(w); }, work);
+    scheduleCounted(this.#dispatcher.foreground, (w) => this.#scheduleForegroundTracked(w), work);
   }
 
   /** Queue `work` on the background as a counted action (#1053). */
   #scheduleBackground(work: () => void): void {
     const { background } = this.#dispatcher;
-    scheduleCounted(background, (w) => { background.schedule(w); }, work);
+    scheduleCounted(background, (w) => background.schedule(w), work);
+  }
+
+  /**
+   * Schedule `work` through `_scheduleForeground` and return its subscription.
+   * Returns null when an override does not pass `work` itself to the base
+   * method, so VMx cannot recover that action (#1052).
+   */
+  #scheduleForegroundTracked(work: () => void): Subscription | null {
+    const tracking: ForegroundTracking = { work, subscription: null };
+    const outer = this.#foregroundTracking;
+    this.#foregroundTracking = tracking;
+    try {
+      this._scheduleForeground(work);
+    } finally {
+      this.#foregroundTracking = outer;
+    }
+    return tracking.subscription;
   }
 
   /**
@@ -1390,6 +1490,9 @@ export abstract class ComponentVMBase {
    * recorded failure instead.
    */
   #throwAfterCountedActions(error: unknown): void {
+    // During recovery, an error is already leaving the failed flush. This
+    // failure is a later one, so it is dropped (#1052).
+    if (recoveries.has(this.#dispatcher.foreground)) return;
     const counted = countedActionsOf(this.#dispatcher.foreground);
     let seen = counted.version;
     const attempt = (): void => {
@@ -1412,6 +1515,8 @@ export abstract class ComponentVMBase {
 
   /** Schedule work on the foreground scheduler. */
   protected _scheduleForeground(work: () => void): void {
-    this.#dispatcher.foreground.schedule(work);
+    const subscription = this.#dispatcher.foreground.schedule(work);
+    const tracking = this.#foregroundTracking;
+    if (tracking?.work === work) tracking.subscription = subscription;
   }
 }
