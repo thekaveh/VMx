@@ -65,6 +65,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A wait for another thread's child ownership gate is now recorded in the one
+  wait-for graph (ADR-0172, spec/03 §4.1, #1154). A structural operation
+  holds a child's gate from reservation until commit or rollback, and the
+  child's construct hook runs inside that interval. Before, a hook that
+  transferred a child whose gate another thread held, or that joined a group
+  transaction that thread owned, could hang both threads. Now the gate wait
+  that would close the cycle fails before mutation: `addResult`, `insertResult`
+  and population return `.failure(.attachmentFailed(_))`, and aggregate slot
+  replacement throws. The edge is keyed on the gate object, not on the VM, so
+  the end of a nested container's own membership transaction does not drop
+  it. A contested gate that closes no cycle still blocks.
+- `MessageHub` treats an open borrowed batch scope as a wait-for owner
+  (ADR-0172, spec/03 §4.2, HUB-013, #1178). A drainer with an empty queue no
+  longer waits for a borrowed scope: it releases the drain, and the last
+  borrowed-scope exit drains what the bodies enqueued. A drainer with queued
+  messages waits for a borrower with an edge in the wait-for graph. When that
+  wait would close a cycle, it releases the drain, and the last borrowed-scope
+  exit delivers the queued messages in FIFO order on its own thread. This is
+  the documented HUB-010 limitation of spec/03 §4.2 rule 5. A borrower's own
+  `send` enqueues and its `dispose()` records terminal intent, without a wait.
+  The exit of an owned batch no longer claims the drain while a borrowed
+  scope is open, and a borrower that exits while other borrowers remain wakes
+  the waiters, so no waiter keeps an edge to it. Before, the drainer waited
+  for the borrowed scope with no edge, and a borrower that then waited for the
+  drainer hung both threads.
 - A `construct()`, `destruct()` or `reconstruct()` call that starts during a
   view-model's inline dispose cascade now throws
   `StatusTransitionError(currentStatus: .disposed, …)` (ADR-0175, LIFE-021,
