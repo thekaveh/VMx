@@ -4,13 +4,13 @@ Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framewo
 
 ## 1. Status
 
-**v0.36.0** implements `spec-v3.30.0`. Behavioral Rust tests cover all 444
+**v0.36.0** implements `spec-v3.30.0`. Behavioral Rust tests cover all 447
 library conformance IDs. Rust has no UI scenario suite for the five THEME IDs.
 
 The public surface and some behaviors are not fully aligned with the other
 flavors. See the
 [Rust parity ledger](https://github.com/thekaveh/VMx/blob/main/docs/maintenance/2026-07-16-rust-capability-parity.md)
-(original scope closed; open items in §12.4.7 and §12.7–§12.13).
+(original scope closed; open items in §12.4.7 and §12.7–§12.12).
 
 ## 2. Install
 

@@ -13,36 +13,10 @@ import reactivex as rx
 from reactivex.abc import DisposableBase, ObserverBase
 from reactivex.subject import Subject
 
+from vmx._wait_for_graph import WAITS
 from vmx.messages.protocols import Message
 
 _logger = logging.getLogger(__name__)
-
-
-_wait_graph_gate = RLock()
-_thread_waits_for: dict[int, int] = {}
-
-
-def _register_message_hub_wait(waiter: int, owner: int) -> bool:
-    """Register one wait edge; return true if it would close a real cycle."""
-    with _wait_graph_gate:
-        _thread_waits_for[waiter] = owner
-        cursor = owner
-        visited: set[int] = set()
-        while cursor not in visited:
-            if cursor == waiter:
-                _thread_waits_for.pop(waiter, None)
-                return True
-            visited.add(cursor)
-            next_owner = _thread_waits_for.get(cursor)
-            if next_owner is None:
-                return False
-            cursor = next_owner
-        return False
-
-
-def _unregister_message_hub_wait(waiter: int) -> None:
-    with _wait_graph_gate:
-        _thread_waits_for.pop(waiter, None)
 
 
 TMessage = TypeVar("TMessage", bound=Message, contravariant=True)
@@ -94,17 +68,58 @@ class MessageHub(Generic[_THubMessage]):
         self._drainer_thread: int | None = None
         self._batch_owner: int | None = None
         self._batch_depth = 0
-        self._borrowed_batch_depth = 0
+        # Open borrowed scopes per borrower thread. A borrower owns the hub
+        # with the batch owner and the drainer (spec/03 §4.2, ADR-0172).
+        self._borrowers: dict[int, int] = {}
+
+    def _foreign_owner_locked(self, caller: int) -> int | None:
+        """Return the owner that *caller* waits for, or None when it can proceed.
+
+        A wait names one owner: the batch owner, then the drainer, then a
+        borrower other than the caller (spec/03 §4.1).
+        """
+        if self._batch_owner is not None and self._batch_owner != caller:
+            return self._batch_owner
+        if self._drainer_thread is not None and self._drainer_thread != caller:
+            return self._drainer_thread
+        return self._foreign_borrower_locked(caller)
+
+    def _foreign_borrower_locked(self, caller: int) -> int | None:
+        for borrower in self._borrowers:
+            if borrower != caller:
+                return borrower
+        return None
 
     def _wait_for_owner_locked(self, caller: int, owner: int) -> bool:
-        """Wait once for *owner*, or report that waiting would close a cycle."""
-        if _register_message_hub_wait(caller, owner):
+        """Wait once for *owner*, or report that waiting would close a cycle.
+
+        The wait records an edge to *owner* in the process-wide wait-for
+        graph, so a cycle through hub, membership and ownership waits is
+        visible (spec/03 §4.1, ADR-0172). The edge goes when the owner
+        releases the hub, before the waiter wakes (``_wake_locked``).
+        """
+        if not WAITS.try_begin_owner_wait(self, caller=caller, owner=owner):
             return True
         try:
             self._gate.wait()
         finally:
-            _unregister_message_hub_wait(caller)
+            WAITS.end_wait(caller)
         return False
+
+    def _wake_locked(self) -> None:
+        """Remove edges to former owners, then wake every waiter (#1181).
+
+        A waiter's edge stays only while the owner that it names still owns
+        the hub. Once the hub is disposed, no waiter waits again.
+        """
+        owners: list[int] = []
+        if not self._disposed:
+            for owner in (self._batch_owner, self._drainer_thread):
+                if owner is not None:
+                    owners.append(owner)
+            owners.extend(self._borrowers)
+        WAITS.release_waiters(self, owners)
+        self._gate.notify_all()
 
     @property
     def messages(self) -> rx.Observable[Message]:
@@ -141,26 +156,19 @@ class MessageHub(Generic[_THubMessage]):
         caller = get_ident()
         should_drain = False
         with self._gate:
-            while not self._disposed:
-                owner = (
-                    self._batch_owner
-                    if self._batch_owner not in (None, caller)
-                    else self._drainer_thread
-                    if self._drainer_thread not in (None, caller)
-                    else None
-                )
-                if owner is not None:
-                    if self._wait_for_owner_locked(caller, owner):
+            # A borrower's own send enqueues for the drain at its borrowed
+            # scope's exit (spec/03 §4.2). Any other send waits for the
+            # hub's owner, and enqueues only when that wait would close a
+            # cycle (spec/03 §4, HUB-013).
+            if caller not in self._borrowers:
+                while not self._disposed:
+                    owner = self._foreign_owner_locked(caller)
+                    if owner is None or self._wait_for_owner_locked(caller, owner):
                         break
-                    continue
-                if self._borrowed_batch_depth > 0:
-                    self._gate.wait()
-                    continue
-                break
             if self._disposed:
                 return
             self._pending.append(message)
-            if self._batch_owner is not None or self._borrowed_batch_depth > 0:
+            if self._batch_owner is not None or self._borrowers:
                 return
             if self._drainer_thread is None:
                 self._drainer_thread = caller
@@ -178,26 +186,21 @@ class MessageHub(Generic[_THubMessage]):
         entered = False
         borrowed = False
         with self._gate:
-            while not self._disposed:
-                owner = (
-                    self._batch_owner
-                    if self._batch_owner not in (None, caller)
-                    else self._drainer_thread
-                    if self._drainer_thread not in (None, caller)
-                    else None
-                )
-                if owner is not None:
+            if caller in self._borrowers:
+                # A borrower's nested batch nests another borrowed scope.
+                borrowed = True
+            else:
+                while not self._disposed:
+                    owner = self._foreign_owner_locked(caller)
+                    if owner is None:
+                        break
                     if self._wait_for_owner_locked(caller, owner):
-                        self._borrowed_batch_depth += 1
                         borrowed = True
                         break
-                    continue
-                if self._borrowed_batch_depth > 0:
-                    self._gate.wait()
-                    continue
-                break
             if not self._disposed:
-                if not borrowed:
+                if borrowed:
+                    self._borrowers[caller] = self._borrowers.get(caller, 0) + 1
+                else:
                     self._batch_owner = caller
                     self._batch_depth += 1
                 entered = True
@@ -211,20 +214,26 @@ class MessageHub(Generic[_THubMessage]):
         if entered:
             with self._gate:
                 if borrowed:
-                    self._borrowed_batch_depth -= 1
-                    outermost = self._borrowed_batch_depth == 0
+                    depth = self._borrowers[caller] - 1
+                    if depth:
+                        self._borrowers[caller] = depth
+                    else:
+                        del self._borrowers[caller]
+                    released = depth == 0
                 else:
                     self._batch_depth -= 1
-                    outermost = self._batch_depth == 0
-                    if outermost:
+                    released = self._batch_depth == 0
+                    if released:
                         self._batch_owner = None
-                if outermost:
+                # A borrower that exits its last borrowed scope wakes the
+                # waiters even while other borrowers remain (spec/03 §4.2).
+                if released:
                     if (
                         not self._disposed
                         and self._pending
                         and self._drainer_thread is None
                         and self._batch_owner is None
-                        and self._borrowed_batch_depth == 0
+                        and not self._borrowers
                     ):
                         self._drainer_thread = caller
                         should_drain = True
@@ -232,12 +241,12 @@ class MessageHub(Generic[_THubMessage]):
                         self._disposed
                         and self._drainer_thread is None
                         and self._batch_owner is None
-                        and self._borrowed_batch_depth == 0
+                        and not self._borrowers
                         and not self._subject_termination_claimed
                     ):
                         self._subject_termination_claimed = True
                         should_terminate_subject = True
-                    self._gate.notify_all()
+                    self._wake_locked()
         drain_error: BaseException | None = None
         if should_drain:
             try:
@@ -252,18 +261,30 @@ class MessageHub(Generic[_THubMessage]):
             raise drain_error
 
     def _drain(self) -> None:
+        caller = get_ident()
         delivered = 0
         message_types: set[str] = set()
         while True:
             stop_draining = False
             should_terminate_subject = False
+            message: Message | None = None
             with self._gate:
-                while self._borrowed_batch_depth > 0 and not self._disposed:
-                    self._gate.wait()
-                if self._disposed or not self._pending:
+                # Wait for open borrowed scopes only while messages are
+                # queued. An empty queue releases the drain, and the last
+                # borrowed scope's exit drains what its body enqueued. When
+                # the wait would close a cycle, the drain goes to that exit
+                # with its messages still queued (spec/03 §4.2).
+                release_drain = False
+                while self._pending and not self._disposed:
+                    borrower = self._foreign_borrower_locked(caller)
+                    if borrower is None:
+                        break
+                    if self._wait_for_owner_locked(caller, borrower):
+                        release_drain = True
+                        break
+                if release_drain or self._disposed or not self._pending:
                     should_terminate_subject = self._release_drainer_locked()
                     stop_draining = True
-                    message = None
                 else:
                     message = self._pending.popleft()
             if should_terminate_subject:
@@ -306,12 +327,21 @@ class MessageHub(Generic[_THubMessage]):
             self._terminate_subject()
 
     def _release_drainer_locked(self) -> bool:
-        """Release the drainer and claim deferred subject termination."""
+        """Release the drainer and claim deferred subject termination.
+
+        With a batch or borrowed scope still open, the exit of the last one
+        completes the subject instead (spec/03 §4.2).
+        """
         self._drainer_thread = None
-        should_terminate_subject = self._disposed and not self._subject_termination_claimed
+        should_terminate_subject = (
+            self._disposed
+            and not self._subject_termination_claimed
+            and self._batch_owner is None
+            and not self._borrowers
+        )
         if should_terminate_subject:
             self._subject_termination_claimed = True
-        self._gate.notify_all()
+        self._wake_locked()
         return should_terminate_subject
 
     def _terminate_subject(self) -> None:
@@ -325,32 +355,24 @@ class MessageHub(Generic[_THubMessage]):
         caller = get_ident()
         should_terminate_subject = False
         with self._gate:
-            while not self._disposed:
-                owner = (
-                    self._batch_owner
-                    if self._batch_owner not in (None, caller)
-                    else self._drainer_thread
-                    if self._drainer_thread not in (None, caller)
-                    else None
-                )
-                if owner is not None:
-                    if self._wait_for_owner_locked(caller, owner):
-                        self._disposed = True
-                        self._pending.clear()
-                        self._gate.notify_all()
-                        return
-                    continue
-                if self._borrowed_batch_depth > 0:
-                    self._gate.wait()
-                    continue
-                break
+            if self._disposed:
+                return
+            # A borrower's own dispose, and a dispose whose wait would close a
+            # cycle, record terminal intent. The owner that releases the hub
+            # last completes the subject (spec/03 §4 and §4.2).
+            deferred = caller in self._borrowers
+            while not deferred and not self._disposed:
+                owner = self._foreign_owner_locked(caller)
+                if owner is None:
+                    break
+                deferred = self._wait_for_owner_locked(caller, owner)
             if self._disposed:
                 return
             self._disposed = True
             self._pending.clear()
-            if self._drainer_thread is None:
+            if not deferred and self._drainer_thread is None:
                 self._subject_termination_claimed = True
                 should_terminate_subject = True
-            self._gate.notify_all()
+            self._wake_locked()
         if should_terminate_subject:
             self._terminate_subject()

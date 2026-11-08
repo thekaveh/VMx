@@ -23,9 +23,9 @@ implementation.
 
 The catalog contains:
 
-- 445 library IDs implemented by all five catalog-complete source flavors
+- 448 library IDs implemented by all five catalog-complete source flavors
 - 5 `THEME-00x` scenario IDs exercised by the flagship example apps
-- 450 total IDs in the published catalog
+- 452 total IDs in the published catalog
 
 The source overview is here:
 [spec/12-conformance.md](../../spec/12-conformance.md).
@@ -34,7 +34,7 @@ Catalog completeness is a source statement: every library ID has a marked
 test in every flavor. Executed evidence, below, shows that each marked test ran
 and passed. The
 [Rust parity ledger](../maintenance/2026-07-16-rust-capability-parity.md)
-(open items and recorded differences in §12.4.7 and §12.7–§12.13) adds focused member and
+(open items and recorded differences in §12.4.7 and §12.7–§12.12) adds focused member and
 edge-behavior evidence for Rust.
 
 ### 10.3.1. Catalog, Execution, And Behavioral Evidence

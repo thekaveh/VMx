@@ -3,10 +3,10 @@
 //! Spec: `spec/05-component-vm.md`.
 
 use super::{
-    clone_locked, finish_with_first_failure, fmt, lock, retain_first_failure, Arc, ComponentCore,
-    ConstructionStatus, Dispatcher, LifecycleOperation, Message, MessageHub, ModelHint, Mutex,
-    NullDispatcher, ParentHandle, PropertyChangedStream, RelayCommand, Subscription, TreeNode,
-    VmNode, VmxError, VmxResult,
+    clone_locked, fmt, lock, retain_first_failure, Arc, ComponentCore, ConstructionStatus,
+    Dispatcher, LifecycleOperation, Message, MessageHub, ModelHint, Mutex, NullDispatcher,
+    ParentHandle, PropertyChangedStream, RelayCommand, Subscription, TreeNode, VmNode, VmxError,
+    VmxResult,
 };
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -638,7 +638,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         FD: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()>,
         FC: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()> + Send + 'static,
     {
-        crate::runtime::reconstruct_admission(self.status())?;
+        self.core.admit_reconstruct()?;
         walk_children(&self.core, LifecycleOperation::Destruct, destruct)?;
         self.core.construct_after_destruct(move |core| {
             walk_children(core, LifecycleOperation::Construct, construct)
@@ -648,7 +648,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// Registers `member` for depth-first disposal (spec/02 §7.1, ADR-0162).
     ///
     /// [`Self::dispose`] disposes the registered members in registration
-    /// order, each before the component publishes `Disposed`. A member is not
+    /// order, each before the component publishes `Disposed`. When a
+    /// construct or destruct hook of the component runs on another thread,
+    /// the component publishes `Disposed` first and the members are disposed
+    /// after that hook returns (spec/02 §2.4, LIFE-015). A member is not
     /// a container child: registration sets no parent link, adds no selection
     /// state, and does not construct it; transition members through
     /// [`Self::construct_with_children`] and
@@ -692,7 +695,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// [`ChildTransitions`] walk, so a consumer type that walks its members
     /// reconstructs through [`Self::reconstruct_with_children`] instead.
     pub fn reconstruct(&self) -> VmxResult<()> {
-        crate::runtime::reconstruct_admission(self.status())?;
+        self.core.admit_reconstruct()?;
         self.core.reconstruct()
     }
 
@@ -704,29 +707,48 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     /// Transitions the component to its terminal disposed state.
     ///
-    /// Members registered with [`Self::own_member`] are disposed first, in
-    /// registration order, before the component publishes `Disposed`
-    /// (spec/02 §7.1). Every member is attempted; the first failure is
-    /// returned after the component's own teardown. While the members are
-    /// being disposed, any other `dispose` of the component, re-entrant or
-    /// from another thread, returns `Ok(())` at once without waiting; the
-    /// first call finishes the work. A component with no members disposes
-    /// as before.
+    /// Members registered with [`Self::own_member`] are disposed in
+    /// registration order, at the same admitted-hook boundary as the
+    /// component (spec/02 §2.4, §7.1, LIFE-015). With no construct or
+    /// destruct hook of the component running on another thread, the
+    /// members are disposed first, before the component publishes `Disposed`
+    /// (LIFE-018). While they are disposed, a `construct`, `destruct`, or
+    /// `reconstruct` of the component fails with [`VmxError::Disposed`], and
+    /// the component commits no status other than `Disposed` (spec/02 §7.2,
+    /// LIFE-021). With a hook running on another thread, the component
+    /// publishes `Disposed` first, and the members are disposed after that
+    /// hook returns.
+    ///
+    /// Every member is attempted; the first failure is returned after the
+    /// component's own teardown. While the members are being disposed, any
+    /// other `dispose` of the component, re-entrant or from another thread,
+    /// returns `Ok(())` at once without waiting; the first call finishes the
+    /// work. A component with no members disposes as before.
     pub fn dispose(&self) -> VmxResult<()> {
         self.core.abandon_child_settle();
         let Some(members) = self.core.begin_member_disposal() else {
             return Ok(());
         };
-        let mut first_failure = None;
-        for member in members {
-            retain_first_failure(&mut first_failure, member);
+        let commands = self.commands.clone();
+        if members.is_empty() {
+            return self.core.dispose_then(move || commands.dispose());
         }
-        self.core.finish_member_disposal();
-        retain_first_failure(&mut first_failure, || {
-            let commands = self.commands.clone();
-            self.core.dispose_then(move || commands.dispose())
-        });
-        finish_with_first_failure(first_failure)
+        // The cascade can be stored on the core behind a running hook, so it
+        // holds the core weakly (#750).
+        let core = self.core.downgrade();
+        self.core.dispose_with_cascade_then(
+            Box::new(move || {
+                let mut first_failure = None;
+                for member in members {
+                    retain_first_failure(&mut first_failure, member);
+                }
+                if let Some(core) = core.upgrade() {
+                    core.finish_member_disposal();
+                }
+                first_failure
+            }),
+            move || commands.dispose(),
+        )
     }
 
     /// Returns the current lifecycle status.

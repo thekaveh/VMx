@@ -738,6 +738,185 @@ describe("FormVM – approval admission edges", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Updates during approval publication (spec/20 §5.3, ADR-0174). FORM-039 and
+// FORM-040 cover the main clauses; these pin the edges.
+// ---------------------------------------------------------------------------
+
+describe("FormVM – updates queued during approval publication", () => {
+  it("does not queue a call whose preparation makes a nested update", async () => {
+    let form!: FormVM<IModel>;
+    let nested = false;
+    form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: noop,
+      validators: {
+        value: (model) => {
+          if (model.value === 13 && !nested) {
+            nested = true;
+            form.setModel(m("N", 7));
+          }
+          return null;
+        },
+      },
+    });
+    let notifications = 0;
+    form.approveCommand.canExecuteChanged.subscribe(() => {
+      notifications += 1;
+      if (notifications === 2) form.setModel(m("X", 13));
+    });
+
+    await form.approveAsync();
+
+    // The nested call was queued; the interrupted outer call was stale.
+    expect(form.model).toEqual(m("N", 7));
+  });
+
+  it("does not queue a call whose preparation disposes the form", async () => {
+    let form!: FormVM<IModel>;
+    form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: noop,
+      validators: {
+        value: (model) => {
+          if (model.value === 13) form.dispose();
+          return null;
+        },
+      },
+    });
+    const approved: IModel[] = [];
+    form.onApproved.subscribe((value) => approved.push(value));
+    let notifications = 0;
+    form.approveCommand.canExecuteChanged.subscribe(() => {
+      notifications += 1;
+      if (notifications === 2) form.setModel(m("X", 13));
+    });
+
+    await form.approveAsync();
+
+    expect(form.model).toEqual(m("A", 1));
+    expect(approved).toEqual([]);
+  });
+
+  it("queues a setModel from the reset commit's snapshotter", async () => {
+    let form!: FormVM<IModel>;
+    let reentered = false;
+    form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: noop,
+      snapshotter: (model) => {
+        if (model.name === "R" && !reentered) {
+          reentered = true;
+          form.setModel(m("S", 9));
+        }
+        return { ...model };
+      },
+      equals: (a, b) => a.name === b.name && a.value === b.value,
+      resetOnApproved: () => m("R", 0),
+    });
+    const seen: IModel[] = [];
+    form.onApproved.subscribe(() => seen.push(form.model));
+
+    await form.approveAsync();
+
+    expect(seen).toEqual([m("R", 0)]);
+    expect(form.model).toEqual(m("S", 9));
+    expect(form.snapshot).toEqual(m("R", 0));
+  });
+
+  function failingReset(onReset: (form: FormVM<IModel>) => void) {
+    const resetFailure = new Error("reset failed");
+    let armed = false;
+    let form!: FormVM<IModel>;
+    form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: noop,
+      validators: {
+        value: (model) => {
+          if (model.value === 13 && form.model.value === 2 && armed) throw new Error("boom13");
+          return null;
+        },
+      },
+      resetOnApproved: () => {
+        onReset(form);
+        armed = true;
+        throw resetFailure;
+      },
+    });
+    form.setModel(m("B", 2));
+    return { form, resetFailure };
+  }
+
+  it("replays the calls of a failed commit before the failure reaches the awaiter", async () => {
+    const { form, resetFailure } = failingReset((target) => target.setModel(m("C", 3)));
+    const order: string[] = [];
+    form.approveCommand.canExecuteChanged.subscribe(() => {
+      order.push(`can_execute:${String(form.model.value)}`);
+    });
+
+    const approval = form.approveAsync();
+    order.length = 0;
+    await expect(approval).rejects.toBe(resetFailure);
+
+    // The failed settlement's notification saw the unchanged model; the
+    // queued call then replayed.
+    expect(order).toEqual(["can_execute:2"]);
+    expect(form.model).toEqual(m("C", 3));
+    expect(form.snapshot).toEqual(m("A", 1));
+  });
+
+  it("routes the commit failure, not a replay failure, once on approveErrors", async () => {
+    const { form, resetFailure } = failingReset((target) => {
+      target.setModel(m("X", 13));
+      target.setModel(m("C", 3));
+    });
+    const errors: unknown[] = [];
+    const seen: IModel[] = [];
+    form.approveErrors.subscribe((error) => {
+      errors.push(error);
+      seen.push(form.model);
+    });
+
+    form.approveCommand.execute();
+    await vi.waitFor(() => expect(errors).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).toEqual([resetFailure]);
+    // Both replays ran before the failure was routed; 13 failed and 3 committed.
+    expect(seen).toEqual([m("C", 3)]);
+  });
+
+  it("does not queue a call from the failed settlement's observers", async () => {
+    const { form, resetFailure } = failingReset(() => {});
+    let notifications = 0;
+    let atCall: IModel | undefined;
+    form.approveCommand.canExecuteChanged.subscribe(() => {
+      notifications += 1;
+      if (notifications !== 2) return;
+      form.setModel(m("D", 4));
+      atCall = form.model;
+    });
+
+    await expect(form.approveAsync()).rejects.toBe(resetFailure);
+
+    expect(atCall).toEqual(m("D", 4));
+  });
+
+  it("runs a setModel from an onApproved subscriber as an ordinary update", async () => {
+    const form = make();
+    let atCall: IModel | undefined;
+    form.onApproved.subscribe(() => {
+      form.setModel(m("Z", 26));
+      atCall = form.model;
+    });
+    form.setModel(m("B", 2));
+
+    await form.approveAsync();
+
+    expect(atCall).toEqual(m("Z", 26));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Builder snapshotter (was ctor-only tested)
 // ---------------------------------------------------------------------------
 

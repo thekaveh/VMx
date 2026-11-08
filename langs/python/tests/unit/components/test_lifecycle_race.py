@@ -477,3 +477,313 @@ def test_cycle_broken_deferred_cleanup_does_not_replace_first_failure() -> None:
     assert len(failures) == 1
     assert str(failures[0]) == f"dispose failure {cleanup_order[0]}"
     assert all(vm.status is ConstructionStatus.DISPOSED for vm in vms)
+
+
+# ---------------------------------------------------------------------------
+# #1182: a finished hook or a delivered publication never counts in a cycle
+# ---------------------------------------------------------------------------
+#
+# Q's ``a.dispose()`` waits for P (P runs a's hook, or drains a's
+# publications). P ends that wait and then disposes ``b``, whose hook or drain
+# runs on Q. Q's wait has ended, so P's wait for Q closes no live cycle: P
+# must wait. The harness holds Q after P ends Q's wait, and before Q's
+# ``a.dispose()`` returns, until P's ``b.dispose()`` decides whether to wait.
+# A stale Q-to-P edge would make P take the cycle escape (spec/02 §2.4,
+# spec/03 §4.1, ADR-0172).
+
+
+class _CrossDisposeHarness:
+    """Observe the lease and publication waits of threads P and Q."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.p_ident = 0
+        self.q_ident = 0
+        self.q_waits = threading.Event()
+        self.p_decided = threading.Event()
+        self.failures: list[BaseException] = []
+        harness = self
+
+        class ObservedCompletion:
+            def __init__(self, event: threading.Event) -> None:
+                self.event = event
+
+            def wait(self, timeout: float | None = None) -> bool:
+                caller = threading.get_ident()
+                if caller == harness.p_ident:
+                    harness.p_decided.set()
+                elif caller == harness.q_ident:
+                    harness.q_waits.set()
+                result = self.event.wait(timeout)
+                if caller == harness.q_ident and not harness.p_decided.wait(HANG_GUARD):
+                    harness.failures.append(AssertionError("P never decided its wait"))
+                return result
+
+            def set(self) -> None:
+                self.event.set()
+
+            def is_set(self) -> bool:
+                return self.event.is_set()
+
+        class ObservedLease(component_base._LifecycleHookLease):
+            def __init__(self) -> None:
+                super().__init__()
+                self.completed = ObservedCompletion(self.completed)  # type: ignore[assignment]
+
+        class ObservedPublication(component_base._LifecyclePublication):
+            def __init__(
+                self,
+                status: ConstructionStatus | None = None,
+                action: Callable[[], None] | None = None,
+            ) -> None:
+                super().__init__(status, action)
+                self.completed = ObservedCompletion(self.completed)  # type: ignore[assignment]
+
+        monkeypatch.setattr(component_base, "_LifecycleHookLease", ObservedLease)
+        monkeypatch.setattr(component_base, "_LifecyclePublication", ObservedPublication)
+
+    def run(self, p_action: Callable[[], None], q_action: Callable[[], None]) -> None:
+        """Run P and Q, then raise every failure that either recorded."""
+        idents_known = threading.Barrier(3)
+
+        def thread(name: str, action: Callable[[], None]) -> threading.Thread:
+            def body() -> None:
+                if name == "P":
+                    self.p_ident = threading.get_ident()
+                else:
+                    self.q_ident = threading.get_ident()
+                idents_known.wait(HANG_GUARD)
+                try:
+                    action()
+                except BaseException as error:
+                    self.failures.append(error)
+
+            return threading.Thread(target=body, name=name, daemon=True)
+
+        threads = [thread("P", p_action), thread("Q", q_action)]
+        for worker in threads:
+            worker.start()
+        idents_known.wait(HANG_GUARD)
+        for worker in threads:
+            worker.join(3 * HANG_GUARD)
+        assert all(not worker.is_alive() for worker in threads), "a thread hung"
+        if self.failures:
+            details = "\n".join(
+                "".join(traceback.format_exception(type(error), error, error.__traceback__))
+                for error in self.failures
+            )
+            raise AssertionError(f"Cross-dispose failures:\n{details}") from self.failures[0]
+
+
+def _cross_vm(name: str, hub: MessageHub[object], on_construct: Callable[[], None] | None) -> Any:
+    builder = ComponentVMOfBuilder().name(name).services(hub, RxDispatcher.immediate()).model(name)
+    if on_construct is not None:
+        builder = builder.on_construct(on_construct)
+    return builder.build()
+
+
+@pytest.mark.parametrize("cleanup_raises", [False, True], ids=["returns", "raises"])
+def test_dispose_waits_for_a_hook_whose_waiter_was_released(
+    monkeypatch: pytest.MonkeyPatch, cleanup_raises: bool
+) -> None:
+    # #1182 form 1: Q waits for P's lease on a. P finishes a's hook, then
+    # disposes b while b's hook still runs on Q.
+    harness = _CrossDisposeHarness(monkeypatch)
+    p_in_a_hook = threading.Event()
+    b_hook_returned = threading.Event()
+    on_dispose_calls: list[tuple[str, bool]] = []
+    dispose_outcome: list[object] = []
+    vms: dict[str, Any] = {}
+
+    def a_hook() -> None:
+        p_in_a_hook.set()
+        assert harness.q_waits.wait(HANG_GUARD), "Q never waited for a's hook"
+
+    def b_hook() -> None:
+        assert p_in_a_hook.wait(HANG_GUARD)
+        vms["a"].dispose()
+        b_hook_returned.set()
+
+    vms["a"] = _cross_vm("a", MessageHub(), a_hook)
+    vms["b"] = _cross_vm("b", MessageHub(), b_hook)
+
+    def b_on_dispose(_self: object) -> None:
+        on_dispose_calls.append((threading.current_thread().name, b_hook_returned.is_set()))
+        if cleanup_raises:
+            raise RuntimeError("b cleanup failed")
+
+    vms["b"]._on_dispose = types.MethodType(b_on_dispose, vms["b"])
+
+    def p_action() -> None:
+        vms["a"].construct()
+        try:
+            vms["b"].dispose()
+            dispose_outcome.append(list(on_dispose_calls))
+        except RuntimeError as error:
+            dispose_outcome.append(error)
+        finally:
+            harness.p_decided.set()
+
+    harness.run(p_action, vms["b"].construct)
+
+    assert on_dispose_calls == [("P", True)]
+    if cleanup_raises:
+        assert len(dispose_outcome) == 1
+        assert isinstance(dispose_outcome[0], RuntimeError)
+        assert str(dispose_outcome[0]) == "b cleanup failed"
+    else:
+        assert dispose_outcome == [[("P", True)]]
+    assert vms["a"].status is ConstructionStatus.DISPOSED
+    assert vms["b"].status is ConstructionStatus.DISPOSED
+
+
+def test_dispose_waits_for_a_publication_whose_waiter_was_released(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # #1182 form 2: Q waits for P to deliver a's Disposed. P delivers it, then
+    # disposes b while Q still delivers b's Constructing.
+    harness = _CrossDisposeHarness(monkeypatch)
+    hubs: dict[str, MessageHub[object]] = {"a": MessageHub(), "b": MessageHub()}
+    vms = {name: _cross_vm(name, hub, None) for name, hub in hubs.items()}
+    p_in_a_subscriber = threading.Event()
+    on_dispose_runs: list[str] = []
+    b_deliveries: list[tuple[ConstructionStatus, str, bool]] = []
+    disposed_before_return: list[bool] = []
+    subscriber_failures: list[BaseException] = []
+
+    def observe_a(message: object) -> None:
+        if (
+            isinstance(message, ConstructionStatusChangedMessage)
+            and message.status is ConstructionStatus.CONSTRUCTING
+        ):
+            p_in_a_subscriber.set()
+            if not harness.q_waits.wait(HANG_GUARD):
+                subscriber_failures.append(AssertionError("Q never waited for a's drain"))
+
+    def observe_b(message: object) -> None:
+        if not isinstance(message, ConstructionStatusChangedMessage):
+            return
+        b_deliveries.append(
+            (message.status, threading.current_thread().name, bool(on_dispose_runs))
+        )
+        if message.status is ConstructionStatus.CONSTRUCTING:
+            if not p_in_a_subscriber.wait(HANG_GUARD):
+                subscriber_failures.append(AssertionError("P never drained a"))
+            vms["a"].dispose()
+
+    hubs["a"].messages.subscribe(observe_a)
+    hubs["b"].messages.subscribe(observe_b)
+
+    def b_on_dispose(_self: object) -> None:
+        on_dispose_runs.append(threading.current_thread().name)
+
+    vms["b"]._on_dispose = types.MethodType(b_on_dispose, vms["b"])
+
+    def p_action() -> None:
+        vms["a"].construct()
+        try:
+            vms["b"].dispose()
+            disposed_before_return.append(
+                any(status is ConstructionStatus.DISPOSED for status, _, _ in b_deliveries)
+            )
+        finally:
+            harness.p_decided.set()
+
+    harness.run(p_action, vms["b"].construct)
+
+    assert subscriber_failures == []
+    disposed = [entry for entry in b_deliveries if entry[0] is ConstructionStatus.DISPOSED]
+    assert disposed == [(ConstructionStatus.DISPOSED, "Q", False)]
+    assert on_dispose_runs == ["P"]
+    assert disposed_before_return == [True]
+    assert vms["a"].status is ConstructionStatus.DISPOSED
+    assert vms["b"].status is ConstructionStatus.DISPOSED
+
+
+def test_dispose_inside_the_hook_that_its_waiter_waits_for_takes_the_cycle_escape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Real-cycle control for form 1: P disposes b inside a's hook, while Q
+    # waits for a's lease. P still holds that lease, so P defers b's cleanup
+    # to b's hook on Q.
+    harness = _CrossDisposeHarness(monkeypatch)
+    p_in_a_hook = threading.Event()
+    on_dispose_runs: list[str] = []
+    vms: dict[str, Any] = {}
+
+    def a_hook() -> None:
+        p_in_a_hook.set()
+        assert harness.q_waits.wait(HANG_GUARD), "Q never waited for a's hook"
+        try:
+            vms["b"].dispose()
+        finally:
+            harness.p_decided.set()
+
+    def b_hook() -> None:
+        assert p_in_a_hook.wait(HANG_GUARD)
+        vms["a"].dispose()
+
+    vms["a"] = _cross_vm("a", MessageHub(), a_hook)
+    vms["b"] = _cross_vm("b", MessageHub(), b_hook)
+    vms["b"]._on_dispose = types.MethodType(
+        lambda _self: on_dispose_runs.append(threading.current_thread().name), vms["b"]
+    )
+
+    harness.run(vms["a"].construct, vms["b"].construct)
+
+    assert on_dispose_runs == ["Q"]
+    assert vms["a"].status is ConstructionStatus.DISPOSED
+    assert vms["b"].status is ConstructionStatus.DISPOSED
+
+
+def test_dispose_inside_the_drain_that_its_waiter_waits_for_takes_the_cycle_escape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Real-cycle control for form 2: P disposes b inside a's subscriber, while
+    # Q waits for P to deliver a's Disposed. P still drains a, so P leaves b's
+    # Disposed queued for Q's drain and returns.
+    harness = _CrossDisposeHarness(monkeypatch)
+    hubs: dict[str, MessageHub[object]] = {"a": MessageHub(), "b": MessageHub()}
+    vms = {name: _cross_vm(name, hub, None) for name, hub in hubs.items()}
+    p_in_a_subscriber = threading.Event()
+    on_dispose_runs: list[str] = []
+    b_disposed_threads: list[str] = []
+    subscriber_failures: list[BaseException] = []
+
+    def observe_a(message: object) -> None:
+        if (
+            isinstance(message, ConstructionStatusChangedMessage)
+            and message.status is ConstructionStatus.CONSTRUCTING
+        ):
+            p_in_a_subscriber.set()
+            try:
+                if not harness.q_waits.wait(HANG_GUARD):
+                    raise AssertionError("Q never waited for a's drain")
+                vms["b"].dispose()
+            except BaseException as error:
+                subscriber_failures.append(error)
+            finally:
+                harness.p_decided.set()
+
+    def observe_b(message: object) -> None:
+        if not isinstance(message, ConstructionStatusChangedMessage):
+            return
+        if message.status is ConstructionStatus.DISPOSED:
+            b_disposed_threads.append(threading.current_thread().name)
+        elif message.status is ConstructionStatus.CONSTRUCTING:
+            if not p_in_a_subscriber.wait(HANG_GUARD):
+                subscriber_failures.append(AssertionError("P never drained a"))
+            vms["a"].dispose()
+
+    hubs["a"].messages.subscribe(observe_a)
+    hubs["b"].messages.subscribe(observe_b)
+    vms["b"]._on_dispose = types.MethodType(
+        lambda _self: on_dispose_runs.append(threading.current_thread().name), vms["b"]
+    )
+
+    harness.run(vms["a"].construct, vms["b"].construct)
+
+    assert subscriber_failures == []
+    assert on_dispose_runs == ["P"]
+    assert b_disposed_threads == ["Q"]
+    assert vms["a"].status is ConstructionStatus.DISPOSED
+    assert vms["b"].status is ConstructionStatus.DISPOSED

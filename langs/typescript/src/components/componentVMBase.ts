@@ -364,6 +364,13 @@ export abstract class ComponentVMBase {
   #members: ComponentVMBase[] = [];
   /** Set once `dispose()` starts, so a re-entrant call is a no-op. */
   #disposeStarted = false;
+  /**
+   * Set when the inline dispose cascade starts, before the first child or
+   * member is disposed (spec/02 §7.2, ADR-0175). From then on no lifecycle
+   * call starts, no hook is admitted, and no status other than Disposed
+   * commits.
+   */
+  #cascadeStarted = false;
   #activeLifecycleHook = false;
   #terminalCleanupPending = false;
   #terminalCleanupStarted = false;
@@ -472,8 +479,20 @@ export abstract class ComponentVMBase {
     return this.#status;
   }
 
-  #isDisposed(): boolean {
-    return this.#status === ConstructionStatus.Disposed;
+  /** Disposed, or the inline dispose cascade has started (spec/02 §7.2). */
+  #isDisposedOrCascading(): boolean {
+    return this.#status === ConstructionStatus.Disposed || this.#cascadeStarted;
+  }
+
+  /**
+   * A lifecycle call that starts during the inline dispose cascade fails with
+   * the error of the same call on a Disposed VM, before the idempotent no-op,
+   * the legality check and the in-flight check (spec/02 §7.2, ADR-0175).
+   */
+  #refuseDuringDisposeCascade(operation: string): void {
+    if (this.#cascadeStarted) {
+      throw new StatusTransitionError(ConstructionStatus.Disposed, operation);
+    }
   }
 
   get isConstructed(): boolean {
@@ -590,6 +609,7 @@ export abstract class ComponentVMBase {
   // ── Lifecycle operations ─────────────────────────────────────────────────
 
   construct(): void {
+    this.#refuseDuringDisposeCascade("construct");
     if (this.#status === ConstructionStatus.Constructed) return;
 
     requireTransition(this.#status, "construct");
@@ -610,9 +630,9 @@ export abstract class ComponentVMBase {
       drainBackground(this.#sharedScheduler(), () => {
         this.#scheduleBackground(() => {
           // dispose() may have run between scheduling and execution; Disposed is
-          // terminal (spec/02 invariant 3), so skip the work and the marshalled
-          // emission.
-          if (this.#status === ConstructionStatus.Disposed) {
+          // terminal (spec/02 invariant 3), and a started dispose cascade admits
+          // no hook (spec/02 §7.2), so skip the work and the marshalled emission.
+          if (this.#isDisposedOrCascading()) {
             this.#releaseInFlight();
             return;
           }
@@ -647,7 +667,7 @@ export abstract class ComponentVMBase {
           this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
           throw error;
         }
-        if (this.#isDisposed()) return;
+        if (this.#isDisposedOrCascading()) return;
         let deferred: DeferredLifecycle | null;
         try {
           deferred = this.#runLifecycleHookPhase(() => this._onConstruct());
@@ -672,6 +692,7 @@ export abstract class ComponentVMBase {
   }
 
   destruct(): void {
+    this.#refuseDuringDisposeCascade("destruct");
     if (this.#status === ConstructionStatus.Destructed) return;
 
     requireTransition(this.#status, "destruct");
@@ -692,9 +713,9 @@ export abstract class ComponentVMBase {
       drainBackground(this.#sharedScheduler(), () => {
         this.#scheduleBackground(() => {
           // dispose() may have run between scheduling and execution; Disposed is
-          // terminal (spec/02 invariant 3), so skip the work and the marshalled
-          // emission.
-          if (this.#status === ConstructionStatus.Disposed) {
+          // terminal (spec/02 invariant 3), and a started dispose cascade admits
+          // no hook (spec/02 §7.2), so skip the work and the marshalled emission.
+          if (this.#isDisposedOrCascading()) {
             this.#releaseInFlight();
             return;
           }
@@ -729,7 +750,7 @@ export abstract class ComponentVMBase {
           this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
           throw error;
         }
-        if (this.#isDisposed()) return;
+        if (this.#isDisposedOrCascading()) return;
         let deferred: DeferredLifecycle | null;
         try {
           deferred = this.#runLifecycleHookPhase(() => this._onDestruct());
@@ -753,6 +774,7 @@ export abstract class ComponentVMBase {
   }
 
   reconstruct(): void {
+    this.#refuseDuringDisposeCascade("reconstruct");
     requireTransition(this.#status, "reconstruct");
 
     if (this.#inFlight) {
@@ -768,7 +790,7 @@ export abstract class ComponentVMBase {
         this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
         throw error;
       }
-      if (this.#isDisposed()) return;
+      if (this.#isDisposedOrCascading()) return;
       let deferred: DeferredLifecycle | null;
       try {
         deferred = this.#runLifecycleHookPhase(() => this._onDestruct());
@@ -821,7 +843,7 @@ export abstract class ComponentVMBase {
    */
   #reconstructConstructPhase(): boolean {
     this._setStatus(ConstructionStatus.Destructed);
-    if (this.#isDisposed()) return false;
+    if (this.#isDisposedOrCascading()) return false;
 
     try {
       this._setStatus(ConstructionStatus.Constructing);
@@ -829,7 +851,7 @@ export abstract class ComponentVMBase {
       this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
       throw error;
     }
-    if (this.#isDisposed()) return false;
+    if (this.#isDisposedOrCascading()) return false;
     let deferred: DeferredLifecycle | null;
     try {
       deferred = this.#runLifecycleHookPhase(() => this._onConstruct());
@@ -964,7 +986,7 @@ export abstract class ComponentVMBase {
     // The hook may have registered a deferral through _transitionChildren.
     const deferred = this.#deferredLifecycle as DeferredLifecycle | null;
     this.#deferredLifecycle = null;
-    if (deferred !== null && this.#isDisposed()) {
+    if (deferred !== null && this.#isDisposedOrCascading()) {
       this.#abandonDeferredLifecycle();
       return null;
     }
@@ -979,11 +1001,27 @@ export abstract class ComponentVMBase {
   }
 
   /**
-   * Stop waiting for a pending child transition without settling this VM.
-   * Containers call this at the start of `dispose()`, before disposing their
-   * children, so a child reaching Disposed does not roll this VM back first.
+   * Stop waiting for a pending child transition without settling this VM, so
+   * a child reaching Disposed does not roll this VM back first. The VMx
+   * containers do this through `_beginDisposeCascade` at the start of
+   * `dispose()`, which also closes hook admission.
    */
   protected _abandonChildTransition(): void {
+    this.#abandonDeferredLifecycle();
+  }
+
+  /**
+   * @internal Unsupported: not part of the public API; containers only.
+   * Start the inline dispose cascade (spec/02 §7.2, ADR-0175). A container
+   * calls this at the start of `dispose()`, before it disposes its first
+   * child. It abandons a pending child wait, as `_abandonChildTransition`
+   * does, and closes hook admission: until this VM publishes Disposed, a
+   * `construct()`, `destruct()` or `reconstruct()` call throws the
+   * `StatusTransitionError` of a Disposed VM, no hook runs, and no status
+   * other than Disposed commits.
+   */
+  protected _beginDisposeCascade(): void {
+    this.#cascadeStarted = true;
     this.#abandonDeferredLifecycle();
   }
 
@@ -1178,6 +1216,8 @@ export abstract class ComponentVMBase {
     // the outer call finishes the teardown.
     if (this.#status === ConstructionStatus.Disposed || this.#disposeStarted) return;
     this.#disposeStarted = true;
+    // The member cascade closes hook admission first (spec/02 §7.2).
+    this.#cascadeStarted = true;
 
     disposeBestEffort([
       // A transition waiting on a child never settles once Disposed.
@@ -1380,6 +1420,10 @@ export abstract class ComponentVMBase {
     // racing dispose() must neither resurrect the VM nor publish
     // post-dispose status messages.
     if (this.#status === ConstructionStatus.Disposed) return;
+    // Once the inline dispose cascade has started, the next and last status is
+    // Disposed (spec/02 §7.2, ADR-0175). A commit, rollback or restore of a
+    // transition that started earlier publishes nothing.
+    if (this.#cascadeStarted && newStatus !== ConstructionStatus.Disposed) return;
 
     this.#status = newStatus;
 

@@ -5,7 +5,9 @@
 - Current source: Swift 3.31.0 implementing spec 3.30.0
 - Install and package status: see [Installation](../installation.md) and
   [Availability](../index.md#11-availability).
-- Reactive primitive: `Combine`
+- Reactive primitive: `Combine`. `FormVM` channels and the `canExecuteChanged`
+  of its commands call sinks without a delivery lock (ADR-0174), as C# and
+  Python do, so one sink can run on two threads at once.
 - Naming idiom: camelCase
 - Hub delivery and notification replay: see
   [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering)

@@ -78,7 +78,32 @@ final class ParentTransfer {
 
 private let ownershipTransactionCoordinator = NSRecursiveLock()
 
-private func acquireOwnershipIdentities(_ children: [ComponentVMBase]) -> [ComponentVMBase] {
+/// Takes `identity`'s ownership gate without blocking. The first hold of the
+/// calling thread records it as the gate's holder in `ThreadWaitGraph`, so a
+/// thread that waits for the gate can see the cycle (spec/03 §4.1, #1154).
+private func tryHoldOwnershipGate(_ identity: ComponentVMBase) -> Bool {
+    guard identity.ownershipGate.try() else { return false }
+    identity.ownershipGateHolds += 1
+    if identity.ownershipGateHolds == 1 {
+        ThreadWaitGraph.shared.acquire(
+            resource: ObjectIdentifier(identity.ownershipGate),
+            thread: ThreadWaitGraph.currentThread
+        )
+    }
+    return true
+}
+
+/// Releases one hold of `identity`'s ownership gate. The last hold removes the
+/// holder from `ThreadWaitGraph` before the gate unlocks (release before wake).
+private func releaseOwnershipGate(_ identity: ComponentVMBase) {
+    identity.ownershipGateHolds -= 1
+    if identity.ownershipGateHolds == 0 {
+        ThreadWaitGraph.shared.releaseHolder(resource: ObjectIdentifier(identity.ownershipGate))
+    }
+    identity.ownershipGate.unlock()
+}
+
+private func acquireOwnershipIdentities(_ children: [ComponentVMBase]) throws -> [ComponentVMBase] {
     var seen = Set<ObjectIdentifier>()
     let identities = children.compactMap { child -> ComponentVMBase? in
         let identity = child._ownershipIdentity
@@ -89,34 +114,47 @@ private func acquireOwnershipIdentities(_ children: [ComponentVMBase]) -> [Compo
         var blocked: ComponentVMBase?
         ownershipTransactionCoordinator.lock()
         for identity in identities {
-            if identity.ownershipGate.try() {
+            if tryHoldOwnershipGate(identity) {
                 acquired.append(identity)
             } else {
                 blocked = identity
                 break
             }
         }
-        if blocked == nil {
+        guard let blocked else {
             ownershipTransactionCoordinator.unlock()
             return identities
         }
-        for identity in acquired.reversed() { identity.ownershipGate.unlock() }
+        for identity in acquired.reversed() { releaseOwnershipGate(identity) }
         ownershipTransactionCoordinator.unlock()
 
-        // Never retain the coordinator or another child while waiting. Once
-        // this blocker moves, retry the complete identity set atomically.
-        blocked!.ownershipGate.lock()
-        blocked!.ownershipGate.unlock()
+        // Never retain the coordinator or another child while waiting. A wait
+        // that would close a wait-for cycle fails before any mutation: the
+        // gate's holder already waits, directly or through other threads, for
+        // this one (spec/03 §4.1). Once this blocker moves, retry the complete
+        // identity set atomically.
+        let caller = ThreadWaitGraph.currentThread
+        guard ThreadWaitGraph.shared.beginResourceWait(
+            caller: caller,
+            resource: ObjectIdentifier(blocked.ownershipGate)
+        ) else {
+            throw ContainerOwnershipTransactionError()
+        }
+        blocked.ownershipGate.lock()
+        // End the edge while this thread holds the gate, so no later holder
+        // inherits it.
+        ThreadWaitGraph.shared.endWait(caller: caller)
+        blocked.ownershipGate.unlock()
     }
 }
 
 func withOwnershipReservationBatch<T>(
     _ children: [ComponentVMBase],
     _ body: () throws -> T
-) rethrows -> T {
-    let identities = acquireOwnershipIdentities(children)
+) throws -> T {
+    let identities = try acquireOwnershipIdentities(children)
     defer {
-        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+        for identity in identities.reversed() { releaseOwnershipGate(identity) }
     }
     return try body()
 }
@@ -125,15 +163,15 @@ func withExclusiveOwnershipReservationBatch<T>(
     _ children: [ComponentVMBase],
     _ body: () throws -> T
 ) throws -> T {
-    let identities = acquireOwnershipIdentities(children)
+    let identities = try acquireOwnershipIdentities(children)
     guard !identities.contains(where: { $0.ownershipInProgress }) else {
-        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+        for identity in identities.reversed() { releaseOwnershipGate(identity) }
         throw ContainerOwnershipTransactionError()
     }
     for identity in identities { identity.ownershipInProgress = true }
     defer {
         for identity in identities { identity.ownershipInProgress = false }
-        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+        for identity in identities.reversed() { releaseOwnershipGate(identity) }
     }
     return try body()
 }
@@ -144,9 +182,9 @@ func beginParentTransfer(
     transaction: ContainerOwnershipTransaction
 ) throws -> ParentTransfer {
     let identity = child._ownershipIdentity
-    _ = acquireOwnershipIdentities([identity])
+    _ = try acquireOwnershipIdentities([identity])
     guard !identity.ownershipInProgress else {
-        identity.ownershipGate.unlock()
+        releaseOwnershipGate(identity)
         throw ContainerOwnershipTransactionError()
     }
     identity.ownershipInProgress = true
@@ -172,14 +210,14 @@ func beginParentTransfer(
         }
     } catch {
         identity.ownershipInProgress = false
-        identity.ownershipGate.unlock()
+        releaseOwnershipGate(identity)
         throw error
     }
 
     func finish(commit: Bool) {
         defer {
             identity.ownershipInProgress = false
-            identity.ownershipGate.unlock()
+            releaseOwnershipGate(identity)
         }
         if commit { staged?.commit() } else { staged?.rollback() }
     }
@@ -228,8 +266,12 @@ func releaseMembershipWaiters(of container: AnyObject) {
 /// delegate invocations or reactivex/rxjs Subjects that invoke subscribers
 /// without holding a per-subject send lock; this custom Subject mirrors that
 /// concurrency contract in Swift. Drop-in replacement for `PassthroughSubject`
-/// on the per-VM `propertyChangedSubject`.
-private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
+/// on the per-VM `propertyChangedSubject` and on every `FormVM` channel
+/// (ADR-0174). One `send(_:)` delivers to subscribers in subscription order;
+/// two concurrent `send(_:)` calls are not ordered. Like `PassthroughSubject`,
+/// it honors each subscriber's demand: a value that arrives while a
+/// subscriber has no outstanding demand is dropped for that subscriber.
+final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
     private final class TokenSubscription: Subscription {
         private weak var parent: VMxConcurrentSubject<Output, Failure>?
         private let token: UUID
@@ -239,8 +281,7 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
             self.token = token
         }
         func request(_ demand: Subscribers.Demand) {
-            // Unlimited demand — mirrors PassthroughSubject's event-driven
-            // (non-backpressured) semantics for VMx property-change notifications.
+            parent?.addDemand(demand, token: token)
         }
         func cancel() {
             guard !cancelled else { return }
@@ -252,7 +293,9 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
     private final class Entry {
         let receiveValue: (Output) -> Subscribers.Demand
         let receiveCompletion: (Subscribers.Completion<Failure>) -> Void
+        // Both are guarded by the subject's `lock`.
         var cancelled: Bool = false
+        var demand: Subscribers.Demand = .none
         init(
             receiveValue: @escaping (Output) -> Subscribers.Demand,
             receiveCompletion: @escaping (Subscribers.Completion<Failure>) -> Void
@@ -263,18 +306,53 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
     }
 
     private let lock = NSLock()
-    private var entries: [UUID: Entry] = [:]
+    // Kept in subscription order, so one sender delivers in that order.
+    private var entries: [(token: UUID, entry: Entry)] = []
     private var finished = false
 
     public func send(_ value: Output) {
         lock.lock()
-        let snapshot = Array(entries.values)
+        let snapshot = entries.map(\.entry)
         let isFinished = finished
         lock.unlock()
         if isFinished { return }
-        for entry in snapshot where !entry.cancelled {
-            _ = entry.receiveValue(value)
+        for entry in snapshot where claimDemand(entry) {
+            // No lock is held while the subscriber runs.
+            let more = entry.receiveValue(value)
+            if more > .none {
+                lock.lock()
+                if !entry.cancelled { entry.demand += more }
+                lock.unlock()
+            }
         }
+    }
+
+    /// Takes one unit of demand from a live entry under `lock`. Returns
+    /// `false`, so the value is dropped for that entry, when it was cancelled
+    /// or has no outstanding demand, as `PassthroughSubject` does.
+    private func claimDemand(_ entry: Entry) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !entry.cancelled, entry.demand > .none else { return false }
+        if entry.demand != .unlimited { entry.demand -= 1 }
+        return true
+    }
+
+    /// Reads `cancelled` under `lock`; `removeSubscriber` sets it there.
+    private func isLive(_ entry: Entry) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !entry.cancelled
+    }
+
+    /// Adds demand that a subscriber requested through its subscription.
+    fileprivate func addDemand(_ demand: Subscribers.Demand, token: UUID) {
+        guard demand > .none else { return }
+        lock.lock()
+        if let entry = entries.first(where: { $0.token == token })?.entry {
+            entry.demand += demand
+        }
+        lock.unlock()
     }
 
     public func send(completion: Subscribers.Completion<Failure>) {
@@ -284,10 +362,10 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
             return
         }
         if case .finished = completion { finished = true }
-        let snapshot = Array(entries.values)
+        let snapshot = entries.map(\.entry)
         if case .finished = completion { entries.removeAll() }
         lock.unlock()
-        for entry in snapshot where !entry.cancelled {
+        for entry in snapshot where isLive(entry) {
             entry.receiveCompletion(completion)
         }
     }
@@ -308,7 +386,7 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
         lock.lock()
         let alreadyFinished = finished
         if !alreadyFinished {
-            entries[token] = entry
+            entries.append((token: token, entry: entry))
         }
         lock.unlock()
         subscriber.receive(subscription: TokenSubscription(parent: self, token: token))
@@ -319,7 +397,8 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
 
     fileprivate func removeSubscriber(token: UUID) {
         lock.lock()
-        let removed = entries.removeValue(forKey: token)
+        let index = entries.firstIndex { $0.token == token }
+        let removed = index.map { entries.remove(at: $0).entry }
         removed?.cancelled = true
         lock.unlock()
         // The entry owns the subscriber; release it after `lock` (non-recursive)
@@ -751,6 +830,8 @@ open class ComponentVMBase {
 
     func _ownershipParentDidChange() {}
     fileprivate let ownershipGate = NSRecursiveLock()
+    // The calling thread's recursive holds of `ownershipGate`; guarded by it.
+    fileprivate var ownershipGateHolds = 0
     fileprivate var ownershipInProgress = false
 
     // ── Reactive primitives ─────────────────────────────────────────────
@@ -819,12 +900,17 @@ open class ComponentVMBase {
     private var activeHookLease: LifecycleHookLease?
     private var disposalCleanupPendingForHook = false
     private var disposalFinished = false
-    /// Set while a dispose cascade runs ahead of this VM's terminal
-    /// transition: no lifecycle hook is admitted meanwhile (LIFE-015).
+    /// Set when an inline dispose cascade starts, ahead of this VM's
+    /// terminal transition, and never cleared. From then on no lifecycle hook
+    /// is admitted (LIFE-015), a lifecycle call fails with the `.disposed`
+    /// error, and no status other than `.disposed` commits (spec/02 §7.2,
+    /// LIFE-021).
     private var hookAdmissionClosed = false
     /// The child and member cascade of a disposal that found a foreign hook
     /// admitted; `_finishDisposalNow` runs it after the lease (LIFE-015).
     private var deferredDisposalCascade: (() -> [ComponentVMBase])?
+    /// Test-only seam (#1167); see `afterHookReleaseForTesting`.
+    private var _afterHookReleaseForTesting: (() -> Void)?
 
     // ── Deferred child transitions (spec/02 §6, LIFE-014) ───────────────
 
@@ -1056,6 +1142,15 @@ open class ComponentVMBase {
 
     public func construct() throws {
         lifecycleLock.lock()
+        // During the inline dispose cascade the call fails as it fails from
+        // `.disposed`, before the idempotent, legality and in-flight checks
+        // (spec/02 §7.2, LIFE-021).
+        if hookAdmissionClosed {
+            lifecycleLock.unlock()
+            throw StatusTransitionError(
+                currentStatus: .disposed, attemptedOperation: "construct"
+            )
+        }
         let current = _status
         if disposalRequested || inFlight {
             lifecycleLock.unlock()
@@ -1106,6 +1201,7 @@ open class ComponentVMBase {
                 throw error
             }
             _finishHook(lease)
+            _runAfterHookReleaseForTesting()
             _completeTransitionAfterChildren(
                 success: .constructed,
                 rollback: current,
@@ -1116,6 +1212,15 @@ open class ComponentVMBase {
 
     public func destruct() throws {
         lifecycleLock.lock()
+        // During the inline dispose cascade the call fails as it fails from
+        // `.disposed`, before the idempotent, legality and in-flight checks
+        // (spec/02 §7.2, LIFE-021).
+        if hookAdmissionClosed {
+            lifecycleLock.unlock()
+            throw StatusTransitionError(
+                currentStatus: .disposed, attemptedOperation: "destruct"
+            )
+        }
         let current = _status
         if disposalRequested || inFlight {
             lifecycleLock.unlock()
@@ -1166,6 +1271,7 @@ open class ComponentVMBase {
                 throw error
             }
             _finishHook(lease)
+            _runAfterHookReleaseForTesting()
             _completeTransitionAfterChildren(
                 success: .destructed,
                 rollback: current,
@@ -1176,6 +1282,15 @@ open class ComponentVMBase {
 
     public func reconstruct() throws {
         lifecycleLock.lock()
+        // During the inline dispose cascade the call fails as it fails from
+        // `.disposed`, before the idempotent, legality and in-flight checks
+        // (spec/02 §7.2, LIFE-021).
+        if hookAdmissionClosed {
+            lifecycleLock.unlock()
+            throw StatusTransitionError(
+                currentStatus: .disposed, attemptedOperation: "reconstruct"
+            )
+        }
         let current = _status
         if disposalRequested || inFlight {
             lifecycleLock.unlock()
@@ -1394,7 +1509,8 @@ open class ComponentVMBase {
     func _flipConstructedForSeal() {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        guard inFlight, !disposalRequested, _status == .constructing else { return }
+        guard inFlight, !disposalRequested, !hookAdmissionClosed,
+              _status == .constructing else { return }
         _status = .constructed
         commitPending = true
     }
@@ -1583,7 +1699,12 @@ open class ComponentVMBase {
     /// the members are being disposed returns at once. While a construct or
     /// destruct hook of this VM runs on another thread, this VM publishes
     /// `.disposed` first. It disposes no child or member until that hook
-    /// returns (LIFE-015).
+    /// returns (LIFE-015). Otherwise the children and members are disposed
+    /// inline, before `.disposed`. A `construct()`, `destruct()` or
+    /// `reconstruct()` call that starts during that inline cascade throws
+    /// ``StatusTransitionError`` for `.disposed`, and a transition that
+    /// started earlier commits no status other than `.disposed`
+    /// (spec/02 §7.2, LIFE-021).
     open func dispose() { _disposeAtHookBoundary(children: nil) }
 
     /// A container's `dispose()` calls this, holding no lock, instead of
@@ -1898,8 +2019,13 @@ open class ComponentVMBase {
         generation: UInt64
     ) -> Bool {
         lifecycleLock.lock()
+        // Once the inline dispose cascade has started, the next and last
+        // status is `.disposed`: a settled commit, a rollback, a queued
+        // background commit and the reconstruct construct phase are dropped
+        // and publish nothing (spec/02 §7.2, LIFE-021).
         guard transitionGeneration == generation,
               !disposalRequested,
+              !hookAdmissionClosed,
               _status != .disposed else {
             lifecycleLock.unlock()
             return false
@@ -1917,6 +2043,29 @@ open class ComponentVMBase {
         let succeeded = publication.publication.succeeded
         lifecycleLock.unlock()
         return succeeded
+    }
+
+    /// Test-only seam (#1167): runs on the calling thread after a synchronous
+    /// `construct()` or `destruct()` hook released its lease and before the
+    /// transition commits, so a test can start a disposal in that window.
+    var afterHookReleaseForTesting: (() -> Void)? {
+        get {
+            lifecycleLock.lock()
+            defer { lifecycleLock.unlock() }
+            return _afterHookReleaseForTesting
+        }
+        set {
+            lifecycleLock.lock()
+            _afterHookReleaseForTesting = newValue
+            lifecycleLock.unlock()
+        }
+    }
+
+    private func _runAfterHookReleaseForTesting() {
+        lifecycleLock.lock()
+        let seam = _afterHookReleaseForTesting
+        lifecycleLock.unlock()
+        seam?()
     }
 
     /// Test-only seam (#1056): commits `status` for the transition in flight,
@@ -1974,6 +2123,7 @@ open class ComponentVMBase {
             guard let generation = publication.generation,
                   transitionGeneration == generation,
                   !disposalRequested,
+                  !hookAdmissionClosed,
                   _status != .disposed else { return }
         }
         _status = publication.status
