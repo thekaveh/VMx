@@ -70,15 +70,18 @@ lines cannot compete for the same generic tag.
 
 ## 3. What the Pipeline Does
 
-1. Verifies the operational tag commit is reachable from `origin/main`.
-2. Fetches `v<X.Y.Z>` and requires it to point at the same commit as
-   `swift-v<X.Y.Z>`.
-3. Requires both tag versions to equal `VMxVersion.current`.
+1. The `release-metadata` preflight runs
+   `tools/check-version-consistency.py --release-tag swift-v<X.Y.Z>`. It checks
+   versions, tags, and a substantive changelog section with an empty
+   `[Unreleased]`.
+2. Verifies the operational tag commit is reachable from `origin/main`.
+3. Requires the `swift-v<X.Y.Z>` version to equal `VMxVersion.current`. Then it
+   fetches `v<X.Y.Z>` and requires it to point at the same commit.
 4. Compares the evaluated root and nested manifests.
 5. Release-builds and tests both package roots on full Xcode. These tests load
    all four bundled conformance fixtures.
 6. Creates a completely fresh package using
-   `.package(url: "https://github.com/thekaveh/VMx.git", from: "X.Y.Z")`.
+   `.package(url: "https://github.com/thekaveh/VMx.git", exact: "X.Y.Z")`.
    It builds from the public URL, verifies all four JSON files are in the built
    resource bundle, imports VMx, checks the resolved version, and executes a
    construct/destruct/dispose lifecycle round trip.

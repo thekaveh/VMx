@@ -663,3 +663,11 @@ delivers its events through `VMxConcurrentSubject` (`FORM-039`, `FORM-040`).
 The catalog now contains 446 library IDs plus 5 scenario IDs.
 
 See ADR-0174 and chapter 20 §5.1, §5.3, and §5.4.
+v3.30.0 also makes a failing local subscriber leave the hub message intact. A
+hub-publishing collection or container that commits a change sends exactly one
+`CollectionChangedMessage` for it, even when a local subscriber fails. C# and
+Python then rethrow the first failure; TypeScript, Swift, and Rust return
+normally (`COL-066`). The catalog now contains 445 library IDs plus 5 scenario
+IDs.
+
+See ADR-0171, chapter 01 §1.4, and chapter 21 §2.5.

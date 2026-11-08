@@ -5,6 +5,11 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-08
+
+First npm release since 0.1.1. The `react-v0.1.2` tag never reached npm, so
+this package also contains every change listed below for 0.1.2.
+
 ### Fixed
 
 - The locked development dependency graph now uses `minimatch` 11.0.3 through

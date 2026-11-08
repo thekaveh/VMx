@@ -239,9 +239,20 @@ Every effective mutation follows this order:
 1. Publish the equivalent `CollectionChangedMessage` to the optional hub.
 
 Local delivery always precedes hub delivery, and subscribers to both channels
-can read the complete final state. Subscriber failures follow the flavor's
-established local-reactive and message-hub delivery rules; this primitive adds
-no new failure policy.
+can read the complete final state.
+
+A failing local subscriber does not undo the committed change and does not
+suppress its hub message. The collection still publishes exactly one
+`CollectionChangedMessage` for the change (ADR-0171). C# and Python then
+rethrow the first failure, and a local failure takes precedence over a later
+hub failure. In the dictionary (§4), a failing granular-event handler also does
+not skip the later local `CollectionChanged` event. TypeScript reports a local
+subscriber failure through rxjs, and the call returns normally. Rust catches a
+panicking local subscriber, and the call returns normally. Swift local
+subscribers cannot fail. A failing hub subscriber follows the hub's own delivery
+rules (chapter 03). The rule covers the local collection-change channel and the
+dictionary's granular events. It does not cover C# `PropertyChanged` handlers or
+subscribers of the dictionary's key views.
 
 Publication happens **on the same thread as the mutation**. The collection does
 not marshal to any scheduler and does not observe any `IDispatcher`. Consumers
@@ -264,7 +275,7 @@ Consumers that need lifecycle-cascading VM ownership should use `CompositeVM` /
 
 ### 2.7 Conformance
 
-`COL-001` through `COL-004` and `COL-048` through `COL-055` in
+`COL-001` through `COL-004`, `COL-048` through `COL-055`, and `COL-066` in
 `12-conformance.md`.
 
 ### 2.8 `KeyedServicedObservableCollection<TKey, TItem>` shape
@@ -508,7 +519,8 @@ caller-owned lifecycle rule in §2.6.
 `COL-056` through `COL-064` in `12-conformance.md` cover captured lookup,
 uniqueness and failure atomicity, upsert, keyed deletion, synchronization and
 explicit rekeying, whole-list replacement, move/clear/ownership, delivery and
-hub transactions, and reentrant consistency.
+hub transactions, and reentrant consistency. `COL-066` covers a failing local
+subscriber.
 
 ## 3. `ObservableList<T>`
 
@@ -726,7 +738,8 @@ insertion order must document the deviation in
 If a hub is provided at construction time (following the same pattern as
 `ServicedObservableCollection<T>` §2.2), mutations publish a
 `CollectionChangedMessage` to the hub after the local `CollectionChanged` event.
-Null-hub fallback applies. Open Rust gap: the Rust dictionary has no local
+A failing local handler does not suppress the hub message (§2.5). Null-hub
+fallback applies. Open Rust gap: the Rust dictionary has no local
 event and requires a hub (§4.2).
 
 ### 4.7 Hub message element shape
@@ -751,7 +764,7 @@ cleared). This divergence between flavors is catalogued in ADR-0009.
 
 ### 4.8 Conformance
 
-`COL-010` through `COL-015` and `COL-022` in `12-conformance.md`.
+`COL-010` through `COL-015`, `COL-022`, and `COL-066` in `12-conformance.md`.
 
 ## 5. Paging: `PagedComposition<TVM>`
 
@@ -964,7 +977,11 @@ unchanged, publishes nothing, and surfaces the failure through the command.
 Each load or refresh supersedes every operation started before it. An
 operation that completes after a later load or refresh started is stale: it
 MUST return without mutating state or publishing notifications, and it skips
-auto-construction when it detects that it is stale before constructing.
+auto-construction when it detects that it is stale before constructing. A
+`LoadMoreCommand` run that finds `HasMore` false when its load starts, because a
+refresh or another load committed a terminal token after the command admitted
+the run, is not an operation start: it MUST NOT call `fetch_next`, mutate
+state, publish notifications, or supersede any operation.
 
 When auto-construction is enabled and returned items are VMx component VMs,
 they are constructed before the reset event is emitted. C# enables it with the
@@ -1028,9 +1045,9 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-065` and `AGCH-001` through `AGCH-010` in
+`COL-001` through `COL-066` and `AGCH-001` through `AGCH-010` in
 `12-conformance.md`. Applicable ADRs:
-ADR-0024, ADR-0096, and ADR-0097 (§2), ADR-0026 and ADR-0089 (§3),
+ADR-0024, ADR-0096, ADR-0097, and ADR-0171 (§2), ADR-0026 and ADR-0089 (§3),
 ADR-0025 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085 (shared Move
 semantics), and ADR-0098 (§9).
 

@@ -137,8 +137,8 @@ joined by the construct walk (chapter 06 §5.1). C#, Python and TypeScript pass
 the live membership to the `Current(selector)` callback. Swift passes the
 membership taken before the walk, so the selector does not see a late child.
 The live membership can contain a child that an add has attached but not yet
-admitted. C# and Python treat that child as not contained, so selecting it is
-a no-op (ADR-0165).
+admitted. Every flavor treats that child as not contained, so selecting it is
+a no-op (ADR-0165, ADR-0173).
 
 ### 2.8. Removing a child during the construct walk
 
@@ -151,18 +151,26 @@ skipped. The spec does not say which behavior is intended.
 
 ### 2.9. Selecting from a composite's own structural transaction
 
-Chapter 06 §4 says a selection invoked from an existing structural transaction
-MAY reuse it. C# and Python reuse it, so a `CollectionChanged` subscriber can
-select in the composite that is publishing an add. Swift rejects that
-selection: `selectComponent` throws `CompositeMembershipError` and
-`selectChild` does nothing
-(`langs/swift/Sources/VMx/Composites/CompositeVM.swift`,
-`membershipTransactionHeldByCallerLocked`). Rust returns
-`OwnershipTransactionInProgress` (§4). For this reason the Swift COMP-026
-collection/current crossing test selects in a second composite, not in the
-composite that is publishing. It cannot run the C# and Python scenario. In every
-flavor, an add to the same composite from that subscriber's call chain is
-rejected (ADR-0118).
+**Decided by ADR-0173** (2026-11-07, under the owner's delegation). The item
+stays here so that the section numbers do not change. Chapter 06 §4.3 now
+states the rule for every flavor:
+
+- No selection opens, joins or waits for a membership transaction.
+- On the thread that owns an uncommitted transaction of the composite, every
+  selection call fails with the "membership transaction in progress" error,
+  also a null clear. A transaction is uncommitted while an attached child
+  waits for admission, a population is staged, or a transfer's detach has not
+  committed. A failed add therefore needs no `Current` restore, and a hook
+  that selects an admitted sibling or clears `Current` cannot survive the
+  rollback.
+- From the commit on, including the `CollectionChanged` publication, the
+  owner thread's selection commits. A `CollectionChanged` subscriber can
+  select in the composite that is publishing an add.
+
+Before ADR-0173, C# and Python reused the transaction in both phases, and
+TypeScript, Swift and Rust rejected the selection in both phases. An add to
+the same composite from that subscriber's call chain stays rejected in every
+flavor (ADR-0118).
 
 ### 2.10. Cross-thread membership admission
 
@@ -232,9 +240,7 @@ ADR-0037 and ADR-0053.
 
 ## 4. Tests parked as known defects
 
-- COMP-026, Rust: two tests ignored. Selection holds its membership transaction
-  across the collection callback and across a concurrent selection
-  (`langs/rust/tests/conformance/composite_vm.rs:1685`, `:1759`).
+None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 
 ## 5. Related records
 
