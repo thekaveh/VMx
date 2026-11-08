@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `TokenPagedComposition`: a load that finds a terminal token when it
+  starts now fetches nothing (#1161, ADR-0169). A refresh or another load could
+  commit a terminal token after the load command was admitted. The load then
+  refetched page 1 and appended it again, and `HasMore` stayed true. The load
+  now changes nothing and does not supersede an in-flight refresh.
+
 - Added: the opt-in `TreeSelection<TModel, TVM>` helper (`VMx.Hierarchical`)
   holds one current node of a hierarchical tree (#667, ADR-0164,
   HIER-033..HIER-040). It is constructed on a root node and exposes `Current`,

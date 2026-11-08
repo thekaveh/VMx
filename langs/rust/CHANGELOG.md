@@ -226,6 +226,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `another_threads_approval_waits_and_replays_only_its_own_deferred_edit`.
   `disposal_during_an_emission_skips_the_callbacks_not_yet_invoked` now
   disposes from an approval subscriber on the approving thread.
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command admitted the run. The load then
+  refetched page 1 and appended it again, and `has_more()` stayed true. The load
+  now changes nothing and does not supersede an in-flight refresh. The ad hoc
+  `load_more(loader)` call is unchanged.
 - A `FormVm` approval started from another approval's settlement notification
   now runs its approval subscribers with model edits applied at once (#1160).
   Before, the outer approval's pre-publication window stayed active, so those
