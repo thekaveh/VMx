@@ -122,8 +122,12 @@ The cache remains empty and a later access retries the factory.
 
 Swift exposes fallible `tryChildren()` and Rust exposes `try_children()` for
 this validation result. Their existing `children` accessors delegate and fail
-fast on invalid factory output for source compatibility. C#, Python, and
-TypeScript use their ordinary invalid-operation errors.
+fast on invalid factory output for source compatibility. Swift `isLeaf` and
+Rust `is_leaf` read those accessors and follow the same rule. C#, Python, and
+TypeScript use their ordinary invalid-operation errors. The tree utilities
+`walk`, `walk_expanded`, and `find` read the fallible accessors in Swift and
+Rust, so they report the error in every flavor and never fail fast
+(chapter 13 §6.1, ADR-0170).
 
 Constructor option `eagerChildren=true` (C# / TS) / `eager_children=True`
 (Python) / `eagerChildren: true` (Swift) / builder method

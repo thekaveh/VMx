@@ -1,7 +1,8 @@
+use notes_showcase::models::note_matches;
 use notes_showcase::viewmodels::NoteFormVm;
 use notes_showcase::{InMemoryNoteRepository, NoteModel, NotebookModel, WorkspaceVm};
 use pretty_assertions::assert_eq;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::thread;
 use std::time::Duration;
 use vmx::{ConstructionStatus, NotificationType, VmNode};
@@ -181,6 +182,181 @@ fn global_search_refresh_after_the_last_page_keeps_results_without_duplicates() 
     assert!(!search.can_load_more());
     search.load_more();
     assert_eq!(search.result_titles(), all);
+}
+
+#[test]
+fn global_search_load_more_continues_the_term_of_the_loaded_pages() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let search = workspace.global_search();
+
+    search.set_query("vmx");
+    search.refresh();
+    search.set_query("in");
+    search.load_more();
+
+    assert_eq!(
+        search.result_titles(),
+        vec!["Rust flavor parity", "VMx inspector notes", "Theme polish"]
+    );
+}
+
+#[test]
+fn global_search_refresh_for_another_term_replaces_the_loaded_pages() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let search = workspace.global_search();
+
+    search.set_query("in");
+    search.refresh();
+    search.load_more();
+    assert_eq!(search.result_titles().len(), 4);
+
+    // The first `and` page equals the head of the `in` results by note, but
+    // not by term, so the refresh replaces the pages and their cursor.
+    search.set_query("and");
+    search.refresh();
+    assert_eq!(
+        search.result_titles(),
+        vec!["Release channels", "Documentation refresh"]
+    );
+    assert!(search.can_load_more());
+
+    search.load_more();
+    assert_eq!(
+        search.result_titles(),
+        vec![
+            "Release channels",
+            "Documentation refresh",
+            "VMx inspector notes"
+        ]
+    );
+    assert!(!search.can_load_more());
+}
+
+/// Asserts that every result matches `term` and that no title repeats.
+fn assert_results_match_once(titles: &[String], repository: &InMemoryNoteRepository, term: &str) {
+    let notes = repository.notes();
+    for title in titles {
+        let note = notes
+            .iter()
+            .find(|note| &note.title == title)
+            .expect("each result is a repository note");
+        assert!(
+            note_matches(note, term),
+            "{title:?} does not match {term:?}: {titles:?}"
+        );
+    }
+    let mut unique = titles.to_vec();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), titles.len(), "a title repeats: {titles:?}");
+}
+
+#[test]
+fn global_search_load_more_does_nothing_while_a_refresh_runs() {
+    let repository = InMemoryNoteRepository::seeded();
+    let (entered_tx, entered) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let release_rx = Mutex::new(release_rx);
+    repository.set_search_hook(move |term, offset| {
+        // Hold the first `in` page fetch until the test releases it.
+        if term == "in" && offset == 0 {
+            let _ = entered_tx.send(());
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(TIMEOUT)
+                .expect("the test releases the refresh");
+        }
+    });
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let search = workspace.global_search();
+    search.set_query("vmx");
+    search.refresh();
+    search.set_query("in");
+
+    let (done, refreshed) = mpsc::channel();
+    thread::spawn({
+        let search = search.clone();
+        move || {
+            search.refresh();
+            let _ = done.send(());
+        }
+    });
+    entered
+        .recv_timeout(TIMEOUT)
+        .expect("the refresh fetches the first page");
+    assert!(!search.can_load_more());
+    search.load_more();
+    release.send(()).unwrap();
+    refreshed
+        .recv_timeout(TIMEOUT)
+        .expect("the refresh settles");
+
+    let titles = search.result_titles();
+    assert_eq!(titles, vec!["Release channels", "Documentation refresh"]);
+    assert_results_match_once(&titles, &repository, "in");
+    assert!(search.can_load_more());
+}
+
+/// Runs `refresh()` and `load_more()` together on two threads after the
+/// first `vmx` page loads and the query becomes `term`.
+fn race_refresh_and_load_more(term: &'static str, hold_first_page: bool, run: usize) {
+    let repository = InMemoryNoteRepository::seeded();
+    if hold_first_page {
+        // A short first-page fetch gives a racing load time to start during
+        // the refresh and discard it.
+        repository.set_search_hook(move |searched, offset| {
+            if searched == term && offset == 0 {
+                thread::sleep(Duration::from_micros(200));
+            }
+        });
+    }
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let search = workspace.global_search();
+    search.set_query("vmx");
+    search.refresh();
+    search.set_query(term);
+
+    let start = Arc::new(Barrier::new(2));
+    let (done, settled) = mpsc::channel();
+    for refresh in [true, false] {
+        let search = search.clone();
+        let start = Arc::clone(&start);
+        let done = done.clone();
+        thread::spawn(move || {
+            start.wait();
+            if refresh {
+                search.refresh();
+            } else {
+                search.load_more();
+            }
+            let _ = done.send(());
+        });
+    }
+    for _ in 0..2 {
+        settled
+            .recv_timeout(TIMEOUT)
+            .unwrap_or_else(|_| panic!("{term} run {run}: refresh and load more settle"));
+    }
+
+    let titles = search.result_titles();
+    assert!(!titles.is_empty(), "{term} run {run}: no results");
+    assert_results_match_once(&titles, &repository, term);
+    workspace.dispose().expect("workspace disposes");
+}
+
+#[test]
+fn global_search_racing_refresh_and_load_more_keep_one_term() {
+    const RUNS: usize = 300;
+    for run in 0..RUNS {
+        // A load that starts during the refresh discards it, so the search
+        // runs again.
+        race_refresh_and_load_more("in", true, run);
+        // `theme` has one page. A load admitted before the refresh commits
+        // that terminal page fetches nothing (#1161), so page one is not
+        // appended twice.
+        race_refresh_and_load_more("theme", false, run);
+    }
 }
 
 #[test]

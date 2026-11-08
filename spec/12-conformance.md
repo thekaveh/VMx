@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 447 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 448 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -2480,8 +2480,8 @@ ______________________________________________________________________
 Each COL-NNN test verifies a collection primitive from `spec/21-collections.md`.
 See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionary`),
 ADR-0026 (`ObservableList<T>`), ADR-0023 (`PagedComposition<TVM>`), and
-ADR-0096 (serviced collection parity), and ADR-0097 (keyed serviced
-collection).
+ADR-0096 (serviced collection parity), ADR-0097 (keyed serviced
+collection), and ADR-0171 (failing local subscribers).
 
 ### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
 
@@ -3171,6 +3171,19 @@ notifications in that order, then re-signals command eligibility; a replacing
 refresh publishes one `Reset` before that same sequence
 **And** a load or refresh that completes after a later load or refresh started
 commits nothing and publishes nothing
+
+### COL-066 — a failing local subscriber does not suppress the hub message
+
+**Given** a `ServicedObservableCollection<T>`, a keyed serviced collection, or
+an `ObservableDictionary` with a hub
+**And** a local collection-change subscriber that fails on every delivery
+**When** an effective mutation occurs
+**Then** the change is committed
+**And** exactly one hub `CollectionChangedMessage` with the mutation's action
+is sent after the local delivery
+**And** C# and Python rethrow the local failure after publication, while
+TypeScript, Swift, and Rust return normally (Swift subscribers cannot fail;
+Swift asserts this structurally)
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 

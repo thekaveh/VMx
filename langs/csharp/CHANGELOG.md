@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `TokenPagedComposition`: a load that finds a terminal token when it
+  starts now fetches nothing (#1161, ADR-0169). A refresh or another load could
+  commit a terminal token after the load command was admitted. The load then
+  refetched page 1 and appended it again, and `HasMore` stayed true. The load
+  now changes nothing and does not supersede an in-flight refresh.
+
 - Added: the opt-in `TreeSelection<TModel, TVM>` helper (`VMx.Hierarchical`)
   holds one current node of a hierarchical tree (#667, ADR-0164,
   HIER-033..HIER-040). It is constructed on a root node and exposes `Current`,
@@ -109,6 +115,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   assigns its slots in one step under the lifecycle lock, so a concurrent
   `Dispose()` never leaves a slot committed to a disposed aggregate (spec/08
   §4, AGG-007).
+- Fixed: `ServicedObservableCollection<T>`,
+  `KeyedServicedObservableCollection<TKey, TItem>` and `ObservableDictionary`
+  now send the hub `CollectionChangedMessage` when a local handler throws
+  (#1051, ADR-0171, COL-066). The change stays committed, and the first
+  failure is rethrown after the hub send. In `ObservableDictionary`, a
+  throwing granular-event handler no longer skips `CollectionChanged`.
 - Fixed: `CompositeVMBase` selection opens no membership transaction
   (ADR-0173, spec/06 §4.3). The `Current` setter, `SelectComponent`,
   `DeselectComponent`, the child `Select` and `Deselect` paths and the
@@ -142,6 +154,16 @@ All notable changes to the C# flavor are documented here. The format is based on
   (#1147). Before, a deferred `Dispose()` that waited for that transaction ran
   its whole cascade under the lane. A `Current` change on any other composite
   then waited for the cascade, and a child hook that made one deadlocked it.
+- Fixed: a `GroupVMBase` whose owner thread called `Dispose()` inside its own
+  membership transaction now keeps that deferred disposal pending until the
+  handoff `Dispose()` admits it (#1153, spec/06 §4.2). Before, the transaction
+  end cleared the deferral before it called `Dispose()`. In that gap another
+  thread's `Add`, `Insert`, index replacement, `Remove`, `RemoveAt`, `Move` or
+  `Clear` was admitted, the disposal cascade then disposed an added child, and
+  the handoff `Dispose()` waited for that thread's transaction. A handler on
+  that thread that waited for the owner deadlocked both threads. Those calls
+  now throw `ObjectDisposedException` and change nothing. `CompositeVMBase`
+  already kept its deferral (#1064).
 - Fixed: `ObservableDictionary`: `Remove` and `Clear` now update `Keys2`
   before `Keys1`, as `Add` does (#1075). A `Keys1` subscriber now sees the
   updated `Keys2`. Before, an entry that a `Keys1` subscriber added during
