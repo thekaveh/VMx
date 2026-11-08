@@ -9,24 +9,14 @@ use super::{
     ConstructionStatus, Dispatcher, HashSet, LateStarts, LifecycleOperation,
     MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
     MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
-    ParentTransfer, PropertyChangedStream, RelayCommand, StartAttempt, TreeNode, ViewModelType,
-    VmNode, VmxError, VmxResult,
+    ParentTransfer, PropertyChangedStream, PublicationLease, RelayCommand, StartAttempt, TreeNode,
+    ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
+use std::thread::{self, ThreadId};
 
 type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
 type CurrentSelector<T> = Arc<dyn Fn(Vec<T>) -> Option<T> + Send + Sync>;
-
-struct CurrentAssignmentContext<'a, T: VmNode, D: Dispatcher> {
-    core: &'a ComponentCore<D>,
-    items: &'a ObservableList<T>,
-    current: &'a Arc<Mutex<Option<T>>>,
-    async_selection: &'a Arc<Mutex<bool>>,
-    on_current_changed: &'a Arc<Mutex<Option<CurrentChangedCallback<T>>>>,
-    membership_gate: &'a Arc<Mutex<()>>,
-    membership_transaction_active: &'a Arc<AtomicBool>,
-    membership_transaction_control: &'a Arc<MembershipTransactionControl>,
-}
 
 fn same_node<T: VmNode>(left: &T, right: &T) -> bool {
     left.id() == right.id()
@@ -40,15 +30,365 @@ fn same_optional_node<T: VmNode>(left: Option<&T>, right: Option<&T>) -> bool {
     }
 }
 
+/// The membership changes a transaction can still roll back (spec/06 §4.3
+/// rules 2 and 4): children that an add, insert, replacement or population
+/// attached but has not admitted, and a transfer detach whose commit has not
+/// run. `owner` is the thread whose transaction staged them.
+#[derive(Default)]
+struct UncommittedMembership {
+    owner: Option<ThreadId>,
+    staged: HashSet<usize>,
+    detaching: bool,
+}
+
+impl UncommittedMembership {
+    fn stage(&mut self, id: usize) {
+        self.owner = Some(thread::current().id());
+        self.staged.insert(id);
+    }
+
+    fn admit(&mut self, id: usize) {
+        self.staged.remove(&id);
+        self.release_if_committed();
+    }
+
+    fn begin_detach(&mut self) {
+        self.owner = Some(thread::current().id());
+        self.detaching = true;
+    }
+
+    fn end_detach(&mut self) {
+        self.detaching = false;
+        self.release_if_committed();
+    }
+
+    fn release_if_committed(&mut self) {
+        if self.staged.is_empty() && !self.detaching {
+            self.owner = None;
+        }
+    }
+
+    /// Reports whether this thread owns a transaction that is still
+    /// uncommitted (spec/06 §4.3 rule 4).
+    fn owned_by_current_thread(&self) -> bool {
+        (!self.staged.is_empty() || self.detaching) && self.owner == Some(thread::current().id())
+    }
+}
+
+/// Children one admission staged. They stay unselectable until
+/// [`StagedMembers::admit`] runs. Dropping the record, as on a panic, admits
+/// what is left so no child stays unselectable.
+struct StagedMembers {
+    uncommitted: Arc<Mutex<UncommittedMembership>>,
+    ids: Vec<usize>,
+}
+
+impl StagedMembers {
+    /// Marks `id` attached but not admitted. Call under the membership gate
+    /// that attaches it.
+    fn stage(&mut self, id: usize) {
+        lock(&self.uncommitted).stage(id);
+        self.ids.push(id);
+    }
+
+    /// Clears the marks, on admission or on rollback. Call under the
+    /// membership gate, before `CollectionChanged` publishes.
+    fn admit(mut self) {
+        self.release();
+    }
+
+    fn release(&mut self) {
+        if self.ids.is_empty() {
+            return;
+        }
+        let mut uncommitted = lock(&self.uncommitted);
+        for id in self.ids.drain(..) {
+            uncommitted.admit(id);
+        }
+    }
+}
+
+impl Drop for StagedMembers {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// A committed `current` change that still has to publish. It holds the
+/// current-publication lease until [`CompositeSelection::publish`] ends it.
+struct CurrentCommit<T: VmNode> {
+    value: Option<T>,
+    previous: Option<T>,
+    publish_previous: bool,
+    publish_value: bool,
+    lease: PublicationLease,
+}
+
+/// The state every selection path of a composite shares (spec/06 §4.3,
+/// ADR-0173). No selection path opens, joins or waits for a membership
+/// transaction. Each one validates and commits `current` and both current
+/// flags under the membership gate, then publishes after releasing it while
+/// it holds the current-publication lease. It holds no core, so a construct
+/// walk that keeps it cannot keep the composite alive (#750).
+struct CompositeSelection<T: VmNode> {
+    items: ObservableList<T>,
+    current: Arc<Mutex<Option<T>>>,
+    on_current_changed: Arc<Mutex<Option<CurrentChangedCallback<T>>>>,
+    async_selection: Arc<Mutex<bool>>,
+    gate: Arc<Mutex<()>>,
+    dispose_requested: Arc<AtomicBool>,
+    control: Arc<MembershipTransactionControl>,
+    uncommitted: Arc<Mutex<UncommittedMembership>>,
+}
+
+impl<T: VmNode> Clone for CompositeSelection<T> {
+    fn clone(&self) -> Self {
+        Self {
+            items: self.items.clone(),
+            current: Arc::clone(&self.current),
+            on_current_changed: Arc::clone(&self.on_current_changed),
+            async_selection: Arc::clone(&self.async_selection),
+            gate: Arc::clone(&self.gate),
+            dispose_requested: Arc::clone(&self.dispose_requested),
+            control: Arc::clone(&self.control),
+            uncommitted: Arc::clone(&self.uncommitted),
+        }
+    }
+}
+
+impl<T: VmNode> CompositeSelection<T> {
+    /// Requested or deferred disposal (spec/06 §4.3 rule 3).
+    fn disposal_pending(&self) -> bool {
+        self.dispose_requested.load(Ordering::Acquire) || self.control.disposal_deferred()
+    }
+
+    /// Starts recording the children one admission attaches.
+    fn staging(&self) -> StagedMembers {
+        StagedMembers {
+            uncommitted: Arc::clone(&self.uncommitted),
+            ids: Vec::new(),
+        }
+    }
+
+    /// Reports whether this thread owns an uncommitted membership transaction
+    /// of the composite (spec/06 §4.3 rule 4).
+    fn in_own_uncommitted_transaction(&self) -> bool {
+        lock(&self.uncommitted).owned_by_current_thread()
+    }
+
+    /// Committed membership (spec/06 §4.3 rule 2). Call under the gate.
+    fn is_selectable_member_locked(&self, item: &T) -> bool {
+        self.items
+            .to_vec()
+            .iter()
+            .any(|candidate| same_node(candidate, item))
+            && !lock(&self.uncommitted).staged.contains(&item.id())
+    }
+
+    /// Reports whether `select_component(item)` would succeed now.
+    fn can_select(&self, item: &T) -> bool {
+        let _gate = lock(&self.gate);
+        !self.in_own_uncommitted_transaction()
+            && !self.disposal_pending()
+            && self.is_selectable_member_locked(item)
+            && item.status() == ConstructionStatus::Constructed
+    }
+
+    /// Validates a selection call (spec/06 §4.3 rules 2, 3 and 4). Call
+    /// under the gate.
+    fn validate_locked(
+        &self,
+        next: Option<&T>,
+        require_constructed: bool,
+        expected_current_id: Option<usize>,
+    ) -> VmxResult<()> {
+        if self.in_own_uncommitted_transaction() {
+            return Err(VmxError::OwnershipTransactionInProgress);
+        }
+        if let Some(next) = next {
+            if self.disposal_pending() {
+                return Err(VmxError::Disposed);
+            }
+            if !self.is_selectable_member_locked(next)
+                || (require_constructed && next.status() != ConstructionStatus::Constructed)
+            {
+                return Err(VmxError::NonChild);
+            }
+        }
+        if let Some(expected) = expected_current_id {
+            if !lock(&self.current)
+                .as_ref()
+                .is_some_and(|current| current.id() == expected)
+            {
+                return Err(VmxError::NotCurrent);
+            }
+        }
+        Ok(())
+    }
+
+    /// Commits `next` and both current flags and begins the publication
+    /// lease. Returns `None` when `next` is already current. Call under the
+    /// gate.
+    fn commit_locked(&self, next: Option<T>) -> Option<CurrentCommit<T>> {
+        let previous = {
+            let mut current = lock(&self.current);
+            if same_optional_node(current.as_ref(), next.as_ref()) {
+                return None;
+            }
+            std::mem::replace(&mut *current, next.clone())
+        };
+        let publish_previous = previous
+            .as_ref()
+            .is_some_and(|previous| previous.commit_current_flag(false));
+        let publish_value = next
+            .as_ref()
+            .is_some_and(|next| next.commit_current_flag(true));
+        Some(CurrentCommit {
+            value: next,
+            previous,
+            publish_previous,
+            publish_value,
+            lease: self.control.begin_publication(),
+        })
+    }
+
+    /// The detach clear (spec/06 §4.3 rule 6): clears `current` only while
+    /// `removed` is still current. Call under the gate.
+    fn clear_if_current_locked(&self, removed: &T) -> Option<CurrentCommit<T>> {
+        let is_current = lock(&self.current)
+            .as_ref()
+            .is_some_and(|current| same_node(current, removed));
+        if is_current {
+            self.commit_locked(None)
+        } else {
+            None
+        }
+    }
+
+    /// Publishes a committed change under its lease: the current flags, then
+    /// `current`, then the callback. Ending the lease can run a disposal that
+    /// a callback deferred; its result is returned.
+    fn publish<D: Dispatcher>(
+        &self,
+        core: &ComponentCore<D>,
+        commit: CurrentCommit<T>,
+    ) -> VmxResult<()> {
+        let CurrentCommit {
+            value,
+            previous,
+            publish_previous,
+            publish_value,
+            lease,
+        } = commit;
+        if publish_previous {
+            if let Some(previous) = &previous {
+                previous.publish_current_flag(false);
+            }
+        }
+        if publish_value {
+            if let Some(value) = &value {
+                value.publish_current_flag(true);
+            }
+        }
+        core.notify_property_changed("current");
+        // Clone in a `let` so the guard drops before the call: the callback may
+        // replace itself or change the selection (#716).
+        let callback = lock(&self.on_current_changed).clone();
+        if let Some(callback) = callback {
+            callback(value);
+        }
+        drop(previous);
+        lease.finish()
+    }
+
+    /// The construct walk's `Current(selector)` assignment (spec/06 §3.2,
+    /// ADR-0165). It is a silent no-op while disposal is pending, inside this
+    /// thread's own uncommitted transaction, and for a value that is not a
+    /// committed member.
+    fn assign_selector_result<D: Dispatcher>(
+        &self,
+        core: &ComponentCore<D>,
+        selected: &T,
+    ) -> VmxResult<()> {
+        let commit = {
+            let _gate = lock(&self.gate);
+            if self.disposal_pending()
+                || self.in_own_uncommitted_transaction()
+                || !self.is_selectable_member_locked(selected)
+            {
+                None
+            } else {
+                self.commit_locked(Some(selected.clone()))
+            }
+        };
+        commit.map_or(Ok(()), |commit| self.publish(core, commit))
+    }
+
+    /// The destruct clear (spec/06 §5): no refusal, no wait, no skip.
+    fn clear_for_destruct<D: Dispatcher>(&self, core: &ComponentCore<D>) -> VmxResult<()> {
+        let commit = {
+            let _gate = lock(&self.gate);
+            self.commit_locked(None)
+        };
+        commit.map_or(Ok(()), |commit| self.publish(core, commit))
+    }
+
+    /// A selection call: the setter, `select_component`,
+    /// `deselect_component`, and the child `select` and `deselect` paths
+    /// (spec/06 §4.3). With async selection it validates now, and the
+    /// delivery validates again and drops silently when no longer valid.
+    fn request<D: Dispatcher>(
+        &self,
+        core: &ComponentCore<D>,
+        next: Option<T>,
+        require_constructed: bool,
+        expected_current_id: Option<usize>,
+    ) -> VmxResult<()> {
+        if core.status() == ConstructionStatus::Disposed {
+            return Err(VmxError::Disposed);
+        }
+        if *lock(&self.async_selection) {
+            {
+                let _gate = lock(&self.gate);
+                self.validate_locked(next.as_ref(), require_constructed, expected_current_id)?;
+            }
+            let selection = self.clone();
+            let delivery_core = core.clone();
+            core.dispatch(Box::new(move || {
+                // A container disposed before the queued selection ran stays
+                // inert (disposal contract).
+                if delivery_core.status() == ConstructionStatus::Disposed {
+                    return;
+                }
+                let commit = {
+                    let _gate = lock(&selection.gate);
+                    selection
+                        .validate_locked(next.as_ref(), require_constructed, expected_current_id)
+                        .ok()
+                        .and_then(|()| selection.commit_locked(next.clone()))
+                };
+                if let Some(commit) = commit {
+                    let _ = selection.publish(&delivery_core, commit);
+                }
+            }));
+            return Ok(());
+        }
+        let commit = {
+            let _gate = lock(&self.gate);
+            self.validate_locked(next.as_ref(), require_constructed, expected_current_id)?;
+            self.commit_locked(next)
+        };
+        commit.map_or(Ok(()), |commit| self.publish(core, commit))
+    }
+}
+
 /// What a composite construct needs besides its core. None of it holds the
 /// core, so a construct deferred behind a destruct, or a selector step queued
 /// behind a background child, cannot keep the composite alive (#750).
 struct CompositeConstruct<T: VmNode> {
-    items: ObservableList<T>,
     late: LateStarts,
     selector: Arc<Mutex<Option<CurrentSelector<T>>>>,
-    current: Arc<Mutex<Option<T>>>,
-    on_current_changed: Arc<Mutex<Option<CurrentChangedCallback<T>>>>,
+    selection: CompositeSelection<T>,
 }
 
 impl<T: VmNode> CompositeConstruct<T> {
@@ -56,7 +396,7 @@ impl<T: VmNode> CompositeConstruct<T> {
     /// once every child settled (spec/02 §6).
     fn run<D: Dispatcher>(self, core: &ComponentCore<D>) -> VmxResult<()> {
         core.transition_with(LifecycleOperation::Construct, || {
-            let members = self.items.clone();
+            let members = self.selection.items.clone();
             let late = self.late.clone();
             core.construct_children(
                 Arc::new(move || members.to_vec()),
@@ -66,20 +406,8 @@ impl<T: VmNode> CompositeConstruct<T> {
                     // selector and the selection callbacks run (#716).
                     let selector = lock(&self.selector).clone();
                     if let Some(selector) = selector {
-                        if let Some(selected) = selector(self.items.to_vec()) {
-                            if self
-                                .items
-                                .to_vec()
-                                .iter()
-                                .any(|candidate| same_node(candidate, &selected))
-                            {
-                                assign_current_state(
-                                    core,
-                                    &self.current,
-                                    &self.on_current_changed,
-                                    Some(selected),
-                                );
-                            }
+                        if let Some(selected) = selector(self.selection.items.to_vec()) {
+                            return self.selection.assign_selector_result(core, &selected);
                         }
                     }
                     Ok(())
@@ -87,141 +415,6 @@ impl<T: VmNode> CompositeConstruct<T> {
             )
         })
     }
-}
-
-fn assign_current_state<T: VmNode, D: Dispatcher>(
-    core: &ComponentCore<D>,
-    current: &Arc<Mutex<Option<T>>>,
-    on_current_changed: &Arc<Mutex<Option<CurrentChangedCallback<T>>>>,
-    next: Option<T>,
-) {
-    let previous = {
-        let mut current = lock(current);
-        if same_optional_node(current.as_ref(), next.as_ref()) {
-            return;
-        }
-        let previous = current.clone();
-        *current = next.clone();
-        previous
-    };
-    if let Some(previous) = previous {
-        previous.set_current_flag(false);
-    }
-    if let Some(next_current) = next.clone() {
-        next_current.set_current_flag(true);
-    }
-    core.notify_property_changed("current");
-    // Clone in a `let` so the guard drops before the call: the callback may
-    // replace itself or change the selection (#716).
-    let callback = lock(on_current_changed).clone();
-    if let Some(callback) = callback {
-        callback(next);
-    }
-}
-
-fn assign_current_maybe_async<T: VmNode, D: Dispatcher>(
-    context: CurrentAssignmentContext<'_, T, D>,
-    next: Option<T>,
-    require_constructed: bool,
-    expected_current_id: Option<usize>,
-) -> VmxResult<()> {
-    let CurrentAssignmentContext {
-        core,
-        items,
-        current,
-        async_selection,
-        on_current_changed,
-        membership_gate,
-        membership_transaction_active,
-        membership_transaction_control,
-    } = context;
-    let validate = |next: Option<&T>| {
-        next.is_none_or(|next| {
-            items.to_vec().iter().any(|item| item.id() == next.id())
-                && (!require_constructed || next.status() == ConstructionStatus::Constructed)
-        })
-    };
-    if *lock(async_selection) {
-        let transaction = begin_membership_transaction(
-            membership_transaction_active,
-            membership_transaction_control,
-        )?;
-        let valid = {
-            let _gate = lock(membership_gate);
-            validate(next.as_ref())
-                && expected_current_id.is_none_or(|expected| {
-                    lock(current)
-                        .as_ref()
-                        .is_some_and(|current| current.id() == expected)
-                })
-        };
-        drop(transaction);
-        if !valid {
-            return Err(if expected_current_id.is_some() {
-                VmxError::NotCurrent
-            } else {
-                VmxError::NonChild
-            });
-        }
-        let core_for_action = core.clone();
-        let items = items.clone();
-        let current = Arc::clone(current);
-        let on_current_changed = Arc::clone(on_current_changed);
-        let membership_gate = Arc::clone(membership_gate);
-        let membership_transaction_active = Arc::clone(membership_transaction_active);
-        let membership_transaction_control = Arc::clone(membership_transaction_control);
-        core.dispatch(Box::new(move || {
-            let Ok(transaction) = begin_membership_transaction(
-                &membership_transaction_active,
-                &membership_transaction_control,
-            ) else {
-                return;
-            };
-            // A container disposed before the queued selection ran stays
-            // inert (disposal contract).
-            let disposed = core_for_action.status() == ConstructionStatus::Disposed;
-            let valid = !disposed && {
-                let _gate = lock(&membership_gate);
-                next.as_ref().is_none_or(|next| {
-                    items.to_vec().iter().any(|item| item.id() == next.id())
-                        && (!require_constructed
-                            || next.status() == ConstructionStatus::Constructed)
-                }) && expected_current_id.is_none_or(|expected| {
-                    lock(&current)
-                        .as_ref()
-                        .is_some_and(|current| current.id() == expected)
-                })
-            };
-            if valid {
-                assign_current_state(&core_for_action, &current, &on_current_changed, next);
-            }
-            let _ = transaction.finish();
-        }));
-    } else {
-        let transaction = begin_membership_transaction(
-            membership_transaction_active,
-            membership_transaction_control,
-        )?;
-        let valid = {
-            let _gate = lock(membership_gate);
-            validate(next.as_ref())
-                && expected_current_id.is_none_or(|expected| {
-                    lock(current)
-                        .as_ref()
-                        .is_some_and(|current| current.id() == expected)
-                })
-        };
-        if !valid {
-            return Err(if expected_current_id.is_some() {
-                VmxError::NotCurrent
-            } else {
-                VmxError::NonChild
-            });
-        }
-        assign_current_state(core, current, on_current_changed, next);
-        return transaction.finish();
-    }
-    Ok(())
 }
 
 /// Shared ordered, observable child-collection capability without selection.
@@ -291,6 +484,8 @@ pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     membership_gate: Arc<Mutex<()>>,
     membership_transaction_active: Arc<AtomicBool>,
     membership_transaction_control: Arc<MembershipTransactionControl>,
+    /// The shared selection state (spec/06 §4.3).
+    selection: CompositeSelection<T>,
 }
 
 impl<T: VmNode> CompositeVm<T, NullDispatcher> {
@@ -325,6 +520,16 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let membership_gate = Arc::new(Mutex::new(()));
         let membership_transaction_active = Arc::new(AtomicBool::new(false));
         let membership_transaction_control = Arc::new(MembershipTransactionControl::new());
+        let selection = CompositeSelection {
+            items: items.clone(),
+            current: Arc::clone(&current),
+            on_current_changed: Arc::clone(&on_current_changed),
+            async_selection: Arc::clone(&async_selection),
+            gate: Arc::clone(&membership_gate),
+            dispose_requested: Arc::clone(&dispose_requested),
+            control: Arc::clone(&membership_transaction_control),
+            uncommitted: Arc::new(Mutex::new(UncommittedMembership::default())),
+        };
         let ownership = ParentRegistration::new_selectable(
             core.id(),
             {
@@ -338,8 +543,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 let core = core.clone();
                 let items = items.clone();
-                let current = Arc::clone(&current);
-                let on_current_changed = Arc::clone(&on_current_changed);
+                let selection = selection.clone();
                 let detach_gate = Arc::clone(&membership_gate);
                 let detach_disposed = Arc::clone(&dispose_requested);
                 let detach_transaction = Arc::clone(&membership_transaction_active);
@@ -348,8 +552,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     let transaction =
                         begin_membership_transaction(&detach_transaction, &detach_control)?;
                     let _gate = lock(&detach_gate);
-                    if detach_disposed.load(Ordering::Acquire)
-                        || detach_control.has_deferred_dispose()
+                    if detach_disposed.load(Ordering::Acquire) || detach_control.disposal_deferred()
                     {
                         return Err(VmxError::Disposed);
                     }
@@ -361,15 +564,15 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     let removed = items
                         .remove_at_silent(index)
                         .ok_or(VmxError::InconsistentParent)?;
-                    let was_current = lock(&current)
-                        .as_ref()
-                        .is_some_and(|item: &T| item.id() == child_id);
+                    // The detach stays uncommitted until the commit or the
+                    // rollback runs (spec/06 §4.3 rule 4).
+                    lock(&selection.uncommitted).begin_detach();
                     let commit_items = items.clone();
-                    let commit_current = Arc::clone(&current);
-                    let commit_callback = Arc::clone(&on_current_changed);
+                    let commit_selection = selection.clone();
                     let commit_core = core.clone();
                     let commit_removed = removed.clone();
                     let rollback_items = items.clone();
+                    let rollback_selection = selection.clone();
                     let rollback_gate = Arc::clone(&detach_gate);
                     let rollback_disposed = Arc::clone(&detach_disposed);
                     let commit_transaction = Arc::clone(&detach_transaction);
@@ -383,23 +586,27 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                                 commit_transaction,
                                 commit_control,
                             );
-                            if was_current {
-                                *lock(&commit_current) = None;
-                                commit_removed.set_current_flag(false);
-                                commit_core.notify_property_changed("current");
-                                let callback = lock(&commit_callback).clone();
-                                let callback_panic = callback.and_then(|callback| {
-                                    catch_unwind(AssertUnwindSafe(|| callback(None))).err()
-                                });
+                            // Clear `current` only while the moved child is
+                            // still current: a selection made after the
+                            // detach stays (spec/06 §4.3 rule 6).
+                            let cleared = {
+                                let _gate = lock(&commit_selection.gate);
+                                lock(&commit_selection.uncommitted).end_detach();
+                                commit_selection.clear_if_current_locked(&commit_removed)
+                            };
+                            let Some(cleared) = cleared else {
                                 commit_items.publish_remove(index);
-                                let result = transaction.finish();
-                                if let Some(payload) = callback_panic {
-                                    resume_unwind(payload);
-                                }
-                                return result;
-                            }
+                                return transaction.finish();
+                            };
+                            let published = catch_unwind(AssertUnwindSafe(|| {
+                                commit_selection.publish(&commit_core, cleared)
+                            }));
                             commit_items.publish_remove(index);
-                            transaction.finish()
+                            let result = transaction.finish();
+                            match published {
+                                Ok(published) => published.and(result),
+                                Err(payload) => resume_unwind(payload),
+                            }
                         },
                         move || {
                             let transaction = MembershipTransactionGuard::release_on_drop(
@@ -407,6 +614,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                                 rollback_control,
                             );
                             let _gate = lock(&rollback_gate);
+                            lock(&rollback_selection.uncommitted).end_detach();
                             if rollback_disposed.load(Ordering::Acquire) {
                                 removed.set_parent_handle(None);
                                 drop(_gate);
@@ -434,62 +642,20 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 let core = core.clone();
                 let items = items.clone();
-                let current = Arc::clone(&current);
-                let async_selection = Arc::clone(&async_selection);
-                let on_current_changed = Arc::clone(&on_current_changed);
-                let selection_gate = Arc::clone(&membership_gate);
-                let selection_transaction = Arc::clone(&membership_transaction_active);
-                let selection_control = Arc::clone(&membership_transaction_control);
+                let selection = selection.clone();
                 move |child_id| {
                     let item = items
                         .to_vec()
                         .into_iter()
                         .find(|item| item.id() == child_id)
-                        .filter(|item| item.status() == ConstructionStatus::Constructed)
                         .ok_or(VmxError::NonChild)?;
-                    assign_current_maybe_async(
-                        CurrentAssignmentContext {
-                            core: &core,
-                            items: &items,
-                            current: &current,
-                            async_selection: &async_selection,
-                            on_current_changed: &on_current_changed,
-                            membership_gate: &selection_gate,
-                            membership_transaction_active: &selection_transaction,
-                            membership_transaction_control: &selection_control,
-                        },
-                        Some(item),
-                        true,
-                        None,
-                    )
+                    selection.request(&core, Some(item), true, None)
                 }
             },
             {
                 let core = core.clone();
-                let current = Arc::clone(&current);
-                let async_selection = Arc::clone(&async_selection);
-                let on_current_changed = Arc::clone(&on_current_changed);
-                let selection_items = items.clone();
-                let selection_gate = Arc::clone(&membership_gate);
-                let selection_transaction = Arc::clone(&membership_transaction_active);
-                let selection_control = Arc::clone(&membership_transaction_control);
-                move |child_id| {
-                    assign_current_maybe_async(
-                        CurrentAssignmentContext {
-                            core: &core,
-                            items: &selection_items,
-                            current: &current,
-                            async_selection: &async_selection,
-                            on_current_changed: &on_current_changed,
-                            membership_gate: &selection_gate,
-                            membership_transaction_active: &selection_transaction,
-                            membership_transaction_control: &selection_control,
-                        },
-                        None,
-                        false,
-                        Some(child_id),
-                    )
-                }
+                let selection = selection.clone();
+                move |child_id| selection.request(&core, None, false, Some(child_id))
             },
         );
         let auto_construct_on_add = Arc::new(Mutex::new(false));
@@ -512,6 +678,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             let membership_gate = Arc::clone(&membership_gate);
             let membership_transaction_active = Arc::clone(&membership_transaction_active);
             let membership_transaction_control = Arc::clone(&membership_transaction_control);
+            let selection = selection.clone();
             ComponentCommands::new(&core, move || {
                 let (Some(commands), Some(ownership)) = (table.upgrade(), ownership.registration())
                 else {
@@ -533,6 +700,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     membership_gate: Arc::clone(&membership_gate),
                     membership_transaction_active: Arc::clone(&membership_transaction_active),
                     membership_transaction_control: Arc::clone(&membership_transaction_control),
+                    selection: selection.clone(),
                 };
                 let _ = composite.reconstruct();
             })
@@ -553,6 +721,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             membership_gate,
             membership_transaction_active,
             membership_transaction_control,
+            selection,
         }
     }
 
@@ -666,6 +835,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let original_status = item.status();
         let mut late_start;
+        let mut staged = self.selection.staging();
         let index = {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -677,6 +847,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             let index = self.len();
             item.set_parent_handle(Some(self.ownership.handle()));
             self.items.insert_silent(index, item.clone())?;
+            // Attached but not admitted: not a member for selection yet
+            // (spec/06 §4.3 rule 2).
+            staged.stage(item.id());
             late_start = self.attach_start(&item);
             index
         };
@@ -701,6 +874,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 let _ = self.items.remove_at_silent(index);
             }
+            staged.admit();
             if item
                 .parent_handle()
                 .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
@@ -727,6 +901,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         if let Some(transfer) = transfer {
             retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
         }
+        // Admitted: selectable from here on, also by a `CollectionChanged`
+        // subscriber on this thread (spec/06 §4.3 rules 2 and 4).
+        {
+            let _gate = lock(&self.membership_gate);
+            staged.admit();
+        }
         self.items.publish_add(index);
         retain_first_error(&mut commit_error, transaction.finish());
         if let Some(payload) = commit_panic {
@@ -751,6 +931,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         }
         let mut transfers = Vec::with_capacity(candidates.len());
         let mut original_statuses = Vec::with_capacity(candidates.len());
+        let mut staged = self.selection.staging();
         let result = (|| {
             for child in &candidates {
                 let transfer = begin_parent_transfer(child, &self.ownership.handle())?;
@@ -765,6 +946,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 for child in &candidates {
                     child.set_parent_handle(Some(self.ownership.handle()));
                     self.items.insert_silent(self.len(), child.clone())?;
+                    // A staged population is not selectable until it commits
+                    // (spec/06 §4.3 rule 2).
+                    staged.stage(child.id());
                 }
             }
             // Make the entire snapshot visible before any child hook runs.
@@ -788,6 +972,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     let _ = self.items.remove_at_silent(index);
                 }
             }
+            staged.admit();
             drop(_gate);
             for (child, original_status) in candidates
                 .iter()
@@ -820,6 +1005,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         for transfer in transfers.into_iter().flatten() {
             retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
         }
+        {
+            let _gate = lock(&self.membership_gate);
+            staged.admit();
+        }
         on_committed();
         for child in &candidates {
             if let Some(index) = self
@@ -847,6 +1036,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let original_status = item.status();
         let mut late_start;
+        let mut staged = self.selection.staging();
         {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -863,6 +1053,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             item.set_parent_handle(Some(self.ownership.handle()));
             self.items.insert_silent(index, item.clone())?;
+            staged.stage(item.id());
             late_start = self.attach_start(&item);
         }
         let admission = self
@@ -886,6 +1077,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 let _ = self.items.remove_at_silent(position);
             }
+            staged.admit();
             if item
                 .parent_handle()
                 .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
@@ -912,6 +1104,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         if let Some(transfer) = transfer {
             retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
         }
+        // Admitted: selectable from here on, also by a `CollectionChanged`
+        // subscriber on this thread (spec/06 §4.3 rules 2 and 4).
+        {
+            let _gate = lock(&self.membership_gate);
+            staged.admit();
+        }
         self.items.publish_add(index);
         retain_first_error(&mut commit_error, transaction.finish());
         if let Some(payload) = commit_panic {
@@ -934,10 +1132,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 .position(|candidate| same_node(candidate, item))
                 .map(|index| {
                     let removed = self.items.remove_at_silent(index).expect("index checked");
-                    (index, removed)
+                    let cleared = self.selection.clear_if_current_locked(&removed);
+                    (index, removed, cleared)
                 })
         };
-        let Some((index, removed)) = removed else {
+        let Some((index, removed, cleared)) = removed else {
             return transaction.finish();
         };
         if removed
@@ -946,14 +1145,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         {
             removed.set_parent_handle(None);
         }
-        if lock(&self.current)
-            .as_ref()
-            .is_some_and(|current| same_node(current, &removed))
-        {
-            self.assign_current(None);
-        }
+        let published = self.publish_current(cleared);
         self.items.publish_remove(index);
-        transaction.finish()
+        published.and(transaction.finish())
     }
 
     /// Removes and returns the child at `index`.
@@ -963,11 +1157,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
-        let removed = {
+        let (removed, cleared) = {
             let _gate = lock(&self.membership_gate);
-            self.items
+            let removed = self
+                .items
                 .remove_at_silent(index)
-                .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?
+                .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
+            let cleared = self.selection.clear_if_current_locked(&removed);
+            (removed, cleared)
         };
         if removed
             .parent_handle()
@@ -975,14 +1172,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         {
             removed.set_parent_handle(None);
         }
-        if lock(&self.current)
-            .as_ref()
-            .is_some_and(|current| same_node(current, &removed))
-        {
-            self.assign_current(None);
-        }
+        let published = self.publish_current(cleared);
         self.items.publish_remove(index);
-        transaction.finish()?;
+        published.and(transaction.finish())?;
         Ok(removed)
     }
 
@@ -995,6 +1187,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let original_status = item.status();
         let mut late_start;
+        let mut staged = self.selection.staging();
         let old = {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() {
@@ -1006,6 +1199,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             item.set_parent_handle(Some(self.ownership.handle()));
             match self.items.replace_silent(index, item.clone()) {
                 Ok(old) => {
+                    staged.stage(item.id());
                     late_start = self.attach_start(&item);
                     old
                 }
@@ -1042,6 +1236,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 old.set_parent_handle(Some(self.ownership.handle()));
                 item.set_parent_handle(None);
             }
+            staged.admit();
             drop(_gate);
             let compensation_error = if original_status == ConstructionStatus::Destructed
                 && item.status() == ConstructionStatus::Constructed
@@ -1061,12 +1256,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
         }
         old.set_parent_handle(None);
-        if lock(&self.current)
-            .as_ref()
-            .is_some_and(|current| same_node(current, &old))
-        {
-            self.assign_current(None);
-        }
+        let cleared = {
+            let _gate = lock(&self.membership_gate);
+            staged.admit();
+            self.selection.clear_if_current_locked(&old)
+        };
+        retain_first_error(&mut commit_error, self.publish_current(cleared));
         self.items.publish_replace(index);
         retain_first_error(&mut commit_error, transaction.finish());
         if let Some(payload) = commit_panic {
@@ -1108,7 +1303,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         ) else {
             return;
         };
-        let removed = {
+        let (removed, cleared) = {
             let _gate = lock(&self.membership_gate);
             for item in self.items() {
                 if item
@@ -1118,13 +1313,18 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     item.set_parent_handle(None);
                 }
             }
-            self.items.take_silent()
+            let removed = self.items.take_silent();
+            let current = lock(&self.current).clone();
+            let cleared = current
+                .filter(|current| removed.iter().any(|item| same_node(item, current)))
+                .and_then(|current| self.selection.clear_if_current_locked(&current));
+            (removed, cleared)
         };
         // `is_current` is published after the membership gate is released: a
         // subscriber may dispose this composite, which takes the gate (#749).
         // Clearing the selection first means it sees no current, as in the
         // other flavors; the loop then only covers a stale flag.
-        self.assign_current(None);
+        let _ = self.publish_current(cleared);
         for item in &removed {
             item.set_current_flag(false);
         }
@@ -1144,30 +1344,37 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Assigns a child as current or clears selection.
     ///
     /// Returns [`VmxError::NonChild`] for values outside this composite.
+    ///
+    /// The call opens no membership transaction, so another thread's add or
+    /// removal never fails or delays it (spec/06 §4.3). It returns
+    /// [`VmxError::NonChild`] for a value this composite has not admitted,
+    /// [`VmxError::Disposed`] for a value while disposal is pending or after
+    /// disposal, and [`VmxError::OwnershipTransactionInProgress`] on the thread
+    /// whose own add, population or transfer of this composite has not
+    /// committed yet. Clearing with `None` is legal while disposal is pending.
     pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
-        self.assign_current_maybe_async(item, false, None)
+        self.selection.request(&self.core, item, false, None)
     }
 
-    /// Selects a constructed child.
+    /// Selects a constructed child. Refusals follow [`Self::set_current`].
     pub fn select_component(&self, item: &T) -> VmxResult<()> {
-        self.assign_current_maybe_async(Some(item.clone()), true, None)
+        self.selection
+            .request(&self.core, Some(item.clone()), true, None)
     }
 
-    /// Deselects `item`, rejecting values that are not current.
+    /// Deselects `item`, rejecting values that are not current. Refusals
+    /// follow [`Self::set_current`] for `None`.
     pub fn deselect_component(&self, item: &T) -> VmxResult<()> {
-        self.assign_current_maybe_async(None, false, Some(item.id()))
+        self.selection
+            .request(&self.core, None, false, Some(item.id()))
     }
 
-    /// Reports whether `item` belongs here and is constructed.
+    /// Reports whether [`Self::select_component`] would succeed now: `item` is
+    /// an admitted, constructed child, no disposal is pending, and this thread
+    /// is not inside its own uncommitted membership transaction of the
+    /// composite (spec/06 §3.1).
     pub fn can_select_component(&self, item: &T) -> bool {
-        if self.membership_transaction_active.load(Ordering::Acquire) {
-            return false;
-        }
-        let _gate = lock(&self.membership_gate);
-        self.items()
-            .iter()
-            .any(|candidate| same_node(candidate, item))
-            && item.status() == ConstructionStatus::Constructed
+        self.status() != ConstructionStatus::Disposed && self.selection.can_select(item)
     }
 
     /// Registers this add's start record for `item` in the current construct
@@ -1239,24 +1446,28 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// The parts a construct walk needs besides the core.
     fn construct_parts(&self) -> CompositeConstruct<T> {
         CompositeConstruct {
-            items: self.items.clone(),
             late: self.late_starts.clone(),
             selector: Arc::clone(&self.current_selector),
-            current: Arc::clone(&self.current),
-            on_current_changed: Arc::clone(&self.on_current_changed),
+            selection: self.selection.clone(),
         }
     }
 
     /// Clears selection and destructs all children, in collection order or,
     /// with [`ChildOrder::Reverse`], from the last child to the first.
+    ///
+    /// The clear opens no membership transaction and is never refused, so it
+    /// also runs while another thread holds one, inside this composite's own
+    /// transaction, and while disposal is deferred (spec/06 §5). A disposal
+    /// that `on_current_changed(None)` requests is deferred until the clear's
+    /// publication ends.
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
-            self.assign_current(None);
+            let cleared = self.selection.clear_for_destruct(&self.core);
             for item in self.destruct_order.arrange(self.items()) {
                 self.core
                     .transition_child(&item, LifecycleOperation::Destruct)?;
             }
-            Ok(())
+            cleared
         })
     }
 
@@ -1272,7 +1483,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let snapshot = loop {
             let _gate = lock(&self.membership_gate);
             match self.membership_transaction_control.dispose_disposition() {
-                MembershipDisposeDisposition::Owned => {
+                // A disposal from a selection's own publication returns at
+                // once, before any wait (spec/06 §4.3 rule 5).
+                MembershipDisposeDisposition::PublishingThread
+                | MembershipDisposeDisposition::Owned => {
                     let deferred = self.clone();
                     self.membership_transaction_control
                         .defer_dispose(move || deferred.dispose());
@@ -1291,6 +1505,16 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     continue;
                 }
                 MembershipDisposeDisposition::Inactive => {
+                    // Another thread is publishing a selection: its last
+                    // lease runs the disposal (spec/06 §4.3 rule 5).
+                    let deferred = self.clone();
+                    if self
+                        .membership_transaction_control
+                        .defer_while_publishing(move || deferred.dispose())
+                        .is_none()
+                    {
+                        return Ok(());
+                    }
                     break if self.dispose_requested.swap(true, Ordering::AcqRel) {
                         None
                     } else {
@@ -1335,8 +1559,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     fn disposal_pending(&self) -> bool {
-        self.dispose_requested.load(Ordering::Acquire)
-            || self.membership_transaction_control.has_deferred_dispose()
+        self.selection.disposal_pending()
     }
 
     /// Returns the current lifecycle status.
@@ -1436,32 +1659,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.commands.reconstruct()
     }
 
-    fn assign_current(&self, next: Option<T>) {
-        assign_current_state(&self.core, &self.current, &self.on_current_changed, next);
-    }
-
-    fn assign_current_maybe_async(
-        &self,
-        next: Option<T>,
-        require_constructed: bool,
-        expected_current_id: Option<usize>,
-    ) -> VmxResult<()> {
-        self.reject_if_disposed()?;
-        assign_current_maybe_async(
-            CurrentAssignmentContext {
-                core: &self.core,
-                items: &self.items,
-                current: &self.current,
-                async_selection: &self.async_selection,
-                on_current_changed: &self.on_current_changed,
-                membership_gate: &self.membership_gate,
-                membership_transaction_active: &self.membership_transaction_active,
-                membership_transaction_control: &self.membership_transaction_control,
-            },
-            next,
-            require_constructed,
-            expected_current_id,
-        )
+    /// Publishes a committed `current` change, if there is one.
+    fn publish_current(&self, commit: Option<CurrentCommit<T>>) -> VmxResult<()> {
+        commit.map_or(Ok(()), |commit| self.selection.publish(&self.core, commit))
     }
 }
 
@@ -1564,6 +1764,14 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        self.core.commit_current_flag(is_current)
+    }
+
+    fn publish_current_flag(&self, _is_current: bool) {
+        self.core.publish_current_flag();
     }
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
@@ -2230,6 +2438,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> VmN
 
     fn set_current_flag(&self, is_current: bool) {
         self.inner.set_current_flag(is_current);
+    }
+
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        VmNode::commit_current_flag(&self.inner, is_current)
+    }
+
+    fn publish_current_flag(&self, is_current: bool) {
+        VmNode::publish_current_flag(&self.inner, is_current);
     }
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {

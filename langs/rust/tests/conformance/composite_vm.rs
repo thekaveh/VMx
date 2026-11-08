@@ -1734,7 +1734,6 @@ fn opposing_current_callbacks_across_composites_do_not_deadlock() {
 /// COMP-026 — a collection callback selecting in a composite whose disposal a
 /// current callback requested completes without deadlock.
 #[test]
-#[ignore = "Rust library gap: CompositeVm::add publishes CollectionChanged (items.publish_add in src/composites.rs) before releasing its membership transaction (transaction.finish), and synchronous selection begins a non-reentrant membership transaction (begin_membership_transaction), so select_component from a collection callback returns OwnershipTransactionInProgress"]
 fn collection_and_current_callbacks_across_composites_do_not_deadlock() {
     let b_hub = MessageHub::new();
     let b = vmx::CompositeVm::with_services("b", b_hub.clone(), NullDispatcher::new());
@@ -1806,55 +1805,64 @@ fn collection_and_current_callbacks_across_composites_do_not_deadlock() {
     assert_eq!(b_item.status(), ConstructionStatus::Disposed);
 }
 
-/// COMP-026 — a blocked current-flag notification does not stall a later assignment.
+/// COMP-026 — while one child's current-flag notification is blocked, a later
+/// assignment from another thread completes, and only the final current child
+/// keeps its current flag. Selection opens no membership transaction (spec/06
+/// §4.3 rule 1, ADR-0173). The notification blocks in the child's local
+/// property-change stream, as in the C# and Python tests: a hub subscriber
+/// would block every other producer on that hub until it returns (spec/03
+/// §3.3).
 #[test]
-#[ignore = "Rust library gap: synchronous selection holds its membership transaction (begin_membership_transaction in src/composites.rs) across child current-flag publication and the callback (assign_current_state), so a concurrent selection returns OwnershipTransactionInProgress instead of completing"]
 fn blocked_current_flag_notification_does_not_block_later_assignment() {
     let composite = vmx::CompositeVm::new("root");
-    let (a, b) = (child("a"), child("b"));
-    composite.add(a.clone()).unwrap();
-    composite.add(b.clone()).unwrap();
-    composite.construct().unwrap();
+    let (first, second, third) = (child("first"), child("second"), child("third"));
+    composite.add(first.clone()).unwrap();
+    composite.add(second.clone()).unwrap();
+    composite.add(third.clone()).unwrap();
+    composite.set_current(Some(first.clone())).unwrap();
     let (entered_tx, entered_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel::<()>();
-    let release_rx = Arc::new(Mutex::new(release_rx));
-    let blocked_once = Arc::new(AtomicBool::new(false));
-    let _blocker = a.hub().subscribe(move |message| {
-        if let Message::PropertyChanged(change) = message {
-            if change.property_name == "is_current" && !blocked_once.swap(true, Ordering::SeqCst) {
-                entered_tx.send(()).unwrap();
-                let _ = release_rx
-                    .lock()
-                    .unwrap()
-                    .recv_timeout(Duration::from_secs(2));
-            }
+    let release_rx = Mutex::new(release_rx);
+    let blocked_once = AtomicBool::new(false);
+    let observed = first.clone();
+    let _blocker = first.property_changed().subscribe(move |property_name| {
+        if property_name == "is_current"
+            && !observed.is_current()
+            && !blocked_once.swap(true, Ordering::SeqCst)
+        {
+            entered_tx.send(()).unwrap();
+            let _ = release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(2));
         }
     });
 
-    let first = composite.clone();
-    let first_item = a.clone();
-    let first_run = std::thread::spawn(move || first.set_current(Some(first_item)));
+    let select_second = composite.clone();
+    let second_item = second.clone();
+    let first_run = std::thread::spawn(move || select_second.set_current(Some(second_item)));
     entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
 
-    let second = composite.clone();
-    let second_item = b.clone();
-    let (second_tx, second_rx) = mpsc::channel();
+    let select_third = composite.clone();
+    let third_item = third.clone();
+    let (third_tx, third_rx) = mpsc::channel();
     std::thread::spawn(move || {
-        second_tx
-            .send(second.set_current(Some(second_item)))
+        third_tx
+            .send(select_third.set_current(Some(third_item)))
             .unwrap();
     });
-    let second_result = second_rx.recv_timeout(Duration::from_secs(1));
+    let third_result = third_rx.recv_timeout(Duration::from_secs(2));
     release_tx.send(()).unwrap();
     assert_eq!(
-        second_result.expect("the later assignment completes while a's flag is blocked"),
+        third_result.expect("the later assignment completes while first's flag is blocked"),
         Ok(())
     );
     first_run.join().unwrap().unwrap();
 
-    assert_eq!(composite.current(), Some(b.clone()));
-    assert!(b.is_current());
-    assert!(!a.is_current());
+    assert_eq!(composite.current(), Some(third.clone()));
+    assert!(!first.is_current());
+    assert!(!second.is_current());
+    assert!(third.is_current());
 }
 
 /// COMP-026 — a current-change callback may dispose the same composite.
