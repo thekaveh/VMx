@@ -185,16 +185,26 @@ public class LIFE_021_InlineDisposeCascade_Tests
         refusal.AttemptedOperation.Should().Be(OperationName(operation));
     }
 
+    private static Exception? OnAnotherThread(Action action)
+    {
+        var call = Task.Factory.StartNew(
+            () => Record.Exception(action),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        call.Wait(HangGuard).Should().BeTrue("the refused call returns at once");
+        return call.Result;
+    }
+
     /// <summary>
     /// LIFE-021 part 1: a child dispose hook that calls a lifecycle method on
     /// its container during the container's inline dispose cascade gets the
     /// Disposed error. The container runs no hook, calls no slot factory and
-    /// publishes only Disposed, and every child ends Disposed once.
+    /// publishes only Disposed, and every child ends Disposed once. Rule 1
+    /// covers every source: the hook also makes the call on another thread.
     /// </summary>
     [Theory, Trait("Conformance", "LIFE-021")]
     [MemberData(nameof(ContainerCases))]
     public void LIFE_021_Container_Call_During_Inline_Cascade_Fails(
-        Container kind, ConstructionStatus start, Operation operation)
+        Container kind, ConstructionStatus start, Operation operation, bool fromAnotherThread)
     {
         using var hub = new TestHub();
         var box = Build(kind, hub);
@@ -209,7 +219,9 @@ public class LIFE_021_InlineDisposeCascade_Tests
         c1.DisposeHook = () =>
         {
             hookCalls++;
-            recordedError = Record.Exception(() => Invoke(box.Vm, operation));
+            recordedError = fromAnotherThread
+                ? OnAnotherThread(() => Invoke(box.Vm, operation))
+                : Record.Exception(() => Invoke(box.Vm, operation));
         };
         var boxStatuses = RecordStatuses(hub, "box");
         var childStatuses = RecordStatuses(hub, "c1");
@@ -218,6 +230,8 @@ public class LIFE_021_InlineDisposeCascade_Tests
 
         hookCalls.Should().Be(1);
         ShouldBeTheDisposedError(recordedError, operation);
+        // An aggregate's destruct hook calls no factory; the child statuses
+        // below show that it did not run (it would destruct c1 first).
         box.HookRuns().Should().Be(hooksBefore, "no construct or destruct hook of the container runs");
         box.FactoryCalls().Should().Be(factoryBefore, "no slot factory runs again");
         boxStatuses.Should().Equal("Disposed");
@@ -227,9 +241,9 @@ public class LIFE_021_InlineDisposeCascade_Tests
         childStatuses.Should().Equal("Disposed");
     }
 
-    public static TheoryData<Container, ConstructionStatus, Operation> ContainerCases()
+    public static TheoryData<Container, ConstructionStatus, Operation, bool> ContainerCases()
     {
-        var data = new TheoryData<Container, ConstructionStatus, Operation>();
+        var data = new TheoryData<Container, ConstructionStatus, Operation, bool>();
         foreach (var kind in Enum.GetValues<Container>())
         {
             foreach (var (start, operation) in new[]
@@ -245,7 +259,11 @@ public class LIFE_021_InlineDisposeCascade_Tests
                          (ConstructionStatus.Constructed, Operation.Reconstruct),
                          (ConstructionStatus.Constructed, Operation.ReconstructAsync),
                      })
-                data.Add(kind, start, operation);
+                data.Add(kind, start, operation, false);
+            // Rule 1 covers a call from another thread (decision (f)).
+            data.Add(kind, ConstructionStatus.Destructed, Operation.Construct, true);
+            data.Add(kind, ConstructionStatus.Constructed, Operation.Destruct, true);
+            data.Add(kind, ConstructionStatus.Constructed, Operation.Reconstruct, true);
         }
         return data;
     }
@@ -342,6 +360,69 @@ public class LIFE_021_InlineDisposeCascade_Tests
         c1.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
+    /// <summary>
+    /// LIFE-021 (reconstruct, decision (b), cross-thread): a Destructed
+    /// subscriber starts a disposal on another thread and waits until its
+    /// inline cascade has started. reconstruct() then starts no construct
+    /// phase: no Constructing, no hook, no slot factory, and the call returns.
+    /// </summary>
+    [Theory, Trait("Conformance", "LIFE-021")]
+    [InlineData(Container.Composite)]
+    [InlineData(Container.Group)]
+    [InlineData(Container.Aggregate1)]
+    public async Task LIFE_021_Reconstruct_Starts_No_Construct_Phase_After_Cascade_On_Another_Thread(
+        Container kind)
+    {
+        using var hub = new TestHub();
+        var box = Build(kind, hub);
+        box.Vm.Construct();
+        var c1 = box.Child();
+        var hooksBefore = box.HookRuns();
+        var factoryBefore = box.FactoryCalls();
+        using var cascadeStarted = new ManualResetEventSlim();
+        using var reconstructReturned = new ManualResetEventSlim();
+        c1.DisposeHook = () =>
+        {
+            cascadeStarted.Set();
+            // Hold the cascade until reconstruct() returned. The wait is
+            // bounded so that a construct phase blocked behind the cascade
+            // cannot hang the test.
+            reconstructReturned.Wait(TimeSpan.FromSeconds(5));
+        };
+        var boxStatuses = RecordStatuses(hub, "box");
+        Task<Exception?>? dispose = null;
+        hub.Messages.Subscribe(message =>
+        {
+            if (message is not ConstructionStatusChangedMessage
+                {
+                    SenderName: "box", Status: ConstructionStatus.Destructed,
+                } || dispose is not null)
+                return;
+            dispose = Task.Factory.StartNew<Exception?>(
+                () => Record.Exception(box.Vm.Dispose),
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            cascadeStarted.Wait(HangGuard).Should().BeTrue();
+        });
+
+        var reconstruct = Task.Factory.StartNew(
+            () =>
+            {
+                try { return Record.Exception(box.Vm.Reconstruct); }
+                finally { reconstructReturned.Set(); }
+            },
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        (await reconstruct.WaitAsync(HangGuard)).Should().BeNull("a superseded reconstruct returns");
+        dispose.Should().NotBeNull();
+        (await dispose!.WaitAsync(HangGuard)).Should().BeNull();
+
+        boxStatuses.Should().Equal("Destructing", "Destructed", "Disposed");
+        box.HookRuns().Should().Be(hooksBefore + (kind == Container.Aggregate1 ? 0 : 1),
+            "only the destruct phase ran a hook");
+        box.FactoryCalls().Should().Be(factoryBefore, "no slot factory runs");
+        box.Vm.Status.Should().Be(ConstructionStatus.Disposed);
+        c1.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
     // ── #1167 cross-thread regressions (spec/02 §7.2 Rule 3) ──────────────────
 
     /// <summary>
@@ -369,6 +450,7 @@ public class LIFE_021_InlineDisposeCascade_Tests
         using var paused = new ManualResetEventSlim();
         using var resume = new ManualResetEventSlim();
         using var childDisposing = new ManualResetEventSlim();
+        using var transitionReturned = new ManualResetEventSlim();
         HookedVM? child = null;
         var childDisposals = 0;
         var probe = (ComponentVMBase)box.Vm;
@@ -382,9 +464,10 @@ public class LIFE_021_InlineDisposeCascade_Tests
                 Interlocked.Increment(ref childDisposals);
                 childDisposing.Set();
                 resume.Set();
-                // Hold the cascade while the transition tries to commit. With
-                // the fix nothing commits, so this short window only bounds it.
-                Thread.Sleep(300);
+                // Hold the cascade until the transition has tried to commit and
+                // returned. The wait is bounded so that a commit blocked behind
+                // the cascade cannot hang the test.
+                transitionReturned.Wait(TimeSpan.FromSeconds(5));
             };
             paused.Set();
             resume.Wait(HangGuard).Should().BeTrue();
@@ -397,7 +480,11 @@ public class LIFE_021_InlineDisposeCascade_Tests
         });
 
         var transition = Task.Factory.StartNew(
-            () => Record.Exception(construct ? box.Vm.Construct : box.Vm.Destruct),
+            () =>
+            {
+                try { return Record.Exception(construct ? box.Vm.Construct : box.Vm.Destruct); }
+                finally { transitionReturned.Set(); }
+            },
             CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         paused.Wait(HangGuard).Should().BeTrue();
         var dispose = Task.Factory.StartNew(
@@ -431,25 +518,31 @@ public class LIFE_021_InlineDisposeCascade_Tests
         dispatcher.BackgroundScheduler.AdvanceBy(1);
         leaf.Status.Should().Be(ConstructionStatus.Constructing);
         using var memberDisposing = new ManualResetEventSlim();
-        using var leafConstructed = new ManualResetEventSlim();
+        using var foregroundDrained = new ManualResetEventSlim();
         var leafStatuses = new ConcurrentQueue<string>();
         hub.Messages.Subscribe(message =>
         {
             if (message is not ConstructionStatusChangedMessage { SenderName: "leaf" } changed) return;
             leafStatuses.Enqueue($"{changed.Status} m1={member.Status}");
-            if (changed.Status == ConstructionStatus.Constructed) leafConstructed.Set();
         });
         member.DisposeHook = () =>
         {
             memberDisposing.Set();
-            leafConstructed.Wait(TimeSpan.FromMilliseconds(300));
+            // Hold the member cascade until thread F ran the queued commit. The
+            // wait is bounded so that a commit blocked behind the cascade
+            // cannot hang the test.
+            foregroundDrained.Wait(TimeSpan.FromSeconds(5));
         };
 
         var foreground = Task.Factory.StartNew(
             () => Record.Exception(() =>
             {
-                memberDisposing.Wait(HangGuard).Should().BeTrue();
-                dispatcher.ForegroundScheduler.AdvanceBy(1);
+                try
+                {
+                    memberDisposing.Wait(HangGuard).Should().BeTrue();
+                    dispatcher.ForegroundScheduler.AdvanceBy(1);
+                }
+                finally { foregroundDrained.Set(); }
             }),
             CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         var dispose = Task.Factory.StartNew(
