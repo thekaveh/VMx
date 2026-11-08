@@ -268,8 +268,11 @@ that owns the list can expose it as a property.
 
 Rust exposes the stream as `pending_stream()` and the current list as
 `pending()`; the other flavors expose `Pending` as an observable. Rust builds a
-`NotificationVm` with `with_hub(notification, hub, lifespan_ms)` (no scheduler)
-and has no `dispose`, so dropping the list entry releases it.
+`NotificationVm` with `with_hub(notification, hub, lifespan_ms)` (no scheduler).
+Rust `NotificationVm` and `ConfirmationVm` have `dispose()`, as in the other
+flavors (ADR-0178). Call it when the entry leaves the list. Dropping the entry
+does not make a kept command inert: a kept command still resolves the hub until
+its VM is disposed.
 
 This pattern generalises to any service whose state is an observable collection
 of items. It is a documented composition recipe, not a normative spec addition —
