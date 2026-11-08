@@ -67,6 +67,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVM` call that waits for another thread's publication scope is now
+  recorded in the one wait-for graph (ADR-0176, spec/20 §5.5, #1170). Before,
+  a sink that sent on a hub while another thread drained it could hang both
+  threads. This happened when a subscriber on the draining thread called
+  `setModel`, deny or `dispose()` on the form. The publishing sink could be an
+  `errorsChanged`, `onApproved`, reset or settlement `canExecuteChanged`
+  sink. Now the wait that would close the cycle is refused. A refused
+  `setModel` or deny prepares, joins the publisher's queue, and returns before
+  it takes effect. The publisher replays it when its outermost scope ends. A
+  refused `dispose()` marks the form disposed and returns. The publisher then
+  completes the channels and disposes the commands after its outermost scope.
+  When the hub wait comes first, the send is refused instead, as before.
+  The form's notifications are unchanged in both cases.
+- Another thread's approval admission now waits for a `FormVM` publication
+  scope, as in C# and Python (ADR-0176, spec/20 §5.5). A refused wait admits
+  the call at once. A failed settlement now holds a scope over its
+  `canExecuteChanged`, and it waits for another thread's scope before it
+  clears the in-flight mark. Two threads can hold scopes after a refused
+  settlement wait, so each publisher keeps its own queue and
+  pre-publication window.
+- `FormVM.dispose()` no longer completes the channels while another thread
+  delivers an approval admission's `canExecuteChanged` or an `approveErrors`
+  value (spec/20 §5.5, ADR-0176, #1228). Neither delivery opens a
+  publication scope. Before, `dispose()` tore the form down at once. Now
+  both deliveries count as active, as an update already did. `dispose()`
+  marks the form disposed and returns, and the delivering thread completes
+  the channels when the delivery returns, as in C# and Python.
 - `MessageHub.batch` called by a borrower on a disposed hub now runs its body
   with no new borrowed scope (#1230, spec/03 §3.3, §4.2 rule 3). C#, Python
   and Rust already did this. Before, the call nested another borrowed scope.
@@ -281,6 +308,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   it delivered every value, so a demand-limited subscriber broke. For example,
   `for await` over `propertyChanged.values` or `errorsChanged.values` trapped
   with "Received an output without requesting demand".
+- `TokenPagedComposition`: a load that finds a terminal token when it starts now
+  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
+  terminal token after the load command was admitted. The load then refetched
+  page 1 and appended it again, and `hasMore` stayed true. The load now changes
+  nothing and does not supersede an in-flight refresh.
 - `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
   before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
   updated `keys2`. Before, an entry that a `keys1` subscriber added during

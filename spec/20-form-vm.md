@@ -398,8 +398,9 @@ delivery returns. These rules apply:
 1. **Queue.** A `SetModel` or `DenyCommand.Execute()` that the approving thread
    makes inside the pre-publication window is queued and does not commit. A
    call made from an `OnApproved` subscriber is outside that approval's window
-   and runs as an ordinary update. Approve calls are never queued; they are admitted or
-   refused as described above. `Dispose()` is never queued.
+   and runs as an ordinary update, also when the approval is nested (§5.5).
+   Approve calls are never queued; they are admitted or refused as described
+   above. `Dispose()` is never queued.
 1. **Call-time preparation.** Before a call is queued, it applies the disposal
    admission rule and the null check (§5.2). Then it runs its §5.4 preparation
    against the current form state: the equality comparisons, the validators,
@@ -442,18 +443,19 @@ delivery returns. These rules apply:
    failed post-persist commit, or a failure that an `ErrorsChanged`,
    `CanExecuteChanged`, or `OnApproved` observer propagates from the
    settlement notifications.
-1. **Other threads.** During the publication scope, a `SetModel`, deny, or
-   `Dispose()` from another thread waits until the scope ends. Only the
-   approving thread's calls are queued. The replay runs after the scope ends,
-   so a waiting call from another thread can proceed during the replay. Updates
-   stay serialized (§5.4), in either order.
+1. **Other threads.** During the publication scope, a `SetModel`, deny,
+   approve call, or `Dispose()` from another thread waits until the scope
+   ends (§5.5). The replay runs after the scope ends, so a waiting call from
+   another thread can proceed during the replay. Updates stay serialized
+   (§5.4), in either order. Only a wait that would close a wait-for cycle does
+   not wait. Such a `SetModel` or deny is queued like the approving thread's
+   calls, and §5.5 states what the other calls do (ADR-0176).
 
 Flavor notes:
 
 - Rust's failure is a panic. Each replay runs under its own unwind guard. After
   the last replay, the first replay panic resumes, unless the approval already
-  carries a panic, which wins (#740). Rust still queues calls from other
-  threads in the pre-publication window and does not yet apply rule 7 (#1160).
+  carries a panic, which wins (#740).
 - Swift validators, the injected `equals`, the snapshotter, and the sinks
   cannot throw. Only the queue, call-time staleness, replay, and wait rules
   apply.
@@ -498,7 +500,9 @@ construction and produces no form.
 
 Updates are serialized. An update runs to completion, preparation included,
 before another thread's update, approval commit, or disposal proceeds, so an
-admitted update completes normally as chapter 02 §7 requires. Flavors keep this
+admitted update completes normally as chapter 02 §7 requires. Its
+`ErrorsChanged` delivery is part of it: another thread waits for the update's
+publication scope (§5.5). Flavors keep this
 by holding the form's re-entrant state lock across preparation, or by an
 equivalent per-form serialization.
 
@@ -527,6 +531,115 @@ Flavor notes:
 The approval reset of §5.1 already prepares before it commits and is unchanged.
 A `SetModel` or deny that one of its callbacks makes is queued (§5.3). This
 section adds no public member.
+
+### 5.5 Publication scopes and cross-thread waits (spec v3.30, ADR-0176)
+
+These rules apply to C#, Python, Swift, and Rust. TypeScript runs on one
+thread, so no form call waits for another thread.
+
+**No delivery under a lock.** A form delivers no notification while it holds
+its state lock (§5.4), or another lock that a form call or `Dispose()` waits
+for. The one exception is an update nested in a preparation callback. When
+that update notifies is not yet decided (#1173).
+
+**Publication scopes.** A *publication scope* is a span in which one thread,
+the *publisher*, delivers form notifications while other threads' form calls
+wait. Scopes nest on the publisher's thread, and a call never waits for a scope
+that its own thread holds. There are two kinds:
+
+1. **Update scope.** A `SetModel` or deny that commits opens a scope at its
+   commit. It releases the state lock, delivers its `ErrorsChanged`, and
+   closes the scope. Its `CanExecuteChanged` and hub messages follow after the
+   scope, in the order of §5.2. Error maps therefore reach observers in commit
+   order.
+1. **Settlement scope.** An approval's settlement opens a scope at settlement
+   step 1 (§5.3). A successful settlement closes it when the `OnApproved`
+   delivery returns; this is the publication scope of §5.3. A failed
+   settlement closes it when its step 3 `CanExecuteChanged` delivery returns.
+
+An approval's admission notification and the `ApproveErrors` delivery open no
+scope. An update's notifications after its `ErrorsChanged` delivery are also
+outside any scope. A `Dispose()` during such a delivery does not wait for it. It marks the form
+disposed and returns. The §10 teardown runs when that delivery returns, so no
+channel completes while the delivery runs. This also applies to a `Dispose()`
+from that delivery's own observer.
+
+**Waits.** Five calls wait while another thread holds a scope on the form. They
+are `SetModel`, deny, an approve call before its admission, a settlement before
+its step 1, and `Dispose()`. Each waits until no other thread holds a scope.
+Each wait records an edge in the flavor's one wait-for graph (chapter 03 §4.1).
+The resource is the form's publication scope, and its owner is a publisher. When
+two threads hold scopes, the edge names one, and the waiter records its wait
+again when it wakes. A publisher removes the edges that name it before it wakes
+the waiters. A wait that closes no cycle blocks.
+
+**Rust validator registration.** Only Rust registers a validator on a live
+form. The registration takes effect at once, and its revalidation is an update.
+It waits like `SetModel`, delivers `errors_changed` in an update scope, and
+counts as a delivery outside a scope until it returns. When its wait is
+refused, the revalidation joins the publisher's queue and replays there as a
+new revalidation (#1231). In its own thread's pre-publication window, the
+revalidation commits at once, as before.
+
+**Refused waits.** A wait that would close a live cycle is refused, and the
+call does not wait. No call is lost:
+
+1. **`SetModel` and deny** run their call-time preparation (§5.3 rule 2). A
+   failure reaches the caller, and nothing is queued. Otherwise the call joins
+   the queue of the publisher that its edge names, and returns without
+   changing the form. A call in its own thread's pre-publication window joins
+   that thread's queue instead. It returns before it takes effect: code that
+   reads `Model` right after it sees the old state.
+1. **An approve call** is admitted without waiting, under the admission rules
+   of §5.3. Its settlement then waits like any other settlement.
+1. **A settlement** commits at once and opens its own scope. Two threads then
+   hold scopes, and other threads' calls wait for both. The two scopes'
+   notifications can interleave. In this case only, error maps can reach an
+   observer out of commit order (limitation).
+1. **`Dispose()`** marks the form disposed and returns. Later calls follow
+   §10, and queued calls replay as no-ops. The publisher continues as if one
+   of its own observers had disposed the form at that moment. The §10
+   teardown runs once no thread holds a scope on the form. With one
+   publisher, that is when its outermost scope ends. Only then do the
+   channels complete and the commands become disposed.
+
+**Queue and replay.** Each publisher has its own queue. It holds the calls of
+its pre-publication window (§5.3 rule 1) and other threads' refused `SetModel`
+and deny calls, in the order they joined it. The publisher replays its queue
+after its outermost scope ends. A settlement replays as §5.3 rule 4 states. An
+update replays after its last notification and before it returns. Each item
+replays as a new call, in isolation (§5.3 rules 4 and 5). After a settlement,
+the first replay failure follows §5.3 rule 6. After an update, it propagates
+from that update after the last replay, unless the update already carries a
+failure, which wins.
+
+**Nested approvals.** The pre-publication window belongs to one approval. An
+approval admitted from an outer approval's settlement notifications suspends the
+outer window while it delivers `OnApproved`. An update from its `OnApproved`
+subscriber therefore commits at once. The outer window resumes when the nested
+settlement scope closes, and the outermost scope replays the queue.
+
+**Limitation.** Preparation callbacks run under the form's state lock (§5.4),
+and waits for that lock are not in the wait-for graph. A preparation callback
+that waits for another thread, which then calls the same form, deadlocks.
+
+Flavor notes (ADR-0176 §3.1). No flavor deadlocks in these cases, and the end
+state is the same:
+
+- A Swift `SetModel` or deny in its own thread's pre-publication window joins
+  that thread's queue without waiting. C#, Python, and Rust first wait for
+  another thread's scope. The call is queued either way.
+- A call nested in a preparation callback, while another thread holds a scope,
+  waits in C# and Python. Swift takes the refused result, and Rust proceeds
+  without waiting (#1173).
+- After a refused `Dispose()`, C# and Rust wake the scope waiters at once.
+  Python and Swift waiters wake when the publisher's scope closes. Either way
+  they find the form disposed.
+- C#, Python, and Rust open an update scope only when the update changes the
+  error map. Swift opens one at every commit. A scope with no `ErrorsChanged`
+  delivery cannot be observed.
+
+This section adds no public member.
 
 ## 6. Lifecycle state diagram
 

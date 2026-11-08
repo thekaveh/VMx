@@ -6,17 +6,18 @@
 //! hub `send`, `batch` or `dispose` that waits for the hub's batch owner,
 //! drainer or a borrowed scope; a hub drainer with queued messages that waits
 //! for a borrowed scope; a foreign `dispose()` that waits for an admitted
-//! lifecycle hook; and a cross-thread container disposal that waits for a
-//! membership transaction. A lifecycle status publication is a hub send, so it
-//! records a hub wait. The wait that would close a cycle is refused, and the
-//! caller takes its refused-wait result instead of blocking (ADR-0119,
-//! ADR-0126, ADR-0153, ADR-0167).
+//! lifecycle hook; a cross-thread container disposal that waits for a
+//! membership transaction; and a `FormVm` call that waits for another thread's
+//! publication scope on the form. A lifecycle status publication is a hub
+//! send, so it records a hub wait. The wait that would close a cycle is
+//! refused, and the caller takes its refused-wait result instead of blocking
+//! (ADR-0119, ADR-0126, ADR-0153, ADR-0167, ADR-0176).
 //!
 //! Every resource is named by a typed, address-derived [`Resource`] key, so
 //! keys of different kinds never collide. A thread has at most one edge. An
 //! edge names its resource and either the owner the waiter saw when it began
-//! to wait (hub and hook waits) or no owner, which is then looked up when a
-//! cycle is checked (membership waits, #736). Either way an edge stops
+//! to wait (hub, hook and form waits) or no owner, which is then looked up
+//! when a cycle is checked (membership waits, #736). Either way an edge stops
 //! counting as soon as the owner releases the resource: an owner-named edge
 //! is removed by the releasing thread before it wakes the waiters
 //! ([`WaitForGraph::release_waiters`]), and a looked-up owner is removed by
@@ -44,6 +45,8 @@ pub(crate) enum Resource {
     MessageHub(usize),
     /// A component's admitted lifecycle hook (its hook lease).
     Hook(usize),
+    /// A form's publication scopes (spec/20 §5.5).
+    FormPublication(usize),
 }
 
 #[derive(Clone, Copy)]
@@ -186,7 +189,8 @@ pub fn container_wait_registered_for_testing(thread: ThreadId) -> bool {
 }
 
 /// Test-only seam: reports whether `thread` has recorded any wait in the
-/// wait-for graph: a message hub, lifecycle hook or container membership wait.
+/// wait-for graph: a message hub, lifecycle hook, container membership or
+/// form publication wait.
 /// Production code never calls it.
 #[doc(hidden)]
 pub fn wait_registered_for_testing(thread: ThreadId) -> bool {

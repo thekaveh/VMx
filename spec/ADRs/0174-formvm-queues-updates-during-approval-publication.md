@@ -1,6 +1,6 @@
 # ADR 0174 — `FormVM` queues updates made during approval publication and replays them after `OnApproved`
 
-- **Status:** Accepted
+- **Status:** Accepted (Extended by ADR-0176)
 - **Date:** 2026-11-07
 - **Spec version:** 3.30.0 (chapter 20 §5.1, §5.3, and §5.4)
 
@@ -146,7 +146,8 @@ simplest and most common-sense approach chosen.
 - **Rust.** The same changes, with panics as failures. Each replay runs under
   `catch_unwind`. The first replay panic resumes after the last replay, unless
   a subscriber panic wins (#740). Rule 7 stays open until #1160, which depends
-  on #1158: Rust still queues calls from other threads.
+  on #1158: Rust still queues calls from other threads. ADR-0176 resolves
+  this: Rust applies rule 7 like the other threaded flavors.
 - **Swift.** Queue deny and the calls from the reset commit, which runs under
   `stateGate`. Move the form's event delivery to `VMxConcurrentSubject`
   (§2.1). Swift callbacks cannot throw, so the failure rules do not apply.

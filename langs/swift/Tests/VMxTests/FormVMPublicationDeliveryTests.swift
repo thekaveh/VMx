@@ -112,9 +112,11 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
     // ── Case 1 ────────────────────────────────────────────────────────────────
 
     /// The #1168 case 1 deterministic probe. Approval P publishes; inside P's
-    /// `errorsChanged` sink, thread Y admits a second approval, and Y's
-    /// `canExecuteChanged` sink makes `call`. Y's call waits for P's
-    /// publication scope (#533); P must not wait for Y's sink.
+    /// `errorsChanged` sink, thread Y raises `canExecuteChanged`, and Y's
+    /// sink makes `call`. Y's call waits for P's publication scope (#533); P
+    /// must not wait for Y's sink. Y raises the notification directly: an
+    /// approval admitted on Y would itself wait for P's scope (spec/20 §5.5,
+    /// ADR-0176), so its sink could not run during the publication.
     private func runCaseOneProbe(_ call: SinkCall, file: StaticString = #filePath, line: UInt = #line) {
         let log = DeliveryLog()
         let persistOnce = OnceGate()
@@ -174,7 +176,7 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
         }
         Thread {
             Thread.current.threadDictionary[actingSinkThread] = true
-            boxedForm.value.approveCommand.execute()
+            boxedForm.value.approveCommand.raiseCanExecuteChanged()
             yDone.signal()
         }.start()
 
@@ -195,9 +197,7 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
             XCTAssertFalse(form.approveCommand.canExecute(), file: file, line: line)
         }
         if call != .dispose {
-            // Y's own approval settles too.
-            wait(approvals, "first onApproved", file: file, line: line)
-            wait(approvals, "Y's approval stalled", file: file, line: line)
+            wait(approvals, "onApproved", file: file, line: line)
         }
     }
 
@@ -214,8 +214,9 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
     }
 
     /// The #1168 case 1 `onApproved` shape: P's `onApproved` sink waits for
-    /// Y's admission sink and then updates the form, which sends
-    /// `canExecuteChanged` while P's scope is open.
+    /// Y's `canExecuteChanged` sink and then updates the form, which sends
+    /// `canExecuteChanged` while P's scope is open. Y raises the notification
+    /// directly, because an admission on Y waits for P's scope (spec/20 §5.5).
     func testOnApprovedSinkUpdateWhileAnotherThreadsSinkWaitsDoesNotStall() {
         let log = DeliveryLog()
         let form = FormVM<String>(
@@ -258,14 +259,13 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
         guard wait(pInApproved, "P never reached its onApproved sink") else { return }
         Thread {
             Thread.current.threadDictionary[actingSinkThread] = true
-            boxedForm.value.approveCommand.execute()
+            boxedForm.value.approveCommand.raiseCanExecuteChanged()
             yDone.signal()
         }.start()
 
         guard wait(pDone, "approval P stalled"),
               wait(yDone, "thread Y stalled"),
-              wait(approvals, "first onApproved"),
-              wait(approvals, "Y's approval stalled")
+              wait(approvals, "onApproved")
         else { return }
         XCTAssertEqual(log.events, ["p set", "y set"])
         XCTAssertEqual(form.model, "sink")
@@ -425,18 +425,18 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
 
     // ── Queue ownership ───────────────────────────────────────────────────────
 
-    /// Approval A's queue belongs to A. Approval B is admitted from another
-    /// thread during A's settlement, and B's persister throws. B's failed
-    /// settlement must not take the `setModel(1)` that A's reset queued and
-    /// replay it on B's thread (spec/20 §5.3 rule 4: the queue replays in call
-    /// order on the approving thread). A's settlement sink waits until B has
-    /// settled, then queues `setModel(2)`, so the final model is 2.
+    /// Approval A's queue belongs to A. Approval B starts on another thread
+    /// during A's settlement, and B's persister throws. B's failed settlement
+    /// must not take the `setModel(1)` that A's reset queued, or the
+    /// `setModel(2)` that A's settlement sink queued, and replay them on B's
+    /// thread (spec/20 §5.3 rule 4: the queue replays in call order on the
+    /// approving thread). B's admission waits for A's settlement scope
+    /// (spec/20 §5.5), and each publisher keeps its own queue.
     func testForeignApprovalWithFailingPersisterDoesNotTakeTheQueue() {
         struct PersistFailure: Error {}
         let lock = NSLock()
         var approvingThread: pthread_t?
         var validated: [(value: Int, onApprovingThread: Bool)] = []
-        var foreignDeliveries = 0
         /// `nil` until A's reset records the approving thread.
         func onApprovingThreadIfKnown() -> Bool? {
             lock.lock()
@@ -449,8 +449,9 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
         let form = FormVM<Int>(
             initial: 10,
             persister: { captured in
-                // B captures the reset model 20; A captured 10.
-                if captured == 20 { throw PersistFailure() }
+                // A captured 10. B captures a later model, which depends on
+                // how far A's replay got when B was admitted.
+                if captured != 10 { throw PersistFailure() }
             },
             validators: ["value": { value in
                 if value == 1 || value == 2 {
@@ -471,7 +472,6 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
         )
         weakForm = form
 
-        let bSettled = DispatchSemaphore(value: 0)
         let aDone = DispatchSemaphore(value: 0)
         let bDone = DispatchSemaphore(value: 0)
         let aSinkOnce = OnceGate()
@@ -480,18 +480,9 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
 
         form.approveCommand.canExecuteChanged
             .sink { [weak form] _ in
-                // Skip A's admission, which runs before the reset.
-                guard let form, let onA = onApprovingThreadIfKnown() else { return }
-                if !onA {
-                    // B's admission, then B's failed settlement.
-                    lock.lock()
-                    foreignDeliveries += 1
-                    let settled = foreignDeliveries == 2
-                    lock.unlock()
-                    if settled { bSettled.signal() }
-                    return
-                }
-                guard aSinkOnce.claim() else { return }
+                // Skip A's admission, which runs before the reset, and B's
+                // notifications.
+                guard let form, onApprovingThreadIfKnown() == true, aSinkOnce.claim() else { return }
                 Task.detached {
                     do {
                         try await boxedForm.value.approveAsync()
@@ -501,7 +492,6 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
                     }
                     bDone.signal()
                 }
-                _ = bSettled.wait(timeout: .now() + deliveryTimeout)
                 form.setModel(2)
             }
             .store(in: &cancellables)
