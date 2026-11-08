@@ -242,6 +242,22 @@ fn begin_operation(gate: &Mutex<()>, generation: &AtomicUsize) -> usize {
     generation.fetch_add(1, Ordering::SeqCst) + 1
 }
 
+/// Starts a command load, or returns `None` when the cursor is terminal.
+///
+/// A refresh or another load can commit a terminal token after the load
+/// command admitted this run. Such a load is not an operation start: it
+/// fetches nothing and supersedes nothing (spec 21 §6.2, ADR-0169). The check
+/// and the start share `gate`, and a commit writes `has_more` under `gate`, so
+/// no terminal commit lands between them. The lock order is `gate`, then
+/// `has_more`, which matches the commit order.
+fn begin_load(gate: &Mutex<()>, generation: &AtomicUsize, has_more: &Mutex<bool>) -> Option<usize> {
+    let _start = lock(gate);
+    if !*lock(has_more) {
+        return None;
+    }
+    Some(generation.fetch_add(1, Ordering::SeqCst) + 1)
+}
+
 /// The locks a current commit writes under: the items, and the operation gate,
 /// which keeps every start out until the cursor is written too.
 struct CurrentCommit<'a, T> {
@@ -401,7 +417,11 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 if load_more_lifecycle.is_terminal() {
                     return Ok(());
                 }
-                let operation = begin_operation(&load_more_gate, &load_more_generation);
+                let Some(operation) =
+                    begin_load(&load_more_gate, &load_more_generation, &load_more_has_more)
+                else {
+                    return Ok(());
+                };
                 let token = lock(&load_more_token).clone();
                 if load_more_lifecycle.is_terminal() {
                     return Ok(());
@@ -665,7 +685,10 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 if load_lifecycle.is_terminal() {
                     return Ok(());
                 }
-                let operation = begin_operation(&load_gate, &load_generation);
+                let Some(operation) = begin_load(&load_gate, &load_generation, &load_has_more)
+                else {
+                    return Ok(());
+                };
                 let token = lock(&load_token).clone();
                 if load_lifecycle.is_terminal() {
                     return Ok(());

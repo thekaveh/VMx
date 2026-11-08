@@ -102,8 +102,10 @@ tests/conformance/property_change.rs
 tests/conformance/reconstruct_command_parity.rs
 tests/conformance/reverse_destruct_order.rs
 tests/conformance/search_filter.rs
+tests/conformance/selection_transactions.rs
 tests/conformance/subscribe_value.rs
 tests/conformance/threading.rs
+tests/conformance/token_load_terminal.rs
 tests/conformance/token_refresh_cursor.rs
 tests/conformance/tree_selection.rs
 tests/conformance/tree_utils.rs

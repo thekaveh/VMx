@@ -964,7 +964,11 @@ unchanged, publishes nothing, and surfaces the failure through the command.
 Each load or refresh supersedes every operation started before it. An
 operation that completes after a later load or refresh started is stale: it
 MUST return without mutating state or publishing notifications, and it skips
-auto-construction when it detects that it is stale before constructing.
+auto-construction when it detects that it is stale before constructing. A
+`LoadMoreCommand` run that finds `HasMore` false when its load starts, because a
+refresh or another load committed a terminal token after the command admitted
+the run, is not an operation start: it MUST NOT call `fetch_next`, mutate
+state, publish notifications, or supersede any operation.
 
 When auto-construction is enabled and returned items are VMx component VMs,
 they are constructed before the reset event is emitted. C# enables it with the

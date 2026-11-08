@@ -485,11 +485,14 @@ def test_selector_result_whose_add_is_not_admitted_is_not_selected(operation: st
 
 
 @pytest.mark.parametrize("pick_late", [True, False])
-def test_walk_resumed_on_the_add_owner_thread_selects_only_admitted_children(
+def test_walk_resumed_inside_the_owner_uncommitted_add_assigns_nothing(
     pick_late: bool,
 ) -> None:
     # The walk waits for the add's start attempt, then resumes in the add's
     # completion callback on the owner thread, before the add admits the child.
+    # That thread owns the add's uncommitted transaction, so the walk's
+    # assignment is a silent no-op there even for the admitted child
+    # (spec/06 §4.3 rule 4, ADR-0173).
     bg, dispatcher, hub = _services()
     first = _child(hub, dispatcher, "first", background=True)
     late = _child(hub, dispatcher, "late")
@@ -537,7 +540,8 @@ def test_walk_resumed_on_the_add_owner_thread_selects_only_admitted_children(
     assert selector_threads == ["owner"]
     assert root.status is S.CONSTRUCTED
     assert any(child is late for child in root.snapshot())
-    assert root.current is (None if pick_late else first)
+    assert root.current is None
+    assert not first.is_current
 
 
 @pytest.mark.parametrize(
