@@ -283,6 +283,22 @@ below for them.
   other resources, when that component is disposed through any decorator or
   directly, and at once if it is already disposed (`FWD-005`, ADR-0151, spec
   3.30.0) (#650).
+- `CompositeVM` and `GroupVM` raise the failure of a deferred `dispose()` after
+  a successful structural operation also when the caller runs it inside an
+  `except` block or a container `on_destruct` hook. This covers `__setitem__`,
+  `insert`, `append`/`add`, `remove`, `remove_at`, `__delitem__`, `clear`,
+  lazy population in `construct()` and a transfer out of a `GroupVM`. Before,
+  each operation decided success from `sys.exc_info()`, which also reports an
+  exception that a caller frame handles, so it dropped the failure. A lazy
+  population then left the container `DISPOSED`, and `construct()` raised a
+  `StatusTransitionError`. A failed operation still keeps its own error as the
+  first failure (spec/06 §4.2) (#1152).
+- `GroupVM` keeps a deferred `dispose()` pending until the handoff call at the
+  end of the owner's membership transaction admits it, as `CompositeVM` does
+  (#1064). Before, it cleared the deferral first, so another thread's `add`
+  that started in between was admitted and then disposed, or the handoff
+  waited for it. That `add` now raises the "container is disposing"
+  `RuntimeError` (spec/06 §4.2, spec/07) (#1153).
 
 ## [3.29.0] — unreleased source version
 

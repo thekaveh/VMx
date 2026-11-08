@@ -5,7 +5,6 @@ See spec/06-composite-vm.md.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable, Iterable, Iterator
 from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar, overload
@@ -369,6 +368,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         old: VM | None = None
         original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
+        succeeded = False
         try:
             original_status = value.status
             transfer = _begin_parent_transfer(value, self)
@@ -439,8 +439,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     )
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     def __delitem__(self, index: int) -> None:
         self._remove_at(index)
@@ -467,6 +468,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         attached = False
         original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
+        succeeded = False
         try:
             original_status = item.status
             transfer = _begin_parent_transfer(item, self)
@@ -523,8 +525,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     def append(self, item: VM) -> None:
         """Append *item*, emitting a collection-changed event."""
@@ -535,6 +538,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         attached = False
         original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
+        succeeded = False
         try:
             original_status = item.status
             transfer = _begin_parent_transfer(item, self)
@@ -588,8 +592,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     def add(self, item: VM) -> None:
         """Alias for ``append``."""
@@ -598,11 +603,13 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def remove(self, item: VM) -> bool:
         """Remove first occurrence of *item*.  Returns True on success."""
         self._begin_membership_transaction()
+        succeeded = False
         try:
             with _current_change_coordinator:
                 with self._membership_gate:
                     idx = next((i for i, child in enumerate(self._children) if child is item), -1)
                     if idx < 0:
+                        succeeded = True
                         return False
                     removed, was_current = self._remove_at_locked(idx)
                 if was_current:
@@ -625,8 +632,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
         return True
 
     def remove_at(self, index: int) -> None:
@@ -636,6 +644,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def clear(self) -> None:
         """Remove all children, emitting a Reset event."""
         self._begin_membership_transaction()
+        succeeded = False
         try:
             with _current_change_coordinator:
                 with self._membership_gate:
@@ -663,8 +672,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 finish_current,
                 lambda: self._emit_collection_changed(CollectionChangedEvent(action="reset")),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     def move(self, from_index: int, to_index: int) -> None:
         """Move an existing child to its final index without rewiring it."""
@@ -703,6 +713,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def _remove_at(self, index: int) -> None:
         _reject_bool_index(index)
         self._begin_membership_transaction()
+        succeeded = False
         try:
             with _current_change_coordinator:
                 with self._membership_gate:
@@ -730,8 +741,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     )
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     def _remove_at_locked(self, index: int) -> tuple[VM, bool]:
         item = self._children[index]
@@ -933,6 +945,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._begin_membership_transaction_locked()
 
     def _end_membership_transaction(self, *, propagate_dispose_failure: bool = True) -> None:
+        """End the transaction and run a deferred dispose().
+
+        The caller passes whether its operation succeeded as an explicit flag.
+        ``sys.exc_info()`` cannot tell: it also reports an exception that a
+        caller frame handles, such as an ``except`` block or the child walk
+        around an on_destruct hook (#1152). A failed operation keeps its own
+        error as the first failure (spec/06 §4.2).
+        """
         with self._membership_condition:
             self._release_membership_transaction_locked()
             self._transaction_staged = False
@@ -1000,6 +1020,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         transfers: list[_ParentTransfer | None] = []
         original_statuses: list[ConstructionStatus] = []
         parent: _ParentCompositeVM = self
+        succeeded = False
         try:
             with _ownership_reservation_batch(candidates):
                 for child in candidates:
@@ -1091,8 +1112,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 raise_commit_error,
                 *(lambda child=child: publish_add(child) for child in candidates),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -1248,8 +1270,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         except BaseException:
             self._end_current_publication(propagate_dispose_failure=False)
             raise
-        # Callers such as the walk run inside an except clause, so
-        # sys.exc_info() cannot tell success from failure here.
+        # An explicit flag: callers such as the walk run inside an except
+        # clause, so sys.exc_info() cannot tell success from failure (#1152).
         self._end_current_publication(propagate_dispose_failure=True)
 
     def _apply_selector_result(self, value: VM) -> None:
