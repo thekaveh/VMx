@@ -81,6 +81,7 @@ tests/conformance/form_approval_admission.rs
 tests/conformance/form_model_hub_publication.rs
 tests/conformance/form_approval_subscription.rs
 tests/conformance/form_failure_atomic_updates.rs
+tests/conformance/form_publication_wait_cycle.rs
 tests/conformance/form_reader_consistency.rs
 tests/conformance/forms.rs
 tests/conformance/forwarding.rs
