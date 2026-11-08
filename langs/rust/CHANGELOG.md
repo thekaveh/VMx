@@ -209,13 +209,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
   holds a publication scope on the form. An update holds one over its
   `errors_changed` send. A successful settlement holds one until its approval
   subscribers return. A failed settlement holds one over its eligibility
-  change. Each wait records an edge in the process-wide wait-for graph. A
-  wait that would close a cycle, such as a hub drainer that calls the form
-  while the publisher sends on that hub, does not wait. A refused
+  change. An edit made in the caller's own pre-publication window also
+  waits, and only then joins the caller's queue. Disposal ends every such
+  wait. Each wait records an edge in the process-wide wait-for graph. A
+  wait that would close a cycle does not wait. An example is a hub drainer
+  that calls the form while the publisher sends on that hub. A refused
   `set_model` or `revert()` prepares, joins the publisher's queue and returns
   before it takes effect. A refused approval is admitted, and a refused
   settlement commits in its own scope. A refused `dispose()` marks the form
-  disposed and returns, and the publisher tears it down afterwards. Each
+  disposed and returns. The last thread to end its publications tears the
+  form down, and a panic in that teardown takes the replay failure route. Each
   thread keeps its own queue and replays it when its outermost publication
   ends. A `dispose()` from another thread now waits for the approval
   subscribers, so they all run. The test

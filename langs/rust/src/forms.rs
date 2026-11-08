@@ -243,11 +243,14 @@ impl<M> PublicationControl<M> {
 
     /// Waits until `owner` no longer holds a scope, recording the wait in
     /// the wait-for graph (spec/20 §5.5, ADR-0176). Returns `false`, without
-    /// waiting, when the wait would close a live wait-for cycle. A wake for
-    /// any reason returns `true`, and the caller checks again.
-    fn wait_for_scope(&self, owner: ThreadId) -> bool {
+    /// waiting, when the wait would close a live wait-for cycle. Returns
+    /// `true` at once when `owner` holds no scope or the form is disposed. A
+    /// wake for any reason returns `true`, and the caller checks again.
+    fn wait_for_scope(&self, owner: ThreadId, disposed: &Mutex<bool>) -> bool {
         let state = lock(&self.state);
-        if !state.holds_scope(owner) {
+        // Disposal is checked under the state lock, which a disposal holds
+        // while it marks the form and wakes the waiters, so no wake is lost.
+        if !state.holds_scope(owner) || *lock(disposed) {
             return true;
         }
         let (_state, refused) = wait_for_owner(
@@ -1080,7 +1083,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         let (flight, model) = {
             let Serialized {
                 guard: _serialized, ..
-            } = self.serialize(false);
+            } = self.serialize();
             if *lock(&self.disposed) || !self.is_valid() {
                 return None;
             }
@@ -1155,7 +1158,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     ) -> Option<bool> {
         let Serialized {
             guard: serialized, ..
-        } = self.serialize(false);
+        } = self.serialize();
         if *lock(&self.disposed) {
             drop(serialized);
             return None;
@@ -1275,7 +1278,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         {
             let Serialized {
                 guard: _serialized, ..
-            } = self.serialize(false);
+            } = self.serialize();
             publication.open_scope();
         }
         // Settlement step 1.
@@ -1297,8 +1300,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// updates joined, and then runs a teardown that a refused `dispose()`
     /// left for it. Each update replays as a new call, under its own unwind
     /// guard, so a panicking replay does not stop the later ones (spec/20
-    /// §5.3 and §5.5, ADR-0174, ADR-0176). Returns the first replay panic;
-    /// later ones are dropped.
+    /// §5.3 and §5.5, ADR-0174, ADR-0176). The teardown runs under the same
+    /// guard, after the last replay. Returns the first panic of a replay or
+    /// the teardown; later ones are dropped.
     fn finish_publication(&self, publication: Publication<M>) -> Option<PanicPayload> {
         let Finished { queued, teardown } = publication.finish();
         let mut first_panic = None;
@@ -1314,7 +1318,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             }
         }
         if let Some(teardown) = teardown {
-            teardown();
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(teardown)) {
+                if first_panic.is_none() {
+                    first_panic = Some(payload);
+                }
+            }
         }
         first_panic
     }
@@ -1544,10 +1552,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// and §5.5). When that wait would close a wait-for cycle, the call marks
     /// the form disposed and returns at once. Later calls are then inert, and
     /// the publishing thread completes the hubs and disposes the commands when
-    /// its publications end.
+    /// its publications end. Either way, calls on other threads that wait for
+    /// a publication scope stop waiting and find the form disposed.
     pub fn dispose(&self) {
         loop {
-            let Serialized { guard, refused_by } = self.serialize(false);
+            let Serialized { guard, refused_by } = self.serialize();
             if let Some(owner) = refused_by {
                 if self.defer_teardown(owner) {
                     return;
@@ -1562,6 +1571,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             };
             drop(guard);
             if should_dispose {
+                self.wake_scope_waiters();
                 self.tear_down();
             }
             return;
@@ -1580,8 +1590,18 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             drop(disposed);
             let form = self.clone();
             state.teardown = Some(Box::new(move || form.tear_down()));
+            drop(state);
+            self.publication.closed.notify_all();
         }
         true
+    }
+
+    /// Wakes the calls that wait for a publication scope after this thread
+    /// marked the form disposed, so they stop waiting (spec/20 §5.5). Taking
+    /// the state lock first orders the mark before any waiter's next check.
+    fn wake_scope_waiters(&self) {
+        drop(lock(&self.publication.state));
+        self.publication.closed.notify_all();
     }
 
     /// The §10 teardown of a disposed form.
@@ -1655,13 +1675,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// thread holds one, and each wait records an edge to one publisher in the
     /// wait-for graph. When that wait would close a live wait-for cycle, the
     /// call takes the lock without waiting and reports the publisher in
-    /// [`Serialized::refused_by`]. With `queue_own`, an update on a thread in
-    /// its own pre-publication window does not wait, because it is queued.
+    /// [`Serialized::refused_by`]. Disposal ends the wait. An update made in
+    /// this thread's pre-publication window also waits first, and is queued
+    /// only afterwards (spec/20 §5.5 lists no exception).
     ///
     /// A call made while this thread already holds the update lock, from a
     /// preparation callback, does not wait: waits for that lock are outside
     /// the wait-for graph (spec/20 §5.5 limitation).
-    fn serialize(&self, queue_own: bool) -> Serialized<'_> {
+    fn serialize(&self) -> Serialized<'_> {
         if self.update_lock.is_held_by_current() {
             return Serialized {
                 guard: self.update_lock.acquire(),
@@ -1671,13 +1692,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         let current = thread::current().id();
         loop {
             let guard = self.update_lock.acquire();
-            let publisher = {
-                let state = lock(&self.publication.state);
-                if queue_own && state.pre_publishing(current) {
-                    None
-                } else {
-                    state.foreign_publisher(current)
-                }
+            let publisher = if *lock(&self.disposed) {
+                None
+            } else {
+                lock(&self.publication.state).foreign_publisher(current)
             };
             let Some(owner) = publisher else {
                 return Serialized {
@@ -1688,7 +1706,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             // Never wait for a scope while holding the update lock: the
             // publisher may need it.
             drop(guard);
-            if self.publication.wait_for_scope(owner) {
+            if self.publication.wait_for_scope(owner, &self.disposed) {
                 continue;
             }
             let guard = self.update_lock.acquire();
@@ -1705,7 +1723,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// the lock released, when a disposal that held the lock first has ended
     /// the form.
     fn begin_update(&self) -> Option<Serialized<'_>> {
-        let serialized = self.serialize(true);
+        let serialized = self.serialize();
         let disposed = *lock(&self.disposed);
         (!disposed).then_some(serialized)
     }

@@ -792,8 +792,9 @@ fn waits_in_the_graph<T>(handle: &JoinHandle<T>) -> bool {
 
 /// #1061 review, #1160 — each publishing thread replays only its own queue.
 /// Thread B's approval waits while thread A's approval subscribers run. Each
-/// thread's settlement-deferred edit replays on that thread, and a later edit
-/// stands.
+/// thread's settlement-deferred edit prepares and replays on that thread. A
+/// replay can no longer follow another thread's later edit, because that edit
+/// waits for the scope, so the final edit only checks that no state is left.
 #[test]
 fn another_threads_approval_waits_and_replays_only_its_own_deferred_edit() {
     let (form, validated) = recording_form();
@@ -861,7 +862,7 @@ fn another_threads_approval_waits_and_replays_only_its_own_deferred_edit() {
         vec![b_id, b_id],
         "B's deferred edit prepares and replays on B"
     );
-    assert_eq!(form.model(), 8, "no replay overwrites the later edit");
+    assert_eq!(form.model(), 8, "the last edit stands");
     assert_eq!(form.snapshot(), 8);
     assert!(!form.is_dirty(), "no stale edit is replayed");
 }
@@ -1038,6 +1039,144 @@ fn another_threads_revert_waits_until_the_approval_subscribers_have_run() {
     assert_eq!(*seen.lock().unwrap(), vec![7], "S2 reads the racing edit");
     assert_eq!(form.model(), 2);
     assert_eq!(form.snapshot(), 2);
+}
+
+/// spec/20 §5.5 — a `set_model` made in this thread's pre-publication window
+/// still waits while another thread holds a publication scope. Thread Y's
+/// reset callback edits the form while thread X's `errors_changed` subscriber
+/// runs. Y's edit waits for X's update scope, and only then joins Y's queue.
+#[test]
+fn a_pre_publication_edit_waits_for_another_threads_update_scope() {
+    type FormSlot = Arc<Mutex<Option<FormVm<i32>>>>;
+    let slot: FormSlot = Arc::default();
+    let (in_reset, in_reset_rx) = mpsc::channel::<()>();
+    let (go, go_rx) = mpsc::channel::<()>();
+    let (in_reset, go_rx) = (Mutex::new(in_reset), Mutex::new(go_rx));
+    let y_edit_returned = Arc::new(AtomicBool::new(false));
+    let form = FormVm::builder()
+        .initial(1)
+        .persister(|_: &i32| Ok(()))
+        .validator("value", |model: &i32| {
+            (*model < 0).then(|| "negative".to_string())
+        })
+        .reset_on_approved({
+            let (slot, y_edit_returned) = (Arc::clone(&slot), Arc::clone(&y_edit_returned));
+            move |model: &i32| {
+                let form = slot.lock().unwrap().clone().expect("the form is built");
+                in_reset.lock().unwrap().send(()).unwrap();
+                // A dropped sender also releases Y.
+                let _ = go_rx.lock().unwrap().recv_timeout(BOUND);
+                form.set_model(50);
+                y_edit_returned.store(true, Ordering::SeqCst);
+                Ok(*model)
+            }
+        })
+        .build()
+        .unwrap();
+    *slot.lock().unwrap() = Some(form.clone());
+    let (x_entered, x_entered_rx) = mpsc::channel::<()>();
+    let (x_release, x_release_rx) = mpsc::channel::<()>();
+    let (x_entered, x_release_rx) = (Mutex::new(x_entered), Mutex::new(x_release_rx));
+    let _x_observer = form.errors_changed().subscribe({
+        let form = form.clone();
+        move |_| {
+            if form.model() == -1 && thread::current().name() == Some("x") {
+                x_entered.lock().unwrap().send(()).unwrap();
+                let _ = x_release_rx.lock().unwrap().recv_timeout(BOUND);
+            }
+        }
+    });
+
+    form.set_model(2);
+    let y = spawn_named("y", {
+        let form = form.clone();
+        move || form.approve()
+    });
+    in_reset_rx.recv_timeout(BOUND).unwrap();
+    let x = spawn_named("x", {
+        let form = form.clone();
+        move || form.set_model(-1)
+    });
+    x_entered_rx.recv_timeout(BOUND).unwrap();
+    go.send(()).unwrap();
+    let y_waited = waits_in_the_graph(&y);
+    let returned_during_scope = y_edit_returned.load(Ordering::SeqCst);
+    x_release.send(()).unwrap();
+    let deadline = Instant::now() + BOUND;
+    join_by(x, deadline, "X's set_model");
+    join_by(y, deadline, "Y's approve()").unwrap();
+
+    assert!(
+        !returned_during_scope,
+        "Y's edit does not return while X's errors_changed subscriber runs"
+    );
+    assert!(y_waited, "Y's edit waits in the wait-for graph");
+    assert_eq!(form.snapshot(), 2, "Y's approval commits its reset");
+    assert_eq!(
+        form.model(),
+        50,
+        "Y's queued edit replays after its settlement"
+    );
+}
+
+/// spec/20 §5.5 — disposal ends another thread's wait for a publication
+/// scope. Thread X disposes the form from its own `errors_changed` subscriber
+/// and keeps running. Thread Y's waiting `set_model` returns at once and
+/// finds the form disposed, as in C# and Python.
+#[test]
+fn disposal_ends_another_threads_wait_for_a_publication_scope() {
+    let form = FormVm::builder()
+        .initial(1)
+        .persister(|_: &i32| Ok(()))
+        .validator("value", |model: &i32| {
+            (*model < 0).then(|| "negative".to_string())
+        })
+        .build()
+        .unwrap();
+    let (x_entered, x_entered_rx) = mpsc::channel::<()>();
+    let (dispose, dispose_rx) = mpsc::channel::<()>();
+    let (x_release, x_release_rx) = mpsc::channel::<()>();
+    let (x_entered, dispose_rx, x_release_rx) = (
+        Mutex::new(x_entered),
+        Mutex::new(dispose_rx),
+        Mutex::new(x_release_rx),
+    );
+    let _x_observer = form.errors_changed().subscribe({
+        let form = form.clone();
+        move |_| {
+            if thread::current().name() == Some("x") {
+                x_entered.lock().unwrap().send(()).unwrap();
+                // Dropped senders also release X.
+                let _ = dispose_rx.lock().unwrap().recv_timeout(BOUND);
+                form.dispose();
+                let _ = x_release_rx.lock().unwrap().recv_timeout(BOUND);
+            }
+        }
+    });
+
+    let x = spawn_named("x", {
+        let form = form.clone();
+        move || form.set_model(-1)
+    });
+    x_entered_rx.recv_timeout(BOUND).unwrap();
+    let y = spawn_named("y", {
+        let form = form.clone();
+        move || form.set_model(5)
+    });
+    let y_waited = waits_in_the_graph(&y);
+    dispose.send(()).unwrap();
+    let y_returned = eventually(|| y.is_finished());
+    x_release.send(()).unwrap();
+    let deadline = Instant::now() + BOUND;
+    join_by(x, deadline, "X's set_model");
+    join_by(y, deadline, "Y's set_model");
+
+    assert!(y_waited, "Y's edit waits for X's update scope");
+    assert!(
+        y_returned,
+        "Y stops waiting once X disposes the form, while X's scope is open"
+    );
+    assert_eq!(form.model(), -1, "Y's edit finds the form disposed");
 }
 
 /// #1160 — an approval started from the outer settlement notification
