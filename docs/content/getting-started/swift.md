@@ -234,7 +234,9 @@ catchable `StatusTransitionError`. The `construct()`, `destruct()`, and
 Swift traps only where a setter cannot throw (ADR-0009, ADR-0037). For example,
 assigning a non-child to the `CompositeVM.current` setter traps. Call
 `setCurrent(_:)` instead: it throws a catchable `CompositeMembershipError` for
-a non-child. A builder throws `BuilderValidationError` from `build()` when a
+a non-child. It also throws for a child while disposal of the composite is
+pending, and for any value inside the caller's own uncommitted membership
+transaction (ADR-0173). A builder throws `BuilderValidationError` from `build()` when a
 required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the

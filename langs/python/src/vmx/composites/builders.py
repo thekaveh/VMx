@@ -108,8 +108,11 @@ class CompositeVMBuilder(Generic[VM]):
         ``None`` result or a value that is not a committed child leaves
         ``current`` at its prior value (initially ``None``). No notification
         fires. The same holds while the composite is being disposed. A child
-        that another add has attached but not yet admitted is not committed
-        yet. See ADR-0042, ADR-0165 and spec/06 §3.2 (COMP-025).
+        that an add or population has attached but not yet admitted is not
+        committed yet. On a thread that owns an uncommitted membership
+        transaction of the composite, the assignment is a no-op even for a
+        committed child. See ADR-0042, ADR-0165, ADR-0173 and spec/06 §3.2
+        and §4.3 (COMP-025).
         """
         return dataclasses.replace(self, _current_selector=selector)
 
@@ -235,8 +238,11 @@ class CompositeVMOfBuilder(Generic[M, VM]):
         ``None`` result or a value that is not a committed child leaves
         ``current`` at its prior value (initially ``None``). No notification
         fires. The same holds while the composite is being disposed. A child
-        that another add has attached but not yet admitted is not committed
-        yet. See ADR-0042, ADR-0165 and spec/06 §3.2 (COMP-025).
+        that an add or population has attached but not yet admitted is not
+        committed yet. On a thread that owns an uncommitted membership
+        transaction of the composite, the assignment is a no-op even for a
+        committed child. See ADR-0042, ADR-0165, ADR-0173 and spec/06 §3.2
+        and §4.3 (COMP-025).
         """
         return dataclasses.replace(self, _current_selector=selector)
 

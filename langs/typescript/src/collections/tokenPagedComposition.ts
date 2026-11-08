@@ -83,7 +83,11 @@ export class TokenPagedComposition<TVM, TToken> {
   }
 
   async #loadMore(): Promise<void> {
-    if (this.#disposed) return;
+    // A load that finds a terminal token at body start is not an operation
+    // start: it fetches nothing and supersedes nothing (spec 21 §6.2, ADR-0169).
+    // executeAsync runs this body in the admission turn, so today the check
+    // matches the predicate; it keeps the rule explicit in every flavor.
+    if (this.#disposed || !this.hasMore) return;
     const generation = ++this.#operationGeneration;
     const page = await this.#fetchNext(this.#currentToken);
     if (!this.#isOperationCurrent(generation)) return;

@@ -624,6 +624,14 @@ where
         self.inner.component.core.set_current_flag(is_current);
     }
 
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        self.inner.component.core.commit_current_flag(is_current)
+    }
+
+    fn publish_current_flag(&self, _is_current: bool) {
+        self.inner.component.core.publish_current_flag();
+    }
+
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.inner.component.core.when_settled(callback)
     }

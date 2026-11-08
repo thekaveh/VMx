@@ -63,12 +63,17 @@ public final class TokenPagedComposition<TVM, TToken> {
     }
 
     private func loadMore() async throws {
-        let start = stateQueue.sync { () -> (disposed: Bool, token: TToken?, generation: Int) in
-            guard !disposed else { return (true, nil, operationGeneration) }
+        // A refresh or another load can commit a terminal token after this
+        // command was admitted. Such a load is not an operation start: it
+        // fetches nothing and supersedes nothing (spec 21 §6.2, ADR-0169).
+        let start = stateQueue.sync { () -> (skip: Bool, token: TToken?, generation: Int) in
+            guard !disposed, !loadedOnce || _currentToken != nil else {
+                return (true, nil, operationGeneration)
+            }
             operationGeneration += 1
             return (false, _currentToken, operationGeneration)
         }
-        guard !start.disposed else { return }
+        guard !start.skip else { return }
 
         let page = try await fetchNext(start.token)
         let isCurrent = stateQueue.sync {

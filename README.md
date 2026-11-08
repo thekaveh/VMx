@@ -86,7 +86,7 @@ them from a VMx checkout until their first registry release.
 | Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                                    | v3.30.0     |
 | Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM          | v3.31.0     |
 | TypeScript    | [`@thekaveh/vmx` 3.30.0](https://www.npmjs.com/package/@thekaveh/vmx/v/3.30.0) on npm           | v3.31.0     |
-| React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.2      |
+| React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.3      |
 | C#            | Not yet published to NuGet                                                                      | v3.30.0     |
 | Rust          | Not yet published to crates.io                                                                  | v0.36.0     |
 
@@ -270,7 +270,7 @@ released versions and the spec version each implements.
 
 ### 6.3 Conformance catalog
 
-`spec/` holds 24 chapters, 169 ADRs, 4 JSON fixtures, and the conformance
+`spec/` holds 24 chapters, 171 ADRs, 4 JSON fixtures, and the conformance
 catalog in `spec/12-conformance.md`. All five flavors implement its
 444 library conformance IDs, and the four UI-backed flagship apps cover
 5 additional THEME scenario IDs, for **449 total**. Rust has no UI scenario
@@ -296,7 +296,7 @@ python3 tools/check-conformance-coverage.py
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0168)
+│   ├── ADRs/              architecture decision records (0001..0173)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -346,7 +346,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 169 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 171 ADRs,
   4 fixtures, and the 449-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical
