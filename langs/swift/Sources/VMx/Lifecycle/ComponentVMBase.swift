@@ -860,12 +860,17 @@ open class ComponentVMBase {
     private var activeHookLease: LifecycleHookLease?
     private var disposalCleanupPendingForHook = false
     private var disposalFinished = false
-    /// Set while a dispose cascade runs ahead of this VM's terminal
-    /// transition: no lifecycle hook is admitted meanwhile (LIFE-015).
+    /// Set when an inline dispose cascade starts, ahead of this VM's
+    /// terminal transition, and never cleared. From then on no lifecycle hook
+    /// is admitted (LIFE-015), a lifecycle call fails with the `.disposed`
+    /// error, and no status other than `.disposed` commits (spec/02 §7.2,
+    /// LIFE-021).
     private var hookAdmissionClosed = false
     /// The child and member cascade of a disposal that found a foreign hook
     /// admitted; `_finishDisposalNow` runs it after the lease (LIFE-015).
     private var deferredDisposalCascade: (() -> [ComponentVMBase])?
+    /// Test-only seam (#1167); see `afterHookReleaseForTesting`.
+    private var _afterHookReleaseForTesting: (() -> Void)?
 
     // ── Deferred child transitions (spec/02 §6, LIFE-014) ───────────────
 
@@ -1097,6 +1102,15 @@ open class ComponentVMBase {
 
     public func construct() throws {
         lifecycleLock.lock()
+        // During the inline dispose cascade the call fails as it fails from
+        // `.disposed`, before the idempotent, legality and in-flight checks
+        // (spec/02 §7.2, LIFE-021).
+        if hookAdmissionClosed {
+            lifecycleLock.unlock()
+            throw StatusTransitionError(
+                currentStatus: .disposed, attemptedOperation: "construct"
+            )
+        }
         let current = _status
         if disposalRequested || inFlight {
             lifecycleLock.unlock()
@@ -1147,6 +1161,7 @@ open class ComponentVMBase {
                 throw error
             }
             _finishHook(lease)
+            _runAfterHookReleaseForTesting()
             _completeTransitionAfterChildren(
                 success: .constructed,
                 rollback: current,
@@ -1157,6 +1172,15 @@ open class ComponentVMBase {
 
     public func destruct() throws {
         lifecycleLock.lock()
+        // During the inline dispose cascade the call fails as it fails from
+        // `.disposed`, before the idempotent, legality and in-flight checks
+        // (spec/02 §7.2, LIFE-021).
+        if hookAdmissionClosed {
+            lifecycleLock.unlock()
+            throw StatusTransitionError(
+                currentStatus: .disposed, attemptedOperation: "destruct"
+            )
+        }
         let current = _status
         if disposalRequested || inFlight {
             lifecycleLock.unlock()
@@ -1207,6 +1231,7 @@ open class ComponentVMBase {
                 throw error
             }
             _finishHook(lease)
+            _runAfterHookReleaseForTesting()
             _completeTransitionAfterChildren(
                 success: .destructed,
                 rollback: current,
@@ -1217,6 +1242,15 @@ open class ComponentVMBase {
 
     public func reconstruct() throws {
         lifecycleLock.lock()
+        // During the inline dispose cascade the call fails as it fails from
+        // `.disposed`, before the idempotent, legality and in-flight checks
+        // (spec/02 §7.2, LIFE-021).
+        if hookAdmissionClosed {
+            lifecycleLock.unlock()
+            throw StatusTransitionError(
+                currentStatus: .disposed, attemptedOperation: "reconstruct"
+            )
+        }
         let current = _status
         if disposalRequested || inFlight {
             lifecycleLock.unlock()
@@ -1435,7 +1469,8 @@ open class ComponentVMBase {
     func _flipConstructedForSeal() {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        guard inFlight, !disposalRequested, _status == .constructing else { return }
+        guard inFlight, !disposalRequested, !hookAdmissionClosed,
+              _status == .constructing else { return }
         _status = .constructed
         commitPending = true
     }
@@ -1624,7 +1659,12 @@ open class ComponentVMBase {
     /// the members are being disposed returns at once. While a construct or
     /// destruct hook of this VM runs on another thread, this VM publishes
     /// `.disposed` first. It disposes no child or member until that hook
-    /// returns (LIFE-015).
+    /// returns (LIFE-015). Otherwise the children and members are disposed
+    /// inline, before `.disposed`. A `construct()`, `destruct()` or
+    /// `reconstruct()` call that starts during that inline cascade throws
+    /// ``StatusTransitionError`` for `.disposed`, and a transition that
+    /// started earlier commits no status other than `.disposed`
+    /// (spec/02 §7.2, LIFE-021).
     open func dispose() { _disposeAtHookBoundary(children: nil) }
 
     /// A container's `dispose()` calls this, holding no lock, instead of
@@ -1939,8 +1979,13 @@ open class ComponentVMBase {
         generation: UInt64
     ) -> Bool {
         lifecycleLock.lock()
+        // Once the inline dispose cascade has started, the next and last
+        // status is `.disposed`: a settled commit, a rollback, a queued
+        // background commit and the reconstruct construct phase are dropped
+        // and publish nothing (spec/02 §7.2, LIFE-021).
         guard transitionGeneration == generation,
               !disposalRequested,
+              !hookAdmissionClosed,
               _status != .disposed else {
             lifecycleLock.unlock()
             return false
@@ -1958,6 +2003,29 @@ open class ComponentVMBase {
         let succeeded = publication.publication.succeeded
         lifecycleLock.unlock()
         return succeeded
+    }
+
+    /// Test-only seam (#1167): runs on the calling thread after a synchronous
+    /// `construct()` or `destruct()` hook released its lease and before the
+    /// transition commits, so a test can start a disposal in that window.
+    var afterHookReleaseForTesting: (() -> Void)? {
+        get {
+            lifecycleLock.lock()
+            defer { lifecycleLock.unlock() }
+            return _afterHookReleaseForTesting
+        }
+        set {
+            lifecycleLock.lock()
+            _afterHookReleaseForTesting = newValue
+            lifecycleLock.unlock()
+        }
+    }
+
+    private func _runAfterHookReleaseForTesting() {
+        lifecycleLock.lock()
+        let seam = _afterHookReleaseForTesting
+        lifecycleLock.unlock()
+        seam?()
     }
 
     /// Test-only seam (#1056): commits `status` for the transition in flight,
@@ -2015,6 +2083,7 @@ open class ComponentVMBase {
             guard let generation = publication.generation,
                   transitionGeneration == generation,
                   !disposalRequested,
+                  !hookAdmissionClosed,
                   _status != .disposed else { return }
         }
         _status = publication.status
