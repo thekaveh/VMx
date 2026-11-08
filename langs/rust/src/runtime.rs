@@ -2871,8 +2871,9 @@ struct ComponentCoreInner<D: Dispatcher> {
     disposal_complete: bool,
     active_hook_owner: Option<ThreadId>,
     deferred_core_disposal: bool,
-    /// Set once a container's disposal starts: no construct or destruct is
-    /// admitted after it (LIFE-015).
+    /// Set once a container's or a leaf-with-members' disposal starts: no
+    /// construct or destruct is admitted after it, and no status other than
+    /// `Disposed` commits (LIFE-015, LIFE-021, spec/02 §7.2).
     hook_admission_closed: bool,
     /// A container's child cascade that waits for a hook admitted on another
     /// thread; the thread that finishes the disposal runs it (LIFE-015).
@@ -3044,6 +3045,21 @@ impl<D: Dispatcher> ComponentCore<D> {
         self.reconstruct_sync()
     }
 
+    /// Admits `reconstruct` as [`reconstruct_admission`] does, after the
+    /// refusal of the inline dispose cascade: once that cascade has started,
+    /// the call fails with [`VmxError::Disposed`] whatever `Status` reads
+    /// (spec/02 §7.2).
+    pub(crate) fn admit_reconstruct(&self) -> VmxResult<()> {
+        let status = {
+            let inner = lock(&self.inner);
+            if inner.hook_admission_closed {
+                return Err(VmxError::Disposed);
+            }
+            inner.status
+        };
+        reconstruct_admission(status)
+    }
+
     fn run_sync_hook(&self, hook: Option<Hook>) -> thread::Result<VmxResult<()>> {
         let execution = catch_unwind(AssertUnwindSafe(|| {
             hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()))
@@ -3117,6 +3133,12 @@ impl<D: Dispatcher> ComponentCore<D> {
             {
                 return (false, None);
             }
+            if inner.hook_admission_closed {
+                // The inline dispose cascade has started: neither phase
+                // commits, and no construct hook is claimed (spec/02 §7.2).
+                inner.transitioning = false;
+                return (false, None);
+            }
             inner.status = status;
             inner.transitioning = transitioning;
             if claim_hook {
@@ -3140,7 +3162,9 @@ impl<D: Dispatcher> ComponentCore<D> {
         let (sender_id, sender_name, destruct_hook, construct_hook, generation) = self
             .send_status(&hub, || {
                 let mut inner = lock(&self.inner);
-                if inner.status == ConstructionStatus::Disposed {
+                // The inline dispose cascade refuses the call first (spec/02
+                // §7.2).
+                if inner.status == ConstructionStatus::Disposed || inner.hook_admission_closed {
                     return (Err(VmxError::Disposed), None);
                 }
                 if inner.transitioning {
@@ -3273,6 +3297,12 @@ impl<D: Dispatcher> ComponentCore<D> {
             {
                 return None;
             }
+            if inner.hook_admission_closed {
+                // No hook is admitted once the inline dispose cascade has
+                // started (spec/02 §7.2).
+                inner.transitioning = false;
+                return None;
+            }
             inner.active_hook_owner = Some(thread::current().id());
         }
         let execution = catch_unwind(AssertUnwindSafe(|| {
@@ -3312,9 +3342,13 @@ impl<D: Dispatcher> ComponentCore<D> {
             drop(emission);
             return None;
         }
-        let inner = lock(&self.inner);
+        let mut inner = lock(&self.inner);
         if inner.transition_generation != generation || inner.status == ConstructionStatus::Disposed
         {
+            return None;
+        }
+        if inner.hook_admission_closed {
+            inner.transitioning = false;
             return None;
         }
         drop(inner);
@@ -3325,6 +3359,11 @@ impl<D: Dispatcher> ComponentCore<D> {
         let hub = lock(&self.inner).hub.clone();
         let started = self.send_status(&hub, || {
             let mut inner = lock(&self.inner);
+            // The inline dispose cascade refuses the call before the
+            // idempotent no-op (spec/02 §7.2).
+            if inner.hook_admission_closed {
+                return (Err(VmxError::Disposed), None);
+            }
             match (inner.status, operation) {
                 (ConstructionStatus::Disposed, _) => return (Err(VmxError::Disposed), None),
                 (ConstructionStatus::Constructed, LifecycleOperation::Construct)
@@ -3408,6 +3447,12 @@ impl<D: Dispatcher> ComponentCore<D> {
                     {
                         return ((), None);
                     }
+                    if inner.hook_admission_closed {
+                        // A commit queued before the inline dispose cascade
+                        // started publishes nothing (spec/02 §7.2).
+                        inner.transitioning = false;
+                        return ((), None);
+                    }
                     inner.status = settled;
                     inner.transitioning = false;
                     (
@@ -3482,6 +3527,10 @@ impl<D: Dispatcher> ComponentCore<D> {
             {
                 return (false, None);
             }
+            if inner.hook_admission_closed {
+                inner.transitioning = false;
+                return (false, None);
+            }
             inner.status = rollback;
             inner.transitioning = false;
             (
@@ -3528,6 +3577,13 @@ impl<D: Dispatcher> ComponentCore<D> {
         let started = self.send_status(&hub, || {
             let (sender_id, sender_name, hook, transition_status, target, generation) = {
                 let mut inner = lock(&self.inner);
+                // Once the inline dispose cascade has started, a construct or
+                // destruct fails as from Disposed, before the idempotent
+                // no-op, the legality check, and the concurrent-operation
+                // check (spec/02 §7.2, LIFE-021).
+                if inner.hook_admission_closed && operation != LifecycleOperation::Dispose {
+                    return (Err(VmxError::Disposed), None);
+                }
                 match (inner.status, operation) {
                     (ConstructionStatus::Disposed, LifecycleOperation::Construct)
                     | (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
@@ -3550,9 +3606,6 @@ impl<D: Dispatcher> ComponentCore<D> {
                         return (Ok(None), None)
                     }
                     _ => {}
-                }
-                if inner.hook_admission_closed && operation != LifecycleOperation::Dispose {
-                    return (Err(VmxError::Disposed), None);
                 }
                 if inner.transitioning && operation != LifecycleOperation::Dispose {
                     return (Err(VmxError::ConcurrentOperation), None);
@@ -3651,6 +3704,10 @@ impl<D: Dispatcher> ComponentCore<D> {
             self.hook_ready.notify_all();
             deferred
         };
+        #[cfg(test)]
+        if operation != LifecycleOperation::Dispose {
+            commit_pause::run(sender_id);
+        }
         let (mut operation_result, mut panic_payload) = match execution {
             Ok(result) => (result, None),
             Err(payload) => (Ok(()), Some(payload)),
@@ -3686,11 +3743,18 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
             return operation_result;
         }
+        // Disposal supersedes the transition once it published Disposed or
+        // started its inline cascade (spec/02 §2.4, §7.2): the transition
+        // commits nothing more and returns its own result.
         let superseded = {
-            let inner = lock(&self.inner);
-            inner.transition_generation != generation
-                || (operation != LifecycleOperation::Dispose
-                    && inner.status == ConstructionStatus::Disposed)
+            let mut inner = lock(&self.inner);
+            let superseded = inner.transition_generation != generation
+                || inner.status == ConstructionStatus::Disposed
+                || inner.hook_admission_closed;
+            if inner.transition_generation == generation && inner.hook_admission_closed {
+                inner.transitioning = false;
+            }
+            superseded
         };
         if superseded {
             if let Some(payload) = panic_payload {
@@ -3704,35 +3768,33 @@ impl<D: Dispatcher> ComponentCore<D> {
                 LifecycleOperation::Destruct => ConstructionStatus::Constructed,
                 LifecycleOperation::Dispose => ConstructionStatus::Disposed,
             };
-            let (rolled_back, cleared) = {
-                let mut inner = lock(&self.inner);
-                if inner.transition_generation == generation {
-                    inner.status = rollback;
-                    inner.transitioning = false;
-                    (true, inner.child_settle.take())
-                } else {
-                    (false, None)
-                }
-            };
-            drop(cleared);
-            if !rolled_back {
-                if let Some(payload) = panic_payload {
-                    resume_unwind(payload);
-                }
-                return operation_result;
-            }
+            // The rollback commits and publishes under one guard, so an
+            // inline dispose cascade that starts in between drops it
+            // (spec/02 §7.2).
+            let mut cleared = None;
             self.send_status(&hub, || {
-                let message = self
-                    .publication_is_current(generation, rollback)
-                    .then_some({
-                        Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                let mut inner = lock(&self.inner);
+                if inner.transition_generation != generation {
+                    return ((), None);
+                }
+                inner.transitioning = false;
+                if inner.status == ConstructionStatus::Disposed || inner.hook_admission_closed {
+                    return ((), None);
+                }
+                inner.status = rollback;
+                cleared = inner.child_settle.take();
+                (
+                    (),
+                    Some(Message::ConstructionStatusChanged(
+                        ConstructionStatusChangedMessage {
                             sender_id,
                             sender_name: sender_name.clone(),
                             status: rollback,
-                        })
-                    });
-                ((), message)
+                        },
+                    )),
+                )
             });
+            drop(cleared);
             if let Some(payload) = panic_payload {
                 resume_unwind(payload);
             }
@@ -3742,33 +3804,30 @@ impl<D: Dispatcher> ComponentCore<D> {
         if self.defer_until_children_settle(generation) {
             return Ok(());
         }
-        let property_changed = {
+        // Dispose returned above, so `target` is Constructed or Destructed.
+        // The commit and its publication run under one guard: an inline
+        // dispose cascade that starts first drops both (spec/02 §7.2).
+        self.send_status(&hub, || {
             let mut inner = lock(&self.inner);
             if inner.transition_generation != generation {
-                return Ok(());
+                return ((), None);
+            }
+            inner.transitioning = false;
+            if inner.status == ConstructionStatus::Disposed || inner.hook_admission_closed {
+                return ((), None);
             }
             inner.status = target;
-            inner.transitioning = false;
-            (target == ConstructionStatus::Disposed).then(|| inner.property_changed.clone())
-        };
-        if let Some(property_changed) = property_changed {
-            property_changed.dispose();
-        }
-        // Dispose has no distinct intermediate state: the first publication
-        // above is already the terminal Disposed transition. Publishing the
-        // same state again would make one dispose observably execute twice.
-        if operation != LifecycleOperation::Dispose {
-            self.send_status(&hub, || {
-                let message = self.publication_is_current(generation, target).then_some({
-                    Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+            (
+                (),
+                Some(Message::ConstructionStatusChanged(
+                    ConstructionStatusChangedMessage {
                         sender_id,
                         sender_name: sender_name.clone(),
                         status: target,
-                    })
-                });
-                ((), message)
-            });
-        }
+                    },
+                )),
+            )
+        });
         Ok(())
     }
 
@@ -3836,11 +3895,24 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// `construct` receives this core and must not hold it: the deferred
     /// continuation is stored on the core and holds it weakly, so a
     /// container whose destruct never settles stays collectable (#750).
+    ///
+    /// Once the inline dispose cascade has started, the construct phase does
+    /// not start: the reconstruct is superseded by the disposal and returns
+    /// `Ok(())`, as the leaf reconstruct does (spec/02 §7.2, ADR-0175 §2.3
+    /// (b)). The deferred continuation skips it the same way and reports
+    /// nothing to `background_errors`.
     pub(crate) fn construct_after_destruct<F>(&self, construct: F) -> VmxResult<()>
     where
         F: FnOnce(&Self) -> VmxResult<()> + Send + 'static,
     {
-        if self.status() == ConstructionStatus::Destructed {
+        let (status, superseded) = {
+            let inner = lock(&self.inner);
+            (inner.status, inner.hook_admission_closed)
+        };
+        if superseded {
+            return Ok(());
+        }
+        if status == ConstructionStatus::Destructed {
             return construct(self);
         }
         let core = self.downgrade();
@@ -3848,7 +3920,11 @@ impl<D: Dispatcher> ComponentCore<D> {
             let Some(core) = core.upgrade() else {
                 return;
             };
-            if core.status() == ConstructionStatus::Destructed {
+            let (status, superseded) = {
+                let inner = lock(&core.inner);
+                (inner.status, inner.hook_admission_closed)
+            };
+            if status == ConstructionStatus::Destructed && !superseded {
                 if let Err(error) = construct(&core) {
                     let errors = core.background_errors();
                     let emission = errors.begin_emission();
@@ -4132,6 +4208,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         if inner.transition_generation == generation
             && inner.transitioning
             && inner.status == ConstructionStatus::Constructing
+            && !inner.hook_admission_closed
         {
             inner.status = ConstructionStatus::Constructed;
         }
@@ -4485,6 +4562,13 @@ impl<D: Dispatcher> ComponentCore<D> {
             if !self.settle_is_current(&inner, generation) {
                 return (false, None);
             }
+            if inner.hook_admission_closed {
+                // The inline dispose cascade has started: the commit is
+                // dropped and the in-flight guard is cleared (spec/02 §7.2,
+                // rule 4); dispose publishes Disposed.
+                inner.transitioning = false;
+                return (false, None);
+            }
             // A sealed construct walk already flipped the state to
             // Constructed (see `seal_late_children`).
             let settled = match (inner.status, error.is_some()) {
@@ -4515,11 +4599,6 @@ impl<D: Dispatcher> ComponentCore<D> {
         drop(emission);
         drop(cleared);
         self.release_settle_waiters();
-    }
-
-    fn publication_is_current(&self, generation: u64, status: ConstructionStatus) -> bool {
-        let inner = lock(&self.inner);
-        inner.transition_generation == generation && inner.status == status
     }
 
     pub(crate) fn hub(&self) -> MessageHub {
@@ -4561,14 +4640,19 @@ impl<D: Dispatcher> ComponentCore<D> {
         self.finish_dispose()
     }
 
-    /// Disposes a container like [`Self::dispose_then`], with `cascade`, its
-    /// child disposals, at the admitted-hook boundary (spec/02 §2.4,
-    /// LIFE-015). Hook admission closes first. With no hook admitted on
-    /// another thread, `cascade` runs now, before this core publishes
-    /// `Disposed` (LIFE-013). Otherwise this core publishes `Disposed`, and
-    /// `cascade` runs after that hook returns. It runs on this thread after
-    /// its wait, or on the hook's thread when the wait would close a cycle. The
-    /// container calls this once, and it is the core's only disposal.
+    /// Disposes a container or a leaf with members like
+    /// [`Self::dispose_then`], with `cascade`, its child or member disposals,
+    /// at the admitted-hook boundary (spec/02 §2.4, §7.1, LIFE-015). Hook
+    /// admission closes first. With no hook admitted on another thread,
+    /// `cascade` runs now, before this core publishes `Disposed` (LIFE-013,
+    /// LIFE-018): this is the inline cascade, during which a construct,
+    /// destruct, or reconstruct fails with [`VmxError::Disposed`] and no
+    /// status other than `Disposed` commits (spec/02 §7.2, LIFE-021).
+    /// Otherwise this core publishes `Disposed`, and `cascade` runs after
+    /// that hook returns. It runs on this thread after its wait, or on the
+    /// hook's thread when the wait would close a cycle. The owner calls this
+    /// once, and it is the core's only disposal; a leaf without members uses
+    /// [`Self::dispose_then`] and closes no admission.
     pub(crate) fn dispose_with_cascade_then(
         &self,
         cascade: DisposalCascade,
@@ -4817,6 +4901,45 @@ impl MessageHub {
         lock(&self.inner.state).draining_owner
     }
 }
+
+// Unit-test instrumentation only: pauses one core's construct or destruct on
+// the current thread after its hook released the hook lease and before the
+// transition commits (#1167).
+#[cfg(test)]
+pub(crate) mod commit_pause {
+    use std::cell::RefCell;
+
+    type Pause = Box<dyn FnOnce()>;
+
+    thread_local! {
+        static PAUSE: RefCell<Option<(usize, Pause)>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `pause` once, in the next transition of core `core_id` on this
+    /// thread, between the hook and the commit.
+    pub(crate) fn arm(core_id: usize, pause: impl FnOnce() + 'static) {
+        PAUSE.with(|slot| *slot.borrow_mut() = Some((core_id, Box::new(pause))));
+    }
+
+    pub(super) fn run(core_id: usize) {
+        let pause = PAUSE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            match slot.take() {
+                Some((id, pause)) if id == core_id => Some(pause),
+                other => {
+                    *slot = other;
+                    None
+                }
+            }
+        });
+        if let Some(pause) = pause {
+            pause();
+        }
+    }
+}
+
+#[cfg(test)]
+mod commit_after_cascade_tests;
 
 // Unit-test instrumentation only: observing the native wait must never gate it.
 #[cfg(test)]

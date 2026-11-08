@@ -39,6 +39,7 @@ mod conformance {
     mod hierarchical_batch;
     mod hub_collection_changes;
     mod inline_dispose_cascade;
+    mod leaf_hook_disposal;
     mod lifecycle;
     mod localization;
     mod message_hub;

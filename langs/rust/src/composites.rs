@@ -1569,7 +1569,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Destructs and then constructs the composite.
     pub fn reconstruct(&self) -> VmxResult<()> {
-        crate::runtime::reconstruct_admission(self.status())?;
+        self.core.admit_reconstruct()?;
         self.destruct()?;
         // The deferred construct holds only the parts it needs, never the
         // composite's core or commands, so it cannot keep the composite

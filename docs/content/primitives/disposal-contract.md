@@ -289,9 +289,6 @@ flavor unless the exceptions below say otherwise.
 - `ModalVm` sets its result once.
 - `AggregateChangeSubscription` detaches one output subscription.
   `AggregateChangeStream::batch` panics after disposal.
-- A leaf `ComponentVm` disposes its `own_member` members before it waits for an
-  admitted hook on another thread
-  ([Rust parity ledger §12.13](../../maintenance/2026-07-16-rust-capability-parity.md#1213-open-item-leaf-member-disposal-and-admitted-hooks)).
 - A `construct()`, `destruct()`, or `reconstruct()` of a VM during its inline
   cascade, before it publishes `Disposed`, returns `VmxError::Disposed` and
   publishes nothing ([Ownership Rules](#683-ownership-rules)).

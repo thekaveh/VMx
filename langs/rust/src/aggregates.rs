@@ -2688,7 +2688,7 @@ macro_rules! impl_fixed_aggregate_baseline {
 
             /// Destructs and then constructs the aggregate.
             pub fn reconstruct(&self) -> VmxResult<()> {
-                crate::runtime::reconstruct_admission(self.status())?;
+                self.core.admit_reconstruct()?;
                 self.destruct()?;
                 // The deferred construct holds the core and the command
                 // table weakly, so it cannot keep the aggregate alive (#750).
