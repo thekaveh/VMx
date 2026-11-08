@@ -64,6 +64,29 @@ below for them.
 
 ### Fixed
 
+- `CompositeVM` selection opens no membership transaction (ADR-0173, spec/06
+  §4.3). The `current` setter, `select_component`, `deselect_component`, the
+  child `select` and `deselect` paths and the `async_selection` setter commit
+  under the coordination lane and the membership gate only. Before, they
+  raised `RuntimeError` while another thread held a transaction, so a late
+  child whose construct hook selected during another thread's `add` rolled its
+  composite back (#1145). A child that `append`, `insert`, index assignment or
+  a population attached but has not admitted is not a member for selection:
+  the setter raises the non-member `ValueError`, `can_select_component`
+  returns `False` and the construct walk ignores it. Before, a failed add left
+  `current` on a child that was no longer a member (#1146). On the thread that
+  owns such an uncommitted transaction, every selection call raises the
+  "membership transaction is already in progress" `RuntimeError`, also a
+  `None` clear, and the walk's assignment is a no-op; from the commit on,
+  including the add's collection-changed publication, it commits. While
+  disposal is requested or deferred, a non-`None` selection raises
+  `RuntimeError`, and a `None` clear now succeeds. `can_select_component`
+  returns `True` only if `select_component` would succeed now. `destruct()`
+  and the destruct phase of `reconstruct()` clear `current` without a
+  transaction and are never refused. Before, the clear raised while another
+  thread held a transaction or while disposal was deferred, and the destruct
+  rolled back (#1144). A disposal requested from the clear's callbacks still
+  waits for them, and the destruct then walks no child.
 - `ObservableDictionary`: `remove` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
