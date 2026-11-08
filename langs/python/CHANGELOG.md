@@ -126,6 +126,28 @@ below for them.
   parent's detach commit. Before, another thread could select the child in
   the destination before that commit, and the commit then reset its
   `is_current` flag while it stayed `current` (`COMP-006`).
+- `FormVM` queues every `set_model` and deny that the approving thread makes in
+  an approval's pre-publication window and replays them after `on_approved`
+  (spec/20 §5.3, ADR-0174, FORM-039, FORM-040, #1168, #1050). The window now
+  opens with the post-persist commit. Calls from `reset_on_approved`, the
+  snapshotter, and the validators of that commit are queued, as are calls from
+  the settlement `errors_changed` and `can_execute_changed` observers. Before,
+  a call from `reset_on_approved` committed at once and the reset then
+  overwrote it. A deny from a settlement observer also committed at once, so
+  `on_approved` observers saw the reverted model. A queued call now runs its
+  preparation when it is called, so a failing validator or `__eq__` raises to
+  the caller and nothing is queued. Before, the failure surfaced only at
+  replay and failed the settled approval. Each queued call replays as a new
+  call, in call order. A replay failure no longer stops the later replays. The
+  first one reaches the approval's own failure route after the last replay:
+  the `approve_async` awaiter, or `approve_errors` once on the command path.
+  A failure that the approval already carries wins. That is a failed reset, or
+  a failure that a settlement or `on_approved` observer raises. After a failed
+  reset, the calls it queued replay before the failure is routed. Only the
+  approving thread's calls are queued. Another thread still waits only during
+  the publication scope, and while the post-persist commit runs its approve is
+  refused and the reset overwrites its `set_model`. Each queued update calls
+  the validators once more, at call time.
 - `ObservableDictionary`: `remove` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
@@ -292,6 +314,22 @@ below for them.
   other resources, when that component is disposed through any decorator or
   directly, and at once if it is already disposed (`FWD-005`, ADR-0151, spec
   3.30.0) (#650).
+- `CompositeVM` and `GroupVM` raise the failure of a deferred `dispose()` after
+  a successful structural operation also when the caller runs it inside an
+  `except` block or a container `on_destruct` hook. This covers `__setitem__`,
+  `insert`, `append`/`add`, `remove`, `remove_at`, `__delitem__`, `clear`,
+  lazy population in `construct()` and a transfer out of a `GroupVM`. Before,
+  each operation decided success from `sys.exc_info()`, which also reports an
+  exception that a caller frame handles, so it dropped the failure. A lazy
+  population then left the container `DISPOSED`, and `construct()` raised a
+  `StatusTransitionError`. A failed operation still keeps its own error as the
+  first failure (spec/06 §4.2) (#1152).
+- `GroupVM` keeps a deferred `dispose()` pending until the handoff call at the
+  end of the owner's membership transaction admits it, as `CompositeVM` does
+  (#1064). Before, it cleared the deferral first, so another thread's `add`
+  that started in between was admitted and then disposed, or the handoff
+  waited for it. That `add` now raises the "container is disposing"
+  `RuntimeError` (spec/06 §4.2, spec/07) (#1153).
 
 ## [3.29.0] — unreleased source version
 
