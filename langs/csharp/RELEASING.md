@@ -100,11 +100,19 @@ consumers. Only the tag-selected main/symbol pairs enter the publish artifact.
 Each main package ships its own README from `langs/csharp/packaging/<package>/`,
 not the repository README, because a `.nupkg` carries none of the repository
 files that README refers to. `tools/check-nuget-package.py` rejects a packaged
-README that does not open with the package's heading, any link or image that
-is not an absolute `https` URL, and any image that is not a PNG, JPEG, or GIF
-on `raw.githubusercontent.com`. Update the package READMEs when a package's
-purpose or documentation links change. The checker cannot show how nuget.org
-renders a README; inspect the upload preview before the first publication.
+README that does not open with the package's heading, any raw HTML (NuGet's
+Markdown renderer does not list HTML support), any link or image that is not an
+absolute `https` URL, and any image that is not a PNG, JPEG, or GIF on
+`raw.githubusercontent.com`. It also rejects a `github.com/thekaveh/VMx`
+`blob`, `tree`, or `raw` URL, or a `raw.githubusercontent.com` URL, on `main`
+whose path is missing from the checked-out tree (`--repo-root`, by default the
+checker's repository). The release job runs on the tagged `main` commit, so the
+check matches what `main` serves; a pull request into `develop` can pass with a
+file that `main` gets only on promotion. Update the package READMEs when a
+package's purpose or documentation links change. A published README cannot
+change, but its links follow `main`: keep a redirect or stub at a moved page,
+or release the package again. The checker cannot show how nuget.org renders a
+README; inspect the upload preview before the first publication.
 
 The protected job downloads that immutable artifact, validates `NUGET_USER`,
 exchanges OIDC, and pushes without `--skip-duplicate`. An existing version is
