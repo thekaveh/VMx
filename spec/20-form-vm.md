@@ -575,7 +575,9 @@ call does not wait. No call is lost:
 1. **`SetModel` and deny** run their call-time preparation (§5.3 rule 2). A
    failure reaches the caller, and nothing is queued. Otherwise the call joins
    the queue of the publisher that its edge names, and returns without
-   changing the form. It returns before it takes effect: code that reads
+   changing the form. A call in its own thread's pre-publication window joins
+   that thread's queue instead. It returns before it takes effect: code that
+   reads
    `Model` right after it sees the old state.
 1. **An approve call** is admitted without waiting, under the admission rules
    of §5.3. Its settlement then waits like any other settlement.

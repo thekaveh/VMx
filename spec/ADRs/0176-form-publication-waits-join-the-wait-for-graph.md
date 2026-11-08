@@ -30,9 +30,9 @@ because that wait had no escape yet (ADR-0172 §2.2). Two issues came from this.
 - **#1160 (Rust).** Rust has no publication wait. Another thread's `approve()`,
   `set_model` and `revert()` run during an approval's publication. A call
   from another thread in the pre-publication window is queued, and another
-  thread's settlement replays it. A nested approval's subscriber edit is
-  queued, where C# and Python apply it at once. ADR-0174 §3 left rule 7 open
-  for Rust.
+  thread's settlement replays it. ADR-0174 §3 left rule 7 open for Rust.
+  Case 3 of #1160, a nested approval's subscriber edit, was already fixed
+  on the base branch.
 
 The flavors also disagree on which spans make other threads wait. C# holds a
 scope over an approval's admission notification. C# and Python hold one over
@@ -51,7 +51,7 @@ below refer to chapter 20.
 1. **No delivery under a lock.** A form delivers no notification while it
    holds its state lock, or another lock that a form call or `Dispose()`
    waits for. An update nested in a preparation callback keeps its flavor's
-   timing until #1173 decides it (ledger §1.4).
+   timing until #1173 decides it.
 1. **Two scope kinds.** A *publication scope* is a span in which one thread,
    the *publisher*, delivers form notifications while other threads' form
    calls wait. Scopes nest on the publisher's thread. A call never waits for
@@ -79,8 +79,9 @@ below refer to chapter 20.
    call then does not wait, and no call is lost:
    - `SetModel` or deny runs its call-time preparation (ADR-0174 rule 2).
      It then joins the queue of the publisher that its edge named, and
-     returns. It changes nothing until it replays, so it returns before it
-     takes effect.
+     returns. A call in its own thread's pre-publication window joins that
+     thread's queue instead. It changes nothing until it replays, so it
+     returns before it takes effect.
    - An approve call is admitted without waiting, under the §5.3 admission
      rules. Its settlement then waits like any other settlement.
    - A settlement commits at once and opens its own scope. Two threads then
@@ -145,7 +146,12 @@ simplest and most common-sense approach chosen.
   This is ADR-0174 rule 6 applied to one more caller. The call already ran its
   preparation, so a replay failure needs a state change in between.
 - Decided under the owner's 2026-11-07 delegation: a nested approval suspends
-  the outer window, as C# and Python do (#1160 case 3). Rust changes.
+  the outer window only while it delivers `OnApproved` (#1160 case 3). Rust
+  already did so on the base branch. A nested failed settlement keeps the
+  outer window, so Python changes.
+- Decided under the owner's 2026-11-07 delegation: a refused call in its own
+  thread's pre-publication window joins its own queue. That queue holds the
+  window's calls (rule 6). C# changes; it used the refused publisher's queue.
 - Decided under the owner's 2026-11-07 delegation: the Rust test
   `disposal_during_an_emission_skips_the_callbacks_not_yet_invoked` changes.
   Its dispose now waits for the `OnApproved` delivery, as in the other
@@ -157,35 +163,57 @@ simplest and most common-sense approach chosen.
 
 ## 3. Flavor impact
 
-- **C#.** `WaitForApprovalPublisher` records an edge in `WaitForGraph.Shared`.
-  Each caller takes its rule 5 result when the graph refuses the edge.
-  `SetModel` and `Deny` deliver `ErrorsChanged` in an update scope, outside
-  `_stateGate`. They deliver `CanExecuteChanged` after the scope, without the
-  lock. `ApproveCoreAsync` drops the admission scope but keeps its wait.
-  `EmitApproveError` stops delivering under `_approveErrorGate`. The publisher
-  state becomes per thread, so two threads can hold scopes. Each publisher
-  keeps its own queue, and `Dispose` can defer the teardown to it.
+- **C#.** `WaitForForeignScopes` (formerly `WaitForApprovalPublisher`) records
+  an edge in `WaitForGraph.Shared`. Each caller takes its rule 5 result when the
+  graph refuses the edge. `SetModel` and `Deny` deliver `ErrorsChanged` in an
+  update scope, outside `_stateGate`. They deliver `CanExecuteChanged` after the
+  scope, without the lock. `ApproveCoreAsync` drops the admission scope but
+  keeps its wait. `EmitApproveError` stops delivering under `_approveErrorGate`.
+  The publisher state becomes per thread, so two threads can hold scopes. Each
+  publisher keeps its own queue, and `Dispose` can defer the teardown to it.
+  A call in its own pre-publication window joins its own queue, even when its
+  wait was refused.
 - **Python.** `_wait_for_other_publication` records its wait in
   `vmx._wait_for_graph.WAITS`, with the same results. `set_model` and `_deny`
   deliver `errors_changed` in an update scope and `can_execute_changed` after
   it, without the lock. `_emit_approve_error` opens no scope and uses the
   mutation count. The publisher state and queues become per thread.
-- **Swift.** `awaitForeignApprovalLocked` records its wait in
-  `ThreadWaitGraph`, with the same results. `admitApproval` waits for another
-  thread's scope. `settleFailedApproval` waits like `commitApproval` and opens
-  a scope over its `canExecuteChanged`. The publisher state and queues become
-  per thread.
+  `_settle_failed_approval` keeps an enclosing approval's window.
+- **Swift.** `awaitForeignScopesLocked` (formerly `awaitForeignApprovalLocked`)
+  records its wait in `ThreadWaitGraph`, with the same results. `admitApproval`
+  waits for another thread's scope. `settleFailedApproval` waits like
+  `commitApproval` and opens a scope over its `canExecuteChanged`. The publisher
+  state and queues become per thread.
 - **Rust (#1160).** `approve()` admission and settlement, `set_model`,
   `revert()` and `dispose()` wait for another thread's scope. Each wait
   records an edge in `wait_for_graph`. An update
   holds a scope over its `errors_changed` send. A failed settlement holds a
   scope over its eligibility change. Each publisher keeps its own queue, so
-  another thread's settlement never replays it. A nested settlement suspends
-  the outer window while its subscribers run. The `ApprovalPublication` doc
+  another thread's settlement never replays it. The `ApprovalPublication` doc
   comment changes. So do the tests
   `another_threads_approval_replays_its_own_deferred_edit` and
   `disposal_during_an_emission_skips_the_callbacks_not_yet_invoked`.
 - **TypeScript.** No change.
+
+### 3.1. Known differences
+
+These differences need two scopes open at once, a preparation callback, or
+a disposal. No flavor deadlocks, and the end state is the same.
+
+- A call nested in a preparation callback, while another thread holds a
+  scope, waits in C# and Python. Swift takes the refused result instead.
+  Rust proceeds without waiting. This stays under the §5.5 limitation until
+  #1173 decides it.
+- A Swift call in its own pre-publication window joins its own queue without
+  waiting. C#, Python and Rust wait for another thread's scope first.
+- After a refused `Dispose()`, C# and Rust wake the scope waiters at once,
+  and they find the form disposed. Python and Swift waiters wake when the
+  publisher's scope closes.
+- A Rust `dispose()` that is not refused tears down at once, even while
+  another thread delivers outside a scope. Examples are an admission
+  notification, or an update's notifications after its scope closed. C#,
+  Python and Swift defer that teardown. This gap predates this ADR and is
+  left for a follow-up.
 
 ## 4. Conformance
 
