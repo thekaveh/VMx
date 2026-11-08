@@ -69,6 +69,13 @@ def _selection_while_disposing() -> RuntimeError:
     return RuntimeError("cannot select a child while the container is disposing")
 
 
+def _cannot_select(vm: object) -> ValueError:
+    """The ``select_component`` predicate error (spec/06 §3.1)."""
+    return ValueError(
+        f"Cannot select '{getattr(vm, 'name', vm)!r}': can_select_component returned False."
+    )
+
+
 # ---------------------------------------------------------------------------
 # _CompositeVMBase
 # ---------------------------------------------------------------------------
@@ -291,10 +298,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def select_component(self, vm: VM) -> None:
         """Select *vm* as current.  Raises if ``can_select_component`` is False."""
         if not self.can_select_component(vm):
-            raise ValueError(
-                f"Cannot select '{getattr(vm, 'name', vm)!r}': can_select_component returned False."
-            )
-        self.current = vm
+            raise _cannot_select(vm)
+        # The commit checks Constructed again under its locks, so a destruct
+        # on another thread after this check cannot pass it (#1220).
+        self._set_current(vm, async_sel=self._async_selection, require_constructed=True)
 
     def deselect_component(self, vm: VM) -> None:
         """Deselect *vm*.  Raises if *vm* is not the current selection."""
@@ -375,9 +382,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
                 resolved_index = index + len(self._children) if index < 0 else index
+                # *old* keeps this composite as its parent until the commit,
+                # which frees it and clears current in one locked section. No
+                # other container can adopt it while it is still current here
+                # (COMP-006), and a rollback can always put it back (#1219).
                 old = self._children[index]
                 self._children[index] = value
-                old._set_parent(None)
                 value._set_parent(self)
                 self._stage_admission_locked(value)
                 record = self._attach_late_start_locked(value)
@@ -392,7 +402,6 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                         i for i, child in enumerate(self._children) if child is value
                     )
                     self._children[actual_index] = old
-                    old._set_parent(self)
                     value._set_parent(None)
                 self._pending_admission = None
                 self._late_starts.remove(value, record)
@@ -414,9 +423,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             # Admitted after the old parent's detach commit (COMP-006).
             self._admit_after_transfer_commit()
 
-            def clear_current() -> None:
-                # Clears current only while it is still the replaced child.
-                self._apply_current_change(None, kind=_CLEAR, only_replacing=old)
+            def free_old_and_clear_current() -> None:
+                self._detach_clearing_current(old)
 
             def raise_commit_error() -> None:
                 if commit_error is not None:
@@ -427,7 +435,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             # failure is re-raised.
             _run_every_step(
                 raise_commit_error,
-                clear_current,
+                free_old_and_clear_current,
                 lambda: self._emit_collection_changed(
                     CollectionChangedEvent(
                         action="remove", old_items=(old,), old_index=resolved_index
@@ -1171,8 +1179,15 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             if self._caller_owns_uncommitted_transaction_locked():
                 raise _transaction_in_progress()
 
-    def _selection_refusal_locked(self, value: VM | None, *, disposed: bool) -> Exception | None:
+    def _selection_refusal_locked(
+        self, value: VM | None, *, disposed: bool, require_constructed: bool = False
+    ) -> Exception | None:
         """The refusal of a selection of *value*, or None (spec/06 §4.3 rules 2-4).
+
+        *require_constructed* (``select_component``) also refuses a child that
+        is not Constructed now, with the predicate error (spec/06 §3.1). The
+        check runs at the commit, so a destruct after the entry check cannot
+        pass it (#1220).
 
         *disposed* keeps the post-dispose behavior: a null clear that would
         change a disposed composite raises, as it always has (chapter 01 §4).
@@ -1192,24 +1207,32 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 f"Cannot set current to '{getattr(value, 'name', value)!r}': "
                 "it is not a member of this composite."
             )
+        if require_constructed and value.status is not ConstructionStatus.CONSTRUCTED:
+            return _cannot_select(value)
         return None
 
-    def _set_current(self, value: VM | None, *, async_sel: bool) -> None:
+    def _set_current(
+        self, value: VM | None, *, async_sel: bool, require_constructed: bool = False
+    ) -> None:
         """Apply the current change, optionally dispatching via foreground."""
         if not async_sel:
-            self._apply_current_change(value, kind=_CALL)
+            self._apply_current_change(value, kind=_CALL, require_constructed=require_constructed)
             return
         # The call validates now and raises as the synchronous setter does;
         # the delivery validates again (spec/06 §4.3 rule 7).
         disposed = self._is_disposed()
         with self._membership_gate:
-            refusal = self._selection_refusal_locked(value, disposed=disposed)
+            refusal = self._selection_refusal_locked(
+                value, disposed=disposed, require_constructed=require_constructed
+            )
         if refusal is not None:
             raise refusal
         captured = value
 
         def _dispatch(scheduler: SchedulerBase, state: object | None) -> None:
-            self._apply_current_change(captured, kind=_DELIVERY)
+            self._apply_current_change(
+                captured, kind=_DELIVERY, require_constructed=require_constructed
+            )
 
         self._dispatcher.foreground.schedule(_dispatch)
 
@@ -1219,6 +1242,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         *,
         kind: str,
         only_replacing: VM | None = None,
+        require_constructed: bool = False,
     ) -> None:
         """Change ``current`` without a membership transaction (spec/06 §4.3).
 
@@ -1243,7 +1267,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         with _current_change_coordinator:
             with self._membership_gate:
                 if kind != _CLEAR:
-                    refusal = self._selection_refusal_locked(value, disposed=disposed)
+                    refusal = self._selection_refusal_locked(
+                        value, disposed=disposed, require_constructed=require_constructed
+                    )
                     if refusal is not None:
                         if kind == _CALL:
                             raise refusal
@@ -1272,6 +1298,39 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             raise
         # An explicit flag: callers such as the walk run inside an except
         # clause, so sys.exc_info() cannot tell success from failure (#1152).
+        self._end_current_publication(propagate_dispose_failure=True)
+
+    def _detach_clearing_current(self, detached: VM) -> None:
+        """Free *detached* and clear it as current in one locked section (#1219).
+
+        Under the coordination lane and the membership gate, *detached* loses
+        this composite as its parent and, while it is still current, the same
+        section clears ``current`` and its flag (spec/06 §4.3 rule 6). No
+        other composite can adopt and select the child in between, so the
+        clear never resets the flag of a selection elsewhere (COMP-006). The
+        publication runs after both locks are released, under the
+        current-publication lease, as in :meth:`_apply_current_change`.
+        """
+        with _current_change_coordinator:
+            with self._membership_gate:
+                if detached._parent is self:
+                    detached._set_parent(None)
+                if self._current is not detached:
+                    return
+                self._current = None
+                previous_flag_changed = detached._commit_is_current(False)
+                self._active_current_publications += 1
+                self._current_publication_threads.append(get_ident())
+        try:
+            self._finish_current_change(
+                detached,
+                None,
+                previous_flag_changed=previous_flag_changed,
+                value_flag_changed=False,
+            )
+        except BaseException:
+            self._end_current_publication(propagate_dispose_failure=False)
+            raise
         self._end_current_publication(propagate_dispose_failure=True)
 
     def _apply_selector_result(self, value: VM) -> None:
