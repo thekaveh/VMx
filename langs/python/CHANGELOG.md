@@ -82,6 +82,14 @@ below for them.
   predicate `ValueError`, and the delivery does nothing. `select_component`
   no longer goes through the `current` property setter, as in C# and Swift.
   A subclass that overrides that setter no longer sees these selections.
+- A child's `select()` no longer makes a member current that is not
+  `CONSTRUCTED` (spec/05 §6, spec/06 §3.1, #1229). Before, `select_child`
+  checked only membership, so `select()` on a `DESTRUCTED` member selected it.
+  Now the call does nothing, as for a non-member and as in Swift and Rust. C#
+  also refuses it, with its `SelectComponent` exception. The commit checks
+  `CONSTRUCTED` again under the same locks as `select_component`. A destruct
+  on another thread after the entry check makes the call raise the predicate
+  `ValueError`. An `async_selection(True)` delivery drops such a child.
 - Hub, container membership and child ownership-lock waits now record in one
   wait-for graph, `vmx._wait_for_graph.WAITS` (spec/03 §4.1, ADR-0172). A
   cycle that crosses these waits no longer hangs (#1157): when a hub drainer

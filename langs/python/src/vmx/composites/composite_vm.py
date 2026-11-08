@@ -184,7 +184,15 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             # Use typed access via _set_current
             for child in self.snapshot():
                 if child is vm:
-                    self._set_current(child, async_sel=self._async_selection)
+                    # A member that is not Constructed is refused as silently
+                    # as a non-member (spec/05 §6, spec/06 §3.1, #1229). The
+                    # commit checks Constructed again under its locks, and an
+                    # async delivery drops such a child (#1220).
+                    if child.status is not ConstructionStatus.CONSTRUCTED:
+                        return
+                    self._set_current(
+                        child, async_sel=self._async_selection, require_constructed=True
+                    )
                     return
 
     def deselect_child(self, vm: _ComponentVMBase) -> None:
@@ -1184,10 +1192,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     ) -> Exception | None:
         """The refusal of a selection of *value*, or None (spec/06 §4.3 rules 2-4).
 
-        *require_constructed* (``select_component``) also refuses a child that
-        is not Constructed now, with the predicate error (spec/06 §3.1). The
-        check runs at the commit, so a destruct after the entry check cannot
-        pass it (#1220).
+        *require_constructed* (``select_component`` and ``select_child``) also
+        refuses a child that is not Constructed now, with the predicate error
+        (spec/06 §3.1). The check runs at the commit, so a destruct after the
+        entry check cannot pass it (#1220, #1229).
 
         *disposed* keeps the post-dispose behavior: a null clear that would
         change a disposed composite raises, as it always has (chapter 01 §4).

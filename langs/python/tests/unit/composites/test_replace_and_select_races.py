@@ -5,8 +5,10 @@ commit, which frees the child and clears ``current`` in one locked section.
 No container can adopt the child while it is still current here, and a
 failed replacement restores it silently (spec/06 §3, §4.2, §4.3 rule 6,
 #1219). ``select_component`` checks Constructed again at its commit, also at
-an asynchronous delivery (spec/06 §3.1, §4.3 rule 7, #1220). Mirrors the
-Swift ``CompositeVMMembershipTests`` and ``CompositeSelectionTests``.
+an asynchronous delivery (spec/06 §3.1, §4.3 rule 7, #1220). A child's
+``select()`` silently refuses a member that is not Constructed and checks
+again at the same commit (spec/05 §6, #1229). Mirrors the Swift
+``CompositeVMMembershipTests`` and ``CompositeSelectionTests``.
 """
 
 from __future__ import annotations
@@ -260,3 +262,109 @@ def test_select_component_selects_a_constructed_member() -> None:
     assert composite.current is vm
     assert vm.is_current
     assert vm.status is S.CONSTRUCTED
+
+
+# ── select() on a member that is not Constructed (#1229) ──────────────────────
+
+
+def _queued_composite(
+    vm: ComponentVM,
+) -> tuple[CompositeVM[ComponentVM], _QueueScheduler]:
+    foreground = _QueueScheduler()
+    dispatcher = RxDispatcher(foreground, ImmediateScheduler())  # type: ignore[arg-type]
+    composite = _composite([vm], dispatcher=dispatcher, async_selection=True)
+    composite.construct()
+    foreground.run_all()
+    return composite, foreground
+
+
+def test_select_on_a_destructed_member_selects_nothing() -> None:
+    a = _leaf("a")
+    changes: list[str | None] = []
+    composite = _composite([a], changes=changes)
+    composite.construct()
+    a.destruct()
+
+    a.select()
+
+    assert composite.current is None
+    assert not a.is_current
+    assert changes == []
+
+
+def test_async_select_on_a_destructed_member_selects_nothing() -> None:
+    a = _leaf("a")
+    composite, foreground = _queued_composite(a)
+    a.destruct()
+
+    a.select()
+    foreground.run_all()
+
+    assert composite.current is None
+    assert not a.is_current
+
+
+def test_async_select_delivery_drops_a_member_destructed_after_the_call() -> None:
+    a = _leaf("a")
+    composite, foreground = _queued_composite(a)
+
+    a.select()
+    a.destruct()
+    foreground.run_all()
+
+    assert composite.current is None, "the delivery checks Constructed again"
+    assert not a.is_current
+
+
+def test_select_refuses_a_member_destructed_after_the_entry_check() -> None:
+    composite, vm = _armed_scenario()
+
+    with pytest.raises(ValueError, match="can_select_component"):
+        vm.select()
+
+    assert vm.status is S.DESTRUCTED, "the seam destructed vm before the commit"
+    assert composite.current is None
+    assert not vm.is_current
+
+
+def test_select_on_a_destructed_member_still_raises_inside_the_callers_transaction() -> None:
+    a = _leaf("a")
+    composite = _composite([a])
+    composite.construct()
+    a.destruct()
+    caught: list[RuntimeError] = []
+
+    def hook() -> None:
+        try:
+            a.select()
+        except RuntimeError as error:
+            caught.append(error)
+
+    composite.add(_leaf("b"))
+    composite[1] = _leaf("replacement", hook)
+
+    assert len(caught) == 1
+    assert "transaction" in str(caught[0])
+    assert composite.current is None
+
+
+def test_select_on_a_constructed_member_makes_it_current() -> None:
+    a = _leaf("a")
+    composite = _composite([a])
+    composite.construct()
+
+    a.select()
+
+    assert composite.current is a
+    assert a.is_current
+
+
+def test_async_select_on_a_constructed_member_makes_it_current() -> None:
+    a = _leaf("a")
+    composite, foreground = _queued_composite(a)
+
+    a.select()
+    foreground.run_all()
+
+    assert composite.current is a
+    assert a.is_current
