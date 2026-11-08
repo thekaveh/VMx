@@ -624,6 +624,53 @@ public class FormVMTests
         form.Model.Should().Be(new Model("from-inner-failure", 0), "it replays after OnApproved");
     }
 
+    // spec/20 §5.4, ADR-0180: an approval admitted from an ErrorsChanged
+    // observer of an update is nested. Its admission notification follows the
+    // update's own notifications, and its persister starts after them, before
+    // the update returns.
+    [Fact]
+    public async Task An_Approval_From_An_ErrorsChanged_Observer_Starts_After_The_Update_Notifies()
+    {
+        var log = new List<string>();
+        Task? approval = null;
+        using var hub = new MessageHub();
+        using var form = new FormVM<Model>(
+            new Model("x", 0),
+            model =>
+            {
+                log.Add($"persist:{model.Name}");
+                return Task.CompletedTask;
+            },
+            hub: hub,
+            snapshotter: model => model,
+            validators: new Dictionary<string, Func<Model, string?>>
+            {
+                ["Name"] = model => model.Name == "x" ? "rejected" : null,
+            });
+        using var errors = form.ErrorsChanged.Subscribe(map =>
+        {
+            log.Add($"errors:{map.Count}");
+            approval ??= form.ApproveAsync();
+            log.Add("nested returned");
+        });
+        form.ApproveCommand.CanExecuteChanged += (_, _) => log.Add("can_execute");
+        using var approved = form.OnApproved.Subscribe(model => log.Add($"approved:{model.Name}"));
+        using var messages = hub.Messages.Subscribe(message =>
+        {
+            if (message is PropertyChangedMessage<FormVM<Model>> { PropertyName: "Model" }) log.Add("model");
+        });
+
+        form.SetModel(new Model("ok", 0));
+        log.Add("outer returned");
+
+        approval.Should().NotBeNull();
+        await approval!.WaitAsync(HangGuard);
+        log.Should().Equal(
+            "errors:0", "nested returned", "can_execute", "model", "can_execute",
+            "persist:ok", "can_execute", "approved:ok", "outer returned");
+        form.Snapshot.Should().Be(new Model("ok", 0));
+    }
+
     // ── Test double helpers ───────────────────────────────────────────────────
 
     private sealed class LambdaPersister<TM>(Func<TM, Task> action) : IFormPersister<TM>

@@ -8,6 +8,17 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a `FormVM` call nested in a preparation callback or an
+  `ErrorsChanged` observer of `SetModel` or deny now returns before its
+  notifications (ADR-0180, spec/20 §5.4, #1173). This covers `SetModel`, deny,
+  `ApproveAsync` and `ApproveCommand.Execute()`. The outermost update sends
+  them before it returns, with no lock held: error maps first, in commit
+  order, then the other notifications. A nested approval calls its persister
+  after that, so it no longer commits inside the callback. A nested call no
+  longer waits for another thread's publication scope; it takes the
+  refused-wait result. Queued notifications are dropped once the form is
+  disposed.
+
 - Fixed: `TokenPagedComposition`: a load that finds a terminal token when it
   starts now fetches nothing (#1161, ADR-0169). A refresh or another load could
   commit a terminal token after the load command was admitted. The load then

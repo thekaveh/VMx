@@ -75,6 +75,20 @@ public sealed class FormVM<TM> : IDisposable
     // re-entering on the preparing thread can commit meanwhile, which makes the
     // outer update's prepared result stale.
     private long _commitGeneration;
+    // Nested updates (spec/20 §5.4, ADR-0180). SetModel and deny hold the
+    // re-entrant _stateGate across their preparation callbacks. This counts
+    // those frames; only the thread that holds the gate reads or changes it.
+    // A call nested in one of them queues its notifications in
+    // _pendingNotices, and the outermost frame sends them after it releases
+    // the gate.
+    private int _preparationDepth;
+    private Notices _pendingNotices = new();
+    // The threads that send an update's error maps in Deliver. An update or
+    // approval admission made from such an ErrorsChanged observer is nested
+    // too: it queues its notifications in that thread's _scopedNotices entry.
+    // Only the owning thread adds to or takes from an entry.
+    private readonly HashSet<int> _errorDeliveryThreads = [];
+    private readonly Dictionary<int, Notices> _scopedNotices = new();
 
     // ── Builder factory ───────────────────────────────────────────────────────
 
@@ -275,6 +289,11 @@ public sealed class FormVM<TM> : IDisposable
     /// A call made while the form is invalid, disposed, or already approving
     /// completes without invoking the persister (chapter 20 §5.3); await the
     /// in-flight call and approve again to save after it.
+    /// A call made from a preparation callback or an <see cref="ErrorsChanged"/>
+    /// observer of an update is admitted at once, but its persister starts
+    /// after the outermost update sends its notifications (chapter 20 §5.4,
+    /// ADR-0180). Blocking on the returned task inside that callback never
+    /// returns; await it after the callback returns.
     /// </summary>
     public Task ApproveAsync() => ApproveInternalAsync();
 
@@ -293,6 +312,10 @@ public sealed class FormVM<TM> : IDisposable
     /// notifications. When that wait would close a wait-for cycle, the call is
     /// prepared, queued on the publishing thread, and returns before it takes
     /// effect (chapter 20 §5.5, ADR-0176).
+    /// A call made from a preparation callback or an <see cref="ErrorsChanged"/>
+    /// observer of another update commits at once and returns before its
+    /// notifications. The outermost update on the thread sends them before it
+    /// returns (chapter 20 §5.4, ADR-0180).
     /// </summary>
     public void SetModel(TM model)
     {
@@ -302,26 +325,24 @@ public sealed class FormVM<TM> : IDisposable
         var caller = Environment.CurrentManagedThreadId;
         var admitted = false;
         var retry = false;
-        QueuedUpdate[] replay = [];
+        Notices? delivery = null;
         ExceptionDispatchInfo? failure = null;
         try
         {
-            ApplySetModel(model, caller, ref admitted, ref retry, ref replay);
+            ApplySetModel(model, caller, ref admitted, ref retry, ref delivery);
         }
         catch (Exception error)
         {
             failure = ExceptionDispatchInfo.Capture(error);
         }
-        FinishUpdate(admitted, failure, replay);
+        var deliveryFailure = Deliver(delivery, caller, out var replay);
+        FinishUpdate(admitted, failure ?? deliveryFailure, replay);
         if (retry) SetModel(model);
     }
 
     private void ApplySetModel(
-        TM model, int caller, ref bool admitted, ref bool retry, ref QueuedUpdate[] replay)
+        TM model, int caller, ref bool admitted, ref bool retry, ref Notices? delivery)
     {
-        bool canExecuteChanged;
-        Dictionary<string, string>? publishedErrors = null;
-        var outerPrePublishing = false;
         lock (_stateGate)
         {
             var publisher = WaitForForeignScopes(caller);
@@ -332,65 +353,70 @@ public sealed class FormVM<TM> : IDisposable
             var queue = publisher != 0 || InPrePublicationWindow(caller);
             _activeMutations++;
             admitted = true;
-
-            // Preparation (spec/20 §5.2, §5.4) runs every consumer callback
-            // and changes no form state, so a callback failure propagates
-            // with nothing committed or published, and a callback reading
-            // the form sees the previous state. A call inside the approval's
-            // pre-publication window, or one whose wait was refused, runs the
-            // full preparation and is then queued (§5.3, §5.5): equality never
-            // skips the enqueue, because earlier queued calls can change the
-            // live model before this one replays.
-            var generation = _commitGeneration;
-            var queueGeneration = _queueGeneration;
-            var live = _model;
-            var snapshot = _snapshot;
-            var errors = _errors;
-            if (Equals(live, model) && !queue) return;
-            var wasDirty = !Equals(live, snapshot);
-            var nextErrors = Validate(model);
-            var isDirty = !Equals(model, snapshot);
-
-            // A callback re-entered on this thread and disposed the form or
-            // made another update (committed or queued): the prepared
-            // result is stale, and the newest update stands.
-            if (IsStale(generation, queueGeneration)) return;
-            if (queue)
+            var own = new Notices();
+            _preparationDepth++;
+            try
             {
-                retry = !TryEnqueueLocked(QueueOwnerLocked(publisher, caller), caller, QueuedUpdate.Set(model));
-                return;
+                PrepareAndCommitSetModelLocked(model, caller, publisher, queue, own, ref retry);
             }
-
-            // Commit in one step, before any notification.
-            canExecuteChanged = (_strict && isDirty != wasDirty) ||
-                (nextErrors.Count == 0) != (errors.Count == 0);
-            _model = model;
-            _errors = nextErrors;
-            _commitGeneration++;
-            // Update scope (spec/20 §5.5): the error map is delivered without
-            // the state lock, while other threads' form calls wait, so error
-            // maps reach observers in commit order.
-            if (!SameErrors(nextErrors, errors))
+            finally
             {
-                publishedErrors = new Dictionary<string, string>(nextErrors);
-                outerPrePublishing = EnterScopeLocked(caller);
+                // Nothing is sent under the gate (spec/20 §5.4, §5.5): a
+                // nested frame queues its notifications, and the outermost
+                // frame takes them for Deliver.
+                _preparationDepth--;
+                delivery = TakeNoticesLocked(own, caller);
             }
         }
+    }
 
-        if (publishedErrors is not null)
+    // Called under _stateGate.
+    private void PrepareAndCommitSetModelLocked(
+        TM model, int caller, int publisher, bool queue, Notices own, ref bool retry)
+    {
+        // Preparation (spec/20 §5.2, §5.4) runs every consumer callback
+        // and changes no form state, so a callback failure propagates
+        // with nothing committed or published, and a callback reading
+        // the form sees the previous state. A call inside the approval's
+        // pre-publication window, or one whose wait was refused, runs the
+        // full preparation and is then queued (§5.3, §5.5): equality never
+        // skips the enqueue, because earlier queued calls can change the
+        // live model before this one replays.
+        var generation = _commitGeneration;
+        var queueGeneration = _queueGeneration;
+        var live = _model;
+        var snapshot = _snapshot;
+        var errors = _errors;
+        if (Equals(live, model) && !queue) return;
+        var wasDirty = !Equals(live, snapshot);
+        var nextErrors = Validate(model);
+        var isDirty = !Equals(model, snapshot);
+
+        // A callback re-entered on this thread and disposed the form or
+        // made another update (committed or queued): the prepared
+        // result is stale, and the newest update stands.
+        if (IsStale(generation, queueGeneration)) return;
+        if (queue)
         {
-            // The teardown claim cannot succeed here: this update still
-            // counts in _activeMutations, so its EndMutation runs a deferred
-            // teardown. Keep the update inside that count.
-            try { _errorsChanged.OnNext(publishedErrors); }
-            finally { replay = ExitScope(caller, outerPrePublishing, out _); }
+            retry = !TryEnqueueLocked(QueueOwnerLocked(publisher, caller), caller, QueuedUpdate.Set(model));
+            return;
         }
+
+        // Commit in one step, before any notification.
+        var canExecuteChanged = (_strict && isDirty != wasDirty) ||
+            (nextErrors.Count == 0) != (errors.Count == 0);
+        _model = model;
+        _errors = nextErrors;
+        _commitGeneration++;
+        // Update scope (spec/20 §5.5): the error map is delivered without
+        // the state lock, while other threads' form calls wait, so error
+        // maps reach observers in commit order.
+        if (!SameErrors(nextErrors, errors))
+            own.AddErrors(new Dictionary<string, string>(nextErrors), EnterScopeLocked(caller));
         if (canExecuteChanged)
-            _canExecuteChangedTrigger.OnNext(Unit.Default);
-        _hub.Send(PropertyChangedMessage<FormVM<TM>>.Create(
-            this,
-            nameof(FormVM<TM>),
-            nameof(Model)));
+            own.AddAfterScope(RaiseCanExecuteChanged);
+        var message = PropertyChangedMessage<FormVM<TM>>.Create(this, nameof(FormVM<TM>), nameof(Model));
+        own.AddAfterScope(() => _hub.Send(message));
     }
 
     // Ends an update (spec/20 §5.5): the queue its outermost scope took
@@ -523,25 +549,23 @@ public sealed class FormVM<TM> : IDisposable
         var caller = Environment.CurrentManagedThreadId;
         var admitted = false;
         var retry = false;
-        QueuedUpdate[] replay = [];
+        Notices? delivery = null;
         ExceptionDispatchInfo? failure = null;
         try
         {
-            ApplyDeny(caller, ref admitted, ref retry, ref replay);
+            ApplyDeny(caller, ref admitted, ref retry, ref delivery);
         }
         catch (Exception error)
         {
             failure = ExceptionDispatchInfo.Capture(error);
         }
-        FinishUpdate(admitted, failure, replay);
+        var deliveryFailure = Deliver(delivery, caller, out var replay);
+        FinishUpdate(admitted, failure ?? deliveryFailure, replay);
         if (retry) Deny();
     }
 
-    private void ApplyDeny(int caller, ref bool admitted, ref bool retry, ref QueuedUpdate[] replay)
+    private void ApplyDeny(int caller, ref bool admitted, ref bool retry, ref Notices? delivery)
     {
-        bool canExecuteChanged;
-        Dictionary<string, string>? publishedErrors = null;
-        var outerPrePublishing = false;
         lock (_stateGate)
         {
             var publisher = WaitForForeignScopes(caller);
@@ -549,57 +573,64 @@ public sealed class FormVM<TM> : IDisposable
             var queue = publisher != 0 || InPrePublicationWindow(caller);
             _activeMutations++;
             admitted = true;
-
-            // Preparation (spec/20 §5.4): the equality, snapshotter, and
-            // validator callbacks change no form state, so a failure
-            // propagates from DenyCommand.Execute() with nothing reverted
-            // or published. Inside the approval's pre-publication window, or
-            // after a refused wait, the prepared revert is discarded and the
-            // deny is queued (§5.3, §5.5).
-            var generation = _commitGeneration;
-            var queueGeneration = _queueGeneration;
-            var live = _model;
-            var snapshot = _snapshot;
-            var errors = _errors;
-            var wasDirty = !Equals(live, snapshot);
-            var nextModel = _snapshotter(snapshot);
-            var nextErrors = Validate(nextModel);
-            var isDirty = !Equals(nextModel, snapshot);
-
-            // Same-thread re-entry disposed the form or made another update
-            // (committed or queued): the prepared revert is stale.
-            if (IsStale(generation, queueGeneration)) return;
-            if (queue)
+            var own = new Notices();
+            _preparationDepth++;
+            try
             {
-                retry = !TryEnqueueLocked(QueueOwnerLocked(publisher, caller), caller, QueuedUpdate.Deny);
-                return;
+                PrepareAndCommitDenyLocked(caller, publisher, queue, own, ref retry);
             }
-
-            _model = nextModel;
-            _errors = nextErrors;
-            _commitGeneration++;
-            canExecuteChanged = (_strict && wasDirty != isDirty) ||
-                (nextErrors.Count == 0) != (errors.Count == 0);
-            if (!SameErrors(nextErrors, errors))
+            finally
             {
-                publishedErrors = new Dictionary<string, string>(nextErrors);
-                outerPrePublishing = EnterScopeLocked(caller);
+                _preparationDepth--;
+                delivery = TakeNoticesLocked(own, caller);
             }
         }
-
-        if (publishedErrors is not null)
-        {
-            // The teardown claim cannot succeed here: this update still
-            // counts in _activeMutations, so its EndMutation runs a deferred
-            // teardown. Keep the update inside that count.
-            try { _errorsChanged.OnNext(publishedErrors); }
-            finally { replay = ExitScope(caller, outerPrePublishing, out _); }
-        }
-        _hub.Send(new FormRevertedMessage(this, nameof(FormVM<TM>)));
-        _hub.Send(PropertyChangedMessage<FormVM<TM>>.Create(this, nameof(FormVM<TM>), nameof(Model)));
-        if (canExecuteChanged)
-            _canExecuteChangedTrigger.OnNext(Unit.Default);
     }
+
+    // Called under _stateGate.
+    private void PrepareAndCommitDenyLocked(int caller, int publisher, bool queue, Notices own, ref bool retry)
+    {
+        // Preparation (spec/20 §5.4): the equality, snapshotter, and
+        // validator callbacks change no form state, so a failure
+        // propagates from DenyCommand.Execute() with nothing reverted
+        // or published. Inside the approval's pre-publication window, or
+        // after a refused wait, the prepared revert is discarded and the
+        // deny is queued (§5.3, §5.5).
+        var generation = _commitGeneration;
+        var queueGeneration = _queueGeneration;
+        var live = _model;
+        var snapshot = _snapshot;
+        var errors = _errors;
+        var wasDirty = !Equals(live, snapshot);
+        var nextModel = _snapshotter(snapshot);
+        var nextErrors = Validate(nextModel);
+        var isDirty = !Equals(nextModel, snapshot);
+
+        // Same-thread re-entry disposed the form or made another update
+        // (committed or queued): the prepared revert is stale.
+        if (IsStale(generation, queueGeneration)) return;
+        if (queue)
+        {
+            retry = !TryEnqueueLocked(QueueOwnerLocked(publisher, caller), caller, QueuedUpdate.Deny);
+            return;
+        }
+
+        _model = nextModel;
+        _errors = nextErrors;
+        _commitGeneration++;
+        var canExecuteChanged = (_strict && wasDirty != isDirty) ||
+            (nextErrors.Count == 0) != (errors.Count == 0);
+        if (!SameErrors(nextErrors, errors))
+            own.AddErrors(new Dictionary<string, string>(nextErrors), EnterScopeLocked(caller));
+        var reverted = new FormRevertedMessage(this, nameof(FormVM<TM>));
+        var message = PropertyChangedMessage<FormVM<TM>>.Create(this, nameof(FormVM<TM>), nameof(Model));
+        own.AddAfterScope(() => _hub.Send(reverted));
+        own.AddAfterScope(() => _hub.Send(message));
+        if (canExecuteChanged)
+            own.AddAfterScope(RaiseCanExecuteChanged);
+    }
+
+    private void RaiseCanExecuteChanged() => _canExecuteChangedTrigger.OnNext(Unit.Default);
 
     // Approval runs single-flight (spec/20 §5.3, ADR-0143). Admission and the
     // in-flight mark are one critical section; the mark is cleared before any
@@ -628,42 +659,54 @@ public sealed class FormVM<TM> : IDisposable
         // admits the call without waiting (spec/20 §5.5).
         var caller = Environment.CurrentManagedThreadId;
         TM current;
+        TaskCompletionSource<Task>? nestedStart = null;
         lock (_stateGate)
         {
             _ = WaitForForeignScopes(caller);
             if (_disposed || _errors.Count != 0 || _approvalInFlight) return;
             _approvalInFlight = true;
             current = _model;
-            // The admission notification opens no scope (spec/20 §5.5), so a
-            // Dispose on another thread defers its teardown until it returns.
-            _activeMutations++;
+            if (IsNestedLocked(caller))
+            {
+                // A nested approval (spec/20 §5.4, ADR-0180) is admitted now.
+                // Its admission notification and its persister start wait for
+                // the outermost update. That update sends the notification
+                // with the rest of its queue, then runs the start: the start
+                // calls the persister on that thread before the update
+                // returns, and hands the run to this call's awaiter.
+                var start = nestedStart = new TaskCompletionSource<Task>();
+                var captured = current;
+                var own = new Notices();
+                own.AddAfterScope(RaiseCanExecuteChanged);
+                own.Starts.Add(() => start.TrySetResult(RunAdmittedAsync(captured, replayFailure)));
+                _ = TakeNoticesLocked(own, caller);
+            }
+            else
+            {
+                // The admission notification opens no scope (spec/20 §5.5),
+                // so a Dispose on another thread defers its teardown until it
+                // returns.
+                _activeMutations++;
+            }
         }
 
-        var admissionFailed = false;
-        try
+        if (nestedStart is not null)
         {
-            _canExecuteChangedTrigger.OnNext(Unit.Default);
-        }
-        catch
-        {
-            // A throwing admission observer abandons this approval before the
-            // persister runs; release the mark so the form is not left busy,
-            // and tell observers that saw the admission edge (#732). The
-            // original failure wins over one from the release notification.
-            admissionFailed = true;
-            lock (_stateGate)
-                _approvalInFlight = false;
-            try { _canExecuteChangedTrigger.OnNext(Unit.Default); }
-            catch { /* The admission failure is the one the caller sees. */ }
-            throw;
-        }
-        finally
-        {
-            EndMutation(admissionFailed);
+            var run = await nestedStart.Task.ConfigureAwait(false);
+            await run.ConfigureAwait(false);
+            return;
         }
 
-        // An admission observer may have disposed the form; a disposed form
-        // never invokes the persister.
+        RaiseAdmissionCanExecuteChanged();
+        await RunAdmittedAsync(current, replayFailure).ConfigureAwait(false);
+    }
+
+    // Persists an admitted approval and settles it (spec/20 §5.3).
+    private async Task RunAdmittedAsync(TM current, FirstReplayFailure replayFailure)
+    {
+        // An admission observer, or a callback before a nested approval's
+        // start, may have disposed the form. A disposed form never invokes
+        // the persister, and the approval settles silently (spec/20 §10).
         if (_disposed) return;
 
         try
@@ -687,7 +730,7 @@ public sealed class FormVM<TM> : IDisposable
         // the snapshotter, or a validator makes on this thread is queued, not
         // committed, so it publishes nothing while the commit runs and the
         // reset cannot overwrite it.
-        caller = Environment.CurrentManagedThreadId;
+        var caller = Environment.CurrentManagedThreadId;
         lock (_stateGate)
             _commitWindowThreadId = caller;
 
@@ -793,6 +836,32 @@ public sealed class FormVM<TM> : IDisposable
         }
     }
 
+    private void RaiseAdmissionCanExecuteChanged()
+    {
+        var admissionFailed = false;
+        try
+        {
+            _canExecuteChangedTrigger.OnNext(Unit.Default);
+        }
+        catch
+        {
+            // A throwing admission observer abandons this approval before the
+            // persister runs; release the mark so the form is not left busy,
+            // and tell observers that saw the admission edge (#732). The
+            // original failure wins over one from the release notification.
+            admissionFailed = true;
+            lock (_stateGate)
+                _approvalInFlight = false;
+            try { _canExecuteChangedTrigger.OnNext(Unit.Default); }
+            catch { /* The admission failure is the one the caller sees. */ }
+            throw;
+        }
+        finally
+        {
+            EndMutation(admissionFailed);
+        }
+    }
+
     // Ends a post-persist commit that failed before settlement step 1.
     private void CloseCommitWindow()
     {
@@ -850,7 +919,9 @@ public sealed class FormVM<TM> : IDisposable
     // Returns 0 once no other thread holds a scope or the form is disposed.
     // Returns the publisher's thread when the wait would close a live cycle;
     // the caller then takes its §5.5 result instead of waiting. The caller's
-    // own scopes never block it.
+    // own scopes never block it. A nested call (spec/20 §5.4, ADR-0180)
+    // takes the same result without waiting, because Monitor.Wait would
+    // release the outer frame's hold on _stateGate inside its callback.
     private int WaitForForeignScopes(int caller)
     {
         var waiting = false;
@@ -860,6 +931,7 @@ public sealed class FormVM<TM> : IDisposable
             {
                 var owner = ForeignPublisherLocked(caller);
                 if (owner == 0) return 0;
+                if (IsNestedLocked(caller)) return owner;
                 if (!WaitForGraph.Shared.TryBeginWait(_publicationScope, owner, caller)) return owner;
                 if (!waiting)
                 {
@@ -877,6 +949,117 @@ public sealed class FormVM<TM> : IDisposable
                 WaitForGraph.Shared.EndWait(caller);
                 _scopeWaiters--;
             }
+        }
+    }
+
+    // Called under _stateGate. A call is nested (spec/20 §5.4, ADR-0180) when
+    // it comes from a preparation callback of a SetModel or deny on this
+    // thread, which holds the gate, or from an ErrorsChanged observer that
+    // the outermost update on this thread delivers.
+    private bool IsNestedLocked(int caller) =>
+        _preparationDepth > 0 || _errorDeliveryThreads.Contains(caller);
+
+    // Called under _stateGate by an update frame or a nested admission. A
+    // frame nested in an update on this thread queues `own` for the outermost
+    // frame and returns null. The outermost frame takes the whole queue,
+    // with its own notifications last. Inside the error-map phase of a
+    // delivery on this thread, it queues that for the delivery instead.
+    private Notices? TakeNoticesLocked(Notices own, int caller)
+    {
+        if (_preparationDepth > 0)
+        {
+            _pendingNotices.Append(own, nested: true);
+            return null;
+        }
+        var delivery = _pendingNotices;
+        _pendingNotices = new Notices();
+        delivery.Append(own, nested: false);
+        if (_errorDeliveryThreads.Contains(caller))
+        {
+            if (!_scopedNotices.TryGetValue(caller, out var scoped))
+                _scopedNotices[caller] = scoped = new Notices();
+            scoped.Append(delivery, nested: true);
+            return null;
+        }
+        return delivery.IsEmpty ? null : delivery;
+    }
+
+    // Sends the notifications that TakeNoticesLocked took, with no form lock
+    // held (spec/20 §5.4, §5.5, ADR-0180). Each error map goes first, inside
+    // the update scope its commit opened. Then the scopes close, and the
+    // outermost close returns this thread's queue for the caller to replay.
+    // The other notifications follow in queue order, and the persister
+    // starts of nested approvals run last. A notification that a nested call
+    // queued is dropped once the form is disposed. An observer failure stops
+    // the remaining notifications and is returned; the scopes still close
+    // and the admitted approvals still start, so none stays in flight.
+    private ExceptionDispatchInfo? Deliver(Notices? notices, int caller, out QueuedUpdate[] replay)
+    {
+        replay = [];
+        if (notices is null) return null;
+        ExceptionDispatchInfo? failure = null;
+        try
+        {
+            try
+            {
+                if (notices.Errors.Count > 0) SendErrors(notices, caller);
+            }
+            finally
+            {
+                // The teardown claim cannot succeed here: this update still
+                // counts in _activeMutations, so its EndMutation runs a
+                // deferred teardown.
+                for (var i = notices.Scopes.Count - 1; i >= 0; i--)
+                    replay = [.. replay, .. ExitScope(caller, notices.Scopes[i], out _)];
+            }
+            foreach (var (send, nested) in notices.AfterScope)
+                if (!nested || !_disposed) send();
+        }
+        catch (Exception error)
+        {
+            failure = ExceptionDispatchInfo.Capture(error);
+        }
+        finally
+        {
+            foreach (var start in notices.Starts) start();
+        }
+        return failure;
+    }
+
+    // Sends the error maps of a delivery in commit order. An ErrorsChanged
+    // observer may update the form on this thread; that update queues its
+    // notifications here, and its error maps go out inside the scopes that
+    // are still open.
+    private void SendErrors(Notices notices, int caller)
+    {
+        lock (_stateGate) _errorDeliveryThreads.Add(caller);
+        try
+        {
+            for (var i = 0; i < notices.Errors.Count; i++)
+            {
+                var (map, nested) = notices.Errors[i];
+                if (!nested || !_disposed) _errorsChanged.OnNext(map);
+                if (i == notices.Errors.Count - 1) TakeScopedNotices(notices, caller, stop: false);
+            }
+        }
+        finally
+        {
+            // On a failure, the scopes and starts of updates queued here still
+            // join the delivery.
+            TakeScopedNotices(notices, caller, stop: true);
+        }
+    }
+
+    private void TakeScopedNotices(Notices notices, int caller, bool stop)
+    {
+        lock (_stateGate)
+        {
+            if (_scopedNotices.TryGetValue(caller, out var scoped))
+            {
+                _scopedNotices.Remove(caller);
+                notices.Append(scoped, nested: true);
+            }
+            if (stop) _errorDeliveryThreads.Remove(caller);
         }
     }
 
@@ -1027,6 +1210,41 @@ public sealed class FormVM<TM> : IDisposable
         public static QueuedUpdate Deny => new(true, default!);
 
         public static QueuedUpdate Set(TM model) => new(false, model);
+    }
+
+    // Notifications that an update or a nested approval admission sends after
+    // it releases _stateGate (spec/20 §5.4, ADR-0180). Each error map has an
+    // update scope, kept as the enclosing pre-publishing flag for ExitScope.
+    // A notification queued by a nested call is marked, so the delivery drops
+    // it once the form is disposed. Starts complete nested approvals'
+    // admissions.
+    private sealed class Notices
+    {
+        public List<(Dictionary<string, string> Map, bool Nested)> Errors { get; } = [];
+
+        public List<bool> Scopes { get; } = [];
+
+        public List<(Action Send, bool Nested)> AfterScope { get; } = [];
+
+        public List<Action> Starts { get; } = [];
+
+        public bool IsEmpty => Errors.Count == 0 && Scopes.Count == 0 && AfterScope.Count == 0 && Starts.Count == 0;
+
+        public void AddErrors(Dictionary<string, string> map, bool outerPrePublishing)
+        {
+            Errors.Add((map, false));
+            Scopes.Add(outerPrePublishing);
+        }
+
+        public void AddAfterScope(Action send) => AfterScope.Add((send, false));
+
+        public void Append(Notices other, bool nested)
+        {
+            foreach (var (map, wasNested) in other.Errors) Errors.Add((map, wasNested || nested));
+            Scopes.AddRange(other.Scopes);
+            foreach (var (send, wasNested) in other.AfterScope) AfterScope.Add((send, wasNested || nested));
+            Starts.AddRange(other.Starts);
+        }
     }
 
     // The first replay failure of one approval call.
