@@ -847,3 +847,67 @@ fn destruct_clear_runs_while_disposal_is_deferred_by_a_foreign_transfer() {
     assert!(!first.is_current());
     assert_eq!(root.status(), ConstructionStatus::Disposed);
 }
+
+/// Records what another thread saw when it tried to select `moved` in
+/// `dest` from `old`'s detach-commit callback: `can_select_component` and the
+/// `set_current` result.
+type CommitWindowLog = Arc<Mutex<Option<(bool, Result<(), VmxError>)>>>;
+
+/// Rule 2 with a transfer (COMP-006): the destination admits the moved child
+/// after the old parent's detach commit. That commit clears the child's
+/// `is_current` flag; an earlier admission would let another thread select
+/// the child in the destination first, and the commit would then reset the
+/// flag of a child that is current there. During the old parent's commit,
+/// another thread's selection of the child in the destination is refused.
+/// Rust admits in this order already; the test pins it for add, insert and
+/// replace (the population path is private in Rust).
+#[test]
+fn transfer_destination_admits_the_moved_child_after_the_old_parents_detach_commit() {
+    for operation in ["add", "insert", "replace"] {
+        let dispatcher = ManualDispatcher::new();
+        let old = root("old", &dispatcher);
+        let moved = leaf("moved");
+        old.add(moved.clone()).unwrap();
+        old.construct().unwrap();
+        old.set_current(Some(moved.clone())).unwrap();
+        assert!(moved.is_current());
+        let dest = root("dest", &dispatcher);
+        if operation == "replace" {
+            dest.add(leaf("filler")).unwrap();
+        }
+        dest.construct().unwrap();
+        let seen: CommitWindowLog = Arc::default();
+        let armed = Arc::new(AtomicBool::new(true));
+        let (sink, window_dest, window_child) =
+            (Arc::clone(&seen), dest.clone(), moved.clone());
+        old.on_current_changed(move |current| {
+            if current.is_some() || !armed.swap(false, Ordering::SeqCst) {
+                return;
+            }
+            let (dest, child) = (window_dest.clone(), window_child.clone());
+            let observed = within_guard("the foreign selection", move || {
+                let can_select = dest.can_select_component(&child);
+                (can_select, dest.set_current(Some(child)))
+            });
+            *sink.lock().unwrap() = Some(observed);
+        });
+
+        match operation {
+            "add" => dest.add(moved.clone()).unwrap(),
+            "insert" => dest.insert(0, moved.clone()).unwrap(),
+            _ => drop(dest.replace(0, moved.clone()).unwrap()),
+        }
+
+        let observed = seen.lock().unwrap().take();
+        assert_eq!(
+            observed,
+            Some((false, Err(VmxError::NonChild))),
+            "{operation}: the moved child is not admitted during the old parent's commit"
+        );
+        assert_eq!(old.current(), None, "{operation}");
+        assert_eq!(dest.current(), None, "{operation}");
+        assert!(!moved.is_current(), "{operation}");
+        dest.set_current(Some(moved.clone())).unwrap();
+        assert!(moved.is_current(), "{operation}");
+    }
+}

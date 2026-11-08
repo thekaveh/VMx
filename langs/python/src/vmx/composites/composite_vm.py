@@ -384,7 +384,6 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._auto_construct_attached(value, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-                self._admit_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             with self._membership_gate:
@@ -412,6 +411,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
+            # Admitted after the old parent's detach commit (COMP-006).
+            self._admit_after_transfer_commit()
 
             def clear_current() -> None:
                 # Clears current only while it is still the replaced child.
@@ -483,7 +484,6 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._auto_construct_attached(item, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-                self._admit_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             with self._membership_gate:
@@ -507,6 +507,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
+            # Admitted after the old parent's detach commit (COMP-006).
+            self._admit_after_transfer_commit()
 
             def raise_commit_error() -> None:
                 if commit_error is not None:
@@ -547,7 +549,6 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._auto_construct_attached(item, record)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-                self._admit_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             with self._membership_gate:
@@ -571,6 +572,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
+            # Admitted after the old parent's detach commit (COMP-006).
+            self._admit_after_transfer_commit()
 
             def raise_commit_error() -> None:
                 if commit_error is not None:
@@ -1025,7 +1028,6 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     self._maybe_auto_construct(child)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-                self._admit_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             for child, original_status in reversed(
@@ -1060,6 +1062,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 commit_failure = _commit_parent_transfer(staged_transfer)
                 if commit_error is None:
                     commit_error = commit_failure
+            # Admitted after the old parents' detach commits (COMP-006).
+            self._admit_after_transfer_commit()
             self._populated = True
             population_error = commit_error
 
@@ -1106,6 +1110,17 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._pending_admission = None
         self._staged_population = None
         self._transaction_staged = False
+
+    def _admit_after_transfer_commit(self) -> None:
+        """Admit the staged child or population after the transfer commits.
+
+        It runs after the old parents' detach commits and before
+        collection-changed (spec/06 §4.3 rule 2). An earlier admission would
+        let another thread select a moved child here while the old parent's
+        detach clear can still reset its ``is_current`` flag (COMP-006).
+        """
+        with self._membership_gate:
+            self._admit_locked()
 
     def _disposal_pending_locked(self) -> bool:
         return self._dispose_requested or self._dispose_deferred

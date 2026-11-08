@@ -817,3 +817,80 @@ def test_old_parent_refuses_owner_thread_selection_until_a_transfer_commits(
         assert sibling.is_current
         assert not moved.is_current
         assert old_parent.changes == [None, "sibling"]
+
+
+# ── COMP-006: a transfer admits the moved child after the old parent's commit ──
+
+
+@pytest.mark.parametrize("operation", ["add", "insert", "replace", "population"])
+def test_transfer_destination_admits_the_moved_child_after_the_old_parents_detach_commit(
+    operation: str,
+) -> None:
+    """The old parent's detach commit clears the moved child's ``is_current``.
+
+    If the destination admitted the child first, another thread could select
+    it there before that commit, and the commit would then reset the flag of a
+    child that is current in the destination (spec/06 §4.3 rule 2, COMP-006).
+    From inside that commit, another thread's selection is refused.
+    """
+    hub: MessageHub[object] = MessageHub()
+    dispatcher = _immediate()
+    destination: CompositeVM[ComponentVM] | None = None
+    observed: dict[str, Any] = {}
+    errors: list[BaseException] = []
+    armed = False
+
+    def on_old_current(value: ComponentVM | None) -> None:
+        nonlocal armed
+        if not armed or value is not None:
+            return
+        armed = False
+        assert destination is not None
+        target = destination
+
+        def select() -> None:
+            observed["can_select"] = target.can_select_component(moved)
+            try:
+                target.current = moved
+            except ValueError as error:
+                observed["refusal"] = error
+
+        worker = _start(select, errors)
+        worker.join(HANG_GUARD)
+        observed["joined"] = not worker.is_alive()
+
+    old_parent = _Root(hub, dispatcher, lambda: [], on_current=on_old_current)
+    moved = _child(hub, dispatcher, "moved")
+    old_parent.vm.construct()
+    old_parent.vm.add(moved)
+    old_parent.vm.current = moved
+    assert moved.is_current
+    filler = _child(hub, dispatcher, "filler")
+    if operation == "population":
+        repopulating = _Repopulating(name="repop", hub=hub, dispatcher=dispatcher)
+        destination = repopulating
+    else:
+        destination = _Root(
+            hub, dispatcher, lambda: [filler] if operation == "replace" else []
+        ).vm
+    destination.construct()
+    armed = True
+
+    if operation == "add":
+        destination.add(moved)
+    elif operation == "insert":
+        destination.insert(0, moved)
+    elif operation == "replace":
+        destination[0] = moved
+    else:
+        repopulating.repopulate([moved])
+
+    assert observed.get("joined") is True, "a selection never waits for a transaction"
+    assert errors == []
+    assert observed["can_select"] is False, "the moved child is not admitted yet"
+    assert "not a member" in str(observed.get("refusal"))
+    assert old_parent.vm.current is None
+    assert destination.current is None
+    assert not moved.is_current
+    destination.current = moved
+    assert moved.is_current

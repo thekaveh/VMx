@@ -166,7 +166,11 @@ Rule 4 uses the "membership transaction in progress" error. The Swift
   parent. The old parent's detach clear would then reset the flag, and the
   destination would keep the child current with `IsCurrent` false, which
   breaks `COMP-006`. Swift reproduced this race before it moved the
-  admission.
+  admission. C#, Python and TypeScript also admitted the child before the
+  commit and now admit it after it. Rust already admitted it after the
+  commit. Until the admission, the moved child is unadmitted in the
+  destination, so the old parent's commit callbacks on the adding thread
+  cannot select it there either (rule 4).
 - **Disposal from another thread during a publication.** The order is the
   current C# order: first the foreign-transaction rule of §4.2, then the
   lease check. A thread that holds a lease is checked before any wait, so it
@@ -202,7 +206,9 @@ Rule 4 uses the "membership transaction in progress" error. The Swift
   the add's `CollectionChanged` publication. The two ignored `COMP-026` Rust
   tests are re-enabled (#1151, Rust parts of #1144 and #1145).
 - **Every flavor:** a transfer's destination admits the moved child after
-  the old parent's detach commit (§2.1).
+  the old parent's detach commit (§2.1). C#, Python and TypeScript move the
+  admission in add, insert, replacement and population, and Swift does the
+  same. Rust already followed this order. Each flavor has a regression test.
 
 ## 4. Consequences
 

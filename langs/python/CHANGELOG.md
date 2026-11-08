@@ -90,7 +90,11 @@ below for them.
   clear raised while another thread held a transaction or while disposal was
   deferred, and the destruct rolled back (#1144). A disposal requested from
   the clear's callbacks still waits for them, and the destruct then walks no
-  child.
+  child. When `append`, `insert`, index assignment or a population moves a
+  child from another parent, the destination now admits it after the old
+  parent's detach commit. Before, another thread could select the child in
+  the destination before that commit, and the commit then reset its
+  `is_current` flag while it stayed `current` (`COMP-006`).
 - `ObservableDictionary`: `remove` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was

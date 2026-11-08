@@ -562,14 +562,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     record = AttachLateStartLocked(value);
                 }
                 AutoConstructAttached(value, record);
-                lock (_membershipGate)
-                {
-                    EnsureTransactionCanContinueLocked();
-                    AdmitLocked();
-                }
+                lock (_membershipGate) EnsureTransactionCanContinueLocked();
                 admissionComplete = true;
                 ComponentOwnership.CommitThenPublish(transfer, () =>
                 {
+                    // Admitted after the old parent's detach commit (COMP-006).
+                    AdmitAfterTransferCommit();
                     PublishEvery(
                         // Clears Current only while it is still the replaced child.
                         () => ApplyCurrentChange(null, CurrentChange.Clear, onlyReplacing: old),
@@ -863,11 +861,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 record = AttachLateStartLocked(item);
             }
             AutoConstructAttached(item, record);
-            lock (_membershipGate)
-            {
-                EnsureTransactionCanContinueLocked();
-                AdmitLocked();
-            }
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch (Exception originalError)
         {
@@ -903,8 +897,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         try
         {
             ComponentOwnership.CommitThenPublish(transfer, () =>
+            {
+                // Admitted after the old parent's detach commit (COMP-006).
+                AdmitAfterTransferCommit();
                 RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Add, item, idx)));
+                    NotifyCollectionChangedAction.Add, item, idx));
+            });
         }
         catch
         {
@@ -981,11 +979,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 record = AttachLateStartLocked(item);
             }
             AutoConstructAttached(item, record);
-            lock (_membershipGate)
-            {
-                EnsureTransactionCanContinueLocked();
-                AdmitLocked();
-            }
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch (Exception originalError)
         {
@@ -1021,8 +1015,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         try
         {
             ComponentOwnership.CommitThenPublish(transfer, () =>
+            {
+                // Admitted after the old parent's detach commit (COMP-006).
+                AdmitAfterTransferCommit();
                 RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Add, item, index)));
+                    NotifyCollectionChangedAction.Add, item, index));
+            });
         }
         catch
         {
@@ -1315,11 +1313,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 else
                     MaybeAutoConstruct(child);
             }
-            lock (_membershipGate)
-            {
-                EnsureTransactionCanContinueLocked();
-                AdmitLocked();
-            }
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch (Exception originalError)
         {
@@ -1363,6 +1357,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         {
             ComponentOwnership.CommitThenPublish(transfers, () =>
             {
+                // Admitted after the old parents' detach commits (COMP-006).
+                AdmitAfterTransferCommit();
                 onCommitted?.Invoke();
                 foreach (var child in candidates)
                 {
@@ -1573,6 +1569,17 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         _pendingAdmission = null;
         _stagedPopulation = null;
         _transactionStaged = false;
+    }
+
+    /// <summary>
+    /// Admits the staged child or population after the old parents' detach
+    /// commits and before CollectionChanged (spec/06 §4.3 rule 2). An earlier
+    /// admission would let another thread select a moved child here while the
+    /// old parent's detach clear can still reset its IsCurrent flag (COMP-006).
+    /// </summary>
+    private void AdmitAfterTransferCommit()
+    {
+        lock (_membershipGate) AdmitLocked();
     }
 
     private bool DisposalPendingLocked()

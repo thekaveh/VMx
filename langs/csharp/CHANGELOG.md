@@ -96,7 +96,11 @@ All notable changes to the C# flavor are documented here. The format is based on
   now. `Destruct()` and the destruct phase of `Reconstruct()` clear `Current`
   without a transaction and are never refused. Before, the clear threw while
   another thread held a transaction or while disposal was deferred, and the
-  destruct rolled back (#1144).
+  destruct rolled back (#1144). When `Add`, `Insert`, index replacement or
+  `AttachPopulation` moves a child from another parent, the destination now
+  admits it after the old parent's detach commit. Before, another thread could
+  select the child in the destination before that commit, and the commit then
+  reset its `IsCurrent` flag while it stayed `Current` (`COMP-006`).
 - Fixed: `CompositeVM.Remove` of an item that is not a child now ends its
   membership transaction after it releases the shared coordination lane
   (#1147). Before, a deferred `Dispose()` that waited for that transaction ran

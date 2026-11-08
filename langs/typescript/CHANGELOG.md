@@ -118,6 +118,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     lease ends and no membership transaction is open. `current` and both
     `isCurrent` flags are committed before any of them is published.
   - A detach clears `current` only while the detached child is still current.
+  - When an add, insert, replacement or population moves a child from another
+    parent, the destination admits it after the old parent's detach commit,
+    as in every flavor (`COMP-006`). During the old parent's commit
+    callbacks, the destination no longer offers the child for selection.
 - A background VM that waits on a child now rolls back and clears its in-flight
   guard when that wait fails (#1053). The wait can fail in a deferred
   `_transitionChildren` walk, a member hook, a `CompositeVM` selector or a

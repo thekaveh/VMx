@@ -285,7 +285,6 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this.#stage([item]);
       this._maybeAutoConstruct(item);
       this.#requireTransactionCanContinue();
-      this.#admit();
     } catch (error) {
       let compensationError: unknown;
       if (attached) {
@@ -313,6 +312,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       throw error;
     }
     const commitError = captureParentTransferCommit(transfer);
+    // Admitted after the old parent's detach commit (COMP-006, spec/06 §4.3 rule 2).
+    this.#admit();
     try {
       const idx = this._children.length - 1;
       this._emitCollectionChanged(
@@ -351,7 +352,6 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this.#stage([item]);
       this._maybeAutoConstruct(item);
       this.#requireTransactionCanContinue();
-      this.#admit();
     } catch (error) {
       let compensationError: unknown;
       if (attached) {
@@ -379,6 +379,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       throw error;
     }
     const commitError = captureParentTransferCommit(transfer);
+    // Admitted after the old parent's detach commit (COMP-006, spec/06 §4.3 rule 2).
+    this.#admit();
     try {
       this._emitCollectionChanged(
         makeCollectionChangedEvent("add", {
@@ -474,7 +476,6 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this.#stage([value]);
       this._maybeAutoConstruct(value);
       this.#requireTransactionCanContinue();
-      this.#admit();
     } catch (error) {
       let compensationError: unknown;
       if (attached) {
@@ -503,6 +504,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       throw error;
     }
     const commitError = captureParentTransferCommit(transfer);
+    // Admitted after the old parent's detach commit (COMP-006, spec/06 §4.3 rule 2).
+    this.#admit();
     this.#publishCommittedMembership(
       [
         () => this.#clearDetached([old]),
@@ -786,7 +789,6 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         }
       }
       this.#requireTransactionCanContinue();
-      this.#admit();
     } catch (error) {
       let compensationError: unknown;
       while (this._children.length > start) {
@@ -819,6 +821,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       const error = captureParentTransferCommit(transfer);
       commitError ??= error;
     }
+    // Admitted after the old parents' detach commits (COMP-006, spec/06 §4.3 rule 2).
+    this.#admit();
     this.#populated = true;
     try {
       candidates.forEach((child) => {

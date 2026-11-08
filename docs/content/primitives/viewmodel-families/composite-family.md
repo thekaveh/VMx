@@ -101,7 +101,9 @@ the composite's own locks and then publishes:
 - **A child is selectable once its add admits it.** Selecting a child that an
   add or a population has attached but not admitted raises the non-member
   error. A `CollectionChanged` subscriber can select the child that was just
-  added.
+  added. An add that moves a child from another composite admits it after
+  that composite's removal commits, so the child's `IsCurrent` flag always
+  matches the new parent's `Current`.
 - **The adding thread cannot select before its add commits.** A hook on the
   thread that runs the add gets the "membership transaction in progress"
   error, also for `Current = null`. A failed add therefore leaves `Current`

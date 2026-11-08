@@ -588,3 +588,59 @@ describe("asynchronous selection (ADR-0173 rule 7)", () => {
     expect(root.status).toBe(S.Disposed);
   });
 });
+
+describe("transfer admission order (spec/06 §4.3 rule 2, COMP-006)", () => {
+  // The destination admits a moved child after the old parent's detach
+  // commit, as in every flavor. In the threaded flavors an earlier admission
+  // lets another thread select the child before that commit resets its
+  // isCurrent flag. Here the observable part is the order: during the old
+  // parent's commit, the destination does not offer the child for selection.
+  class Populating extends CompositeVM<ComponentVM> {
+    stage(children: ComponentVM[]): void { this._attachPopulation(children); }
+  }
+
+  for (const operation of ["add", "insert", "replace", "population"] as const) {
+    it(`${operation}: the moved child is not selectable during the old parent's commit`, () => {
+      const hub = new MessageHub();
+      const dispatcher = RxDispatcher.immediate();
+      const make = (name: string): ComponentVM =>
+        ComponentVM.builder().name(name).services(hub, dispatcher).build();
+      const seen: unknown[] = [];
+      let armed = false;
+      let destination: CompositeVM<ComponentVM> | null = null;
+      const moved = make("moved");
+      const oldParent = CompositeVM.builder<ComponentVM>()
+        .name("old").services(hub, dispatcher).children(() => [moved])
+        .onCurrentChanged((vm) => {
+          if (!armed || vm !== null || destination === null) return;
+          armed = false;
+          seen.push(destination.canSelectComponent(moved));
+          try { destination.current = moved; seen.push("selected"); } catch (error) {
+            seen.push((error as Error).message);
+          }
+        })
+        .build();
+      oldParent.construct();
+      oldParent.current = moved;
+      const filler = make("filler");
+      destination = operation === "population"
+        ? new Populating({ name: "repop", hub, dispatcher })
+        : CompositeVM.builder<ComponentVM>().name("new").services(hub, dispatcher)
+          .children(() => (operation === "replace" ? [filler] : [])).build();
+      destination.construct();
+      armed = true;
+
+      if (operation === "add") destination.add(moved);
+      else if (operation === "insert") destination.insert(0, moved);
+      else if (operation === "replace") destination.setAt(0, moved);
+      else (destination as Populating).stage([moved]);
+
+      expect(seen).toEqual([false, expect.stringMatching(TRANSACTION)]);
+      expect(oldParent.current).toBeNull();
+      expect(destination.current).toBeNull();
+      expect(moved.isCurrent).toBe(false);
+      destination.current = moved;
+      expect(moved.isCurrent).toBe(true);
+    });
+  }
+});

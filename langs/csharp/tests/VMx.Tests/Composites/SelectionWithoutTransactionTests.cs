@@ -757,4 +757,72 @@ public sealed class SelectionWithoutTransactionTests
             oldParent.Changes.Should().Equal(null, "sibling");
         }
     }
+
+    // ── COMP-006: a transfer admits the moved child after the old parent's detach commit ──
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("insert")]
+    [InlineData("replace")]
+    [InlineData("population")]
+    public void Transfer_Destination_Admits_The_Moved_Child_After_The_Old_Parents_Detach_Commit(
+        string operation)
+    {
+        // The old parent's detach commit clears the moved child's IsCurrent
+        // flag. If the destination admitted the child first, another thread
+        // could select it there before that commit, and the commit would then
+        // reset the flag of a child that is current in the destination
+        // (spec/06 §4.3 rule 2, COMP-006). From inside that commit, another
+        // thread's selection of the child in the destination is refused.
+        var hub = new TestHub();
+        CompositeVMBase<ComponentVM>? destination = null;
+        ComponentVM? moved = null;
+        var workerJoined = false;
+        bool? canSelectDuringCommit = null;
+        Exception? refusalDuringCommit = null;
+        var errors = new List<Exception>();
+        var armed = false;
+        var oldParent = new Root(hub, NullDispatcher.Instance, () => [], onCurrent: value =>
+        {
+            if (!armed || value is not null) return;
+            armed = false;
+            var worker = Start(() =>
+            {
+                canSelectDuringCommit = destination!.CanSelectComponent(moved!);
+                try { destination.Current = moved; }
+                catch (InvalidOperationException error) { refusalDuringCommit = error; }
+            }, errors);
+            workerJoined = worker.Join(HangGuard);
+        });
+        moved = Child(hub, NullDispatcher.Instance, "moved");
+        oldParent.Vm.Construct();
+        oldParent.Vm.Add(moved);
+        oldParent.Vm.Current = moved;
+        moved.IsCurrent.Should().BeTrue();
+        var filler = Child(hub, NullDispatcher.Instance, "filler");
+        destination = operation == "population"
+            ? new Repopulating(hub, NullDispatcher.Instance, _ => null, _ => { })
+            : new Root(hub, NullDispatcher.Instance, () => operation == "replace" ? [filler] : []).Vm;
+        destination.Construct();
+        armed = true;
+
+        switch (operation)
+        {
+            case "add": destination.Add(moved); break;
+            case "insert": destination.Insert(0, moved); break;
+            case "replace": destination[0] = moved; break;
+            default: ((Repopulating)destination).Repopulate([moved]); break;
+        }
+
+        workerJoined.Should().BeTrue("a selection never waits for a transaction");
+        lock (errors) errors.Should().BeEmpty();
+        canSelectDuringCommit.Should().BeFalse("the moved child is not admitted yet");
+        refusalDuringCommit.Should().NotBeNull()
+            .And.Subject.As<Exception>().Message.Should().Contain("not a member");
+        oldParent.Vm.Current.Should().BeNull();
+        destination.Current.Should().BeNull();
+        moved.IsCurrent.Should().BeFalse();
+        destination.Current = moved;
+        moved.IsCurrent.Should().BeTrue();
+    }
 }
