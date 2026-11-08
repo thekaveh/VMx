@@ -61,7 +61,7 @@ lines.
 
 | Area                         | Authoritative pin or source                                                   | Contract                                                                                                                                                                                                                                               | Executable evidence                                                                                                               |
 | ---------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| Python CI bootstrap          | `.github/workflows/python.yml`                                                | `astral-sh/setup-uv` is pinned to its `v10.3.2` commit; workflow uv is exactly `0.11.28`.                                                                                                                                                              | The 3-OS / 5-version Python matrix plus example jobs                                                                              |
+| Python CI bootstrap          | `.github/workflows/python.yml`                                                | `astral-sh/setup-uv` is pinned to its `v10.3.3` commit; workflow uv is exactly `0.11.28`.                                                                                                                                                              | The 3-OS / 5-version Python matrix plus example jobs                                                                              |
 | Release metadata parser      | `langs/python/pyproject.toml`; `langs/python/uv.lock`                         | `markdown-it-py 4.2.0` supplies current CommonMark 0.31.2 block semantics to the changelog release gate; every invocation selects the locked `tools` extra explicitly.                                                                                 | `tools/tests/test_check_version_consistency.py`; clean `uv run --locked --extra tools`; every supported `--release-tag` mode      |
 | Docs dependencies            | `docs/requirements.in`; hash-locked `docs/requirements.txt`                   | The Python 3.12 docs environment installs only hash-verified resolutions; pytest is `9.2.0`, pip-audit is `2.10.1`, MkDocs Material is `9.8.0`, Pymdown Extensions is `12.3`, and Ruff is `0.17.3`.                                                    | `pip install --require-hashes`; `python -m pip_audit --local`                                                                     |
 | Three documentation surfaces | `docs/manifest.yaml`; `docs/content/**`                                       | Canonical Markdown generates in-repo navigation, the MkDocs `.io` site, and the GitHub wiki without source duplication.                                                                                                                                | `make docs-check`; strict MkDocs build; wiki dry-run/sync checks                                                                  |
@@ -94,7 +94,7 @@ tag shown was resolved against the action repository on 2026-07-22. The CodeQL
 v4.37.6 and PyPI publisher v1.14.2 tags were re-resolved on 2026-08-10. The
 `deploy-pages` v5.0.1 and `codecov-action` v7.1.1 pins are the commits
 Dependabot resolved for those tags on 2026-10-01. The CodeQL v4.39.1,
-`setup-uv` v10.3.2, `setup-python` v7.1.0, PyPI publisher v1.14.3 and
+`setup-uv` v10.3.3, `setup-python` v7.1.0, PyPI publisher v1.14.3 and
 `crates-io-auth-action` v1.0.6 pins are the commits Dependabot resolved in
 #923, re-checked against the upstream tags on 2026-10-28;
 `dtolnay/rust-toolchain` uses its maintained `stable` branch because that action
@@ -113,7 +113,7 @@ reference appears or any workflow action is absent from this inventory.
 | `actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`             | `v7.1.0`              |
 | `actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9`          | `v7.0.2`              |
 | `actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9`    | `v5.0.0`              |
-| `astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e`               | `v10.3.2`             |
+| `astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2`               | `v10.3.3`             |
 | `codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5`           | `v7.1.1`              |
 | `dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4`           | `stable` (2026-07-16) |
 | `googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7` | `v5.0.0`              |
