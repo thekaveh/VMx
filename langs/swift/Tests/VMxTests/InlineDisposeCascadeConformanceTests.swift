@@ -336,4 +336,34 @@ final class InlineDisposeCascadeConformanceTests: XCTestCase {
         XCTAssertEqual(box.vm.status, .disposed, label)
         XCTAssertEqual(c1.status, .disposed, label)
     }
+
+    /// LIFE-021 — a `reconstruct()` whose `Destructed` subscriber disposes the
+    /// container starts no construct phase: no `Constructing`, no construct
+    /// hook, no slot factory, and the call returns (ADR-0175 §2.3).
+    func testReconstructStartsNoConstructPhaseAfterCascade() throws {
+        for kind in ["composite", "group", "aggregate"] {
+            let hub = MessageHub()
+            let box = makeBox(kind, hub: hub)
+            try box.vm.construct()
+            let c1 = try XCTUnwrap(box.child(), kind)
+            let hooksBefore = box.hookCalls()
+            let factoryBefore = box.factoryCalls()
+            let recorder = StatusRecorder(hub)
+            defer { recorder.cancel() }
+            let disposer = hub.messages
+                .compactMap { $0 as? ConstructionStatusChangedMessage }
+                .filter { $0.senderName == "box" && $0.status == .destructed }
+                .sink { _ in box.vm.dispose() }
+            defer { disposer.cancel() }
+
+            XCTAssertNoThrow(try box.vm.reconstruct(), kind)
+
+            XCTAssertEqual(
+                recorder.statuses(of: "box"), [.destructing, .destructed, .disposed], kind)
+            XCTAssertEqual(box.hookCalls(), hooksBefore + 1, "\(kind): only the destruct hook ran")
+            XCTAssertEqual(box.factoryCalls(), factoryBefore, "\(kind): no slot factory runs")
+            XCTAssertEqual(box.vm.status, .disposed, kind)
+            XCTAssertEqual(c1.status, .disposed, kind)
+        }
+    }
 }
