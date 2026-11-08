@@ -89,9 +89,10 @@ below refer to chapter 20.
      interleave, so error maps can reach an observer out of commit order.
    - `Dispose()` marks the form disposed and returns. Later calls follow §10,
      and queued calls replay as no-ops. The publisher continues as if one of
-     its own observers had disposed the form at that moment. It runs the §10
-     teardown after its outermost scope ends. The channels complete, and the
-     commands are disposed, only then.
+     its own observers had disposed the form at that moment. The §10
+     teardown runs once no thread holds a scope on the form. With one
+     publisher, that is when its outermost scope ends. The channels complete,
+     and the commands are disposed, only then.
 1. **Queue and replay.** Each publisher has its own queue. It holds that
    thread's pre-publication calls (ADR-0174 rule 1) and other threads' refused
    updates, in the order they joined it. The publisher replays its queue when
@@ -197,8 +198,9 @@ simplest and most common-sense approach chosen.
 
 ### 3.1. Known differences
 
-These differences need two scopes open at once, a preparation callback, or
-a disposal. No flavor deadlocks, and the end state is the same.
+Each difference needs two scopes open at once, a preparation callback, or a
+disposal, or it cannot be observed. No flavor deadlocks, and the end state is
+the same. Chapter 20 §5.5 lists them as flavor notes.
 
 - A call nested in a preparation callback, while another thread holds a
   scope, waits in C# and Python. Swift takes the refused result instead.
@@ -211,9 +213,13 @@ a disposal. No flavor deadlocks, and the end state is the same.
   publisher's scope closes.
 - A Rust `dispose()` that is not refused tears down at once, even while
   another thread delivers outside a scope. Examples are an admission
-  notification, or an update's notifications after its scope closed. C#,
-  Python and Swift defer that teardown. This gap predates this ADR and is
-  left for a follow-up.
+  notification, or an update's notifications after its scope closed. Swift
+  does the same during an admission notification or an `ApproveErrors`
+  delivery. C# and Python defer that teardown. This gap predates this ADR,
+  and #1228 tracks it.
+- C#, Python and Rust open an update scope only when the update changes the
+  error map. Swift opens one at every commit. A scope with no `ErrorsChanged`
+  delivery cannot be observed.
 
 ## 4. Conformance
 

@@ -577,8 +577,7 @@ call does not wait. No call is lost:
    the queue of the publisher that its edge names, and returns without
    changing the form. A call in its own thread's pre-publication window joins
    that thread's queue instead. It returns before it takes effect: code that
-   reads
-   `Model` right after it sees the old state.
+   reads `Model` right after it sees the old state.
 1. **An approve call** is admitted without waiting, under the admission rules
    of §5.3. Its settlement then waits like any other settlement.
 1. **A settlement** commits at once and opens its own scope. Two threads then
@@ -587,9 +586,10 @@ call does not wait. No call is lost:
    observer out of commit order (limitation).
 1. **`Dispose()`** marks the form disposed and returns. Later calls follow
    §10, and queued calls replay as no-ops. The publisher continues as if one
-   of its own observers had disposed the form at that moment. It runs the §10
-   teardown after its outermost scope ends. Only then do the channels
-   complete and the commands become disposed.
+   of its own observers had disposed the form at that moment. The §10
+   teardown runs once no thread holds a scope on the form. With one
+   publisher, that is when its outermost scope ends. Only then do the
+   channels complete and the commands become disposed.
 
 **Queue and replay.** Each publisher has its own queue. It holds the calls of
 its pre-publication window (§5.3 rule 1) and other threads' refused `SetModel`
@@ -610,6 +610,26 @@ settlement scope closes, and the outermost scope replays the queue.
 **Limitation.** Preparation callbacks run under the form's state lock (§5.4),
 and waits for that lock are not in the wait-for graph. A preparation callback
 that waits for another thread, which then calls the same form, deadlocks.
+
+Flavor notes (ADR-0176 §3.1). No flavor deadlocks in these cases, and the end
+state is the same:
+
+- A Swift `SetModel` or deny in its own thread's pre-publication window joins
+  that thread's queue without waiting. C#, Python, and Rust first wait for
+  another thread's scope. The call is queued either way.
+- A call nested in a preparation callback, while another thread holds a scope,
+  waits in C# and Python. Swift takes the refused result, and Rust proceeds
+  without waiting (#1173).
+- After a refused `Dispose()`, C# and Rust wake the scope waiters at once.
+  Python and Swift waiters wake when the publisher's scope closes. Either way
+  they find the form disposed.
+- A Rust `dispose()` that is not refused tears down at once, even while another
+  thread delivers outside a scope. Swift does the same during an admission
+  notification or an `ApproveErrors` delivery. C# and Python defer that
+  teardown until the delivery returns (#1228).
+- C#, Python, and Rust open an update scope only when the update changes the
+  error map. Swift opens one at every commit. A scope with no `ErrorsChanged`
+  delivery cannot be observed.
 
 This section adds no public member.
 
