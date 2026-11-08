@@ -8,11 +8,16 @@
 //! cascade follows the same rules as a container's child cascade.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use vmx::{
     AggregateVm1, ComponentVm, CompositeVm, ConstructionStatus, GroupVm, ManualDispatcher, Message,
     MessageHub, MessageRecorder, NullDispatcher, VmxError, VmxResult,
 };
+
+/// The hang guard for every cross-thread wait.
+const BOUND: Duration = Duration::from_secs(5);
 
 type Call = Arc<Mutex<Option<Box<dyn Fn() -> VmxResult<()> + Send>>>>;
 type Attempt = Arc<Mutex<Option<VmxResult<()>>>>;
@@ -293,6 +298,120 @@ fn aggregate_refuses_lifecycle_calls_during_its_slot_cascade() {
     every_call_during_child_cascade::<AggregateVm1<ComponentVm>>();
 }
 
+/// A container `reconstruct()` whose destruct phase ended before another
+/// thread started the child cascade starts no construct phase and returns
+/// `Ok(())` (ADR-0175 §2.3 (b), rule 4). A `Destructed` subscriber starts
+/// `dispose()` on another thread; the child's dispose hook holds the
+/// cascade open while the reconstruct goes on.
+fn reconstruct_after_destruct_phase_meets_the_child_cascade<C: Container>() {
+    let hub = MessageHub::new();
+    // The child uses its own hub: the container's hub is busy delivering
+    // `Destructed` while the child is disposed.
+    let child_hub = MessageHub::new();
+    let (go, go_rx) = mpsc::channel::<()>();
+    let (constructing, constructing_rx) = mpsc::channel::<()>();
+    let cleanups = Arc::new(AtomicUsize::new(0));
+    let make_child: Arc<dyn Fn() -> ComponentVm + Send + Sync> = {
+        let go = Mutex::new(go);
+        let constructing_rx = Arc::new(Mutex::new(constructing_rx));
+        let cleanups = Arc::clone(&cleanups);
+        Arc::new(move || {
+            let child = ComponentVm::with_services("c1", child_hub.clone(), NullDispatcher::new());
+            let go = go.lock().unwrap().clone();
+            let (constructing_rx, cleanups) = (Arc::clone(&constructing_rx), Arc::clone(&cleanups));
+            child.on_dispose(move || {
+                cleanups.fetch_add(1, Ordering::SeqCst);
+                let _ = go.send(());
+                // Hold the cascade open while the reconstruct goes on; a
+                // construct hook that runs ends the hold at once.
+                let _ = constructing_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_millis(300));
+                Ok(())
+            });
+            child
+        })
+    };
+    let container = C::make(&hub, make_child);
+    container.construct().unwrap();
+    let construct_runs = Arc::new(AtomicUsize::new(0));
+    container.on_construct({
+        let construct_runs = Arc::clone(&construct_runs);
+        let constructing = Mutex::new(constructing);
+        move || {
+            construct_runs.fetch_add(1, Ordering::SeqCst);
+            let _ = constructing.lock().unwrap().send(());
+            Ok(())
+        }
+    });
+    let c1 = container.child();
+    let recorder = hub.record(256);
+    let (disposed, disposed_rx) = mpsc::channel();
+    let go_rx = Mutex::new(go_rx);
+    let subscription = hub.subscribe({
+        let container = container.clone();
+        let container_id = container.id();
+        let disposed = Mutex::new(Some(disposed));
+        move |message| {
+            if let Message::ConstructionStatusChanged(changed) = message {
+                if changed.sender_id == container_id
+                    && changed.status == ConstructionStatus::Destructed
+                {
+                    let Some(disposed) = disposed.lock().unwrap().take() else {
+                        return;
+                    };
+                    let container = container.clone();
+                    thread::spawn(move || disposed.send(container.dispose()).unwrap());
+                    let _ = go_rx.lock().unwrap().recv_timeout(BOUND);
+                }
+            }
+        }
+    });
+
+    let reconstructed = container.reconstruct();
+    let disposed = disposed_rx.recv_timeout(BOUND).unwrap();
+    subscription.dispose();
+
+    assert_eq!(reconstructed, Ok(()), "the superseded reconstruct");
+    assert_eq!(disposed, Ok(()));
+    assert_eq!(
+        construct_runs.load(Ordering::SeqCst),
+        0,
+        "no construct hook"
+    );
+    assert_eq!(cleanups.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        statuses(&recorder, container.id()),
+        vec![
+            ConstructionStatus::Destructing,
+            ConstructionStatus::Destructed,
+            ConstructionStatus::Disposed
+        ]
+    );
+    assert_eq!(container.status(), ConstructionStatus::Disposed);
+    assert_eq!(c1.status(), ConstructionStatus::Disposed);
+}
+
+/// LIFE-021 — a `CompositeVm` reconstruct overtaken by the child cascade
+/// between its phases returns `Ok(())` and starts no construct phase.
+#[test]
+fn composite_reconstruct_starts_no_construct_phase_after_the_child_cascade_starts() {
+    reconstruct_after_destruct_phase_meets_the_child_cascade::<CompositeVm<ComponentVm>>();
+}
+
+/// LIFE-021 — the same for `GroupVm`.
+#[test]
+fn group_reconstruct_starts_no_construct_phase_after_the_child_cascade_starts() {
+    reconstruct_after_destruct_phase_meets_the_child_cascade::<GroupVm<ComponentVm>>();
+}
+
+/// LIFE-021 — the same for `AggregateVm1`.
+#[test]
+fn aggregate_reconstruct_starts_no_construct_phase_after_the_slot_cascade_starts() {
+    reconstruct_after_destruct_phase_meets_the_child_cascade::<AggregateVm1<ComponentVm>>();
+}
+
 /// A leaf with one member whose dispose hook runs `call` on the leaf.
 struct Leaf<D: vmx::Dispatcher> {
     leaf: ComponentVm<(), D>,
@@ -391,6 +510,7 @@ fn leaf_refuses_lifecycle_calls_during_its_member_cascade() {
             (Constructed, Op::Reconstruct),
             (Constructed, Op::Construct),
             (Destructed, Op::Destruct),
+            (Destructed, Op::Reconstruct),
         ] {
             call_during_member_cascade(background, initial, op);
         }

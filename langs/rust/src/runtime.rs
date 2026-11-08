@@ -3895,11 +3895,24 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// `construct` receives this core and must not hold it: the deferred
     /// continuation is stored on the core and holds it weakly, so a
     /// container whose destruct never settles stays collectable (#750).
+    ///
+    /// Once the inline dispose cascade has started, the construct phase does
+    /// not start: the reconstruct is superseded by the disposal and returns
+    /// `Ok(())`, as the leaf reconstruct does (spec/02 §7.2, ADR-0175 §2.3
+    /// (b)). The deferred continuation skips it the same way and reports
+    /// nothing to `background_errors`.
     pub(crate) fn construct_after_destruct<F>(&self, construct: F) -> VmxResult<()>
     where
         F: FnOnce(&Self) -> VmxResult<()> + Send + 'static,
     {
-        if self.status() == ConstructionStatus::Destructed {
+        let (status, superseded) = {
+            let inner = lock(&self.inner);
+            (inner.status, inner.hook_admission_closed)
+        };
+        if superseded {
+            return Ok(());
+        }
+        if status == ConstructionStatus::Destructed {
             return construct(self);
         }
         let core = self.downgrade();
@@ -3907,7 +3920,11 @@ impl<D: Dispatcher> ComponentCore<D> {
             let Some(core) = core.upgrade() else {
                 return;
             };
-            if core.status() == ConstructionStatus::Destructed {
+            let (status, superseded) = {
+                let inner = lock(&core.inner);
+                (inner.status, inner.hook_admission_closed)
+            };
+            if status == ConstructionStatus::Destructed && !superseded {
                 if let Err(error) = construct(&core) {
                     let errors = core.background_errors();
                     let emission = errors.begin_emission();
@@ -4542,7 +4559,14 @@ impl<D: Dispatcher> ComponentCore<D> {
         let mut cleared = None;
         let published = self.send_status(&hub, || {
             let mut inner = lock(&self.inner);
-            if !self.settle_is_current(&inner, generation) || inner.hook_admission_closed {
+            if !self.settle_is_current(&inner, generation) {
+                return (false, None);
+            }
+            if inner.hook_admission_closed {
+                // The inline dispose cascade has started: the commit is
+                // dropped and the in-flight guard is cleared (spec/02 §7.2,
+                // rule 4); dispose publishes Disposed.
+                inner.transitioning = false;
                 return (false, None);
             }
             // A sealed construct walk already flipped the state to

@@ -132,10 +132,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
   background hook does not run. A transition whose hook returned before the
   cascade started commits nothing more: no settled status, no rollback, no
   queued foreground commit, no deferred child-walk completion, and no
-  construct phase of `reconstruct()`. The call returns the hook's own result.
-  The settled commit and its publication now run under one guard, so a
-  cascade that starts in between drops both. `status()` can still read the
-  transient or prior status until the cascade publishes `Disposed`.
+  construct phase of `reconstruct()`. The call returns the hook's own result;
+  a container or leaf `reconstruct()` whose destruct phase ended before the
+  cascade started returns `Ok(())`. The settled commit and its publication
+  now run under one guard, so a cascade that starts in between drops both.
+  `status()` can still read the transient or prior status until the cascade
+  publishes `Disposed`. Because the settled status now commits inside that
+  guard, it changes only after another thread's hub batch or drain ends: a
+  `construct()` from inside that batch or drain returns
+  `VmxError::ConcurrentOperation` instead of the idempotent `Ok(())`, and a
+  subscriber that holds the hub while it waits for the status to settle
+  waits forever.
 - A leaf `ComponentVm` with `own_member` members disposes them at the same
   admitted-hook boundary as a container's children (#1164, LIFE-015). A
   `dispose()` from another thread while the leaf's construct or destruct hook
