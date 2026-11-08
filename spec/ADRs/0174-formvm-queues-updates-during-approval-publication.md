@@ -150,7 +150,12 @@ simplest and most common-sense approach chosen.
 - **Swift.** Queue deny and the calls from the reset commit, which runs under
   `stateGate`. Move the form's event delivery to `VMxConcurrentSubject`
   (§2.1). Swift callbacks cannot throw, so the failure rules do not apply.
-  #1169 stays needed, because `VMxConcurrentSubject` does not order two sinks.
+  One `VMxConcurrentSubject` send delivers to its sinks in subscription order,
+  but no rule requires that order (open decision §2.5). #1169 still needs its
+  test fix, because a test must not rely on that order. Without a delivery
+  lock, a sink that updates the form on each `canExecuteChanged` while another
+  thread edits the form can recurse on its own thread without a bound, as in
+  C# and Python.
 
 Call-time preparation adds one validator call for each queued update, so tests
 that count validator calls need updating. Examples are the Rust #1061

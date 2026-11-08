@@ -125,9 +125,10 @@ name.
 ### 2.5. Delivery order across subscribers
 
 No rule fixes the order in which several subscribers receive one event. Swift's
-per-VM `propertyChanged` subject and `AggregateChangeStream` store observers in
-dictionaries, so their order is unspecified. The other flavors deliver in
-subscription order.
+`AggregateChangeStream` stores observers in a dictionary, so its order is
+unspecified. The other flavors, and Swift's `VMxConcurrentSubject` (the per-VM
+`propertyChanged` subject and the `FormVM` channels, ADR-0174), deliver one
+event in subscription order.
 
 ### 2.7. Initial-current selector input after late adds
 
