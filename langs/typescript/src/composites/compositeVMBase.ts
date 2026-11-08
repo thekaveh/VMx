@@ -72,6 +72,18 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #disposeRequested = false;
   #disposeDeferred = false;
   #membershipTransactionActive = false;
+  /**
+   * True while this composite's own membership transaction is uncommitted: a
+   * child is attached but not admitted, a population is staged, or a transfer
+   * detach has not committed. Every selection call fails meanwhile (spec/06
+   * §4.3 rule 4, ADR-0173). TypeScript has one thread, so the transaction
+   * owner is always the caller.
+   */
+  #uncommitted = false;
+  /** Children attached but not yet admitted (spec/06 §4.3 rule 2). */
+  readonly #unadmitted = new Set<VM>();
+  /** Active current-publication leases (spec/06 §4.3 rule 5). */
+  #activeCurrentPublications = 0;
 
   constructor(opts: {
     name: string;
@@ -138,14 +150,15 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       throw new Error("Recorded parent does not contain child identity");
     }
     const child = this._children[index] as VM;
-    const wasCurrent = this.#current === child;
     this._children.splice(index, 1);
+    this.#uncommitted = true;
     return new ParentTransfer(
       () => {
+        this.#uncommitted = false;
         let hasError = false;
         let firstError: unknown;
         try {
-          if (wasCurrent) this._applyCurrentChange(null, true);
+          this.#clearDetached([child]);
         } catch (error) {
           hasError = true;
           firstError = error;
@@ -175,6 +188,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
           this._children.splice(Math.min(index, this._children.length), 0, child);
           child._parent = this;
         } finally {
+          this.#uncommitted = false;
           this.#endMembershipTransaction(false);
         }
       },
@@ -217,9 +231,17 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.current = null;
   }
 
+  /**
+   * True only if {@link selectComponent} would succeed now: `vm` is an
+   * admitted, constructed member, no disposal of this composite is pending,
+   * and no membership transaction of this composite is uncommitted (spec/06
+   * §3.1, ADR-0173).
+   */
   canSelectComponent(vm: VM): boolean {
     return (
-      this._children.includes(vm) &&
+      !this.#uncommitted &&
+      !this.#disposePending() &&
+      this.#isAdmittedMember(vm) &&
       vm.status === ConstructionStatus.Constructed
     );
   }
@@ -260,8 +282,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this._children.push(item);
       item._parent = this;
       attached = true;
+      this.#stage([item]);
       this._maybeAutoConstruct(item);
       this.#requireTransactionCanContinue();
+      this.#admit();
     } catch (error) {
       let compensationError: unknown;
       if (attached) {
@@ -280,6 +304,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       try {
         transfer?.rollback();
       } finally {
+        this.#admit();
         this.#endMembershipTransaction(false);
       }
       if (compensationError !== undefined) {
@@ -323,8 +348,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this._children.splice(index, 0, item);
       item._parent = this;
       attached = true;
+      this.#stage([item]);
       this._maybeAutoConstruct(item);
       this.#requireTransactionCanContinue();
+      this.#admit();
     } catch (error) {
       let compensationError: unknown;
       if (attached) {
@@ -343,6 +370,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       try {
         transfer?.rollback();
       } finally {
+        this.#admit();
         this.#endMembershipTransaction(false);
       }
       if (compensationError !== undefined) {
@@ -389,11 +417,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
     this._children.splice(index, 1);
     if (item._parent === this) item._parent = null;
-    const wasCurrent = this.#current === item;
     this.#publishCommittedMembership([
-      () => {
-        if (wasCurrent) this._applyCurrentChange(null, true);
-      },
+      () => this.#clearDetached([item]),
       () =>
         this._emitCollectionChanged(
           makeCollectionChangedEvent("remove", {
@@ -446,8 +471,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       old._parent = null;
       value._parent = this;
       attached = true;
+      this.#stage([value]);
       this._maybeAutoConstruct(value);
       this.#requireTransactionCanContinue();
+      this.#admit();
     } catch (error) {
       let compensationError: unknown;
       if (attached) {
@@ -467,6 +494,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       try {
         transfer?.rollback();
       } finally {
+        this.#admit();
         this.#endMembershipTransaction(false);
       }
       if (compensationError !== undefined) {
@@ -475,12 +503,9 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       throw error;
     }
     const commitError = captureParentTransferCommit(transfer);
-    const wasCurrent = this.#current === old;
     this.#publishCommittedMembership(
       [
-        () => {
-          if (wasCurrent) this._applyCurrentChange(null, true);
-        },
+        () => this.#clearDetached([old]),
         () =>
           this._emitCollectionChanged(
             makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
@@ -496,12 +521,13 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   clear(): void {
     this.#beginMembershipTransaction();
-    for (const child of this._children) {
+    const detached = this._children;
+    for (const child of detached) {
       if (child._parent === this) child._parent = null;
     }
     this._children = [];
     this.#publishCommittedMembership([
-      () => this._applyCurrentChange(null, true),
+      () => this.#clearDetached(detached),
       () => this._emitCollectionChanged(makeCollectionChangedEvent("reset")),
     ]);
   }
@@ -596,9 +622,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         // prior value and emits no notification (matches selectComponent semantics).
         if (this.#currentSelector !== null) {
           const initial = this.#currentSelector(this);
-          if (initial !== null && this._children.includes(initial)) {
-            this._setCurrent(initial, false);
-          }
+          if (initial !== null) this.#applySelectorResult(initial);
         }
       },
       joined,
@@ -606,9 +630,13 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   protected override _onDestruct(): void {
-    if (this.#current !== null) {
-      this._setCurrent(null, false);
-    }
+    // spec/06 §5, ADR-0173 rule 8: the clear opens no transaction and is never
+    // refused, so it also runs inside this composite's own transaction and
+    // while disposal is deferred (COMP-005).
+    if (this.#current !== null) this.#commitCurrent(null);
+    // A disposal deferred by the clear's lease runs when the lease ends; a
+    // disposed composite begins no child work (spec/02 §2.4).
+    if (this.status === ConstructionStatus.Disposed) return;
     // spec/06 §5: children are destructed in the configured order (ADR-0161).
     this._transitionChildren(destructWalk(this._children, this.#destructOrder), false, () => {
       super._onDestruct();
@@ -616,12 +644,17 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   override dispose(): void {
-    if (this.#disposeRequested || this.#disposeDeferred) return;
-    if (this.#membershipTransactionActive) {
+    if (this.#disposeRequested) return;
+    // spec/06 §4.2 and §4.3 rule 5: a disposal requested during a membership
+    // transaction or a current publication is deferred. The flag stays set
+    // until this call admits the disposal, so no transaction and no non-null
+    // selection starts in between.
+    if (this.#membershipTransactionActive || this.#activeCurrentPublications > 0) {
       this.#disposeDeferred = true;
       return;
     }
     this.#disposeRequested = true;
+    this.#disposeDeferred = false;
     // Dispose cascade (LIFE-013): depth-first dispose each child, in the
     // configured destruct order (ADR-0161), then self.
     disposeBestEffort([
@@ -666,14 +699,48 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   #endMembershipTransaction(propagateDisposeFailure = true): void {
     this.#membershipTransactionActive = false;
-    if (this.#disposeDeferred) {
-      this.#disposeDeferred = false;
-      try {
-        this.dispose();
-      } catch (error) {
-        if (propagateDisposeFailure) throw error;
-      }
+    if (this.#disposeDeferred && this.#activeCurrentPublications === 0) {
+      this.#runDeferredDispose(propagateDisposeFailure);
     }
+  }
+
+  #endCurrentPublication(propagateDisposeFailure: boolean): void {
+    this.#activeCurrentPublications -= 1;
+    if (
+      this.#activeCurrentPublications === 0 &&
+      !this.#membershipTransactionActive &&
+      this.#disposeDeferred
+    ) {
+      this.#runDeferredDispose(propagateDisposeFailure);
+    }
+  }
+
+  #runDeferredDispose(propagateDisposeFailure: boolean): void {
+    try {
+      this.dispose();
+    } catch (error) {
+      if (propagateDisposeFailure) throw error;
+    }
+  }
+
+  #disposePending(): boolean {
+    return this.#disposeRequested || this.#disposeDeferred;
+  }
+
+  /** Marks attached children as unadmitted and the transaction as uncommitted. */
+  #stage(children: readonly VM[]): void {
+    for (const child of children) this.#unadmitted.add(child);
+    this.#uncommitted = true;
+  }
+
+  /** Admits the staged children, or forgets them on rollback (spec/06 §4.3 rule 2). */
+  #admit(): void {
+    this.#unadmitted.clear();
+    this.#uncommitted = false;
+  }
+
+  #isAdmittedMember(vm: VM): boolean {
+    return this._children.includes(vm) && !this.#unadmitted.has(vm);
   }
 
   /** A child population left pending is joined by the child walk, never restarted. */
@@ -703,6 +770,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         originalStatuses.push(child.status);
         this._children.push(child);
         child._parent = this;
+        this.#stage([child]);
       }
 
       // Make the entire snapshot visible before any child hook runs.
@@ -718,6 +786,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         }
       }
       this.#requireTransactionCanContinue();
+      this.#admit();
     } catch (error) {
       let compensationError: unknown;
       while (this._children.length > start) {
@@ -737,6 +806,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       try {
         for (const transfer of [...transfers].reverse()) transfer.rollback();
       } finally {
+        this.#admit();
         this.#endMembershipTransaction(false);
       }
       if (compensationError !== undefined) {
@@ -769,64 +839,89 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
+  /**
+   * The selection calls: the setter, `selectComponent`, `deselectComponent`
+   * and the child `select`/`deselect` paths (spec/06 §3, §4.3, ADR-0173).
+   * The call opens no membership transaction. It validates now and raises
+   * as the synchronous setter does, also with `asyncSel`; the asynchronous
+   * delivery validates again and drops silently when no longer valid.
+   */
   protected _setCurrent(value: VM | null, asyncSel: boolean): void {
-    this.#requireChildAdmission();
-    if (value !== null && !this._children.includes(value)) {
+    // Rule 4: the caller owns an uncommitted transaction of this composite.
+    if (this.#uncommitted) {
+      throw new Error("Container membership transaction is already in progress");
+    }
+    // Rule 3 for a non-null value; after Disposed every call keeps its
+    // documented refusal (chapter 01 §4).
+    if (
+      this.status === ConstructionStatus.Disposed ||
+      (value !== null && this.#disposePending())
+    ) {
+      throw new Error("Cannot change the selection while the container is disposing");
+    }
+    // Rule 2: an attached but unadmitted child is not a member.
+    if (value !== null && !this.#isAdmittedMember(value)) {
       throw new Error(
         `Cannot set current to '${value.name}': it is not a member of this composite.`,
       );
     }
     if (asyncSel) {
       const captured = value;
-      this._scheduleForeground(() => this._applyCurrentChange(captured, false, false));
+      this._scheduleForeground(() => this.#deliverSelection(captured));
     } else {
-      this._applyCurrentChange(value);
+      this.#commitCurrent(value);
     }
   }
 
-  private _applyCurrentChange(
-    value: VM | null,
-    internalTransaction = false,
-    requireAdmission = true,
-  ): void {
-    // Async TOCTOU guard: with async selection the child may have been removed
-    // between _setCurrent's membership check and this deferred foreground
-    // delivery. Dropping silently upholds the spec/06 §3 invariant that a
-    // non-null current is always a member of the children collection.
-    if (!internalTransaction) {
-      if (this.#membershipTransactionActive) return;
-      if (!requireAdmission && (this.#disposeRequested || this.#disposeDeferred)) return;
-      try {
-        this.#beginMembershipTransaction();
-      } catch (error) {
-        if (!requireAdmission) return;
-        throw error;
-      }
-      try {
-        this._applyCurrentChange(value, true);
-      } catch (error) {
-        this.#endMembershipTransaction(false);
-        throw error;
-      }
-      this.#endMembershipTransaction();
-      return;
-    }
-    if (value !== null && !this._children.includes(value)) return;
-    if (this.#current === value) return;
+  /** Rule 7: an asynchronous delivery revalidates and drops silently. */
+  #deliverSelection(value: VM | null): void {
+    if (this.#uncommitted || this.status === ConstructionStatus.Disposed) return;
+    if (value !== null && (this.#disposePending() || !this.#isAdmittedMember(value))) return;
+    this.#commitCurrent(value);
+  }
 
+  /**
+   * The construct walk's non-raising validated assignment (spec/06 §3.2,
+   * ADR-0165, ADR-0173): a silent no-op while disposal is pending, inside an
+   * uncommitted transaction of this composite, or for a value that is not an
+   * admitted member.
+   */
+  #applySelectorResult(value: VM): void {
+    if (this.#uncommitted || this.#disposePending() || !this.#isAdmittedMember(value)) return;
+    this.#commitCurrent(value);
+  }
+
+  /** Rule 6: a detach clears Current only while a detached child is current. */
+  #clearDetached(detached: readonly VM[]): void {
+    const current = this.#current;
+    if (current !== null && detached.includes(current)) this.#commitCurrent(null);
+  }
+
+  /**
+   * Commits `current` and both current flags, then publishes them and runs
+   * `onCurrentChanged` under the current-publication lease (spec/06 §4.3
+   * rules 1 and 5). A dispose() from those callbacks is deferred until the
+   * last lease ends and no membership transaction is open.
+   */
+  #commitCurrent(value: VM | null): void {
     const previous = this.#current;
+    if (previous === value) return;
     this.#current = value;
-
-    if (previous !== null) previous._setIsCurrent(false);
-    if (value !== null) value._setIsCurrent(true);
-
-    this._notifyPropertyChanged("current");
-
-    // Invoke the optional builder-registered onCurrentChanged callback AFTER
-    // state update + hub publish + INPC raise so every observer sees the new
-    // value consistently (spec/06 §3.2, ADR-0042 §5.2).
-    if (this.#onCurrentChanged !== null) {
-      this.#onCurrentChanged(value);
+    const previousChanged = previous?._commitIsCurrent(false) ?? false;
+    const valueChanged = value?._commitIsCurrent(true) ?? false;
+    this.#activeCurrentPublications += 1;
+    try {
+      if (previousChanged) previous?._publishIsCurrent();
+      if (valueChanged) value?._publishIsCurrent();
+      this._notifyPropertyChanged("current");
+      // Invoke the optional builder-registered onCurrentChanged callback AFTER
+      // state update + hub publish + INPC raise so every observer sees the new
+      // value consistently (spec/06 §3.2, ADR-0042 §5.2).
+      if (this.#onCurrentChanged !== null) this.#onCurrentChanged(value);
+    } catch (error) {
+      this.#endCurrentPublication(false);
+      throw error;
     }
+    this.#endCurrentPublication(true);
   }
 }
