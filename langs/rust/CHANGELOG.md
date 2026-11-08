@@ -100,6 +100,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `walk`, `walk_expanded` and `find` no longer panic when they reach a
+  `HierarchicalVm` whose lazy children factory returns invalid output (#1060,
+  ADR-0170, spec/13 §6.1). `walk` and `walk_expanded` now return
+  `VmxResult<Vec<T>>` and `find` returns `VmxResult<Option<T>>`, with the
+  `try_children` error. They read children through the new provided method
+  `TreeNode::try_children_nodes`, which defaults to `Ok(children_nodes())`.
+  The node keeps no children cache, and a later walk retries the factory.
+  `children` and `is_leaf` still panic on such output.
+
 - `CompositeVm`, `GroupVm` and `AggregateVm1`…`AggregateVm6` no longer dispose
   their children while their admitted construct or destruct hook runs on another
   thread (#1062, LIFE-015). The child cascade now runs at the hook boundary of
