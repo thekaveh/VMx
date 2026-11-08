@@ -7,7 +7,7 @@ import threading
 from concurrent.futures import Future
 
 import pytest
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, future_result
 
 import vmx.commands.async_relay_command as commands
 from vmx import (
@@ -137,7 +137,7 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
         inner = vm.load_command._current_task
         assert operation is not None
         getattr(vm, action)()
-        submitted[0].result(HANG_GUARD)
+        future_result(submitted[0])
         assert observed.wait(HANG_GUARD)
         recorder.assert_owned(operation.task, operation.cancelled, inner)
         assert any(c[0] is operation.cancelled and c[1] == "set_result" for c in recorder.calls)
@@ -164,7 +164,7 @@ def test_no_loop_command_caller_cancels_on_operation_loop(action, monkeypatch):
 
         on_loop(loop, recover())
         if submitted:
-            submitted[0].result(HANG_GUARD)
+            future_result(submitted[0])
 
 
 @pytest.mark.asyncio
@@ -284,7 +284,7 @@ def test_true_completion_invalidation_race_claims_returned_value(action, monkeyp
         release_check.set()
         thread.join(HANG_GUARD)
     assert not thread.is_alive()
-    waiter.result(HANG_GUARD)
+    future_result(waiter)
     on_loop(loop, turns())
     assert errors == []
     if action == "cancel":
