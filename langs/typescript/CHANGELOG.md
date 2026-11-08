@@ -117,6 +117,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   still throws on the background (#842). A foreground action throws any other
   failure after the queued lifecycle actions have run. #726 fixed the first
   level of this drop for a throwing background hook.
+- A background VM now settles when non-VMx work throws in the same scheduler
+  flush (#1052). VMx runs its lifecycle actions that the flush error dropped;
+  `ManualDispatcher.dispose()` still cancels them. A flush surfaces one error
+  (#1053 rule); a failure of recovered work is dropped.
 - `observeHub` now labels a tree message from a second package copy as
   `TreeStructureChangedMessage` (#1079). It classifies tree messages with
   `isTreeStructureChanged`, which matches by class and then by shape (ADR-0163).
