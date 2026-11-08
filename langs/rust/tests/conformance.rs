@@ -33,6 +33,7 @@ mod conformance {
     mod form_model_hub_publication;
     mod form_publication_wait_cycle;
     mod form_reader_consistency;
+    mod form_unscoped_delivery;
     mod forms;
     mod forwarding;
     mod group_vm;

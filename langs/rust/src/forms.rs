@@ -124,10 +124,14 @@ fn error_updates(errors: BTreeMap<String, String>) -> BTreeMap<String, Option<St
 }
 
 /// A `set_model` or revert queued in an approval's pre-publication window
-/// (spec/20 §5.3, ADR-0174). It replays as a new call.
+/// (spec/20 §5.3, ADR-0174), or a refused call of another thread (spec/20
+/// §5.5, ADR-0176). It replays as a new call.
 enum QueuedUpdate<M> {
     Assign(M),
     Revert,
+    /// The revalidation of a validator registration whose wait was refused.
+    /// The validator is already registered; only its revalidation waits.
+    Revalidate,
 }
 
 /// A form's publication state (spec/20 §5.3 and §5.5, ADR-0174, ADR-0176).
@@ -153,12 +157,16 @@ struct Publications<M> {
     /// Counts the threads waiting for a scope, so a closing scope with no
     /// waiter skips the wait-for graph.
     waiters: usize,
-    /// The teardown of a `dispose()` whose wait for a scope was refused. The
-    /// last publisher to end its publications runs it (spec/20 §5.5).
+    /// Counts the [`Delivery`] spans in progress on any thread.
+    deliveries: usize,
+    /// The deferred teardown of a disposed form. A `dispose()` leaves it here
+    /// when its wait for a scope was refused, or when a delivery outside a
+    /// scope was in progress. It runs when no publication and no delivery
+    /// remains, on the thread that ends the last one (spec/20 §5.5).
     teardown: Option<Teardown>,
 }
 
-/// The deferred §10 teardown of a refused `dispose()`.
+/// The deferred §10 teardown of a `dispose()`.
 type Teardown = Box<dyn FnOnce() + Send>;
 
 /// One thread's entry in [`Publications::publishers`].
@@ -230,6 +238,7 @@ impl<M> PublicationControl<M> {
                 publishers: Vec::new(),
                 queued_count: 0,
                 waiters: 0,
+                deliveries: 0,
                 teardown: None,
             }),
             closed: Condvar::new(),
@@ -370,7 +379,7 @@ impl<M> Publication<M> {
 
     /// Ends this publication. Returns the thread's queue when it was the
     /// thread's outermost publication, and a deferred teardown when no
-    /// publication remains on any thread.
+    /// publication and no [`Delivery`] remains on any thread.
     fn finish(mut self) -> Finished<M> {
         self.finished = true;
         self.leave()
@@ -397,7 +406,7 @@ impl<M> Publication<M> {
             return finished;
         }
         finished.queued = state.publishers.swap_remove(index).queued;
-        if state.publishers.is_empty() {
+        if state.publishers.is_empty() && state.deliveries == 0 {
             finished.teardown = state.teardown.take();
         }
         finished
@@ -412,6 +421,65 @@ impl<M> Drop for Publication<M> {
             let Finished { queued, teardown } = self.leave();
             drop(queued);
             if let Some(teardown) = teardown {
+                let _ = catch_unwind(AssertUnwindSafe(teardown));
+            }
+        }
+    }
+}
+
+/// A span in which a form call delivers notifications outside a publication
+/// scope (spec/20 §5.5, ADR-0176 §2.2): an approval's admission notification,
+/// an update's notifications from its commit until it returns, a validator
+/// registration's notifications, or an `approve_errors` send.
+///
+/// Other threads' calls do not wait for it. A `dispose()` meanwhile marks the
+/// form disposed at once, but its teardown waits until no delivery and no
+/// publication remains, so no channel completes during a delivery. The span
+/// that ends last hands the teardown to its thread. Dropping an unended span
+/// during an unwind runs that teardown under an unwind guard.
+struct Delivery<M> {
+    control: Arc<PublicationControl<M>>,
+    ended: bool,
+}
+
+impl<M> Delivery<M> {
+    /// Starts a delivery, unless the form is disposed. Disposal is checked
+    /// under the state lock, which a disposal holds while it marks the form,
+    /// so a disposal either sees this delivery or this call sees the mark.
+    fn begin(control: &Arc<PublicationControl<M>>, disposed: &Mutex<bool>) -> Option<Self> {
+        let mut state = lock(&control.state);
+        if *lock(disposed) {
+            return None;
+        }
+        state.deliveries += 1;
+        Some(Self {
+            control: Arc::clone(control),
+            ended: false,
+        })
+    }
+
+    /// Ends the delivery. Returns the deferred teardown for the caller to run
+    /// when this was the last delivery and no publication remains.
+    fn end(mut self) -> Option<Teardown> {
+        self.ended = true;
+        self.release()
+    }
+
+    fn release(&mut self) -> Option<Teardown> {
+        let mut state = lock(&self.control.state);
+        state.deliveries -= 1;
+        if state.deliveries == 0 && state.publishers.is_empty() {
+            state.teardown.take()
+        } else {
+            None
+        }
+    }
+}
+
+impl<M> Drop for Delivery<M> {
+    fn drop(&mut self) {
+        if !self.ended {
+            if let Some(teardown) = self.release() {
                 let _ = catch_unwind(AssertUnwindSafe(teardown));
             }
         }
@@ -685,7 +753,6 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return self;
         }
-        let could_approve = self.can_approve();
         let mut validators = lock(&self.model_validators);
         let registration = validators.len();
         validators.push(Arc::new(move |model| {
@@ -697,11 +764,17 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }));
         drop(validators);
         self.revalidate();
-        self.publish_approve_state_change(could_approve);
         self
     }
 
     /// Adds or replaces validation for one named field and revalidates immediately.
+    ///
+    /// The validator is registered at once. Its revalidation is an update: it
+    /// waits while another thread holds a publication scope, and it sends
+    /// `errors_changed` in its own scope (spec/20 §5.5, ADR-0176). When that
+    /// wait would close a wait-for cycle, the revalidation joins the
+    /// publishing thread's queue, and the call returns before the errors
+    /// change. The other registration methods behave the same way.
     pub fn with_field_validator<F>(&self, field: impl Into<String>, validator: F)
     where
         F: Fn(&M) -> Option<String> + Send + Sync + 'static,
@@ -710,12 +783,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
-        let could_approve = self.can_approve();
         let replaced = lock(&self.field_validators).insert(field.into(), Arc::new(validator));
         // A replaced validator is dropped after the lock is released.
         drop(replaced);
         self.revalidate();
-        self.publish_approve_state_change(could_approve);
     }
 
     /// Adds a validator that returns a field-keyed error map.
@@ -744,10 +815,8 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
-        let could_approve = self.can_approve();
         lock(&self.model_validators).push(Arc::new(validator));
         self.revalidate();
-        self.publish_approve_state_change(could_approve);
     }
 
     /// Returns a clone of the current editable model.
@@ -881,6 +950,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             return;
         };
         let mut publication = self.open_update_scope(errors_changed);
+        let delivery = Delivery::begin(&self.publication, &self.disposed);
         drop(serialized);
         let notified = catch_unwind(AssertUnwindSafe(|| {
             if let Some(publication) = publication.as_mut() {
@@ -890,7 +960,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             self.publish_eligibility_change(was_eligible, eligible);
             self.publish_model_changed();
         }));
-        self.finish_update(publication, notified);
+        self.finish_update(publication, delivery, notified);
     }
 
     /// Returns a clone of the last approved or initial snapshot.
@@ -1080,7 +1150,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         // update lock, so a `set_model` on another thread cannot commit an
         // invalid model between the check and the capture (#719). The lock is
         // re-entrant, and it is released before the admission observers run.
-        let (flight, model) = {
+        let (flight, model, delivery) = {
             let Serialized {
                 guard: _serialized, ..
             } = self.serialize();
@@ -1088,13 +1158,15 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 return None;
             }
             let flight = ApprovalFlight::admit(&self.approval_in_flight)?;
-            if *lock(&self.disposed) {
-                return None;
-            }
-            (flight, self.model())
+            let delivery = Delivery::begin(&self.publication, &self.disposed)?;
+            (flight, self.model(), delivery)
         };
-        // The admission notification opens no publication scope.
+        // The admission notification opens no publication scope, so another
+        // thread's `dispose()` defers its teardown until it returns.
         self.raise_approve_can_execute_changed();
+        if let Some(teardown) = delivery.end() {
+            teardown();
+        }
         // An admission observer that disposes the form prevents the persister
         // call (spec/20 §5.3). Dropping the flight clears the in-flight mark.
         if *lock(&self.disposed) {
@@ -1297,8 +1369,8 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
 
     /// Ends one publication. When it was this thread's outermost, it closes
     /// the scope first, then replays the thread's queue in the order the
-    /// updates joined, and then runs a teardown that a refused `dispose()`
-    /// left for it. Each update replays as a new call, under its own unwind
+    /// updates joined, and then runs a teardown that a `dispose()` left for
+    /// it. Each update replays as a new call, under its own unwind
     /// guard, so a panicking replay does not stop the later ones (spec/20
     /// §5.3 and §5.5, ADR-0174, ADR-0176). The teardown runs under the same
     /// guard, after the last replay. Returns the first panic of a replay or
@@ -1310,6 +1382,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             let replayed = catch_unwind(AssertUnwindSafe(|| match update {
                 QueuedUpdate::Assign(model) => self.set_model(model),
                 QueuedUpdate::Revert => self.revert(),
+                QueuedUpdate::Revalidate => self.revalidate(),
             }));
             if let Err(payload) = replayed {
                 if first_panic.is_none() {
@@ -1377,6 +1450,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             return;
         };
         let mut publication = self.open_update_scope(errors_changed);
+        let delivery = Delivery::begin(&self.publication, &self.disposed);
         drop(serialized);
         let notified = catch_unwind(AssertUnwindSafe(|| {
             if let Some(publication) = publication.as_mut() {
@@ -1390,7 +1464,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             self.publish_model_changed();
             self.publish_eligibility_change(was_eligible, eligible);
         }));
-        self.finish_update(publication, notified);
+        self.finish_update(publication, delivery, notified);
     }
 
     /// Returns the lazily created approval command.
@@ -1409,11 +1483,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 RelayCommandBuilder::default()
                     .shared_action(move || {
                         if let Err(error) = form.approve() {
-                            form.approve_errors.send(Message::Custom {
-                                sender_id: form.component.id(),
-                                sender_name: form.component.name(),
-                                name: error.to_string(),
-                            });
+                            form.publish_approve_error(&error);
                         }
                     })
                     .can_execute({
@@ -1554,6 +1624,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// the publishing thread completes the hubs and disposes the commands when
     /// its publications end. Either way, calls on other threads that wait for
     /// a publication scope stop waiting and find the form disposed.
+    ///
+    /// A notification delivered outside a publication scope does not make
+    /// disposal wait: an approval's admission notification, an update's
+    /// notifications after its `errors_changed` send, or an `approve_errors`
+    /// send. Disposal then marks the form disposed and returns, and the
+    /// delivering thread completes the hubs and disposes the commands when
+    /// that delivery returns (spec/20 §5.5). This also applies to a disposal
+    /// from that delivery's own observer.
     pub fn dispose(&self) {
         loop {
             let Serialized { guard, refused_by } = self.serialize();
@@ -1565,13 +1643,24 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 drop(guard);
                 continue;
             }
-            let should_dispose = {
+            let tear_down_now = {
+                let mut state = lock(&self.publication.state);
                 let mut disposed = lock(&self.disposed);
-                !std::mem::replace(&mut *disposed, true)
+                if std::mem::replace(&mut *disposed, true) {
+                    return;
+                }
+                drop(disposed);
+                if state.deliveries == 0 {
+                    true
+                } else {
+                    let form = self.clone();
+                    state.teardown = Some(Box::new(move || form.tear_down()));
+                    false
+                }
             };
             drop(guard);
-            if should_dispose {
-                self.wake_scope_waiters();
+            self.wake_scope_waiters();
+            if tear_down_now {
                 self.tear_down();
             }
             return;
@@ -1648,23 +1737,74 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self
     }
 
-    /// Revalidates the live model after a validator registration and
-    /// publishes an effective error change. The run is serialized with model
+    /// Revalidates the live model after a validator registration, then
+    /// publishes an effective error change and the approve command's
+    /// eligibility change.
+    ///
+    /// The run is an update (spec/20 §5.5, #1231). It waits like
+    /// [`set_model`](Self::set_model) while another thread holds a publication
+    /// scope, and sends `errors_changed` in its own update scope. When its
+    /// wait would close a wait-for cycle, it joins the publisher's queue and
+    /// replays there as a new revalidation. It is serialized with model
     /// updates, and an update or registration that one of its validators
     /// commits supersedes it.
     fn revalidate(&self) {
-        let serialized = self.update_lock.acquire();
-        self.revalidations.fetch_add(1, Ordering::SeqCst);
-        let generation = self.commit_generation.load(Ordering::SeqCst);
-        let errors = self.validation_errors_for(&self.model());
-        if self.commit_generation.load(Ordering::SeqCst) != generation {
+        let Some(Serialized {
+            guard: serialized,
+            refused_by,
+        }) = self.begin_update()
+        else {
+            return;
+        };
+        if let Some(owner) = refused_by {
+            let mut state = lock(&self.publication.state);
+            if let Some(entry) = state.entry(owner) {
+                entry.queued.push(QueuedUpdate::Revalidate);
+                state.queued_count += 1;
+                return;
+            }
+            // The publisher ended its publications meanwhile: run again.
+            drop(state);
+            drop(serialized);
+            self.revalidate();
             return;
         }
-        self.commit_generation.fetch_add(1, Ordering::SeqCst);
-        let errors_changed = self.replace_validation_errors(errors);
+        self.revalidations.fetch_add(1, Ordering::SeqCst);
+        let could_approve = self.can_approve();
+        let generation = self.commit_generation.load(Ordering::SeqCst);
+        let errors = self.validation_errors_for(&self.model());
+        let mut publication = None;
+        if self.commit_generation.load(Ordering::SeqCst) == generation && !*lock(&self.disposed) {
+            self.commit_generation.fetch_add(1, Ordering::SeqCst);
+            let errors_changed = self.replace_validation_errors(errors);
+            publication = self.open_update_scope(errors_changed);
+        }
+        let delivery = Delivery::begin(&self.publication, &self.disposed);
         drop(serialized);
-        if errors_changed {
-            self.publish_validation_changed();
+        let notified = catch_unwind(AssertUnwindSafe(|| {
+            if let Some(publication) = publication.as_mut() {
+                self.publish_validation_changed();
+                publication.close_scope();
+            }
+            self.publish_approve_state_change(could_approve);
+        }));
+        self.finish_update(publication, delivery, notified);
+    }
+
+    /// Routes a command-path approval failure to `approve_errors`. The send
+    /// opens no publication scope, so a `dispose()` meanwhile defers its
+    /// teardown until the send returns (spec/20 §5.5).
+    fn publish_approve_error(&self, error: &VmxError) {
+        let Some(delivery) = Delivery::begin(&self.publication, &self.disposed) else {
+            return;
+        };
+        self.approve_errors.send(Message::Custom {
+            sender_id: self.component.id(),
+            sender_name: self.component.name(),
+            name: error.to_string(),
+        });
+        if let Some(teardown) = delivery.end() {
+            teardown();
         }
     }
 
@@ -1798,19 +1938,20 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
 
     /// Ends a committed update after its last notification. When its scope
     /// was this thread's outermost publication, the thread's queue replays
-    /// before the update returns. A panic from the notifications wins over a
-    /// replay panic; otherwise the first replay panic resumes (spec/20 §5.5).
+    /// before the update returns. Its delivery then ends, and runs a teardown
+    /// that a `dispose()` deferred to it. A panic from the notifications wins
+    /// over a replay panic, which wins over a teardown panic (spec/20 §5.5).
     fn finish_update(
         &self,
         publication: Option<Publication<M>>,
+        delivery: Option<Delivery<M>>,
         notified: std::thread::Result<()>,
     ) {
         let replay_panic = publication.and_then(|publication| self.finish_publication(publication));
-        if let Err(payload) = notified {
-            drop(replay_panic);
-            resume_unwind(payload);
-        }
-        if let Some(payload) = replay_panic {
+        let teardown_panic = delivery
+            .and_then(Delivery::end)
+            .and_then(|teardown| catch_unwind(AssertUnwindSafe(teardown)).err());
+        if let Some(payload) = notified.err().or(replay_panic).or(teardown_panic) {
             resume_unwind(payload);
         }
     }

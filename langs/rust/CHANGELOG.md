@@ -226,6 +226,24 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `another_threads_approval_waits_and_replays_only_its_own_deferred_edit`.
   `disposal_during_an_emission_skips_the_callbacks_not_yet_invoked` now
   disposes from an approval subscriber on the approving thread.
+- `FormVm::dispose` no longer completes the channels while another thread
+  delivers a form notification outside a publication scope (spec/20 §5.5,
+  ADR-0176, #1228). Such deliveries are an approval's admission eligibility
+  change, an update's notifications after its `errors_changed` send, and the
+  approve command's `approve_errors` send. Before, `dispose()` tore the form
+  down at once. Now it marks the form disposed and returns. The delivering
+  thread completes the hubs and disposes the commands when the delivery
+  returns, as in C# and Python. A `dispose()` from that delivery's own
+  observer defers in the same way.
+- A validator registration on a live `FormVm` now revalidates as an update
+  (spec/20 §5.5, ADR-0176, #1231). `with_validator`, `with_field_validator`,
+  `with_model_validator` and `with_clearing_model_validator` revalidated at
+  once, without waiting for another thread's publication scope. Their
+  `errors_changed` send opened no scope. Now the revalidation waits like
+  `set_model`, records its wait in the wait-for graph and sends in an update
+  scope. When the wait would close a cycle, the revalidation joins the
+  publisher's queue and replays there. The validator itself is registered at
+  once.
 - `TokenPagedComposition`: a load that finds a terminal token when it starts now
   fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
   terminal token after the load command admitted the run. The load then

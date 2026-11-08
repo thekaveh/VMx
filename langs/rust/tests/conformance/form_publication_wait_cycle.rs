@@ -6,8 +6,8 @@
 //! X's hub send wait for each other. Each test runs both arrival orders:
 //!
 //! - X's send records its wait first. Y's form wait would close the cycle, so
-//!   it is refused. Y's `set_model` or `revert` joins X's queue and replays on
-//!   X when X's publication ends. Y's `dispose()` marks the form disposed, and
+//!   it is refused. Y's `set_model`, `revert` or validator revalidation joins
+//!   X's queue and replays on X when X's publication ends. Y's `dispose()` marks the form disposed, and
 //!   X runs the teardown when its publication ends.
 //! - Y's form wait comes first. X's send would close the cycle, so it enqueues
 //!   for Y's drain (ADR-0119). Y proceeds when X's scope closes, and its drain
@@ -57,6 +57,9 @@ enum Call {
     /// Approves the form again. A refused admission is admitted, and a
     /// refused settlement commits at once in a second scope.
     Approve,
+    /// Registers a field validator. Its revalidation waits like `set_model`,
+    /// and a refused one joins X's queue (#1231).
+    RegisterValidator,
 }
 
 /// Which wait the test lets record first.
@@ -123,6 +126,10 @@ struct Outcome {
     x_result: VmxResult<()>,
     /// The model Y read right after its call returned.
     y_read_after_call: i32,
+    /// Whether Y saw its validator's error right after its call returned,
+    /// and whether the form has it at the end of the run.
+    y_saw_extra_error: bool,
+    extra_error_at_end: bool,
     /// Whether the arrival order was the one the test asked for.
     ordered: bool,
     /// The non-`go` messages each `H` subscriber received.
@@ -255,6 +262,7 @@ fn run(sink: Sink, call: Call, order: Order) -> Outcome {
     // Y's subscriber: hold the drain until X's sink runs, then call the form.
     let y_messages = Arc::new(Mutex::new(Vec::new()));
     let y_read = Arc::new(Mutex::new(None));
+    let y_saw_extra_error = Arc::new(AtomicBool::new(false));
     let y_approve = Arc::new(Mutex::new(None));
     let completed_at_y_return = Arc::new(AtomicBool::new(false));
     let release_y_rx = Mutex::new(release_y_rx);
@@ -267,6 +275,7 @@ fn run(sink: Sink, call: Call, order: Order) -> Outcome {
         );
         let (completed, completed_at_y_return) =
             (Arc::clone(&completed), Arc::clone(&completed_at_y_return));
+        let y_saw_extra_error = Arc::clone(&y_saw_extra_error);
         move |message| {
             if !named(message, "go") {
                 y_messages.lock().unwrap().push(label(message));
@@ -291,8 +300,12 @@ fn run(sink: Sink, call: Call, order: Order) -> Outcome {
                 Call::Revert => form.revert(),
                 Call::Dispose => form.dispose(),
                 Call::Approve => *y_approve.lock().unwrap() = Some(form.approve()),
+                Call::RegisterValidator => {
+                    form.with_field_validator("extra", |_: &i32| Some("required".to_string()));
+                }
             }
             *y_read.lock().unwrap() = Some(form.model());
+            y_saw_extra_error.store(form.field_error("extra").is_some(), Ordering::SeqCst);
             completed_at_y_return.store(completed.load(Ordering::SeqCst), Ordering::SeqCst);
         }
     });
@@ -336,6 +349,8 @@ fn run(sink: Sink, call: Call, order: Order) -> Outcome {
     let outcome = Outcome {
         x_result,
         y_read_after_call,
+        y_saw_extra_error: y_saw_extra_error.load(Ordering::SeqCst),
+        extra_error_at_end: form.field_error("extra").is_some(),
         ordered: ordered.load(Ordering::SeqCst),
         y_subscriber_messages,
         counting_subscriber_messages,
@@ -403,15 +418,35 @@ fn check_row(sink: Sink, call: Call) {
                     !outcome.approval_subscription_active,
                     "the approval subscription ends: {context}"
                 );
-                assert_eq!(
-                    outcome.completed_at_y_return, !refused,
-                    "a refused dispose leaves the teardown to X: {context}"
-                );
+                if refused {
+                    assert!(
+                        !outcome.completed_at_y_return,
+                        "a refused dispose leaves the teardown to X: {context}"
+                    );
+                } else if sink != Sink::UpdateErrorsChanged {
+                    assert!(
+                        outcome.completed_at_y_return,
+                        "a dispose after X's settlement tears down at once: {context}"
+                    );
+                }
+                // After an update scope, X may still deliver its eligibility
+                // change and "model" message. A dispose then leaves the
+                // teardown to X's delivery (#1228), so Y may return first.
             }
             Call::Approve => {
                 assert_eq!(outcome.y_approve, Some(Ok(())), "{context}");
                 assert_eq!(outcome.persisted, 2, "Y's approval persists: {context}");
                 assert_eq!(outcome.snapshot, 2, "{context}");
+            }
+            Call::RegisterValidator => {
+                assert!(
+                    outcome.extra_error_at_end,
+                    "Y's revalidation is not lost: {context}"
+                );
+                assert_eq!(
+                    outcome.y_saw_extra_error, !refused,
+                    "a refused revalidation returns before it takes effect: {context}"
+                );
             }
         }
     }
@@ -425,6 +460,7 @@ fn an_update_errors_changed_sink_and_a_hub_drainer_calling_the_form_finish() {
         Call::SetModel,
         Call::Revert,
         Call::Dispose,
+        Call::RegisterValidator,
     ] {
         check_row(Sink::UpdateErrorsChanged, call);
     }
@@ -441,6 +477,7 @@ fn an_approved_sink_and_a_hub_drainer_calling_the_form_finish() {
         Call::Revert,
         Call::Dispose,
         Call::Approve,
+        Call::RegisterValidator,
     ] {
         check_row(Sink::OnApproved, call);
     }
