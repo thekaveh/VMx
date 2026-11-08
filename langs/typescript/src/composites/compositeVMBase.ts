@@ -219,7 +219,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         `Cannot select '${vm.name}': canSelectComponent returned false.`,
       );
     }
-    this.current = vm;
+    // An asynchronous delivery checks Constructed again (#1220).
+    this._setCurrent(vm, this.#asyncSelection, true);
   }
 
   deselectComponent(vm: VM): void {
@@ -469,8 +470,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     try {
       transfer = beginParentTransfer(value, this);
       this.#requireTransactionCanContinue();
+      // `old` keeps this composite as its parent until the commit, which
+      // frees it and clears Current in one step. No other container can adopt
+      // it while it is still current here (COMP-006), and a rollback can
+      // always put it back (#1219).
       this._children[index] = value;
-      old._parent = null;
       value._parent = this;
       attached = true;
       this.#stage([value]);
@@ -481,7 +485,6 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       if (attached) {
         const actual = this._children.indexOf(value);
         if (actual >= 0) this._children[actual] = old;
-        old._parent = this;
         if (value._parent === this) value._parent = null;
       }
       if (
@@ -508,7 +511,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.#admit();
     this.#publishCommittedMembership(
       [
-        () => this.#clearDetached([old]),
+        () => this.#detachClearingCurrent(old),
         () =>
           this._emitCollectionChanged(
             makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
@@ -849,8 +852,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
    * The call opens no membership transaction. It validates now and raises
    * as the synchronous setter does, also with `asyncSel`; the asynchronous
    * delivery validates again and drops silently when no longer valid.
+   * `requireConstructed` (`selectComponent`) makes the delivery also drop a
+   * child that is no longer Constructed (#1220).
    */
-  protected _setCurrent(value: VM | null, asyncSel: boolean): void {
+  protected _setCurrent(value: VM | null, asyncSel: boolean, requireConstructed = false): void {
     // Rule 4: the caller owns an uncommitted transaction of this composite.
     if (this.#uncommitted) {
       throw new Error("Container membership transaction is already in progress");
@@ -871,16 +876,23 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
     if (asyncSel) {
       const captured = value;
-      this._scheduleForeground(() => this.#deliverSelection(captured));
+      this._scheduleForeground(() => this.#deliverSelection(captured, requireConstructed));
     } else {
       this.#commitCurrent(value);
     }
   }
 
-  /** Rule 7: an asynchronous delivery revalidates and drops silently. */
-  #deliverSelection(value: VM | null): void {
+  /**
+   * Rule 7: an asynchronous delivery revalidates and drops silently. A
+   * `selectComponent` delivery also requires a Constructed child (spec/06
+   * §3.1).
+   */
+  #deliverSelection(value: VM | null, requireConstructed: boolean): void {
     if (this.#uncommitted || this.status === ConstructionStatus.Disposed) return;
     if (value !== null && (this.#disposePending() || !this.#isAdmittedMember(value))) return;
+    if (value !== null && requireConstructed && value.status !== ConstructionStatus.Constructed) {
+      return;
+    }
     this.#commitCurrent(value);
   }
 
@@ -893,6 +905,16 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #applySelectorResult(value: VM): void {
     if (this.#uncommitted || this.#disposePending() || !this.#isAdmittedMember(value)) return;
     this.#commitCurrent(value);
+  }
+
+  /**
+   * Frees a replaced child and clears it as Current in one step (#1219): no
+   * other composite can adopt and select it in between, so the clear never
+   * resets the flag of a selection elsewhere (COMP-006, spec/06 §4.3 rule 6).
+   */
+  #detachClearingCurrent(detached: VM): void {
+    if (detached._parent === this) detached._parent = null;
+    this.#clearDetached([detached]);
   }
 
   /** Rule 6: a detach clears Current only while a detached child is current. */

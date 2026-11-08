@@ -88,6 +88,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `setAt` keeps the replaced child owned until the commit (#1219). The
+  commit now frees the child and clears `current` in one step. Before,
+  `setAt` freed the child first and cleared `current` only at the commit. A
+  construct hook of the replacement could adopt the freed child into another
+  composite and select it there. The commit then reset the child's
+  `isCurrent` flag while the other composite kept it current. A hook that
+  adopted the child and then failed left it in both composites. Now the
+  adoption fails while the replacement is in progress. A failed replacement
+  still restores the child and `current` with no notification.
+- An `asyncSelection(true)` delivery of `selectComponent` now checks
+  `Constructed` again (spec/06 §3.1, #1220). Before, a child destructed
+  between the call and the delivery became `current`. Now the delivery does
+  nothing.
 - A lifecycle call during the inline dispose cascade now fails (#1174,
   #1167, ADR-0175, LIFE-021). A container disposes its children, and a leaf
   its members, before it publishes `Disposed`.
