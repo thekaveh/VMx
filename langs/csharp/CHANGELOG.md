@@ -73,6 +73,36 @@ All notable changes to the C# flavor are documented here. The format is based on
   construct or destruct hook (#661, ADR-0162). `TransitionChildrenAsync`
   throws synchronously and starts no child. This breaks an external subclass
   that called one of them from anywhere else.
+- Fixed: lifecycle publication waits and hook-lease waits now join the one
+  wait-for graph that hub, membership and ownership waits use (#1156,
+  ADR-0172). A thread that drains a VM's publications or runs its hook can
+  wait to send on a hub that another thread drains, while that thread
+  disposes the VM. These two threads no longer deadlock. The wait that would
+  close the cycle takes its escape instead: the hub send enqueues for the
+  active drain, the publication stays queued for its drainer, or terminal
+  cleanup is deferred to the hook's completion. The separate lifecycle graph
+  is gone.
+- Fixed: a foreign `Dispose()` no longer returns before another thread's
+  admitted hook or delivery of `Disposed` finishes because of a wait that had
+  already ended (#1183). Each lifecycle wait edge is keyed by its delivery or
+  hook lease, and the finishing thread removes the edges on it before it wakes
+  the waiters. Before this fix, `OnDispose` could run on the hook's thread
+  after `Dispose()` returned, and a failure it threw was lost, or `OnDispose`
+  ran before subscribers received `Disposed`.
+- Fixed: an open borrowed `MessageHub` batch scope is now a wait-for owner
+  (#1159, ADR-0172). A `Send`, `Batch`, `Dispose()` or drain that waits for a
+  borrowed scope records an edge to the borrower, so a borrower that waits for
+  the waiting thread no longer deadlocks both threads. A drainer whose queue
+  is empty releases the drain instead of waiting, and the borrowed scope's
+  exit drains what its body sent. A drainer with queued messages whose wait
+  would close a cycle also releases the drain. Its outermost `Send` then
+  returns before those messages are delivered, and the exit of the last
+  borrowed scope delivers them on the borrower's thread (spec/03 §4.2). A
+  borrower that leaves while other borrowers remain wakes the waiters. A
+  `Send` from inside a hub callback to a hub with an open borrowed scope now
+  waits for that scope like any other `Send`, so it delivers before it returns
+  (HUB-013). It enqueues without waiting only when its wait would close a
+  cycle.
 - Fixed: a `Construct()`, `Destruct()` or `Reconstruct()` call, or its async
   form, that starts during a VM's inline dispose cascade now throws
   `StatusTransitionException(Disposed, operation)` (#1174, ADR-0175, spec/02
