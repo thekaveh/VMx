@@ -64,6 +64,34 @@ below for them.
 
 ### Fixed
 
+- `CompositeVM.__setitem__` keeps the replaced child owned until the commit
+  (#1219). The commit now frees the child and clears `current` in one locked
+  section. Before, the method freed the child first and cleared `current`
+  only at the commit. A construct hook of the replacement could adopt the
+  freed child into another composite and select it there. The commit then
+  reset the child's `is_current` flag while the other composite kept it
+  current. A hook that adopted the child and then failed left it in both
+  composites. Now the adoption fails while the replacement is in progress. A
+  failed replacement still restores the child and `current` with no
+  notification.
+- `select_component` now checks `CONSTRUCTED` again at the commit, under the
+  coordination lane and the membership gate, also at an
+  `async_selection(True)` delivery (spec/06 §3.1, #1220). Before, a destruct
+  on another thread after `can_select_component`, or before the delivery,
+  let the call select a `DESTRUCTED` child. Now the call raises its
+  predicate `ValueError`, and the delivery does nothing. `select_component`
+  no longer goes through the `current` property setter, as in C# and Swift.
+  A subclass that overrides that setter no longer sees these selections.
+- A child's `select()` no longer makes a member current that is not
+  `CONSTRUCTED` (spec/05 §6, spec/06 §3.1, #1229). Before, `select_child`
+  checked only membership, so `select()` on a `DESTRUCTED` member selected it.
+  Now the call does nothing, as for a non-member and as in Swift and Rust. C#
+  also refuses it, with its `SelectComponent` exception. The commit checks
+  `CONSTRUCTED` again under the same locks as `select_component`. A destruct
+  on another thread after the entry check makes the call raise the predicate
+  `ValueError`. An `async_selection(True)` delivery drops such a child. The
+  check runs before the disposing check. So while the composite disposes, the
+  call no longer raises the disposing `RuntimeError`, as in Swift.
 - Hub, container membership and child ownership-lock waits now record in one
   wait-for graph, `vmx._wait_for_graph.WAITS` (spec/03 §4.1, ADR-0172). A
   cycle that crosses these waits no longer hangs (#1157): when a hub drainer

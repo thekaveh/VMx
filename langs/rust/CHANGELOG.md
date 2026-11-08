@@ -126,6 +126,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm::replace` now clears the replaced child as `current` before it
+  frees the child, as `remove_at` does (#1219). Before, the commit freed the
+  child first. Another thread could adopt the freed child into another
+  composite and select it there. The clear then reset the child's current
+  flag while the other composite kept it current (`COMP-006`).
 - Every blocking wait between VMx resources now records in one process-wide
   wait-for graph, following ADR-0172 (spec/03 §4.1 and §4.2, spec/02 §2.4,
   `HUB-013`, #1158, #1180, #1183). Hub `send`, `batch` and `dispose` waits,
