@@ -19,8 +19,14 @@ Restrict its deployment refs to `typescript-v*` tags.
 
 ### 1.2 npm trusted publishing
 
-The npm trusted publisher is configured; the bootstrap procedure is in git
-history. It uses the shared trusted-publisher fields with provider GitHub
+No trusted publish has succeeded yet. The one-time `NPM_TOKEN` bootstrap
+published 3.30.0; npm records its publisher as the `thekaveh` account, not
+GitHub Actions. The bootstrap procedure is in git history. The React adapter's
+first trusted publish failed with `E404`
+([#653](https://github.com/thekaveh/VMx/issues/653)), so confirm the publisher
+on npmjs.com before the next tag.
+
+The publisher uses the shared trusted-publisher fields with provider GitHub
 Actions and environment `npm-typescript`. Its permission must be publish
 ("Allow npm publish"); without it the publisher may only stage, and the
 workflow's public-install checks time out.
@@ -59,9 +65,11 @@ provenance for an eligible GitHub-hosted trusted-publishing run.
 
 ### 2.1 Release gates
 
-Before publishing, CI verifies main ancestry and exact tag/package version,
-then runs fixture sync, both typechecks, lint, build, tests, audit, a strict
-package-content allowlist, and a packed local consumer smoke test. The publish
+Before publishing, the `release-metadata` preflight checks versions, tags, and
+release notes. The publish job verifies main ancestry and exact tag/package
+version. It then runs the dependency-graph check, fixture sync, both
+typechecks, lint, build, tests, audit, a strict package-content allowlist, and
+a packed local consumer smoke test. The publish
 job uses Node 24 and npm 11.18.0 without an npm dependency cache.
 
 After npm accepts the package, separate Node 20.5.0, 22, 24, and 26 jobs poll for

@@ -174,6 +174,104 @@ public class COL_024_to_031_TokenPagedCompositionTests
         sut.LoadMoreCommand.CanExecute(null).Should().BeFalse();
     }
 
+    // #1161 / spec 21 §6.2 (ADR-0169): pages [1] and [101] are loaded, then a
+    // refresh commits a terminal token after LoadMore was admitted but before its
+    // body starts. The load must fetch nothing and append nothing. Before the fix
+    // it refetched page 1 with the null token and appended it again.
+    [Fact, Trait("Conformance", "COL-026")]
+    public async Task COL_026_TerminalTokenCommittedAfterAdmission_LoadFetchesNothing()
+    {
+        var calls = new List<string?>();
+        var queued = new Queue<TokenPage<int, string>>();
+        var sut = new TokenPagedComposition<int, string>(token =>
+        {
+            calls.Add(token);
+            if (queued.Count > 0) return Task.FromResult(queued.Dequeue());
+            return Task.FromResult(token is null
+                ? new TokenPage<int, string>([1], "1")
+                : new TokenPage<int, string>([101], "2"));
+        });
+        await sut.LoadMoreCommand.ExecuteAsync().WaitAsync(HangGuard);
+        await sut.LoadMoreCommand.ExecuteAsync().WaitAsync(HangGuard);
+        sut.Items.Should().Equal(1, 101);
+        sut.CurrentToken.Should().Be("2");
+
+        var resets = 0;
+        sut.CollectionChanged += (_, _) => resets++;
+        var callsBeforeCommit = 0;
+        var armed = true;
+        // AsyncRelayCommand raises CanExecuteChanged after admission and before
+        // the task body, so this handler commits a terminal refresh in that window.
+        sut.LoadMoreCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (!armed) return;
+            armed = false;
+            callsBeforeCommit = calls.Count;
+            queued.Enqueue(new TokenPage<int, string>([1, 101, 555], null));
+            // Without the fix the load fetches null again; give it page 1.
+            queued.Enqueue(new TokenPage<int, string>([1], null));
+            sut.RefreshCommand.ExecuteAsync().IsCompleted.Should().BeTrue(
+                "the refresh fetch completes synchronously");
+        };
+
+        await sut.LoadMoreCommand.ExecuteAsync().WaitAsync(HangGuard);
+
+        sut.Items.Should().Equal(1, 101, 555);
+        sut.CurrentToken.Should().BeNull();
+        sut.HasMore.Should().BeFalse();
+        calls.Skip(callsBeforeCommit).Should().Equal(
+            [null], "only the refresh fetches; the gated-out load fetches nothing");
+        resets.Should().Be(1, "only the refresh publishes a Reset");
+        sut.LoadMoreCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    // #1161 / spec 21 §6.2 (ADR-0169): a load that finds a terminal token at body
+    // start is not an operation start, so it does not supersede a refresh that
+    // started after the terminal commit and is still in flight.
+    [Fact, Trait("Conformance", "COL-026")]
+    public async Task COL_026_GatedOutLoad_DoesNotSupersedeAnInFlightRefresh()
+    {
+        var held = new TaskCompletionSource<TokenPage<int, string>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var queued = new Queue<Task<TokenPage<int, string>>>();
+        var sut = new TokenPagedComposition<int, string>(token =>
+        {
+            if (queued.Count > 0) return queued.Dequeue();
+            return Task.FromResult(token is null
+                ? new TokenPage<int, string>([1], "1")
+                : new TokenPage<int, string>([101], "2"));
+        });
+        await sut.LoadMoreCommand.ExecuteAsync().WaitAsync(HangGuard);
+        await sut.LoadMoreCommand.ExecuteAsync().WaitAsync(HangGuard);
+
+        Task? laterRefresh = null;
+        var armed = true;
+        sut.LoadMoreCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (!armed) return;
+            armed = false;
+            // A terminal refresh commits, then a later refresh starts and holds.
+            queued.Enqueue(Task.FromResult(new TokenPage<int, string>([1, 101, 555], null)));
+            queued.Enqueue(held.Task);
+            // Without the fix the load fetches null; give it a terminal page.
+            queued.Enqueue(Task.FromResult(new TokenPage<int, string>([1], null)));
+            sut.RefreshCommand.ExecuteAsync().IsCompleted.Should().BeTrue();
+            laterRefresh = sut.RefreshCommand.ExecuteAsync();
+        };
+
+        await sut.LoadMoreCommand.ExecuteAsync().WaitAsync(HangGuard);
+        sut.Items.Should().Equal(1, 101, 555);
+        sut.HasMore.Should().BeFalse();
+
+        held.SetResult(new TokenPage<int, string>([7], "x"));
+        laterRefresh.Should().NotBeNull();
+        await laterRefresh!.WaitAsync(HangGuard);
+
+        sut.Items.Should().Equal(7);
+        sut.CurrentToken.Should().Be("x");
+        sut.HasMore.Should().BeTrue();
+    }
+
     // A change driven by one command must re-raise the OTHER command's
     // CanExecuteChanged (parity with Python/TS/Swift, which share a command-changed
     // trigger): a Refresh that flips HasMore back to true re-enables LoadMore.

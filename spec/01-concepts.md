@@ -162,6 +162,15 @@ disposed container publishes nothing, and a forwarding wrapper publishes
 nothing of its own. Rust additionally publishes `PropertyChanged("Count")` when
 the size changes (ADR-0085). `COMP-042..045` and `GRP-012..013` are normative.
 
+A failing local subscriber does not undo the committed change and does not
+suppress its hub message. The container still sends exactly one
+`CollectionChangedMessage` for the change. C# and Python then rethrow the first
+failure, and a local failure takes precedence over a later hub failure.
+TypeScript reports the failure through rxjs, and the call returns normally.
+Swift local subscribers cannot fail, and Rust containers have no separate local
+event (ADR-0171). Chapter 21 §2.5 applies the same rule to the hub-publishing
+collections.
+
 ## 2. Dependency philosophy
 
 Every VM receives two cross-cutting services:
