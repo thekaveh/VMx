@@ -12,7 +12,6 @@ See spec/07-group-vm.md.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable, Iterable, Iterator
 from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar
@@ -197,6 +196,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         old: VM | None = None
         original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
+        succeeded = False
         try:
             original_status = value.status
             transfer = _begin_parent_transfer(value, parent)
@@ -257,8 +257,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     )
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     def __delitem__(self, index: int) -> None:
         self.remove_at(index)
@@ -285,6 +286,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         attached = False
         original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
+        succeeded = False
         try:
             original_status = item.status
             transfer = _begin_parent_transfer(item, parent)
@@ -337,8 +339,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     def add(self, item: VM) -> None:
         """Append *item* to the end of the children list."""
@@ -350,6 +353,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         attached = False
         original_status: ConstructionStatus | None = None
         record: _StartRecord | None = None
+        succeeded = False
         try:
             original_status = item.status
             transfer = _begin_parent_transfer(item, parent)
@@ -399,8 +403,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
                 ),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     # Alias: append mirrors Python list convention.
     append = add
@@ -623,10 +628,20 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             self._begin_membership_transaction_locked()
 
     def _end_membership_transaction(self, *, propagate_dispose_failure: bool = True) -> None:
+        """End the transaction and run a deferred dispose().
+
+        The caller passes whether its operation succeeded as an explicit flag.
+        ``sys.exc_info()`` cannot tell: it also reports an exception that a
+        caller frame handles, such as an ``except`` block or the child walk
+        around an on_destruct hook (#1152). A failed operation keeps its own
+        error as the first failure (spec/06 §4.2).
+        """
         with self._membership_condition:
             self._release_membership_transaction_locked()
+            # The deferral stays set until dispose() admits it, so no other
+            # thread's transaction starts between this release and dispose(),
+            # as in CompositeVM (#1064, #1153).
             dispose = self._dispose_deferred
-            self._dispose_deferred = False
         if dispose:
             try:
                 self.dispose()
@@ -657,6 +672,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._begin_membership_transaction()
         transfers: list[_ParentTransfer | None] = []
         original_statuses: list[ConstructionStatus] = []
+        succeeded = False
         try:
             with _ownership_reservation_batch(children):
                 for child in children:
@@ -733,8 +749,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 raise_commit_error,
                 *(lambda child=child: publish_add(child) for child in children),
             )
+            succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
+            self._end_membership_transaction(propagate_dispose_failure=succeeded)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
@@ -851,14 +868,14 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
             child = self._group._children.pop(index)
 
         def commit() -> None:
+            succeeded = False
             try:
                 self._group._emit_collection_changed(
                     CollectionChangedEvent(action="remove", old_items=(child,), old_index=index)
                 )
+                succeeded = True
             finally:
-                self._group._end_membership_transaction(
-                    propagate_dispose_failure=sys.exc_info()[0] is None
-                )
+                self._group._end_membership_transaction(propagate_dispose_failure=succeeded)
 
         def rollback() -> None:
             try:

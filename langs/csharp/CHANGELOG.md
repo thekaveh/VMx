@@ -142,6 +142,16 @@ All notable changes to the C# flavor are documented here. The format is based on
   (#1147). Before, a deferred `Dispose()` that waited for that transaction ran
   its whole cascade under the lane. A `Current` change on any other composite
   then waited for the cascade, and a child hook that made one deadlocked it.
+- Fixed: a `GroupVMBase` whose owner thread called `Dispose()` inside its own
+  membership transaction now keeps that deferred disposal pending until the
+  handoff `Dispose()` admits it (#1153, spec/06 §4.2). Before, the transaction
+  end cleared the deferral before it called `Dispose()`. In that gap another
+  thread's `Add`, `Insert`, index replacement, `Remove`, `RemoveAt`, `Move` or
+  `Clear` was admitted, the disposal cascade then disposed an added child, and
+  the handoff `Dispose()` waited for that thread's transaction. A handler on
+  that thread that waited for the owner deadlocked both threads. Those calls
+  now throw `ObjectDisposedException` and change nothing. `CompositeVMBase`
+  already kept its deferral (#1064).
 - Fixed: `ObservableDictionary`: `Remove` and `Clear` now update `Keys2`
   before `Keys1`, as `Add` does (#1075). A `Keys1` subscriber now sees the
   updated `Keys2`. Before, an entry that a `Keys1` subscriber added during

@@ -86,6 +86,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   construct phase of `reconstruct()`. The superseded call returns without an
   error, as a call that `.disposed` superseded does, and a hook or child
   failure that was already propagating still propagates.
+- `GroupVM` refuses another thread's add, insert, removal or transfer as
+  disposal in progress while a deferred `dispose()` is handed off (#1153,
+  spec/06 §4.2, spec/07). A `dispose()` inside the caller's own membership
+  transaction is deferred, and the group calls `dispose()` again when the
+  transaction ends. Before, the group cleared the deferral before that call
+  admitted the disposal. In the gap, another thread's `addResult(_:)` could
+  be admitted, and the disposal then disposed the new child, or waited for
+  that thread's transaction. The deferral now stays set until `dispose()`
+  admits the disposal, as in C# and Python. `CompositeVM` keeps its deferral
+  set across the same handoff, from a transaction end and from a publication
+  end (#1064). New regression tests cover both containers.
 - `CompositeVM` selection follows ADR-0173 (spec/06 §4.3, #1145, #1150,
   #1201). No selection path opens, joins or waits for a membership
   transaction. The `current` setter, `setCurrent(_:)`, `selectComponent(_:)`,
