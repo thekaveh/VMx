@@ -806,6 +806,55 @@ def test_a_borrowers_dispose_completes_at_the_last_borrowed_scope_exit() -> None
 
 
 @pytest.mark.conformance("HUB-013")
+@pytest.mark.parametrize("borrower_exits_last", [True, False])
+def test_a_borrowers_dispose_is_finished_by_the_last_owner_to_release_the_hub(
+    borrower_exits_last: bool,
+) -> None:
+    # spec/03 §4.2 rule 3 with a batch owner. O batch-owns h, and its body
+    # sends on h2, which B batch-owns, so B's h batch borrows h. B disposes h
+    # in the borrowed body. The last of O and B to release h completes it, as
+    # in C#, Swift and Rust: O's batch exits first when B exits last, and
+    # otherwise stays open until B's borrowed scope has exited.
+    h, h2 = _fresh_hub(), _fresh_hub()
+    errors: list[BaseException] = []
+    threads = _Threads(errors)
+    h_completed: list[str] = []
+    h.messages.subscribe(on_completed=lambda: h_completed.append(current_thread().name))
+    b_owns_h2 = Event()
+    o_returned = Event()
+    completed_before_b_exit: list[str] = []
+
+    def o_body() -> None:
+        with h.batch():
+            h2.send(_make_msg("x"))
+        o_returned.set()
+
+    def b_body() -> None:
+        with h2.batch():
+            b_owns_h2.set()
+            wait_until_waiting(threads.ident("O"))
+            with h.batch():
+                h.dispose()
+                if borrower_exits_last:
+                    # Releasing h2 lets O's h batch exit inside this borrow.
+                    h2.dispose()
+                    if not o_returned.wait(HANG_GUARD):
+                        errors.append(TimeoutError("O's h batch did not return"))
+                    completed_before_b_exit.extend(h_completed)
+            if not borrower_exits_last:
+                completed_before_b_exit.extend(h_completed)
+
+    threads.start("B", b_body)
+    assert b_owns_h2.wait(HANG_GUARD)
+    threads.start("O", o_body)
+    threads.join_all()
+
+    assert errors == []
+    assert completed_before_b_exit == []
+    assert h_completed == (["B"] if borrower_exits_last else ["O"])
+
+
+@pytest.mark.conformance("HUB-013")
 @pytest.mark.parametrize("form", ["drain", "batch"])
 @pytest.mark.parametrize("operation", ["send", "dispose", "batch", "batch_send"])
 def test_an_ended_hub_wait_does_not_cause_a_cycle_escape(

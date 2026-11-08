@@ -758,4 +758,127 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
         XCTAssertEqual(b1Done.wait(timeout: .now() + timeout), .success, "B1 hung")
         XCTAssertEqual(xBeforeReturn.value, true, "B2's send escaped on a stale edge to W")
     }
+
+    /// spec/03 §4.2 rule 2, with no cycle through the drainer. D drains h,
+    /// and its h subscriber sends on h2, which B batch-owns, so B's h batch
+    /// borrows h. B disposes h2, so D's subscriber returns with D's queue
+    /// empty. B does not wait for D, so D's wait for the borrowed scope would
+    /// close no cycle: D must release the drain instead of waiting, and its
+    /// outermost send returns while B's borrowed scope is still open.
+    func testEmptyQueueDrainerReturnsWhileTheBorrowedScopeIsOpen() {
+        let h = MessageHub()
+        let h2 = MessageHub()
+        let timeout: TimeInterval = 5
+        let d = BorrowBox<UInt64>(0)
+        let dWaiting = DispatchSemaphore(value: 0)
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            if accepted, caller == d.value { dWaiting.signal() }
+        }
+        defer { ThreadWaitGraph.shared.onWaitDecidedForTesting = nil }
+        func msg(_ name: String) -> PropertyChangedMessage {
+            PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: name)
+        }
+        let subscription = h.messages.sink { message in
+            guard (message as? PropertyChangedMessage)?.propertyName == "m1" else { return }
+            h2.send(msg("x"))
+        }
+        defer { subscription.cancel() }
+        let bOwnsH2 = DispatchSemaphore(value: 0)
+        let dReturned = DispatchSemaphore(value: 0)
+        let bDone = DispatchSemaphore(value: 0)
+        let dDone = DispatchSemaphore(value: 0)
+        let returnedDuringBorrow = BorrowBox<Bool?>(nil)
+        Thread.detachNewThread {
+            try? h2.batch {
+                bOwnsH2.signal()
+                _ = dWaiting.wait(timeout: .now() + timeout)
+                try? h.batch {
+                    h2.dispose()
+                    returnedDuringBorrow.value = dReturned.wait(timeout: .now() + timeout) == .success
+                }
+            }
+            bDone.signal()
+        }
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        Thread.detachNewThread {
+            d.value = ThreadWaitGraph.currentThread
+            h.send(msg("m1"))
+            dReturned.signal()
+            dDone.signal()
+        }
+
+        XCTAssertEqual(bDone.wait(timeout: .now() + 3 * timeout), .success, "B hung")
+        XCTAssertEqual(dDone.wait(timeout: .now() + timeout), .success, "D hung")
+        XCTAssertEqual(
+            returnedDuringBorrow.value, true,
+            "the drainer waited for the borrowed scope with an empty queue"
+        )
+        h.dispose()
+    }
+
+    /// spec/03 §4.2 rule 3 with a batch owner. O batch-owns h, and its body
+    /// sends on h2, which B batch-owns, so B's h batch borrows h. B disposes
+    /// h in the borrowed body. The last of O and B to release h completes it:
+    /// O's batch exits first when B exits last, and otherwise stays open
+    /// until B's borrowed scope has exited.
+    func testABorrowersDisposeIsFinishedByTheLastOwnerToReleaseTheHub() {
+        for borrowerExitsLast in [true, false] {
+            let label = borrowerExitsLast ? "borrower exits last" : "batch owner exits last"
+            let h = MessageHub()
+            let h2 = MessageHub()
+            let timeout: TimeInterval = 5
+            let o = BorrowBox<UInt64>(0)
+            let b = BorrowBox<UInt64>(0)
+            let oWaiting = DispatchSemaphore(value: 0)
+            ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+                if accepted, caller == o.value { oWaiting.signal() }
+            }
+            let completedOn = BorrowBox<[UInt64]>([])
+            let subscription = h.messages.sink(
+                receiveCompletion: { _ in
+                    let thread = ThreadWaitGraph.currentThread
+                    completedOn.mutate { $0.append(thread) }
+                },
+                receiveValue: { _ in }
+            )
+            let bOwnsH2 = DispatchSemaphore(value: 0)
+            let oReturned = DispatchSemaphore(value: 0)
+            let bDone = DispatchSemaphore(value: 0)
+            let oDone = DispatchSemaphore(value: 0)
+            let completedBeforeBExit = BorrowBox<[UInt64]?>(nil)
+            Thread.detachNewThread {
+                b.value = ThreadWaitGraph.currentThread
+                try? h2.batch {
+                    bOwnsH2.signal()
+                    _ = oWaiting.wait(timeout: .now() + timeout)
+                    try? h.batch {
+                        h.dispose()
+                        guard borrowerExitsLast else { return }
+                        // Releasing h2 lets O's h batch exit inside this borrow.
+                        h2.dispose()
+                        _ = oReturned.wait(timeout: .now() + timeout)
+                        completedBeforeBExit.value = completedOn.value
+                    }
+                    if !borrowerExitsLast { completedBeforeBExit.value = completedOn.value }
+                }
+                bDone.signal()
+            }
+            XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success, label)
+            Thread.detachNewThread {
+                o.value = ThreadWaitGraph.currentThread
+                try? h.batch {
+                    h2.send(PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: "x"))
+                }
+                oReturned.signal()
+                oDone.signal()
+            }
+
+            XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "\(label): B hung")
+            XCTAssertEqual(oDone.wait(timeout: .now() + timeout), .success, "\(label): O hung")
+            XCTAssertEqual(completedBeforeBExit.value, [], "\(label): h completed too early")
+            XCTAssertEqual(completedOn.value, [borrowerExitsLast ? b.value : o.value], label)
+            subscription.cancel()
+            ThreadWaitGraph.shared.onWaitDecidedForTesting = nil
+        }
+    }
 }
