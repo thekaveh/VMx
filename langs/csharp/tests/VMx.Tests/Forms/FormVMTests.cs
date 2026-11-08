@@ -547,42 +547,44 @@ public class FormVMTests
         completed.Should().BeTrue("ApproveErrors completes on Dispose");
     }
 
+    // spec/20 §5.5 (ADR-0176): the ApproveErrors delivery opens no scope, so
+    // another thread's Dispose does not wait for it. The teardown is deferred
+    // until the delivery returns, so the channel never completes under a
+    // running observer.
     [Fact]
-    public async Task Dispose_Waits_For_InFlight_ApproveError_Delivery()
+    public async Task Dispose_Defers_Teardown_Until_InFlight_ApproveError_Delivery_Returns()
     {
         using var observerEntered = new ManualResetEventSlim();
         using var releaseObserver = new ManualResetEventSlim();
-        using var disposeStarted = new ManualResetEventSlim();
+        var completed = 0;
+        var completedDuringDelivery = false;
         var sut = new FormVM<Model>(
             new Model("A", 1),
             _ => Task.FromException(new InvalidOperationException("boom")));
-        using var subscription = sut.ApproveErrors.Subscribe(_ =>
-        {
-            observerEntered.Set();
-            releaseObserver.Wait();
-        });
+        using var subscription = sut.ApproveErrors.Subscribe(
+            _ =>
+            {
+                observerEntered.Set();
+                releaseObserver.Wait(HangGuard).Should().BeTrue();
+                completedDuringDelivery = Volatile.Read(ref completed) != 0;
+            },
+            () => Interlocked.Exchange(ref completed, 1));
 
         var execute = Task.Run(() => sut.ApproveCommand.Execute(null));
         observerEntered.Wait(HangGuard).Should().BeTrue();
-        var dispose = Task.Run(() =>
-        {
-            disposeStarted.Set();
-            sut.Dispose();
-        });
-        disposeStarted.Wait(HangGuard).Should().BeTrue();
-
         try
         {
-            var first = await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromMilliseconds(100)));
-            first.Should().NotBeSameAs(dispose,
-                "approve-error teardown must serialize with an admitted delivery");
+            await Task.Run(sut.Dispose).WaitAsync(HangGuard);
+            Volatile.Read(ref completed).Should().Be(0, "the delivery in progress defers the teardown");
         }
         finally
         {
             releaseObserver.Set();
         }
 
-        await Task.WhenAll(execute, dispose);
+        await execute.WaitAsync(HangGuard);
+        SpinWait.SpinUntil(() => Volatile.Read(ref completed) != 0, HangGuard).Should().BeTrue();
+        completedDuringDelivery.Should().BeFalse();
     }
 
     // ── Test double helpers ───────────────────────────────────────────────────

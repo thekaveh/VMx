@@ -5,8 +5,9 @@ namespace VMx.Internal;
 /// blocking wait between VMx-owned resources: container membership
 /// transactions (#718), child ownership gates (#1047), message-hub batch,
 /// drain and borrowed-scope ownership (spec/03 §4 and §4.2, #1055, #1159),
-/// lifecycle deliveries (spec/02 §2.4, ADR-0117) and admitted hook leases
-/// (ADR-0126, #1156). Each wait is recorded before it blocks, so a cycle that
+/// lifecycle deliveries (spec/02 §2.4, ADR-0117), admitted hook leases
+/// (ADR-0126, #1156) and form publication scopes (spec/20 §5.5, ADR-0176,
+/// #1170). Each wait is recorded before it blocks, so a cycle that
 /// crosses any mix of them is visible. The wait that would close a cycle is
 /// refused, and the caller takes its own escape instead of waiting. No other
 /// C# wait-for graph exists.
@@ -39,10 +40,16 @@ namespace VMx.Internal;
 /// it (#1183).
 /// </para>
 /// <para>
+/// A form publication wait names the form's scope resource and one thread
+/// that holds a scope on it. When that thread's outermost scope ends, the form
+/// calls <see cref="ReleaseWaiters"/> with the threads that still hold a scope,
+/// then wakes its waiters, which record their wait again if they must.
+/// </para>
+/// <para>
 /// Callers may hold container gates, ownership gates, the ownership
-/// coordinator, a hub gate, a lifecycle resource's lock, or no lock at all
-/// when they call in. This class never takes another lock, so its lock is
-/// always the last one taken.
+/// coordinator, a hub gate, a lifecycle resource's lock, a form's state lock,
+/// or no lock at all when they call in. This class never takes another lock,
+/// so its lock is always the last one taken.
 /// </para>
 /// </remarks>
 internal sealed class WaitForGraph
