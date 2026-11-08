@@ -82,6 +82,19 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// Membership wait edges on this container; guarded by `membershipGate`.
     private var membershipWaits = 0
     private var activeCurrentPublications = 0
+    /// The threads that hold a current-publication lease, one entry per
+    /// lease (spec/06 §4.3 rule 5); guarded by `membershipGate`.
+    private var currentPublicationThreads: [UInt64] = []
+    /// Children that an add, insert, replacement or population attached but
+    /// has not admitted yet. They are not members for selection (spec/06
+    /// §4.3 rule 2); guarded by `membershipGate`.
+    private var pendingAdmissions = Set<ObjectIdentifier>()
+    /// Children detached from this composite for a transfer whose commit or
+    /// rollback has not run (spec/06 §4.3 rule 4); guarded by `membershipGate`.
+    private var pendingTransferDetaches = 0
+    /// Set once the composite's dispose hook has run. Selection is then inert,
+    /// as it was before ADR-0173 (chapter 01 §4); guarded by `membershipGate`.
+    private var disposeCompleted = false
     private let membershipGate = NSRecursiveLock()
     /// Start records of the auto-construct adds the construct walk can pull
     /// as late children (spec/06 §5.1).
@@ -166,22 +179,16 @@ open class CompositeVM<Child: ComponentVMBase>:
         // Constructed. C# throws on a violation; Swift keeps the existing
         // no-op rather than introducing an (uncatchable) trap — the
         // trap-vs-throw recoverability gap is tracked separately (ADR-0037).
-        guard vm.status == .constructed else { return }
-        membershipGate.lock()
-        guard !membershipTransactionHeldByCallerLocked,
-              let child = children.first(where: { $0 === vm }) else {
-            membershipGate.unlock()
-            return
-        }
-        membershipGate.unlock()
-        _requestCurrentChange(child, requireConstructed: true)
+        // Every other refusal of spec/06 §4.3 is a silent no-op here too.
+        guard vm.status == .constructed,
+              let child = membershipGate.withLock({ children.first(where: { $0 === vm }) })
+        else { return }
+        _ = _requestSelection(child, requireConstructed: true)
     }
 
     public func deselectChild(_ vm: ComponentVMBase) {
-        membershipGate.lock()
-        let child = !membershipTransactionHeldByCallerLocked ? _current : nil
-        membershipGate.unlock()
-        if let child, child === vm { _requestDeselect(child) }
+        guard let child = membershipGate.withLock({ _current }), child === vm else { return }
+        _ = _requestSelection(nil, expectedCurrent: child)
     }
 
     var ownershipOwner: ComponentVMBase { self }
@@ -215,6 +222,9 @@ open class CompositeVM<Child: ComponentVMBase>:
                     throw ContainerOwnershipError.inconsistentParent
                 }
                 let child = children.remove(at: index)
+                // Uncommitted until the commit or rollback runs (spec/06 §4.3
+                // rule 4).
+                pendingTransferDetaches += 1
                 return (index, child, _current === child)
             }
         } catch {
@@ -225,16 +235,20 @@ open class CompositeVM<Child: ComponentVMBase>:
         return ParentTransfer(
             commit: {
                 defer { self.endMembershipTransaction() }
+                self.membershipGate.withLock { self.pendingTransferDetaches -= 1 }
                 if child._ownershipParent === self {
                     child._parent = nil
                     child._ownershipParent = nil
                 }
-                if wasCurrent { self._applyCurrentChange(nil, internalTransaction: true) }
+                // Clear only while the detached child is still current: a
+                // selection made after the detach stays (spec/06 §4.3 rule 6).
+                if wasCurrent { self._clearDetachedCurrent(child) }
                 self.emit(.removed(child, at: index))
             },
             rollback: {
                 defer { self.endMembershipTransaction() }
                 self.membershipGate.withLock {
+                    self.pendingTransferDetaches -= 1
                     guard !self.disposeRequested else {
                         child._parent = nil
                         child._ownershipParent = nil
@@ -269,66 +283,68 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     /// The selected child, or `nil`.
     ///
-    /// The **setter traps** (`preconditionFailure`) if assigned a value that is
-    /// not a member of this composite (spec/06 §3.1 — `Current` must be a
-    /// member). Swift property setters cannot be `throws`, so the recoverable
-    /// path is `setCurrent(_:)` / `canSetCurrent(_:)` (VMX-026 / ADR-0053): they
-    /// validate membership and throw a catchable `CompositeMembershipError`,
-    /// mirroring the C#/Python/TypeScript catchable throw. The trapping setter
-    /// is retained (not deprecated) for ergonomic binding of an already-validated
-    /// member — assigning a known child or `nil` is the common case and never
-    /// traps.
+    /// The **setter traps** (`preconditionFailure`) where `setCurrent(_:)`
+    /// throws: on a value that is not an admitted member of this composite
+    /// (spec/06 §3 — `Current` must be a member), on a non-`nil` value while
+    /// disposal of the composite is pending, and on any value inside the
+    /// caller's own uncommitted membership transaction (spec/06 §4.3). Swift
+    /// property setters cannot be `throws`, so the recoverable path is
+    /// `setCurrent(_:)` / `canSetCurrent(_:)` (VMX-026 / ADR-0053, ADR-0009).
+    /// The trapping setter is retained (not deprecated) for ergonomic binding
+    /// of an already-validated member — assigning a known child or `nil` is
+    /// the common case and never traps.
     public var current: Child? {
         get { membershipGate.withLock { _current } }
         set { _setCurrent(newValue) }
     }
 
     /// Pre-flight predicate for `setCurrent(_:)` / the `current` setter: returns
-    /// `true` iff `value` is `nil` or a member of this composite. Mirrors C#
-    /// `CanSelectComponent` membership gating for the `Current` slot (spec/06
-    /// §3.1).
+    /// `true` iff the assignment would not be refused now. `nil` is refused
+    /// only inside the caller's own uncommitted membership transaction; a
+    /// child must also be an admitted member while no disposal of the
+    /// composite is pending (spec/06 §3, §4.3, ADR-0173). After Disposed an
+    /// assignment of a member or `nil` is an inert no-op, not a refusal, so
+    /// the predicate returns `true` for it.
     public func canSetCurrent(_ value: Child?) -> Bool {
-        membershipGate.withLock {
-            guard !membershipTransactionHeldByCallerLocked else { return false }
-            guard let value else { return true }
-            return children.contains(where: { $0 === value })
+        switch _commitSelection(value, selectionCall: true, validateOnly: true) {
+        case .refused: return false
+        case .inert, .committed, .unchanged: return true
         }
     }
 
     /// Throwing, catchable alternative to the `current` property setter
-    /// (VMX-026 / ADR-0053). Validates membership and throws
-    /// `CompositeMembershipError` on a non-child, instead of trapping. A `nil`
-    /// or member assignment behaves exactly like `current = value`.
+    /// (VMX-026 / ADR-0053). Throws `CompositeMembershipError` where the
+    /// property setter traps: on a non-member or unadmitted child, on a child
+    /// while disposal of the composite is pending, and inside the caller's
+    /// own uncommitted membership transaction (spec/06 §4.3). Another thread's
+    /// membership transaction never makes it fail or wait (ADR-0173).
     public func setCurrent(_ value: Child?) throws {
-        membershipGate.lock()
-        guard !membershipTransactionHeldByCallerLocked,
-              value == nil || children.contains(where: { $0 === value }) else {
-            membershipGate.unlock()
+        if let refusal = _requestSelection(value) {
             throw CompositeMembershipError(
-                memberName: value?.name ?? "<nil>", compositeName: name
+                memberName: value?.name ?? "<nil>", compositeName: name, reason: refusal
             )
         }
-        membershipGate.unlock()
-        _requestCurrentChange(value)
     }
 
-    /// Pre-flight predicate for `selectComponent(_:)`: returns `true` iff `vm`
-    /// is a member of this composite **and** `vm.status == .constructed`.
+    /// Pre-flight predicate for `selectComponent(_:)`: returns `true` iff
+    /// `selectComponent(vm)` would succeed now: `vm` is an admitted member
+    /// and Constructed, no disposal of the composite is pending, and the
+    /// caller is not inside its own uncommitted membership transaction
+    /// (spec/06 §3.1, ADR-0173).
     ///
-    /// This is distinct from `canSetCurrent(_:)`, which checks membership only
-    /// without the Constructed gate (spec/06 §3.1). Swift throws catchably
-    /// (ADR-0053) where C# surfaces `InvalidOperationException`.
+    /// This is distinct from `canSetCurrent(_:)`, which has no Constructed
+    /// gate (spec/06 §3.1). Swift throws catchably (ADR-0053) where C#
+    /// surfaces `InvalidOperationException`.
     public func canSelectComponent(_ vm: Child) -> Bool {
         guard vm.status == .constructed else { return false }
-        return membershipGate.withLock {
-            !membershipTransactionHeldByCallerLocked
-                && children.contains(where: { $0 === vm })
+        switch _commitSelection(vm, selectionCall: true, validateOnly: true) {
+        case .committed, .unchanged: return true
+        case .refused, .inert: return false
         }
     }
 
     /// Selects `vm` as the current child, throwing `CompositeMembershipError`
-    /// if `canSelectComponent(vm)` returns `false` (non-member or not yet
-    /// constructed — spec/06 §3.1 / COMP-008).
+    /// if `canSelectComponent(vm)` returns `false` (spec/06 §3.1 / COMP-008).
     ///
     /// Swift convergence of the C#/TypeScript `selectComponent` throwing path
     /// (ADR-0053): catchable throw rather than a trap, unlike the `current`
@@ -337,30 +353,22 @@ open class CompositeVM<Child: ComponentVMBase>:
         guard vm.status == .constructed else {
             throw CompositeMembershipError(memberName: vm.name, compositeName: name)
         }
-        membershipGate.lock()
-        guard !membershipTransactionHeldByCallerLocked,
-              children.contains(where: { $0 === vm }) else {
-            membershipGate.unlock()
-            throw CompositeMembershipError(memberName: vm.name, compositeName: name)
+        if let refusal = _requestSelection(vm, requireConstructed: true) {
+            throw CompositeMembershipError(memberName: vm.name, compositeName: name, reason: refusal)
         }
-        membershipGate.unlock()
-        _requestCurrentChange(vm, requireConstructed: true)
     }
 
     /// Deselects `vm`, clearing the current slot, throwing
     /// `CompositeMembershipError` if `vm` is not the current selection
-    /// (spec/06 §3.1 / COMP-011).
+    /// (spec/06 §3.1 / COMP-011) or the caller is inside its own uncommitted
+    /// membership transaction (spec/06 §4.3).
     ///
     /// Swift convergence of the C#/TypeScript `deselectComponent` throwing path
     /// (ADR-0053): catchable throw rather than a trap.
     public func deselectComponent(_ vm: Child) throws {
-        membershipGate.lock()
-        guard !membershipTransactionHeldByCallerLocked, _current === vm else {
-            membershipGate.unlock()
-            throw CompositeMembershipError(memberName: vm.name, compositeName: name)
+        if let refusal = _requestSelection(nil, expectedCurrent: vm) {
+            throw CompositeMembershipError(memberName: vm.name, compositeName: name, reason: refusal)
         }
-        membershipGate.unlock()
-        _requestDeselect(vm)
     }
 
     public func add(_ child: Child) {
@@ -398,6 +406,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         children.append(child)
         child._parent = self
         child._ownershipParent = self
+        pendingAdmissions.insert(ObjectIdentifier(child))
         let lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         // When autoConstructOnAdd is set and the composite is already
@@ -408,6 +417,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         if let error = autoConstructAttached(child, record: lateStart) {
             membershipGate.withLock {
                 lateStarts.remove(child, lateStart)
+                pendingAdmissions.remove(ObjectIdentifier(child))
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
@@ -420,9 +430,12 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         do {
-            try membershipGate.withLock { try requireTransactionCanContinueLocked() }
+            try membershipGate.withLock {
+                try requireTransactionCanContinueLocked()
+            }
         } catch {
             membershipGate.withLock {
+                pendingAdmissions.remove(ObjectIdentifier(child))
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
@@ -443,6 +456,12 @@ open class CompositeVM<Child: ComponentVMBase>:
         }
         // Commit the old-parent removal before publishing the destination add.
         transfer?.commit()
+        // Admit the child only after the old parent's detach commit, which
+        // clears the child's isCurrent flag there: a selection in this
+        // composite made before that commit would leave the flag false while
+        // the child is current here (COMP-006). The admission still precedes
+        // CollectionChanged (spec/06 §4.3 rule 2).
+        membershipGate.withLock { _ = pendingAdmissions.remove(ObjectIdentifier(child)) }
         // Emit AFTER the child is appended, parent is wired, and (if
         // autoConstructOnAdd) the child has been constructed.
         let index = membershipGate.withLock {
@@ -496,11 +515,13 @@ open class CompositeVM<Child: ComponentVMBase>:
         children.insert(child, at: index)
         child._parent = self
         child._ownershipParent = self
+        pendingAdmissions.insert(ObjectIdentifier(child))
         let lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         if let error = autoConstructAttached(child, record: lateStart) {
             membershipGate.withLock {
                 lateStarts.remove(child, lateStart)
+                pendingAdmissions.remove(ObjectIdentifier(child))
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
@@ -513,9 +534,12 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         do {
-            try membershipGate.withLock { try requireTransactionCanContinueLocked() }
+            try membershipGate.withLock {
+                try requireTransactionCanContinueLocked()
+            }
         } catch {
             membershipGate.withLock {
+                pendingAdmissions.remove(ObjectIdentifier(child))
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
@@ -535,6 +559,12 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         transfer?.commit()
+        // Admit the child only after the old parent's detach commit, which
+        // clears the child's isCurrent flag there: a selection in this
+        // composite made before that commit would leave the flag false while
+        // the child is current here (COMP-006). The admission still precedes
+        // CollectionChanged (spec/06 §4.3 rule 2).
+        membershipGate.withLock { _ = pendingAdmissions.remove(ObjectIdentifier(child)) }
         emit(.added(child, at: index))
         return .success(())
     }
@@ -542,18 +572,17 @@ open class CompositeVM<Child: ComponentVMBase>:
     public func remove(_ child: Child) -> Bool {
         guard (try? beginMembershipTransaction()) != nil else { return false }
         defer { endMembershipTransaction() }
-        let removed: (Child, Int, Bool)? = membershipGate.withLock {
+        let removed = _detachClearingCurrent { () -> ((Child, Int), Child?)? in
             guard let index = children.firstIndex(where: { $0 === child }) else { return nil }
             let item = children.remove(at: index)
             if item._ownershipParent === self {
                 item._parent = nil
                 item._ownershipParent = nil
             }
-            let wasCurrent = _current === item
-            return (item, index, wasCurrent)
+            return ((item, index), item)
         }
-        guard let (item, index, wasCurrent) = removed else { return false }
-        if wasCurrent { _applyCurrentChange(nil, internalTransaction: true) }
+        guard let ((item, index), clear) = removed else { return false }
+        _publishSelection(clear, to: nil)
         emit(.removed(item, at: index))
         return true
     }
@@ -561,17 +590,16 @@ open class CompositeVM<Child: ComponentVMBase>:
     public func removeAt(_ index: Int) {
         guard (try? beginMembershipTransaction()) != nil else { return }
         defer { endMembershipTransaction() }
-        let removal: (Child, Bool)? = membershipGate.withLock {
+        let removal = _detachClearingCurrent { () -> (Child, Child?)? in
             let removed = children.remove(at: index)
             if removed._ownershipParent === self {
                 removed._parent = nil
                 removed._ownershipParent = nil
             }
-            let wasCurrent = _current === removed
-            return (removed, wasCurrent)
+            return (removed, removed)
         }
-        guard let (item, wasCurrent) = removal else { return }
-        if wasCurrent { _applyCurrentChange(nil, internalTransaction: true) }
+        guard let (item, clear) = removal else { return }
+        _publishSelection(clear, to: nil)
         // Emit AFTER the child has been removed and parent cleared.
         emit(.removed(item, at: index))
     }
@@ -619,11 +647,13 @@ open class CompositeVM<Child: ComponentVMBase>:
         old._ownershipParent = nil
         child._parent = self
         child._ownershipParent = self
+        pendingAdmissions.insert(ObjectIdentifier(child))
         let lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         if let error = autoConstructAttached(child, record: lateStart) {
             membershipGate.withLock {
                 lateStarts.remove(child, lateStart)
+                pendingAdmissions.remove(ObjectIdentifier(child))
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children[attached] = old
                     old._parent = self
@@ -638,9 +668,12 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         do {
-            try membershipGate.withLock { try requireTransactionCanContinueLocked() }
+            try membershipGate.withLock {
+                try requireTransactionCanContinueLocked()
+            }
         } catch {
             membershipGate.withLock {
+                pendingAdmissions.remove(ObjectIdentifier(child))
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children[attached] = old
                     old._parent = self
@@ -662,7 +695,13 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         transfer?.commit()
-        if current === old { _applyCurrentChange(nil, internalTransaction: true) }
+        // Admit the child only after the old parent's detach commit, which
+        // clears the child's isCurrent flag there: a selection in this
+        // composite made before that commit would leave the flag false while
+        // the child is current here (COMP-006). The admission still precedes
+        // CollectionChanged (spec/06 §4.3 rule 2).
+        membershipGate.withLock { _ = pendingAdmissions.remove(ObjectIdentifier(child)) }
+        _clearDetachedCurrent(old)
         emit(.removed(old, at: index))
         emit(.added(child, at: index))
         return .success(())
@@ -671,17 +710,17 @@ open class CompositeVM<Child: ComponentVMBase>:
     public func clear() {
         guard (try? beginMembershipTransaction()) != nil else { return }
         defer { endMembershipTransaction() }
-        let result: (Bool, Child?) = membershipGate.withLock {
+        let cleared = _detachClearingCurrent { () -> (Void, Child?)? in
             let previous = _current
             for child in children where child._ownershipParent === self {
                 child._parent = nil
                 child._ownershipParent = nil
             }
             children.removeAll()
-            return (true, previous)
+            return ((), previous)
         }
-        guard result.0 else { return }
-        if result.1 != nil { _applyCurrentChange(nil, internalTransaction: true) }
+        guard let (_, clear) = cleared else { return }
+        _publishSelection(clear, to: nil)
         emit(.reset())
     }
 
@@ -863,6 +902,9 @@ open class CompositeVM<Child: ComponentVMBase>:
                     children.append(child)
                     child._parent = self
                     child._ownershipParent = self
+                    // Staged: not a member for selection until admitted
+                    // (spec/06 §4.3 rule 2).
+                    pendingAdmissions.insert(ObjectIdentifier(child))
                 }
             }
             // Make the entire snapshot visible before any child hook runs.
@@ -882,6 +924,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             for (offset, child) in candidates.enumerated().reversed() {
                 guard offset < originalStatuses.count else { continue }
                 membershipGate.withLock {
+                    pendingAdmissions.remove(ObjectIdentifier(child))
                     if let attached = children.firstIndex(where: { $0 === child }) {
                         children.remove(at: attached)
                     }
@@ -908,6 +951,11 @@ open class CompositeVM<Child: ComponentVMBase>:
         }
 
         for transfer in transfers { transfer.commit() }
+        // Admitted after the old parents' detach commits, as in `addResult`
+        // (COMP-006, spec/06 §4.3 rule 2).
+        membershipGate.withLock {
+            for child in candidates { pendingAdmissions.remove(ObjectIdentifier(child)) }
+        }
         for child in candidates {
             if let index = membershipGate.withLock({
                 children.firstIndex(where: { $0 === child })
@@ -919,9 +967,12 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     open override func _onDestruct() throws {
-        // Bypass asyncSelection for teardown: destruct is synchronous and must
-        // clear the current slot before children are destructed.
-        if membershipGate.withLock({ _current != nil }) { _applyCurrentChange(nil) }
+        // The destruct clear (spec/06 §5, ADR-0173 rule 8): synchronous, with
+        // no membership transaction and no wait, under the publication lease.
+        // It is never refused or skipped, so COMP-005 holds also inside the
+        // composite's own transaction, while another thread holds one and
+        // while disposal is deferred.
+        _clearCurrentForDestruct()
         // `destructOrder` orders the walk and its waits (ADR-0161).
         let snapshot = destructOrder.arrange(snapshot())
         try _transitionContainerChildren(snapshot, construct: false) {
@@ -932,6 +983,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// Completes `collectionChanged` once the container is disposed, as the
     /// other flavors do, so derived views and sinks observe termination.
     open override func _onDispose() {
+        membershipGate.withLock { disposeCompleted = true }
         super._onDispose()
         collectionChangedSubject.send(completion: .finished)
     }
@@ -943,6 +995,13 @@ open class CompositeVM<Child: ComponentVMBase>:
             var snapshot: [Child]?
             let shouldReturn: Bool = membershipGate.withLock {
                 if disposeRequested { return true }
+                // A thread that holds a current-publication lease defers
+                // before any wait for a foreign transaction (spec/06 §4.3
+                // rule 5): it would otherwise wait inside its own callback.
+                if currentPublicationThreads.contains(caller) {
+                    disposeDeferred = true
+                    return true
+                }
                 if membershipTransactionActive {
                     if membershipTransactionOwner == caller {
                         disposeDeferred = true
@@ -964,7 +1023,10 @@ open class CompositeVM<Child: ComponentVMBase>:
                     disposeDeferred = true
                     return true
                 }
+                // Admit the disposal. A deferral stays set until here, so no
+                // transaction and no non-null selection slips in between.
                 disposeRequested = true
+                disposeDeferred = false
                 snapshot = children
                 return false
             }
@@ -1080,15 +1142,6 @@ open class CompositeVM<Child: ComponentVMBase>:
         }
     }
 
-    /// True while the calling thread itself has this composite's membership
-    /// transaction open. Selection is rejected only in that re-entrant case
-    /// (ADR-0118); a transaction on another thread is waited for by
-    /// `_applyCurrentChange`, so a concurrent selection is not dropped.
-    private var membershipTransactionHeldByCallerLocked: Bool {
-        membershipTransactionActive
-            && membershipTransactionOwner == ThreadWaitGraph.currentThread
-    }
-
     private func requireTransactionCanContinueLocked() throws {
         guard !disposeRequested && !disposeDeferred else {
             throw ContainerOwnershipError.attachmentFailed(ContainerDisposalAdmissionError())
@@ -1119,131 +1172,234 @@ open class CompositeVM<Child: ComponentVMBase>:
                     membershipWaits = 0
                     releaseMembershipWaiters(of: self)
                 }
+                // `dispose()` clears the deferral when it admits the disposal.
                 shouldDispose = disposeDeferred && activeCurrentPublications == 0
-                if shouldDispose { disposeDeferred = false }
             }
         }
         completion?.leave()
         if shouldDispose { dispose() }
     }
 
-    /// Non-raising validated assignment of the selector's pick (spec/06 §3.2,
-    /// COMP-025). Hooks run during the walk, and a deferred walk resumes on
-    /// the settling thread, so the pick is checked against live membership:
-    /// a pick that has left is a silent no-op (#705). A walk that resumes on
-    /// a thread holding this composite's membership transaction joins it.
+    /// The construct walk's assignment of the selector's pick (spec/06 §3.2,
+    /// COMP-025, ADR-0165, ADR-0173). Hooks run during the walk, and a
+    /// deferred walk resumes on the settling thread, so the pick is checked
+    /// against committed membership: a pick that has left or is not admitted
+    /// yet is a silent no-op (#705), and so is the assignment while disposal
+    /// is pending or inside the caller's own uncommitted membership
+    /// transaction. It opens no transaction, never waits for another
+    /// thread's transaction, and is synchronous also with `asyncSelection`
+    /// (#1150).
     private func _assignInitialCurrent(_ initial: Child) {
-        let heldByCaller = membershipGate.withLock { membershipTransactionHeldByCallerLocked }
-        if heldByCaller {
-            _applyCurrentChange(initial, internalTransaction: true)
-        } else {
-            _requestCurrentChange(initial)
-        }
+        _ = _applySelection(initial, selectionCall: true)
+    }
+
+    /// The destruct clear (spec/06 §5, ADR-0173 rule 8). It is not a
+    /// selection call: no refusal applies, and it never waits or is skipped
+    /// (#1201).
+    private func _clearCurrentForDestruct() {
+        // Nothing to clear: skip the shared coordination lane, as before.
+        guard membershipGate.withLock({ _current != nil }) else { return }
+        _ = _applySelection(nil, selectionCall: false)
+    }
+
+    /// The clear that a detach commits: only while `detached` is still
+    /// current, so a selection made after the detach stays (spec/06 §4.3
+    /// rule 6).
+    private func _clearDetachedCurrent(_ detached: Child) {
+        guard membershipGate.withLock({ _current === detached }) else { return }
+        _ = _applySelection(nil, selectionCall: false, expectedCurrent: detached)
     }
 
     private func _setCurrent(_ value: Child?) {
-        // Non-child assignment is a programmer error reachable only via the
-        // (non-throwing) `current` property setter; `setCurrent(_:)` pre-validates
-        // via `canSetCurrent(_:)` and throws `CompositeMembershipError` before
-        // reaching here (VMX-026 / ADR-0053). The trap remains for the property
-        // setter, which Swift cannot make `throws`.
-        let allowed = membershipGate.withLock {
-            !membershipTransactionHeldByCallerLocked
-                && (value == nil || children.contains(where: { $0 === value }))
-        }
-        if !allowed {
+        // A refusal is a programmer error reachable only via the (non-throwing)
+        // `current` property setter; `setCurrent(_:)` throws a catchable
+        // `CompositeMembershipError` for the same refusals (VMX-026 /
+        // ADR-0053). The trap remains for the property setter, which Swift
+        // cannot make `throws` (ADR-0009).
+        if let refusal = _requestSelection(value) {
             preconditionFailure(
-                "Cannot set current to '\(value?.name ?? "<nil>")': not an available child of this composite. "
-                + "Use setCurrent(_:)/canSetCurrent(_:) for a catchable check."
+                "Cannot set current to '\(value?.name ?? "<nil>")': "
+                + CompositeMembershipError.explanation(for: refusal)
+                + " Use setCurrent(_:)/canSetCurrent(_:) for a catchable check."
             )
         }
-        _requestCurrentChange(value)
     }
 
-    private func _requestCurrentChange(
+    /// A selection call (spec/06 §4.3): the setter, `selectComponent`,
+    /// `deselectComponent` and the child `select`/`deselect` paths. A
+    /// non-`nil` `expectedCurrent` makes it a deselection of that child.
+    /// Returns the refusal; the caller reports it through its own channel.
+    ///
+    /// With `asyncSelection` the call validates now (rules 2-4), then
+    /// schedules the change on the foreground dispatcher and returns; the
+    /// delivery validates again and a delivery that is no longer valid is a
+    /// silent no-op (COMP-010, spec/06 §4.3 rule 7).
+    private func _requestSelection(
         _ value: Child?,
-        requireConstructed: Bool = false
-    ) {
-        if _asyncSelection {
-            // COMP-010: defer the full current-change to the foreground dispatcher.
-            // A TOCTOU re-check in `_applyCurrentChange` drops the deferred selection
-            // if the child was removed between schedule and flush, upholding the
-            // spec/06 §3 invariant that a non-null current is always a member.
-            let captured = value
-            dispatcher.scheduleForeground { [weak self] in
-                self?._applyCurrentChange(captured, requireConstructed: requireConstructed)
-            }
-        } else {
-            _applyCurrentChange(value, requireConstructed: requireConstructed)
-        }
-    }
-
-    private func _requestDeselect(_ expected: Child) {
-        let apply = { [weak self, weak expected] in
-            guard let self, let expected else { return }
-            self._applyCurrentChange(
-                nil,
-                expectedCurrent: expected,
-                requireExpectedCurrent: true
-            )
-        }
-        if _asyncSelection {
-            dispatcher.scheduleForeground(apply)
-        } else {
-            apply()
-        }
-    }
-
-    private func _applyCurrentChange(
-        _ value: Child?,
-        internalTransaction: Bool = false,
         requireConstructed: Bool = false,
-        expectedCurrent: Child? = nil,
-        requireExpectedCurrent: Bool = false
-    ) {
-        // TOCTOU guard (COMP-010): re-validate membership after a foreground-
-        // dispatched selection — the child may have been removed before the
-        // deferred closure ran.
-        if let value, requireConstructed, value.status != .constructed { return }
-        compositeCurrentChangeCoordinator.lock()
-        var ownsTransaction = false
-        if !internalTransaction {
-            let transaction = ContainerOwnershipTransaction()
-            do {
-                // Wait for another thread's transaction without retaining the
-                // shared coordinator: that thread's hooks and callbacks may
-                // need it to select (spec/06 §4, COMP-026).
-                while let completion = try tryEnterMembershipTransaction(transaction, allowJoin: false) {
-                    compositeCurrentChangeCoordinator.unlock()
-                    awaitMembershipTransaction(completion)
-                    compositeCurrentChangeCoordinator.lock()
-                }
-                ownsTransaction = true
-            } catch {
-                compositeCurrentChangeCoordinator.unlock()
-                return
+        expectedCurrent: Child? = nil
+    ) -> CompositeSelectionRefusal? {
+        guard _asyncSelection else {
+            if case let .refused(refusal) = _applySelection(
+                value, selectionCall: true, expectedCurrent: expectedCurrent
+            ) {
+                return refusal
             }
+            return nil
         }
-        let committed: (Child?, Bool, Bool)? = membershipGate.withLock {
-            if let value, !children.contains(where: { $0 === value }) { return nil }
-            if requireExpectedCurrent && _current !== expectedCurrent { return nil }
-            if _current === value { return nil }
-            let previous = _current
-            _current = value
-            let previousChanged = previous?._commitIsCurrent(false) ?? false
-            let valueChanged = value?._commitIsCurrent(true) ?? false
-            activeCurrentPublications += 1
-            return (previous, previousChanged, valueChanged)
+        switch _commitSelection(
+            value, selectionCall: true, expectedCurrent: expectedCurrent, validateOnly: true
+        ) {
+        case let .refused(refusal): return refusal
+        case .inert: return nil
+        case .committed, .unchanged: break
         }
-        if ownsTransaction { endMembershipTransaction() }
-        compositeCurrentChangeCoordinator.unlock()
-        guard let committed else { return }
-        _finishCurrentChange(
-            from: committed.0,
-            to: value,
-            previousFlagChanged: committed.1,
-            valueFlagChanged: committed.2
+        dispatcher.scheduleForeground { [weak self] in
+            if requireConstructed, let value, value.status != .constructed { return }
+            _ = self?._applySelection(value, selectionCall: true, expectedCurrent: expectedCurrent)
+        }
+        return nil
+    }
+
+    /// Commits a selection path (`_commitSelection`) and, when it changed
+    /// `Current`, publishes it under the current-publication lease.
+    @discardableResult
+    private func _applySelection(
+        _ value: Child?,
+        selectionCall: Bool,
+        expectedCurrent: Child? = nil
+    ) -> CompositeSelectionOutcome<Child> {
+        let outcome = _commitSelection(
+            value, selectionCall: selectionCall, expectedCurrent: expectedCurrent
         )
+        _publishSelection(outcome, to: value)
+        return outcome
+    }
+
+    /// Validates and commits `Current` and both current flags under the
+    /// shared coordination lane, then `membershipGate` (spec/06 §4.3 rule 1).
+    /// It opens, joins and waits for no membership transaction, and waits only
+    /// for those two locks, which no consumer code holds. A commit takes a
+    /// current-publication lease that `_finishCurrentChange` ends.
+    private func _commitSelection(
+        _ value: Child?,
+        selectionCall: Bool,
+        expectedCurrent: Child? = nil,
+        validateOnly: Bool = false
+    ) -> CompositeSelectionOutcome<Child> {
+        let caller = ThreadWaitGraph.currentThread
+        // Read before the lane: the base lifecycle lock is never taken under
+        // this composite's gate.
+        let disposed = _isDisposalRequested()
+        compositeCurrentChangeCoordinator.lock()
+        defer { compositeCurrentChangeCoordinator.unlock() }
+        return membershipGate.withLock {
+            _commitSelectionLocked(
+                value,
+                selectionCall: selectionCall,
+                expectedCurrent: expectedCurrent,
+                validateOnly: validateOnly,
+                caller: caller,
+                disposed: disposed
+            )
+        }
+    }
+
+    /// The body of `_commitSelection`. Call with the coordination lane and
+    /// `membershipGate` held.
+    ///
+    /// `selectionCall` applies rule 4 (the caller's own uncommitted
+    /// transaction); the destruct and detach clears pass `false`. Rule 2
+    /// (admitted members) and rule 3 (no non-`nil` selection while disposal
+    /// is pending) apply to every path; a `nil` value is never refused by
+    /// them. `expectedCurrent` makes the change apply only while that child is
+    /// current. Once the composite has published Disposed (`disposed`, read
+    /// from the base lifecycle state), selection is inert (chapter 01 §4).
+    private func _commitSelectionLocked(
+        _ value: Child?,
+        selectionCall: Bool,
+        expectedCurrent: Child?,
+        validateOnly: Bool,
+        caller: UInt64,
+        disposed: Bool
+    ) -> CompositeSelectionOutcome<Child> {
+        if selectionCall && ownsUncommittedTransactionLocked(caller) {
+            return .refused(.transactionInProgress)
+        }
+        if let value, !isAdmittedMemberLocked(value) { return .refused(.nonMember) }
+        if let expectedCurrent, _current !== expectedCurrent { return .refused(.notCurrent) }
+        if disposed || disposeCompleted { return .inert }
+        if value != nil && (disposeRequested || disposeDeferred) {
+            return .refused(.disposing)
+        }
+        if validateOnly || _current === value { return .unchanged }
+        let previous = _current
+        _current = value
+        let previousChanged = previous?._commitIsCurrent(false) ?? false
+        let valueChanged = value?._commitIsCurrent(true) ?? false
+        activeCurrentPublications += 1
+        currentPublicationThreads.append(caller)
+        return .committed(previous, previousChanged, valueChanged)
+    }
+
+    /// Detaches children in `detach` under the coordination lane and
+    /// `membershipGate` and, when `detach` returns the child that is current,
+    /// commits the detach clear in the same section. No other composite can
+    /// adopt and select that child between the detach and the clear, so the
+    /// clear never resets the flag of a child that is current elsewhere
+    /// (COMP-006, spec/06 §4.3 rule 6). The caller publishes the returned
+    /// outcome with `_publishSelection` after the section.
+    private func _detachClearingCurrent<T>(
+        _ detach: () -> (T, Child?)?
+    ) -> (T, CompositeSelectionOutcome<Child>)? {
+        let caller = ThreadWaitGraph.currentThread
+        let disposed = _isDisposalRequested()
+        compositeCurrentChangeCoordinator.lock()
+        defer { compositeCurrentChangeCoordinator.unlock() }
+        return membershipGate.withLock {
+            guard let (result, detachedCurrent) = detach() else { return nil }
+            guard let detachedCurrent, _current === detachedCurrent else {
+                return (result, .unchanged)
+            }
+            return (result, _commitSelectionLocked(
+                nil,
+                selectionCall: false,
+                expectedCurrent: detachedCurrent,
+                validateOnly: false,
+                caller: caller,
+                disposed: disposed
+            ))
+        }
+    }
+
+    /// Publishes a committed `outcome` (`value` is the new `Current`).
+    private func _publishSelection(_ outcome: CompositeSelectionOutcome<Child>, to value: Child?) {
+        if case let .committed(previous, previousFlagChanged, valueFlagChanged) = outcome {
+            _finishCurrentChange(
+                from: previous,
+                to: value,
+                previousFlagChanged: previousFlagChanged,
+                valueFlagChanged: valueFlagChanged
+            )
+        }
+    }
+
+    /// A member that its add, insert, replacement or population has admitted
+    /// (spec/06 §4.3 rule 2). Call under `membershipGate`.
+    private func isAdmittedMemberLocked(_ value: Child) -> Bool {
+        children.contains(where: { $0 === value })
+            && !pendingAdmissions.contains(ObjectIdentifier(value))
+    }
+
+    /// True while `caller` owns this composite's membership transaction and
+    /// its rollback could still undo a staged change: a child attached but not
+    /// admitted, a staged population, or a child detached for a transfer
+    /// whose commit has not run (spec/06 §4.3 rule 4). Call under
+    /// `membershipGate`.
+    private func ownsUncommittedTransactionLocked(_ caller: UInt64) -> Bool {
+        membershipTransactionActive
+            && membershipTransactionOwner == caller
+            && (!pendingAdmissions.isEmpty || pendingTransferDetaches > 0)
     }
 
     private func _finishCurrentChange(
@@ -1268,18 +1424,48 @@ open class CompositeVM<Child: ComponentVMBase>:
         onCurrentChanged?(value)
     }
 
+    /// Ends a current-publication lease. A deferred disposal starts when the
+    /// last lease ends and no membership transaction is open (spec/06 §4.3
+    /// rule 5); `dispose()` clears the deferral when it admits it.
     private func _endCurrentPublication() {
+        let caller = ThreadWaitGraph.currentThread
         var shouldDispose = false
         membershipGate.withLock {
             precondition(activeCurrentPublications > 0)
             activeCurrentPublications -= 1
+            if let lease = currentPublicationThreads.lastIndex(of: caller) {
+                currentPublicationThreads.remove(at: lease)
+            }
             shouldDispose = activeCurrentPublications == 0
                 && !membershipTransactionActive
                 && disposeDeferred
-            if shouldDispose { disposeDeferred = false }
         }
         if shouldDispose { dispose() }
     }
+}
+
+/// Why `CompositeVM` refused a selection (spec/06 §3, §4.3, ADR-0173).
+enum CompositeSelectionRefusal {
+    /// Not an admitted member (rule 2).
+    case nonMember
+    /// A deselection of a child that is not current (spec/06 §3.1).
+    case notCurrent
+    /// A non-`nil` selection while disposal is pending (rule 3).
+    case disposing
+    /// Inside the caller's own uncommitted membership transaction (rule 4).
+    case transactionInProgress
+}
+
+/// The result of one validation or commit of a selection path.
+enum CompositeSelectionOutcome<Child> {
+    /// `Current` changed; the payload is the previous child and whether each
+    /// current flag changed. The caller publishes under the lease it holds.
+    case committed(Child?, Bool, Bool)
+    /// Valid, and nothing to change (or validation only).
+    case unchanged
+    /// The composite is disposed: the call has no effect (chapter 01 §4).
+    case inert
+    case refused(CompositeSelectionRefusal)
 }
 
 /// Thrown by `CompositeVM.setCurrent(_:)` when the argument is not a member of
@@ -1288,17 +1474,38 @@ open class CompositeVM<Child: ComponentVMBase>:
 /// non-child `Current` assignment that C# surfaces as `InvalidOperationException`
 /// and Python/TypeScript as a thrown error. The non-throwing `current` property
 /// setter traps instead, because Swift setters cannot be `throws`.
+///
+/// It is also the catchable channel for the other selection refusals of
+/// spec/06 §4.3 (ADR-0173): a child while disposal of the composite is
+/// pending, and any selection call inside the caller's own uncommitted
+/// membership transaction. `description` names the reason.
 public struct CompositeMembershipError: Error, CustomStringConvertible {
     public let memberName: String
     public let compositeName: String
+    let reason: CompositeSelectionRefusal
 
     public init(memberName: String, compositeName: String) {
+        self.init(memberName: memberName, compositeName: compositeName, reason: .nonMember)
+    }
+
+    init(memberName: String, compositeName: String, reason: CompositeSelectionRefusal) {
         self.memberName = memberName
         self.compositeName = compositeName
+        self.reason = reason
     }
 
     public var description: String {
-        "Cannot set current to '\(memberName)': "
-        + "not a child of composite '\(compositeName)'."
+        "Cannot set current to '\(memberName)' in composite '\(compositeName)': "
+        + Self.explanation(for: reason)
+    }
+
+    static func explanation(for reason: CompositeSelectionRefusal) -> String {
+        switch reason {
+        case .nonMember: return "not an admitted child of the composite."
+        case .notCurrent: return "not the current child of the composite."
+        case .disposing: return "disposal of the composite is in progress."
+        case .transactionInProgress:
+            return "a membership transaction is in progress on this thread."
+        }
     }
 }

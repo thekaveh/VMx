@@ -68,8 +68,9 @@ paths. Eight rules apply in every flavor.
    subclass calls (C# `AttachPopulation`, TypeScript `_attachPopulation`). The
    setter raises the existing non-member error, and `can_select_component`
    returns false. The child becomes selectable when the add admits it: after
-   the last viability recheck, before `CollectionChanged` publishes. Every
-   rollback path also clears the marker.
+   the last viability recheck, before `CollectionChanged` publishes. When the
+   add moves the child from another parent, it admits the child after that
+   parent's detach commit. Every rollback path also clears the marker.
 1. **Disposal.** From the moment disposal is requested or deferred until
    `Disposed`, a non-null selection is refused. A null clear is never refused
    because of disposal. The null clears are `Current = null`,
@@ -157,6 +158,15 @@ Rule 4 uses the "membership transaction in progress" error. The Swift
   and inside the caller's uncommitted transaction. `SelectComponent` then
   raises its existing predicate error for every refusal. Swift
   `canSetCurrent(_:)` follows the same rules for the setter.
+- **A transfer admits the moved child after the old parent's detach
+  commit.** The destination admits the child after the old parent's detach
+  commit, after the last viability recheck and before `CollectionChanged`.
+  If it admitted the child first, another thread could select the child in
+  the destination while its `IsCurrent` flag was still set from the old
+  parent. The old parent's detach clear would then reset the flag, and the
+  destination would keep the child current with `IsCurrent` false, which
+  breaks `COMP-006`. Swift reproduced this race before it moved the
+  admission.
 - **Disposal from another thread during a publication.** The order is the
   current C# order: first the foreign-transaction rule of §4.2, then the
   lease check. A thread that holds a lease is checked before any wait, so it
@@ -191,6 +201,8 @@ Rule 4 uses the "membership transaction in progress" error. The Swift
   `OwnershipTransactionInProgress` for another thread's transaction and for
   the add's `CollectionChanged` publication. The two ignored `COMP-026` Rust
   tests are re-enabled (#1151, Rust parts of #1144 and #1145).
+- **Every flavor:** a transfer's destination admits the moved child after
+  the old parent's detach commit (§2.1).
 
 ## 4. Consequences
 

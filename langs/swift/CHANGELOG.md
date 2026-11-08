@@ -65,6 +65,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM` selection follows ADR-0173 (spec/06 §4.3, #1145, #1150,
+  #1201). No selection path opens, joins or waits for a membership
+  transaction. The `current` setter, `setCurrent(_:)`, `selectComponent(_:)`,
+  `deselectComponent(_:)`, the child `select()`/`deselect()` paths, the
+  construct walk's assignment and the destruct clear commit under the shared
+  lane and the membership gate, so they no longer wait for another thread's
+  add, insert, removal or transfer. Before, a selection or a construct whose
+  hook waited for that thread could stall until a timeout.
+- `CompositeVM`: a child that an add, insert, replacement or population
+  attached but has not admitted is not a member (ADR-0173 rule 2).
+  `setCurrent(_:)` throws, and `canSetCurrent(_:)` and
+  `canSelectComponent(_:)` return `false`. The walk no longer selects such a
+  child. A moved child is admitted after its old parent's detach commit, so
+  its `isCurrent` flag matches the destination's `current` (`COMP-006`).
+- `CompositeVM`: while disposal is requested or deferred, a non-`nil`
+  selection is refused and a `nil` clear still commits (ADR-0173 rule 3).
+  The refusal also covers re-assigning the child that is already current, as
+  in C# and Python. After `Disposed`, selection stays inert, also inside the
+  composite's own hook, and `canSetCurrent(_:)` returns `true` for that
+  inert assignment of a member or `nil`.
+- `CompositeVM`: on the thread whose own membership transaction has not
+  committed yet, every selection call is refused and the walk's assignment
+  is a silent no-op (ADR-0173 rule 4). From the commit on, including the
+  add's `collectionChanged` delivery, that thread can select, for example
+  the child it just added. A construct walk that resumes inside the adding
+  thread's uncommitted add now leaves `current` `nil` (#705).
+- `CompositeVM`: `dispose()` from a thread that is publishing a selection
+  returns at once (ADR-0173 rule 5). The disposal runs when the publication
+  and any open transaction end, and the deferral stays set until `dispose()`
+  admits it.
+- `CompositeVM`: a detach clears `current` only while the detached child is
+  still current, so a selection made after a transfer's detach stays
+  (ADR-0173 rule 6). `remove`, `removeAt` and `clear` commit the clear in the
+  same section as the detach.
+- `CompositeVM` with `asyncSelection(true)`: the walk's assignment is
+  synchronous, so the composite reaches `Constructed` with its pick current
+  (ADR-0173 rule 7). The setter validates at call time and its delivery
+  validates again.
+- `CompositeVM.destruct()` always clears `current` (`COMP-005`, ADR-0173
+  rule 8). Before, a destruct inside the composite's own transaction, or
+  while disposal was deferred, skipped the clear without an error and
+  reached `Destructed` with `current` still set. One case stays as before:
+  once the composite has published `Disposed`, the clear is inert and
+  `current` stays set (chapter 01 §4). This happens when another thread's
+  dispose publishes `Disposed` while the destruct hook still runs.
+- `CompositeVM` refusals use the existing channels: `setCurrent(_:)`,
+  `selectComponent(_:)` and `deselectComponent(_:)` throw
+  `CompositeMembershipError`, the `current` setter traps (ADR-0009), and
+  `selectChild`/`deselectChild` are silent no-ops. The error's
+  `description` now names the reason. For a non-member it reads "Cannot set
+  current to 'X' in composite 'Y': not an admitted child of the composite."
+  instead of "Cannot set current to 'X': not a child of composite 'Y'."
 - `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
   before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
   updated `keys2`. Before, an entry that a `keys1` subscriber added during
