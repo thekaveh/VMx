@@ -706,3 +706,20 @@ before a persister starts prevents the persister call (`FORM-041`,
 `FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
 
 See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also stops the notification render state at the first terminal step. A
+`NotificationVM` or `ConfirmationVM` keeps `RemainingTime` and `Opacity` from
+its first resolution, an observed hub resolution, or its disposal
+(`NOTIF-019`). After auto-dismiss both values are 0 and 0.0. Hub dispose sends
+no final `Pending` snapshot. It completes `Pending` once, after any snapshots
+queued before dispose (`NOTIF-017`, `DISP-003`). A `Pending` subscription made
+after dispose receives completion only, with no value and no error
+(`NOTIF-020`). The catalog now contains 453 library IDs plus 5 scenario IDs.
+
+See ADR-0197 and chapter 16 §2.3, §6, §7, and §9.
+
+v3.30.0 also makes `SearchableState` construction start no term debounce. This
+holds for every debounce length, zero included (`SRCH-008`). The catalog now
+contains 454 library IDs plus 5 scenario IDs.
+
+See ADR-0198 and chapter 06 §8 and §10.
