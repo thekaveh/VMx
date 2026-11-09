@@ -79,6 +79,14 @@ updates:
       - dependency-name: xunit.v3
         versions: [">=4.0.0"]
     groups:
+      # One .NET servicing release ships these packages. A pull request that
+      # moves only one of them fails restore with NU1109 (#1361).
+      dotnet-servicing:
+        patterns:
+          - Microsoft.Bcl.AsyncInterfaces
+          - Microsoft.Extensions.DependencyInjection.Abstractions
+          - System.Collections.Immutable
+          - System.Text.Json
       nuget:
         patterns: ["*"]
         group-by: dependency-name

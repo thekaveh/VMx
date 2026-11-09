@@ -98,6 +98,11 @@ jobs:
       - name: Run tool's own unit tests
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m pytest tools/tests/ -v
 
+      - name: Check uv and docs locks against their regeneration commands
+        # Dependabot can write a uv lock with a newer uv, or drop pins from the
+        # docs lock (#1361). The setup-uv step above pins the uv that runs here.
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-dependency-locks.py
+
       - name: Check version consistency
         # Verifies that spec/VERSION, all flavor manifests, and compatibility-matrix.md
         # are mutually consistent, and that every matrix-row version has a matching
