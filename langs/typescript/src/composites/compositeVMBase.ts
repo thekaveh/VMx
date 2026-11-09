@@ -17,6 +17,7 @@ import {
   beginParentTransfer,
   captureParentTransferCommit,
   ContainerRollbackError,
+  compensateAutoConstruct,
   ComponentVMBase,
   ParentTransfer,
 } from "../components/componentVMBase.js";
@@ -348,14 +349,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         if (index >= 0) this._children.splice(index, 1);
         if (item._parent === this) item._parent = null;
       }
-      if (
-        originalStatus === ConstructionStatus.Destructed &&
-        item.status === ConstructionStatus.Constructed
-      ) {
-        try { item.destruct(); } catch (rollbackError) {
-          compensationError = rollbackError;
-        }
-      }
+      compensationError = compensateAutoConstruct(item, originalStatus);
       try {
         transfer?.rollback();
       } finally {
@@ -415,14 +409,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         if (actual >= 0) this._children.splice(actual, 1);
         if (item._parent === this) item._parent = null;
       }
-      if (
-        originalStatus === ConstructionStatus.Destructed &&
-        item.status === ConstructionStatus.Constructed
-      ) {
-        try { item.destruct(); } catch (rollbackError) {
-          compensationError = rollbackError;
-        }
-      }
+      compensationError = compensateAutoConstruct(item, originalStatus);
       try {
         transfer?.rollback();
       } finally {
@@ -542,14 +529,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         if (actual >= 0) this._children[actual] = old;
         if (value._parent === this) value._parent = null;
       }
-      if (
-        originalStatus === ConstructionStatus.Destructed &&
-        value.status === ConstructionStatus.Constructed
-      ) {
-        try { value.destruct(); } catch (rollbackError) {
-          compensationError = rollbackError;
-        }
-      }
+      compensationError = compensateAutoConstruct(value, originalStatus);
       try {
         transfer?.rollback();
       } finally {
@@ -852,16 +832,14 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       while (this._children.length > start) {
         const child = this._children.pop();
         const originalStatus = originalStatuses[this._children.length - start];
-        if (
-          child !== undefined &&
-          originalStatus === ConstructionStatus.Destructed &&
-          child.status === ConstructionStatus.Constructed
-        ) {
-          try { child.destruct(); } catch (rollbackError) {
-            compensationError ??= rollbackError;
-          }
-        }
+        // Detached first: a deferred compensation destructs only a child
+        // with no parent (ADR-0218 rule 7).
         if (child?._parent === this) child._parent = null;
+        if (child !== undefined && originalStatus !== undefined) {
+          // Compensate every child; keep only the first failure.
+          const failure = compensateAutoConstruct(child, originalStatus);
+          compensationError ??= failure;
+        }
       }
       try {
         for (const transfer of [...transfers].reverse()) transfer.rollback();

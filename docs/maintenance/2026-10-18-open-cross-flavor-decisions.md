@@ -62,20 +62,17 @@ One case stays open: a throwing `DerivedProperty` transform or a failing source
 
 ### 1.3. Rollback failure loses the original failure in Swift and Rust
 
-ADR-0123 §2 says the first operation failure stays the reported failure and a
-compensation failure is surfaced with it. On factory-population rollback and on
-add or insert attach rollback:
+**The error shape is decided by
+[ADR-0218](../../spec/ADRs/0218-container-rollback-errors-walk-resumption-and-single-start.md)**
+(2026-11-09, under the owner's delegation, #1305). The item stays here so
+that the section numbers do not change. Chapter 06 §4.2 now requires that the
+reported failure gives access to the original failure and to the first
+compensation failure. Swift returns `.attachmentFailed(ContainerRollbackError)`,
+and Rust returns `VmxError::ContainerRollback`. C#, Python and TypeScript keep
+their shapes.
 
-- C# reports an `AggregateException` of both. TypeScript reports
-  `ContainerRollbackError(original, compensation)`. Python raises the
-  compensation error `from` the original.
-- Swift reports `.attachmentFailed(compensationError)` and Rust returns the
-  compensation error. Both drop the original failure (for example
-  `langs/swift/Sources/VMx/Composites/CompositeVM.swift:423-424` and
-  `langs/rust/src/groups.rs:328`).
-
-On the ordinary construct path no flavor rolls back siblings that already
-constructed. The spec does not say whether it should.
+One question stays open. On the ordinary construct path no flavor rolls back
+siblings that already constructed. The spec does not say whether it should.
 
 ## 2. Small spec gaps
 
@@ -94,13 +91,16 @@ channels, ADR-0174) delivers in subscription order, but no rule requires it.
 
 ### 2.7. Initial-current selector input after late adds
 
-With auto-construct on, a child added while a container is `Constructing` is
-joined by the construct walk (chapter 06 §5.1). C#, Python and TypeScript pass
-the live membership to the `Current(selector)` callback. Swift passes the
-membership taken before the walk, so the selector does not see a late child.
-The live membership can contain a child that an add has attached but not yet
-admitted. Every flavor treats that child as not contained, so selecting it is
-a no-op (ADR-0165, ADR-0173).
+**Decided by
+[ADR-0218](../../spec/ADRs/0218-container-rollback-errors-walk-resumption-and-single-start.md)**
+(2026-11-09, under the owner's delegation, #1312). The item stays here so that
+the section numbers do not change. Chapter 06 §3.2 now says that the
+`Current(selector)` callback receives the live membership when it runs, so it
+sees a late child (`COMP-053`). A pick of a child that an add has attached but
+not yet admitted stays a no-op (ADR-0165, ADR-0173).
+
+Before ADR-0218, Swift passed the membership taken before the walk. C#,
+Python, TypeScript and Rust already passed the live membership.
 
 ### 2.8. Removing a child during the construct walk
 

@@ -1,10 +1,11 @@
 use crate::models::{note_matches, InMemoryNoteRepository, NoteDraft, NoteModel, NotebookModel};
 use std::sync::{Arc, Mutex, MutexGuard};
 use vmx::{
-    AggregateVm6, Command, ComponentVm, CompositeVm, DecoratorCommand, DiscriminatorVm,
-    FilteredCompositeVm, FormVm, MessageHub, NotificationHub, NotificationReaction,
-    NotificationType, NotificationVm, NullDispatcher, PagedComposition, ParentHandle, RelayCommand,
-    SearchableState, TokenPagedComposition, VmNode, VmxError, VmxResult, NO_HOOK,
+    AggregateVm6, Command, ComponentVm, CompositeVm, ConfirmationVm, DecoratorCommand,
+    DiscriminatorVm, FilteredCompositeVm, FormVm, MessageHub, Notification, NotificationHub,
+    NotificationReaction, NotificationType, NotificationVm, NullDispatcher, PagedComposition,
+    ParentHandle, RelayCommand, Scheduler, SearchableState, SystemScheduler, TokenPagedComposition,
+    VmNode, VmxError, VmxResult, NO_HOOK,
 };
 
 const PAGE_SIZE: usize = 2;
@@ -762,19 +763,69 @@ impl GlobalSearchVm {
 
 impl_node!(GlobalSearchVm);
 
+/// One visible notification entry.
+///
+/// A confirmation arms no expiry timer, so it stays pending until `y` or `r`
+/// resolves it (spec/16 §7). Other notifications auto-dismiss.
+#[derive(Clone)]
+pub enum NotificationEntry {
+    Timed(NotificationVm),
+    Confirmation(ConfirmationVm),
+}
+
+impl NotificationEntry {
+    /// The notification this entry shows.
+    pub fn notification(&self) -> Notification {
+        match self {
+            Self::Timed(vm) => vm.notification(),
+            Self::Confirmation(vm) => vm.notification(),
+        }
+    }
+
+    pub fn is_resolved(&self) -> bool {
+        match self {
+            Self::Timed(vm) => vm.is_resolved(),
+            Self::Confirmation(vm) => vm.is_resolved(),
+        }
+    }
+
+    pub fn dismiss_command(&self) -> RelayCommand {
+        match self {
+            Self::Timed(vm) => vm.dismiss_command(),
+            Self::Confirmation(vm) => vm.dismiss_command(),
+        }
+    }
+
+    /// Resolves an entry dropped over the cap. A dropped confirmation is
+    /// rejected, so the hub never records an approval nobody gave.
+    fn evict(&self) {
+        match self {
+            Self::Timed(vm) => vm.dismiss(),
+            Self::Confirmation(vm) => vm.reject(),
+        }
+    }
+
+    pub fn dispose(&self) {
+        match self {
+            Self::Timed(vm) => vm.dispose(),
+            Self::Confirmation(vm) => vm.dispose(),
+        }
+    }
+}
+
 /// The entries a `NotificationsVm` shows, and whether disposal has emptied
 /// them for good. One lock guards both, so a post that races disposal either
 /// lands before it and is disposed with the rest, or sees the flag.
 #[derive(Default)]
 struct NotificationEntries {
     disposed: bool,
-    vms: Vec<NotificationVm>,
+    vms: Vec<NotificationEntry>,
 }
 
 impl NotificationEntries {
     /// Removes the resolved entries. The caller disposes them after it
     /// releases the lock.
-    fn take_resolved(&mut self) -> Vec<NotificationVm> {
+    fn take_resolved(&mut self) -> Vec<NotificationEntry> {
         self.vms.extract_if(.., |vm| vm.is_resolved()).collect()
     }
 }
@@ -783,14 +834,18 @@ impl NotificationEntries {
 pub struct NotificationsVm {
     core: ComponentVm<()>,
     hub: NotificationHub,
+    /// Runs the notification lifespans: real time in the app, virtual time in
+    /// tests.
+    scheduler: Arc<dyn Scheduler>,
     entries: Arc<Mutex<NotificationEntries>>,
 }
 
 impl NotificationsVm {
-    fn new(hub: MessageHub) -> Self {
+    fn new(hub: MessageHub, scheduler: Arc<dyn Scheduler>) -> Self {
         Self {
             core: ComponentVm::with_model("notifications", (), hub, NullDispatcher::new()),
             hub: NotificationHub::new(),
+            scheduler,
             entries: Arc::new(Mutex::new(NotificationEntries::default())),
         }
     }
@@ -811,11 +866,19 @@ impl NotificationsVm {
             }
             // Entries resolved through the hub must not hold a cap slot.
             let resolved = entries.take_resolved();
-            entries.vms.push(NotificationVm::with_hub(
-                notification.clone(),
-                self.hub.clone(),
-                60_000,
-            ));
+            let hub = self.hub.clone();
+            let scheduler = self.scheduler.clone();
+            entries.vms.push(match kind {
+                NotificationType::Confirmation => NotificationEntry::Confirmation(
+                    ConfirmationVm::with_scheduler(notification.clone(), hub, scheduler, 60_000),
+                ),
+                _ => NotificationEntry::Timed(NotificationVm::with_scheduler(
+                    notification.clone(),
+                    hub,
+                    scheduler,
+                    60_000,
+                )),
+            });
             let excess = entries.vms.len().saturating_sub(NOTIFICATION_CAP);
             (resolved, entries.vms.drain(..excess).collect::<Vec<_>>())
         };
@@ -826,7 +889,7 @@ impl NotificationsVm {
         // Over the cap, the oldest are dismissed, not just hidden, so the
         // hub's pending list stays bounded too.
         for vm in dropped {
-            vm.dismiss();
+            vm.evict();
             vm.dispose();
         }
         notification.id
@@ -842,9 +905,18 @@ impl NotificationsVm {
     /// An entry can be resolved outside this view-model: by its dismiss
     /// command, by `dismiss()`, by lifespan expiry or through the hub. Such
     /// an entry is removed and disposed here, before the list is returned.
-    pub fn visible(&self) -> Vec<NotificationVm> {
+    pub fn visible(&self) -> Vec<NotificationEntry> {
         self.dispose_resolved();
         lock(&self.entries).vms.clone()
+    }
+
+    /// Reports whether the hub still lists the notification. A confirmation
+    /// dropped over the cap is no longer pending.
+    pub fn is_pending(&self, notification_id: u64) -> bool {
+        self.hub
+            .pending()
+            .iter()
+            .any(|notification| notification.id == notification_id)
     }
 
     pub fn messages(&self) -> Vec<String> {
@@ -954,6 +1026,15 @@ impl WorkspaceVm {
     }
 
     pub fn new(repository: InMemoryNoteRepository) -> VmxResult<Self> {
+        Self::with_scheduler(repository, SystemScheduler)
+    }
+
+    /// Builds the workspace with `scheduler` as the clock of the notification
+    /// lifespans. Tests pass a `VirtualTimeScheduler`.
+    pub fn with_scheduler(
+        repository: InMemoryNoteRepository,
+        scheduler: impl Scheduler,
+    ) -> VmxResult<Self> {
         let hub = MessageHub::new();
         let notebooks = NotebooksVm::new(&repository, hub.clone());
         let notebook_id = notebooks.current_id.clone();
@@ -966,7 +1047,7 @@ impl WorkspaceVm {
             })?;
         let form = NoteFormVm::new(repository.clone(), selected, hub.clone());
         let global_search = GlobalSearchVm::new(repository.clone(), hub.clone());
-        let notifications = NotificationsVm::new(hub.clone());
+        let notifications = NotificationsVm::new(hub.clone(), Arc::new(scheduler));
         let editor = EditorModeVm::new(hub);
         let aggregate = AggregateVm6::new(
             "workspace",
@@ -990,9 +1071,12 @@ impl WorkspaceVm {
             move || {
                 // One delete confirmation at a time: a second request would
                 // replace the only slot that `y`/`r` resolve and strand the
-                // first confirmation.
-                if lock(&pending_delete).is_some() {
-                    return;
+                // first confirmation. A confirmation dropped over the cap
+                // frees the slot.
+                if let Some((_, _, notification_id)) = &*lock(&pending_delete) {
+                    if notifications.is_pending(*notification_id) {
+                        return;
+                    }
                 }
                 if let Some(note) = notes.current_note() {
                     let message = format!("Delete note '{}'?", note.title);
@@ -1121,6 +1205,10 @@ impl WorkspaceVm {
         let Some((note_id, title, notification_id)) = lock(&self.pending_delete).take() else {
             return;
         };
+        // A confirmation dropped over the cap deletes nothing.
+        if !self.notifications.is_pending(notification_id) {
+            return;
+        }
         self.notifications
             .resolve(notification_id, NotificationReaction::Approve);
         if self.repository.delete_note(&note_id).is_some() {

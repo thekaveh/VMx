@@ -17,6 +17,15 @@ below for them.
 - `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
   ADR-0222). They cover the #1367, #1430, #1352 and #1459 changes under
   Changed and Fixed.
+- `DelayedTask`: a disposable helper that holds at most one delayed action on
+  an injected scheduler. `schedule` replaces a pending action and restarts its
+  delay, `cancel` stops it, `is_pending` reports it, and `dispose` cancels it
+  (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+- `COMP-053` conformance tests (ADR-0218, #1312). The selector receives the
+  live membership. This flavor already behaved this way.
+- `COMP-040` tests now assert that the rollback error carries the original and
+  the first compensation failure (ADR-0218, #1305). This flavor already
+  behaved this way.
 - `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
   membership change during another open membership transaction fails at once
   and changes nothing. Python already behaved this way.
@@ -147,6 +156,26 @@ below for them.
 
 ### Fixed
 
+- A container walk that waited for a background child or for a late add now
+  continues on the container's own foreground dispatcher (ADR-0218, spec/02
+  §6, #1326). Before, later sibling starts, the `Current` change and consumer
+  callbacks ran on the dispatcher of the child that settled last. A walk whose
+  children settle at once still finishes on the caller.
+- An add now ends its start attempt after it ends its membership transaction
+  (ADR-0218, spec/06 §5.1, #1371). A container that a late add resumes
+  publishes `Constructed` outside that add's transaction, so a `Constructed`
+  subscriber can add a child.
+- A container whose construct hook a foreign `dispose()` superseded no longer
+  calls its children factory, and its `construct()` returns without an error
+  (ADR-0218, spec/02 §2.4, #1369). An `add()` during disposal still fails.
+- A walk or an auto-construct add no longer fails when another thread starts
+  the same child between its status check and its start call (ADR-0218,
+  spec/02 §6, spec/06 §5.1, #1370, #1375). The walk joins that transition,
+  and the add leaves it to the walk.
+- A failed add, insert, replacement or population that started a background
+  child now returns that child to `Destructed` once its construct settles
+  `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372, `COMP-054`,
+  `GRP-017`). Before, the child reached `Constructed` with no parent.
 - `ObservableList` no longer skips the `"Count"` notification when a
   granular or reset subscriber raises (#1367, spec/21 §3.3). Every
   subscriber of the event runs, `"Count"` follows when the count changed, and

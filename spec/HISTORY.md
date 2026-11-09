@@ -930,6 +930,33 @@ once (`CMDD-019`).
 See ADR-0220, ADR-0221, ADR-0222, chapter 03 §3.6, chapter 04 §8.4, chapter 09
 §1, and chapter 21 §2.5, §3.3 and §4.6.
 
+v3.30.0 also settles seven container walk and rollback rules. A rollback
+error gives access to the original failure and to the first compensation
+failure; Swift adds `ContainerRollbackError` and Rust adds
+`VmxError::ContainerRollback`. `Current(selector)` reads the live membership
+(`COMP-053`). A walk that resumed after a wait continues on its own foreground
+dispatcher. An add ends its start attempt after its membership transaction. A
+container that a foreign `dispose()` superseded calls no children factory. A
+walk or an auto-construct add joins or leaves a child transition that started
+in its check-then-start window. A failed add returns a background child to
+`Destructed` once its construct settles (`COMP-054`, `GRP-017`). The catalog
+now contains 487 library IDs plus 5 scenario IDs.
+
+See ADR-0218 and chapter 02 §2.4 and §6, chapter 06 §3.2, §4.2 and §5.1,
+chapter 07 §1.1 and §4, and chapter 11 §4.
+
+v3.30.0 also defines one clock for delayed work. The scheduler has `now` and a
+cancellable delayed `schedule`, and each flavor names one virtual-time test
+scheduler. Delayed work never goes through `IDispatcher`. Every flavor gains
+`DelayedTask`, which holds at most one pending action (`DLY-001`..`DLY-005`).
+Rust gains a `Scheduler` trait, `SystemScheduler` and `VirtualTimeScheduler`.
+Rust `SearchableState` now debounces its term, and Rust notification VMs take a
+scheduler in place of `advance_by_ms`. The catalog now contains 492 library
+IDs plus 5 scenario IDs.
+
+See ADR-0219, chapter 06 §8, chapter 11 §6, and chapter 16 §6 and §8.1.
+
 See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
 ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204, ADR-0214, ADR-0215, ADR-0216,
 ADR-0217, ADR-0220, ADR-0221, ADR-0222 and the affected behavior chapters.
+ADR-0217, ADR-0218, ADR-0219 and the affected behavior chapters.

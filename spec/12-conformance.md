@@ -24,6 +24,7 @@ UI-backed flagship examples. CI verifies library coverage via
 | `FWD-NNN`   | Forwarding decorators                                | `09-forwarding.md`                            |
 | `BLD-NNN`   | Builders                                             | `10-builders.md`                              |
 | `THR-NNN`   | Threading & schedulers                               | `11-threading.md`                             |
+| `DLY-NNN`   | Delayed work: scheduler and `DelayedTask`            | `11-threading.md`                             |
 | `UTIL-NNN`  | Tree utilities (spec v1.1)                           | `13-tree-utilities.md`                        |
 | `CAP-NNN`   | Capability micro-interfaces                          | `14-capabilities.md`                          |
 | `NULL-NNN`  | Null-object service variants                         | `03-messages.md` + `11-threading.md`          |
@@ -205,6 +206,9 @@ reaches `Constructed`
 **Then** terminal cleanup does not overlap the admitted hook
 **And** cleanup completes exactly once after the hook releases its lease
 **And** terminal supersession prevents any post-hook container lifecycle work
+**And** a container whose construct hook a foreign `dispose()` superseded does
+not call its children factory, and its `construct()` returns without an error
+(ADR-0218)
 **And** opposing foreign hook waits cannot deadlock
 
 ### LIFE-016 — The child-transition helper waits for a background child
@@ -2077,14 +2081,16 @@ the clock advances by 6 s more
 
 ______________________________________________________________________
 
-## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..052`)
+## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..054`)
 
 Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
 see ADR-0016), builder hooks (COMP-025..026, see ADR-0042), the destruct
 order option (COMP-046, see ADR-0161), the construct-walk membership rule
 (COMP-047, see ADR-0186), the cross-thread membership rule (COMP-048, see
-ADR-0187), and the `Disposed`-child, `Destructing` and child-`select()` rules
-(COMP-050..052, see ADR-0188 and ADR-0189) additions to chapter 06.
+ADR-0187), the `Disposed`-child, `Destructing` and child-`select()` rules
+(COMP-050..052, see ADR-0188 and ADR-0189), and the selector input and
+background-child compensation rules (COMP-053..054, see ADR-0218) additions to
+chapter 06.
 
 ### COMP-014 — SearchableState defaults to empty search term
 
@@ -2343,6 +2349,9 @@ after deferred disposal completes even if disposal also fails
 membership boundary
 **And** if required lifecycle compensation itself raises, the rollback failure
 is surfaced rather than swallowed; exact lifecycle restoration is then not claimed
+**And** the reported failure gives access to the original failure and to the
+first compensation failure, in the shape that `06-composite-vm.md §4.2` gives
+for the flavor (ADR-0218)
 
 ### COMP-041 — Transfer notifications commit removal before addition
 
@@ -2551,6 +2560,40 @@ three calls and `c` after the callback returns, and `p` publishes
 > Normatively defined in `05-component-vm.md §6` and `06-composite-vm.md §3.1`.
 > See ADR-0188.
 
+### COMP-053 — The `Current(selector)` input is the live membership
+
+**Given** a `CompositeVM<VM>` `p` built with `AutoConstructOnAdd(true)` and a
+`Current(selector)` hook, with one member `a` whose construction completes in
+the background
+**And** the selector records its input and returns child `l` when `l` is in
+that input
+**When** `p.construct()` is called, and `l` is added while `p` is
+`Constructing` and the walk waits on `a`
+**And** the background work then runs
+**Then** `p` reaches `Constructed`
+**And** the selector ran once, and its input contained `a` and `l`
+**And** `p.Current == l`, and `l.IsCurrent` is true
+
+> Normatively defined in `06-composite-vm.md §3.2`. See ADR-0218.
+
+### COMP-054 — A failed add returns a background child to `Destructed`
+
+**Given** a `CompositeVM<VM>` `p` built with `AutoConstructOnAdd(true)`, and a
+queued background scheduler that has not run yet
+**And** a `Destructed` child `c` whose construction completes in the
+background, and a subscriber that calls `p.dispose()` when `c` publishes
+`Constructing`
+**When** `p.Add(c)` is called while `p` is `Constructed`, and again on a fresh
+`p` and `c` while `p` is `Constructing`
+**Then** each add fails with the flavor's disposal error, and `c` has no parent
+**And** after the background and foreground work drains, `c` is `Destructed`,
+with no parent
+**And** the same holds for `Insert` and for a replacement at an index
+**And** a synchronous child in the same steps makes the add fail, and the
+child ends `Destructed` with no parent
+
+> Normatively defined in `06-composite-vm.md §4.2`. See ADR-0218.
+
 ### SRCH-001 — source signal refreshes an unchanged search term
 
 **Given** a `SearchableState` over `["one"]` with an optional source-change
@@ -2588,8 +2631,6 @@ mutated and emits a pulse
 **Then** the source pulse immediately refreshes using the current new term
 **And** the pending term delivery is neither canceled nor restarted and remains
 eligible at its original deadline
-**And** a flavor whose established reactive facade delivers term notifications
-synchronously proves the source and term notifications remain independent
 
 ### SRCH-005 — source completion or failure is isolated
 
@@ -2631,7 +2672,6 @@ output delivers only its initial value on subscribe; ADR-0198)
 `["one", "two"]`
 **When** a new term is set
 **Then** one filtered notification occurs after its debounce window
-(synchronously in Rust, which has no debounce)
 
 ### SRCH-009 — a failing predicate or `Filtered` subscriber keeps the helper live
 
@@ -2654,7 +2694,7 @@ structure
 
 ______________________________________________________________________
 
-## 21. GroupVM v2.0 additions (`GRP-007..016`)
+## 21. GroupVM v2.0 additions (`GRP-007..017`)
 
 Search/filter additions to chapter 07. The helper is the same
 `SearchableState<TItem>` documented for composites (see ADR-0014); group-context
@@ -2758,6 +2798,17 @@ that `COMP-048` lists
 **And** the membership, the parent links and the collection-change stream of
 `g` are unchanged by the refused calls
 **And** after the open transaction ends, the same calls succeed
+
+### GRP-017 — A failed group add returns a background child to `Destructed`
+
+**Given** a `GroupVM<VM>` `g` built with `AutoConstructOnAdd(true)`, and a
+queued background scheduler that has not run yet
+**When** the steps of `COMP-054` run against `g`
+**Then** each add, insert and replacement fails, and the child has no parent
+**And** after the background and foreground work drains, the child is
+`Destructed`, with no parent
+
+> Normatively defined in `07-group-vm.md §1.1`. See ADR-0218.
 
 ______________________________________________________________________
 
@@ -5567,3 +5618,82 @@ exactly once at reload start
 became current
 **Then** the newer operation stays current, and the superseded completion
 causes no state or command notification
+
+______________________________________________________________________
+
+## 33. Delayed work (`DLY-NNN`) — spec v3.30
+
+Chapter 11 §6 and ADR-0219 define the scheduler and `DelayedTask`. Each test
+injects the flavor's virtual-time test scheduler (chapter 11 §6.1) and
+advances it.
+
+### DLY-001 — a scheduled action runs once at its due time
+
+**Given** a `DelayedTask` over a virtual-time scheduler at time 0
+**When** an action is scheduled with a delay of 10 s
+**Then** `IsPending` is `true`
+**When** the scheduler is advanced by 9 s
+**Then** the action has not run and `IsPending` is `true`
+**When** the scheduler is advanced by 1 s more
+**Then** the action has run once, and it read `IsPending` as `false`
+**And** `IsPending` is `false`
+**When** the scheduler is advanced by 10 s more
+**Then** the action has still run only once
+
+**Given** a `DelayedTask` whose action schedules itself again with a delay of
+5 s until it has run three times
+**When** the first schedule has a delay of 5 s and the scheduler is advanced by
+30 s
+**Then** the action ran at 5 s, 10 s and 15 s, and `IsPending` is `false`
+
+### DLY-002 — a second schedule replaces the pending action and restarts the delay
+
+**Given** a `DelayedTask` over a virtual-time scheduler at time 0
+**When** action A is scheduled with a delay of 10 s
+**And** the scheduler is advanced by 6 s
+**And** action B is scheduled with a delay of 10 s
+**And** the scheduler is advanced by 9 s, to 15 s
+**Then** neither A nor B has run and `IsPending` is `true`
+**When** the scheduler is advanced by 1 s more, to 16 s
+**Then** B has run once
+**And** A never runs, also after a further advance past 20 s
+
+### DLY-003 — cancel prevents the pending action
+
+**Given** a `DelayedTask` over a virtual-time scheduler with no pending action
+**When** `cancel()` is called
+**Then** nothing happens and `IsPending` is `false`
+**When** an action is scheduled with a delay of 10 s and `cancel()` is called
+at 4 s
+**Then** `IsPending` is `false`
+**And** the action does not run when the scheduler is advanced past 10 s
+**When** a new action is scheduled after the cancel
+**Then** the new action runs at its own due time
+
+### DLY-004 — disposal cancels the pending action, and later calls have no effect
+
+**Given** a `DelayedTask` over a virtual-time scheduler with a pending action
+**When** the task is disposed twice
+**Then** `IsPending` is `false`
+**And** the action does not run when the scheduler is advanced past its due
+time
+**When** `schedule` and `cancel` are called after disposal
+**Then** no error is raised, `IsPending` stays `false`, and the newly scheduled
+action never runs
+**And** the scheduler is still usable for other work
+
+### DLY-005 — a failing action stays isolated, and the task stays usable
+
+**Given** a `DelayedTask` over a virtual-time scheduler and an action that
+fails (throws, raises or panics)
+**When** the action is scheduled and the scheduler is advanced past its due
+time
+**Then** the failure does not reach the code that advances the scheduler, and
+it follows the stream-fed route of chapter 03 §3.6
+**And** `IsPending` is `false`
+**When** a second action is scheduled and the scheduler is advanced past its
+due time
+**Then** the second action runs once
+
+Swift actions cannot fail. The Swift test shows that the action type is a
+non-throwing closure and that a second schedule after a run still runs.

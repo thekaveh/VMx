@@ -7,7 +7,7 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 
 - Package: `vmx-rs`, imported as the crate `vmx`; it ships the repository's
   Apache-2.0 text
-- Version: `vmx-rs` 0.36.0 implements spec 3.30.0; the MSRV is Rust 1.88
+- Version: `vmx-rs` 0.37.0 implements spec 3.30.0; the MSRV is Rust 1.88
 - Publication status: not published on crates.io
 - Reactive primitive: VMx-owned hot-stream facade (ADR-0103)
 - Cargo features: `notifications`, on by default, builds the notification

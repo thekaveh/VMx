@@ -21,6 +21,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   ADR-0222). `FWD-006` covers the #1352 fix below. Swift already met `COL-072`
   and `CMDD-019`: list and key-view publishers cannot fail, and a disposed
   wrapper notifies its own subscribers once.
+- `DelayedTask`: a disposable helper that holds at most one delayed action on
+  an injected scheduler. `schedule(after:_:)` replaces a pending action and
+  restarts its delay, `cancel()` stops it, `isPending` reports it, and
+  `dispose()` cancels it (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+  It accepts any Combine `Scheduler`, such as `DispatchQueue.main` or
+  `VirtualTimeScheduler`. Releasing the task also cancels its pending action.
 - Catchable `Result` forms for three operations that trap on invalid input
   (ADR-0217, #1349). `FilteredCompositeVM.setCurrentResult(_:)` returns a
   `CompositeMembershipError` failure for an item that is not visible and
@@ -139,6 +145,15 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Changed
 
+- **Breaking:** when a failed container change also fails its lifecycle
+  compensation, the reported error now carries the original failure and the
+  first compensation failure (ADR-0218, spec/06 §4.2, #1305, `COMP-040`).
+  Swift returns
+  `ContainerOwnershipError.attachmentFailed(ContainerRollbackError)`, with
+  `originalError` and `compensationError`. Before, the payload was the
+  compensation error. A caller that casts the `attachmentFailed` payload to
+  its own error type must now unwrap
+  `ContainerRollbackError.compensationError` or `originalError`.
 - The construct walk of a composite or group now counts members only
   (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
   joins a child, and again after the child settles. A child that a removal or
@@ -187,6 +202,34 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   decision and its version consequence.
 
 ### Fixed
+
+- A container walk that waited for a background child or for a late add now
+  continues on the container's own foreground dispatcher (ADR-0218, spec/02
+  §6, #1326). Before, later sibling starts, the `Current` change and consumer
+  callbacks ran on the dispatcher of the child that settled last. A walk whose
+  children settle at once still finishes on the caller.
+
+- An add now ends its start attempt after it ends its membership transaction
+  (ADR-0218, spec/06 §5.1, #1371). A container that a late add resumes
+  publishes `Constructed` outside that add's transaction, so a `Constructed`
+  subscriber can add a child.
+
+- A container whose construct hook a foreign `dispose()` superseded no longer
+  calls its children factory, and its `construct()` returns without an error
+  (ADR-0218, spec/02 §2.4, #1369). An `add()` during disposal still fails.
+
+- A walk or an auto-construct add no longer fails when another thread starts
+  the same child between its status check and its start call (ADR-0218,
+  spec/02 §6, spec/06 §5.1, #1370, #1375). The walk joins that transition,
+  and the add leaves it to the walk.
+
+- A failed add, insert, replacement or population that started a background
+  child now returns that child to `Destructed` once its construct settles
+  `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372, `COMP-054`,
+  `GRP-017`). Before, the child reached `Constructed` with no parent.
+
+- `Current(selector)` now receives the live membership, so it can pick a late
+  child (ADR-0218, spec/06 §3.2, #1312, `COMP-053`).
 
 - The `_notifyPropertyChanged` and `_raisePropertyChanged` helpers of a
   `ForwardingComponentVM` or `ForwardingCompositeVM` now act on the wrapped VM

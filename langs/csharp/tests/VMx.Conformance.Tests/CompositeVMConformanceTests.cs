@@ -968,6 +968,8 @@ public class CompositeVMConformanceTests
         release.Set();
         await Task.WhenAll(construct, dispose).WaitAsync(HangGuard);
         (await dispose).Should().BeNull();
+        (await construct).Should().BeNull(
+            "a construct that a foreign dispose superseded returns without an error (ADR-0218)");
         composite.Dispose();
 
         log.Should().Equal(["hook-enter", "hook-exit", "cleanup:composite"],
@@ -976,6 +978,75 @@ public class CompositeVMConformanceTests
         composite.Status.Should().Be(ConstructionStatus.Disposed);
         constructed.Should().Be(0,
             "terminal supersession prevents post-hook container lifecycle work");
+    }
+
+    /// <summary>
+    /// LIFE-015 (ADR-0218 rule 5): factory population is a post-hook container
+    /// action. A foreign dispose that supersedes the construct hook stops it:
+    /// the factory is never called, nothing attaches, and Construct() returns
+    /// without an error. Runs for CompositeVM, CompositeVMOf and GroupVM, with
+    /// a factory that returns no child and one that returns a child.
+    /// </summary>
+    [Theory, Trait("Conformance", "LIFE-015")]
+    [InlineData("composite", false)]
+    [InlineData("composite", true)]
+    [InlineData("composite-of", false)]
+    [InlineData("composite-of", true)]
+    [InlineData("group", false)]
+    [InlineData("group", true)]
+    public async Task LIFE_015_Foreign_Dispose_Stops_Factory_Population(string kind, bool withChild)
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var factoryCalls = 0;
+        var statuses = new System.Collections.Concurrent.ConcurrentQueue<ConstructionStatus>();
+        void Hook()
+        {
+            entered.Set();
+            release.Wait(HangGuard).Should().BeTrue();
+        }
+        IEnumerable<ComponentVM> Factory()
+        {
+            Interlocked.Increment(ref factoryCalls);
+            return withChild ? [ComponentVM.Builder().Name("child").Services(hub, dispatcher).Build()] : [];
+        }
+        IComponentVM container = kind switch
+        {
+            "composite" => CompositeVM<ComponentVM>.Builder()
+                .Name("root").Services(hub, dispatcher).Children(Factory).OnConstruct(Hook).Build(),
+            "composite-of" => CompositeVMOfM<string, ComponentVM>.Builder()
+                .Name("root").Services(hub, dispatcher)
+                .ChildrenModels(() => Factory().Select(child => child.Name))
+                .ChildModelToChildViewModel(name => ComponentVM.Builder().Name(name).Services(hub, dispatcher).Build())
+                .OnConstruct(Hook).Build(),
+            _ => GroupVM<ComponentVM>.Builder()
+                .Name("root").Services(hub, dispatcher).Children(Factory).OnConstruct(Hook).Build(),
+        };
+        container.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(IComponentVM.Status)) statuses.Enqueue(container.Status);
+        };
+
+        var construct = Task.Factory.StartNew(
+            () => Record.Exception(container.Construct),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        entered.Wait(HangGuard).Should().BeTrue();
+        var dispose = Task.Factory.StartNew(
+            () => Record.Exception(((IDisposable)container).Dispose),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        // Give the foreign disposal time to be requested while the hook is held.
+        await Task.Delay(100);
+        release.Set();
+        await Task.WhenAll(construct, dispose).WaitAsync(HangGuard);
+
+        (await construct).Should().BeNull("a superseded construct returns without an error");
+        (await dispose).Should().BeNull();
+        Volatile.Read(ref factoryCalls).Should().Be(0, "a superseded hook calls no children factory");
+        ((IEnumerable<IComponentVM>)container).Should().BeEmpty();
+        statuses.Should().Equal(ConstructionStatus.Constructing, ConstructionStatus.Disposed);
+        container.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
     private sealed class CleanupProbeComposite(
@@ -1049,6 +1120,8 @@ public class CompositeVMConformanceTests
         release.Set();
         await Task.WhenAll(construct, dispose).WaitAsync(HangGuard);
         (await dispose).Should().BeNull();
+        (await construct).Should().BeNull(
+            "a construct that a foreign dispose superseded returns without an error (ADR-0218)");
         composite.Dispose();
 
         var entries = log.ToList();
@@ -1511,6 +1584,57 @@ public class CompositeVMConformanceTests
         failure.Flatten().InnerExceptions.Should().Contain(error =>
             error is InvalidOperationException && error.Message == "compensation failure",
             "a failed lifecycle compensation is surfaced rather than swallowed");
+        // ADR-0218 rule 1: the original failure first, then the compensation failure.
+        failure.InnerExceptions.Should().HaveCount(2);
+        failure.InnerExceptions[0].Should().BeOfType<ObjectDisposedException>(
+            "the original failure comes first");
+        failure.InnerExceptions[1].Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Be("compensation failure");
+    }
+
+    /// <summary>
+    /// COMP-040 (ADR-0218 rule 1): a failed add whose compensation also fails
+    /// reports both failures, the original first, for a composite and a group.
+    /// </summary>
+    [Theory, Trait("Conformance", "COMP-040")]
+    [InlineData("composite")]
+    [InlineData("group")]
+    public void COMP_040_Failed_Add_Reports_Original_And_Compensation_Failure(string kind)
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        IDisposable? destination = null;
+        var child = ComponentVM<string>.Builder()
+            .Name("child").Services(hub, dispatcher).Model("m")
+            .OnConstruct(() => destination!.Dispose())
+            .OnDestruct(() => throw new InvalidOperationException("compensation failure"))
+            .Build();
+        Action add;
+        if (kind == "composite")
+        {
+            var composite = CompositeVM<ComponentVM<string>>.Builder()
+                .Name("destination").Services(hub, dispatcher).Children(() => [])
+                .AutoConstructOnAdd(true).Build();
+            composite.Construct();
+            destination = composite;
+            add = () => composite.Add(child);
+        }
+        else
+        {
+            var group = GroupVM<ComponentVM<string>>.Builder()
+                .Name("destination").Services(hub, dispatcher).Children(() => [])
+                .AutoConstructOnAdd(true).Build();
+            group.Construct();
+            destination = group;
+            add = () => group.Add(child);
+        }
+
+        var failure = add.Should().Throw<AggregateException>().Which;
+        failure.InnerExceptions.Should().HaveCount(2);
+        failure.InnerExceptions[0].Should().BeOfType<ObjectDisposedException>(
+            "the original failure comes first");
+        failure.InnerExceptions[1].Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Be("compensation failure");
     }
 
     [Fact, Trait("Conformance", "COMP-040")]

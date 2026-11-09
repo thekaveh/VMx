@@ -182,7 +182,11 @@ Hook admission is part of the same atomic transition decision. Once a
 construct/destruct hook is admitted, foreign `dispose()` publishes the terminal
 status but waits for that hook and its container action before running terminal
 cleanup. The hook rechecks terminal supersession before any post-hook container
-action, so disposed parents cannot begin new child work. If two active hooks
+action, so disposed parents cannot begin new child work. Factory population is
+such an action. A container whose construct hook a foreign `dispose()`
+superseded does not call its children factory and attaches nothing. Its
+`construct()` returns without an error, as §7.2 says for a superseded call
+(ADR-0218, `LIFE-015`). An `add()` during disposal still fails. If two active hooks
 cross-dispose their peers, the flavor's wait-for graph breaks the cycle by
 deferring one VM's terminal cleanup to its admitted hook's completion; both
 hooks and both teardown paths still run exactly once. TypeScript's
@@ -323,6 +327,21 @@ respect to other lifecycle operations on the same VM.
   A child in its inline dispose cascade (§7.2) is not `Disposed` yet. A walk
   call on that child fails with the `Disposed` error (`LIFE-021`), and the
   container rolls back. `LIFE-022` covers this rule.
+- A walk starts a child only when no transition of the child is in flight. It
+  checks this together with its start call (ADR-0218). A walk that finds a
+  transition of the child in flight in the walk's own direction joins it: a
+  construct for a construct walk, a destruct for a destruct walk. This
+  includes one that another thread started after the walk read the status. A child whose
+  `reconstruct()` is in its destruct phase settles at `Constructed`, so a
+  container `destruct()` that joins it fails and rolls back. Rust container
+  destruct walks do not join an in-flight destruct yet; the Rust parity
+  status records the gap.
+- A walk that waited, for a child to settle or for an add's start attempt,
+  and did not continue at once, continues on the walking VM's own foreground
+  dispatcher. This covers the rest of the walk, its `after` step, its commit
+  step and the terminal publication. A walk whose waits all end at once runs
+  on the calling thread to its end (chapter 11 §4, ADR-0218). The rule also
+  covers the child-transition helper of §6.1.
 - The order in which children are constructed/destructed is unspecified,
   except as the next item says. Implementations MAY drive them sequentially or
   concurrently. The reference implementations drive aggregates and the Rust

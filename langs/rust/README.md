@@ -4,7 +4,7 @@ Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framewo
 
 ## 1. Status
 
-**v0.36.0** implements spec 3.30.0. Behavioral Rust tests cover every
+**v0.37.0** implements spec 3.30.0. Behavioral Rust tests cover every
 library conformance ID. Rust has no UI scenario suite for the THEME IDs.
 
 The public surface and some behaviors are not fully aligned with the other
@@ -24,7 +24,7 @@ flavors. See the
 
 ```toml
 [dependencies]
-vmx-rs = "0.36.0"
+vmx-rs = "0.37.0"
 
 # Or, from the repository:
 # vmx-rs = { git = "https://github.com/thekaveh/VMx.git" }
@@ -120,6 +120,11 @@ The crate uses idiomatic Rust naming and error handling:
   empty term.
 - `ValueStream<T>` provides typed replay and completion. Message subscriptions
   can observe completion, and notification pending state replays.
+- Delayed work runs on a `Scheduler`: `SystemScheduler` in real time, or
+  `VirtualTimeScheduler` in tests. `DelayedTask` holds at most one pending
+  action for a debounce, a timer or a polling loop. `SearchableState`
+  debounces term changes, 1 second by default, and the notification VMs
+  expire on their scheduler.
 - `DerivedProperty` recomputes from one through five owned source
   subscriptions. `AsyncValue<T>` is an executor-neutral `Future` with
   synchronous `wait()`, `map`, and `and_then`.

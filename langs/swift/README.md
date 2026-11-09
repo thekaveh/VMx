@@ -131,6 +131,7 @@ Key exports:
 | `DefaultDispatcher`             | Main + global-userInitiated Dispatch wrapper     |
 | `ImmediateDispatcher.INSTANCE`  | Synchronous test dispatcher                      |
 | `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
+| `DelayedTask`                   | One replaceable delayed action on an injected Combine scheduler (spec/11 §6.3) |
 | `ConstructionStatus`            | 5-state lifecycle enum                           |
 | `StatusTransitionError`         | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` and the select calls on a refused selection (ADR-0053, ADR-0173) |

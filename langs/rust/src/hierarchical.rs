@@ -1249,6 +1249,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> VmN
         self.inner.component.core.when_settled(callback)
     }
 
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.inner.component.core.background_errors())
+    }
+
     fn id(&self) -> usize {
         HierarchicalVm::id(self)
     }

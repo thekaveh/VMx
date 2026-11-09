@@ -1,4 +1,5 @@
 using VMx.Components;
+using VMx.Lifecycle;
 
 namespace VMx.Forwarding;
 
@@ -139,4 +140,8 @@ internal sealed class ForwardingMembership(IComponentVM wrapper, IComponentVM wr
     // through the decorator's own (virtual) DestructAsync (spec/09).
     internal Task? TryJoinDestructAsync()
         => (_wrapped as IComponentVMInternals)?.TryJoinDestructAsync();
+
+    internal bool ConstructInFlightOrConstructed()
+        => (_wrapped as IComponentVMInternals)?.ConstructInFlightOrConstructed()
+            ?? _wrapped.Status == ConstructionStatus.Constructed;
 }

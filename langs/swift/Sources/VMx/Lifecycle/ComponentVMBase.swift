@@ -40,6 +40,21 @@ public enum ContainerOwnershipError: Error {
     case attachmentFailed(Error)
 }
 
+/// The inner error of `ContainerOwnershipError.attachmentFailed` when a
+/// failed add, insert, index replacement or population also fails its
+/// lifecycle compensation (spec/06 §4.2, ADR-0218). It keeps both failures.
+public struct ContainerRollbackError: Error, CustomStringConvertible {
+    /// The failure that started the rollback.
+    public let originalError: Error
+    /// The first failure of the lifecycle compensation.
+    public let compensationError: Error
+
+    public var description: String {
+        "container change failed: \(originalError); "
+            + "lifecycle compensation also failed: \(compensationError)"
+    }
+}
+
 /// Internal ownership surface kept separate from public selection delegation.
 protocol OwnershipParentVM: AnyObject {
     var ownershipOwner: ComponentVMBase { get }
@@ -535,8 +550,10 @@ enum ChildWalkSeal {
 }
 
 /// Walks a parent's children through one transition, waiting on each child
-/// left in its transient status (spec/02 §6). Cancellation never settles the
-/// deferral, so a disposed parent publishes nothing further.
+/// left in its transient status (spec/02 §6). A walk that waited continues
+/// through `resume`, on the parent's foreground dispatcher (ADR-0218 rule 3).
+/// Cancellation never settles the deferral, so a disposed parent publishes
+/// nothing further.
 final class ChildTransitionWalker {
     private let lock = NSLock()
     private var children: [ComponentVMBase]
@@ -564,6 +581,12 @@ final class ChildTransitionWalker {
     private let membership: ChildMembership?
     private let target: ConstructionStatus
     private let transient: ConstructionStatus
+    /// Test-only: runs after the walk read a child's status and before it
+    /// starts the child.
+    private let beforeStart: (ComponentVMBase) -> Void
+    /// Runs a resumed walk on the walking VM's foreground dispatcher
+    /// (spec/02 §6, ADR-0218 rule 3).
+    private let resume: (@escaping () -> Void) -> Void
     private var currentDeferral = LifecycleDeferral()
     /// Settled when the walk finishes; a seal that joins another late child
     /// replaces it with a fresh one (`seal()`).
@@ -576,8 +599,12 @@ final class ChildTransitionWalker {
         joined: [ComponentVMBase] = [],
         lateChild: LateChildSource? = nil,
         superseded: @escaping () -> Bool = { false },
-        membership: ChildMembership? = nil
+        membership: ChildMembership? = nil,
+        beforeStart: @escaping (ComponentVMBase) -> Void = { _ in },
+        resume: @escaping (@escaping () -> Void) -> Void = { $0() }
     ) {
+        self.beforeStart = beforeStart
+        self.resume = resume
         self.children = children
         self.after = after
         self.joined = Set(joined.map(ObjectIdentifier.init))
@@ -773,7 +800,16 @@ final class ChildTransitionWalker {
             }
             if status != target && status != transient
                 && !joined.contains(ObjectIdentifier(child)) {
-                if target == .constructed { try child.construct() } else { try child.destruct() }
+                beforeStart(child)
+                do {
+                    if target == .constructed { try child.construct() } else { try child.destruct() }
+                } catch let error as StatusTransitionError {
+                    // Another thread started the same transition after the
+                    // status read: join it instead (ADR-0218 rule 6).
+                    guard child._isInTransition(transient) || child.status == target else {
+                        throw error
+                    }
+                }
             }
             // A child container whose state is already flipped but whose
             // commit is still in flight is waited for like a transient one.
@@ -823,8 +859,8 @@ final class ChildTransitionWalker {
         child.status == .disposed || child._ownershipIdentity._isDisposalRequested()
     }
 
-    /// A late child's add finished its start attempt: resume the walk,
-    /// which now joins that child.
+    /// A late child's add finished its start attempt: resume the walk on the
+    /// owner's foreground, where it joins that child (ADR-0218 rule 3).
     private func startAttempted(_ child: ComponentVMBase) {
         lock.lock()
         guard !cancelled, let waitingStart, waitingStart === child else {
@@ -833,12 +869,9 @@ final class ChildTransitionWalker {
         }
         self.waitingStart = nil
         lock.unlock()
-        do {
-            if try advance() { return }
-            settle(true)
-        } catch {
-            // A deferred failure has no caller to rethrow to: roll back.
-            settle(false)
+        resume { [self] in
+            guard !self.isCancelled else { return }
+            self.continueWalk()
         }
     }
 
@@ -853,13 +886,26 @@ final class ChildTransitionWalker {
         // The child rolled back: roll the parent back, unless it left the
         // container meanwhile (ADR-0186). A child that reached Disposed during
         // the wait ends the wait as a success (ADR-0189).
-        guard child.status == target || Self.isDisposed(child) || !counts(child) else {
-            settle(false)
-            return
+        let reached = child.status == target || Self.isDisposed(child) || !counts(child)
+        // The rest of the walk, its rollback included, runs on the owner's
+        // foreground (ADR-0218 rule 3).
+        resume { [self] in
+            guard !self.isCancelled else { return }
+            guard reached else {
+                self.settle(false)
+                return
+            }
+            self.lock.lock()
+            self.index += 1
+            self.lock.unlock()
+            self.continueWalk()
         }
-        lock.lock()
-        index += 1
-        lock.unlock()
+    }
+
+    private var isCancelled: Bool { lock.withLock { cancelled } }
+
+    /// Continues a walk that waited, and settles it when it ends.
+    private func continueWalk() {
         do {
             if try advance() { return }
             settle(true)
@@ -1010,6 +1056,8 @@ open class ComponentVMBase {
     private var deferredDisposalCascade: (() -> [ComponentVMBase])?
     /// Test-only seam (#1167); see `afterHookReleaseForTesting`.
     private var _afterHookReleaseForTesting: (() -> Void)?
+    /// Test-only seam (#1370); see `childStartProbeForTesting`.
+    private var _childStartProbeForTesting: ((ComponentVMBase) -> Void)?
 
     // ── Deferred child transitions (spec/02 §6, LIFE-014) ───────────────
 
@@ -1678,7 +1726,11 @@ open class ComponentVMBase {
     ///   (construct) or `.destructing` (destruct) and does not start it again.
     /// - A child that stays in its transient status (a background child)
     ///   defers this VM's terminal status. This VM stays `.constructing` or
-    ///   `.destructing` until the child settles, and then the walk continues.
+    ///   `.destructing` until the child settles, and then the walk continues
+    ///   on this VM's foreground dispatcher. A walk that never waits runs on
+    ///   the calling thread to its end (ADR-0218 rule 3).
+    /// - A child whose same transition another thread started after the walk
+    ///   read its status is joined, not started again (ADR-0218 rule 6).
     /// - A child that reaches `.disposed` while the walk waits for it ends
     ///   the wait as a success (spec/02 §6, ADR-0189).
     /// - A child that settles at any other status fails the walk. This VM
@@ -1753,7 +1805,9 @@ open class ComponentVMBase {
             joined: joined,
             lateChild: lateChild,
             superseded: { [weak self] in self?._isDisposalRequested() ?? true },
-            membership: construct ? membership : nil
+            membership: construct ? membership : nil,
+            beforeStart: { [weak self] child in self?.childStartProbeForTesting?(child) },
+            resume: { [weak self] work in self?.dispatcher.scheduleForeground(work) }
         )
         if construct, lateChild != nil {
             // Late children are sealed at commit time (spec/06 §5.1).
@@ -2184,6 +2238,22 @@ open class ComponentVMBase {
         set {
             lifecycleLock.lock()
             _afterHookReleaseForTesting = newValue
+            lifecycleLock.unlock()
+        }
+    }
+
+    /// Test-only seam (#1370, #1375): runs in this VM's child walk after it
+    /// read a child's status and before it starts that child, so a test can
+    /// start the same child on another thread in that window.
+    var childStartProbeForTesting: ((ComponentVMBase) -> Void)? {
+        get {
+            lifecycleLock.lock()
+            defer { lifecycleLock.unlock() }
+            return _childStartProbeForTesting
+        }
+        set {
+            lifecycleLock.lock()
+            _childStartProbeForTesting = newValue
             lifecycleLock.unlock()
         }
     }

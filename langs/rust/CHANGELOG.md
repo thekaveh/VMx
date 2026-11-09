@@ -6,12 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.36.0] — unreleased source version
+## [0.37.0] — unreleased source version
 
-0.36.0 is the first `vmx-rs` release on crates.io. Versions 0.1.0 to 0.35.0
+0.37.0 is the first `vmx-rs` release on crates.io. Versions 0.1.0 to 0.36.0
 were not published to a registry, so this package also contains the changes in
-the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
-3.30.0.
+the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
+3.30.0. The version moves past 0.36.0 because 0.37.0 removes public API
+(CONTRIBUTING §2.8).
 
 ### Added
 
@@ -20,6 +21,41 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `COL-072` and `FWD-006`: each subscriber runs inside `catch_unwind`, and the
   forwarding decorators' `notify_property_changed` already called the wrapped
   VM's helper.
+- `DelayedTask`: a disposable helper that holds at most one delayed action on
+  an injected scheduler. `schedule` replaces a pending action and restarts its
+  delay, `cancel` stops it, `is_pending()` reports it, and disposal cancels it
+  (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+- The `Scheduler` trait, `ScheduledAction`, `SystemScheduler` and
+  `VirtualTimeScheduler` (ADR-0219, spec/11 §6.1, #670).
+- `SearchableState::with_debounce` and `SearchableState::with_scheduler`
+  (#1261).
+- `NotificationVm::with_scheduler` and `ConfirmationVm::with_scheduler` take an
+  injected scheduler, as in the other flavors (ADR-0219, spec/16 §6, #1265).
+
+### Changed
+
+- `SearchableState` now debounces term changes. A term change sends its
+  `filtered` message after the debounce, 1 second by default, on the
+  scheduler's thread. A zero debounce keeps the immediate message. `search()`
+  and source-change messages stay immediate (ADR-0219, spec/06 §8, #1261).
+- `NotificationVm::new`/`with_hub` and `ConfirmationVm::new`/`with_hub` use
+  `SystemScheduler`, so a notification built with them now expires in real
+  time (#1265). A notification VM stops its clock when it observes a hub
+  resolution, not at the next read (ADR-0197).
+
+### Removed
+
+- `NotificationVm::advance_by_ms` and `ConfirmationVm::advance_by_ms`. Advance
+  a `VirtualTimeScheduler` instead (ADR-0219, #1265).
+
+## [0.36.0] — unreleased source version
+
+0.36.0 implements spec 3.30.0.
+
+### Added
+
+- `COMP-053` conformance tests (ADR-0218, #1312). The selector receives the
+  live membership. This flavor already behaved this way.
 
 - `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
   tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
@@ -340,6 +376,13 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Changed
 
+- **Breaking:** when a failed container change also fails its lifecycle
+  compensation, the reported error now carries the original failure and the
+  first compensation failure (ADR-0218, spec/06 §4.2, #1305, `COMP-040`).
+  The change adds `VmxError::ContainerRollback { original, compensation }`.
+  An exhaustive `match` on `VmxError` needs the new arm. Before, Rust
+  returned only the compensation error.
+
 - `DecoratorCommand` and `ConfirmationDecoratorCommand` now have their own
   change hub (#1459, spec/04 §8.4). It relays each change of the inner
   command's hub, and `dispose()` sends one more message on it and then disposes
@@ -613,6 +656,31 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   is the snapshot that is current at subscription.
 
 ### Fixed
+
+- A container walk that waited for a background child or for a late add now
+  continues on the container's own foreground dispatcher (ADR-0218, spec/02
+  §6, #1326). Before, later sibling starts, the `Current` change and consumer
+  callbacks ran on the dispatcher of the child that settled last. A walk whose
+  children settle at once still finishes on the caller.
+
+- An add now ends its start attempt after it ends its membership transaction
+  (ADR-0218, spec/06 §5.1, #1371). A container that a late add resumes
+  publishes `Constructed` outside that add's transaction, so a `Constructed`
+  subscriber can add a child.
+
+- A walk or an auto-construct add no longer fails when another thread starts
+  the same child between its status check and its start call (ADR-0218,
+  spec/02 §6, spec/06 §5.1, #1370). The walk joins that transition, and the
+  add leaves it to the walk. This covers construct only. The container
+  destruct walks still join no in-flight destruct (Rust parity ledger
+  §12.14).
+
+- A failed add, insert, replacement or population that started a background
+  child now returns that child to `Destructed` once its construct settles
+  `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372, `COMP-054`,
+  `GRP-017`). Before, the child reached `Constructed` with no parent. A
+  failure of that later `destruct()` goes to the child's own
+  `background_errors()` stream, not to the container's.
 
 - `NotificationHub::dispose()` sends no final empty snapshot (ADR-0197,
   #1476). It sends no value on `pending_stream()` and no `pending` message on

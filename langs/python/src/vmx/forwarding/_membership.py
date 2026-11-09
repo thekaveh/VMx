@@ -189,3 +189,6 @@ class _ForwardingMembership(_ComponentVMBase):
 
     def _join_transition_future(self, *, construct: bool) -> Future[None]:
         return self._wrapped_component._join_transition_future(construct=construct)
+
+    def _join_raced_transition(self, *, construct: bool) -> Future[None] | None:
+        return self._wrapped_component._join_raced_transition(construct=construct)

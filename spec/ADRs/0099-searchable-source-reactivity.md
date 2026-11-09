@@ -1,6 +1,6 @@
 # ADR 0099 — Add source reactivity to SearchableState
 
-**Status:** Accepted (2026-07-12)
+**Status:** Accepted (2026-07-12; §2.7 superseded by [ADR-0219](0219-scheduler-contract-delayed-task-and-rust-timers.md))
 **Spec version:** introduced in 3.19.0
 
 ## 1. Context
@@ -90,6 +90,9 @@ Rust's existing term notification is synchronous rather than scheduler-backed;
 the source pulse remains an independent immediate trigger. This records the
 pre-existing facade mapping rather than changing the public output shape in this
 focused issue.
+
+ADR-0219 §2.5 supersedes this section. Rust `SearchableState` now debounces its
+term on an injected scheduler, with a default of 1 second.
 
 ## 3. Consequences
 

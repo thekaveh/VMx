@@ -187,5 +187,7 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
     Task IComponentVMInternals.JoinConstructAsync() => _membership.JoinConstructAsync();
 
     Task? IComponentVMInternals.TryJoinDestructAsync() => _membership.TryJoinDestructAsync();
+
+    bool IComponentVMInternals.ConstructInFlightOrConstructed() => _membership.ConstructInFlightOrConstructed();
 }
 #pragma warning restore CA1051

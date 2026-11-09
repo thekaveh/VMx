@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Rust crate.
 You will build a `ComponentVm<Model>`, a `RelayCommand`, and a `CompositeVm<T>`
 with child selection — all in a plain Cargo binary.
 
-> The Rust source line v0.36.0 declares `MIN_SPEC_VERSION = "3.30.0"` and has
+> The Rust source line v0.37.0 declares `MIN_SPEC_VERSION = "3.30.0"` and has
 > behavioral tests for every library conformance ID. The
 > [Rust flavor page](../flavors/rust.md) describes its status and parity
 > evidence.

@@ -4,10 +4,11 @@ An add attaches its child under the container's membership gate and starts it
 only after it releases the gate, so the container's construct walk can pull
 the child first. An add that will start its child while the container is
 Constructing registers a start record as it attaches the child, and marks it
-done right after its construct attempt. The walk never starts a late child: it
-waits for that attempt, then joins the child if it is still a member
-(ADR-0186). A failed add marks its record done only after its undo detached
-the child, so the walk then skips it. A late child without a record
+done only after it ends its membership transaction, on success and on failure
+(ADR-0218). The walk never starts a late child: it waits for that attempt,
+then joins the child if it is still a member (ADR-0186). So the container
+publishes Constructed outside the add's transaction. A failed add's undo has
+detached the child by then, so the walk skips it. A late child without a record
 was not started by an add, so the walk skips it. Each construct walk owns a
 scope of records, so a stale walk (abandoned, failed, or no longer current)
 never takes or clears another walk's records, and a scope's records go with it.
@@ -51,10 +52,11 @@ class _StartRecord:
 
     @property
     def attempted(self) -> Future[None]:
-        """Completes once the add's construct attempt returned or raised."""
+        """Completes once the add ended its membership transaction (ADR-0218)."""
         return self._attempted
 
     def mark_done(self) -> None:
+        """Mark the attempt done; the add calls it after its transaction ended."""
         with self._lock:
             if self._done:
                 return

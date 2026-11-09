@@ -88,7 +88,7 @@ them from a VMx checkout until their first registry release.
 | TypeScript    | [`@thekaveh/vmx` 3.30.0](https://www.npmjs.com/package/@thekaveh/vmx/v/3.30.0) on npm           | v3.31.0     |
 | React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.3      |
 | C#            | Not yet published to NuGet                                                                      | v3.30.0     |
-| Rust          | Not yet published to crates.io                                                                  | v0.36.0     |
+| Rust          | Not yet published to crates.io                                                                  | v0.37.0     |
 
 A source line can be ahead of its public package. The
 [`compatibility-matrix.md`](compatibility-matrix.md) ledger records which

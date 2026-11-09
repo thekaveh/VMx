@@ -174,6 +174,7 @@ The public API lives under the `VMx.*` namespaces:
 | `NullMessageHub` (.Instance)    | Null-object variant per ADR-0017                  |
 | `RxDispatcher` / `IDispatcher`  | Foreground/background scheduler pair              |
 | `NullDispatcher` (.Instance)    | Null-object variant per ADR-0017                  |
+| `DelayedTask`                   | One replaceable delayed action on an injected scheduler (spec/11 §6.3) |
 | `ConstructionStatus`            | 5-state lifecycle enum                            |
 | `StatusTransitionException`     | Thrown on illegal lifecycle operations            |
 | `BuilderValidationException`    | Thrown when a builder is missing required fields  |
