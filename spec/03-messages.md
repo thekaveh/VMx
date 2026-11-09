@@ -149,7 +149,9 @@ The contract is **lossless deferral**, not message coalescing:
    reached its current subscribers. Delivery MUST NOT recurse on the call
    stack.
 1. Disposing the hub during a transaction completes the stream and drops the
-   undelivered queue. Subsequent sends remain no-ops.
+   undelivered queue. Subsequent sends remain no-ops. A `Batch` on a disposed
+   hub, or on a hub whose disposal is requested, runs its body. The body holds
+   no scope that another call waits for (ADR-0184).
 
 Outside a transaction, an ordinary top-level `Send` remains hot and
 synchronous: it drains its message (and any finite re-entrant descendants)
@@ -280,8 +282,9 @@ exit. These rules apply in every threaded flavor (ADR-0172).
    drainer's outermost `Send` returns with an empty queue (§3.3).
 1. **Borrower calls.** A borrower's own `Send`, `Batch`, and `Dispose` on the
    hub it borrowed do not wait. `Send` enqueues for the drain at the borrowed
-   scope's exit. `Batch` nests another borrowed scope. `Dispose` records
-   terminal intent. The last of the batch owner, the drainer, and the
+   scope's exit. `Batch` nests another borrowed scope while no disposal is
+   requested. After a disposal is requested, the body runs with no new scope
+   (§3.3, ADR-0184). `Dispose` records terminal intent. The last of the batch owner, the drainer, and the
    borrowers to release the hub finishes the disposal. A drainer stops
    waiting for borrowed scopes once a disposal is requested, so its wait never
    holds a disposal open. A drain that is still delivering a message when the

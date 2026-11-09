@@ -4,7 +4,12 @@ Recorded: **2026-10-18**, against the `overnight-maintenance` branch (spec
 3.29.0). Each item below is a known difference between flavors or a gap in the
 specification. None of them is accidental drift. Do not change one flavor to
 match the others until the owner decides the rule and records it in the spec
-and an ADR. Remove an item when that ADR lands.
+and an ADR.
+
+When an ADR closes an item, remove the item from its section and add a row to
+§6 that names the ADR and the pull request. A closed item keeps no stub, and
+its number is not used again, so an ADR that cites the number still finds it in
+§6.
 
 Paths are relative to the repository root. Line numbers are those of the
 recording date.
@@ -126,29 +131,6 @@ is still awaited: if it then fails, the container rolls back although it no
 longer owns that child. A late child removed before the walk reaches it is
 skipped. The spec does not say which behavior is intended.
 
-### 2.9. Selecting from a composite's own structural transaction
-
-**Decided by ADR-0173** (2026-11-07, under the owner's delegation). The item
-stays here so that the section numbers do not change. Chapter 06 §4.3 now
-states the rule for every flavor:
-
-- No selection opens, joins or waits for a membership transaction.
-- On the thread that owns an uncommitted transaction of the composite, every
-  selection call fails with the "membership transaction in progress" error,
-  also a null clear. A transaction is uncommitted while an attached child
-  waits for admission, a population is staged, or a transfer's detach has not
-  committed. A failed add therefore needs no `Current` restore, and a hook
-  that selects an admitted sibling or clears `Current` cannot survive the
-  rollback.
-- From the commit on, including the `CollectionChanged` publication, the
-  owner thread's selection commits. A `CollectionChanged` subscriber can
-  select in the composite that is publishing an add.
-
-Before ADR-0173, C# and Python reused the transaction in both phases, and
-TypeScript, Swift and Rust rejected the selection in both phases. An add to
-the same composite from that subscriber's call chain stays rejected in every
-flavor (ADR-0118).
-
 ### 2.10. Cross-thread membership admission
 
 When another thread holds a container's membership transaction, a new
@@ -174,18 +156,9 @@ calls fail instead.
 
 ## 3. Swift signatures that cannot throw
 
-Swift `Command.execute()` cannot throw
-(`langs/swift/Sources/VMx/Commands/Command.swift:15`).
-
-- CMDD-010: Swift tests only a throwing confirm, not a throwing inner command.
-- CMDD-013: no Swift test runs a throwing inner command through the post-action.
-  The spec has no Swift exemption.
-- FORM-035 and FORM-036: `spec/20-form-vm.md` exempts Swift validators and
-  `equals`. The exemption does not mention the deny snapshotter, which also
-  cannot throw in Swift.
-
-Other Swift operations that trap instead of throwing are listed under ADR-0009,
-ADR-0037 and ADR-0053.
+None open. ADR-0184 closed the CMDD-010, CMDD-013 and FORM-035/036 snapshotter
+gaps (§6). Other Swift operations that trap instead of throwing are listed under
+ADR-0009, ADR-0037 and ADR-0053.
 
 ## 4. Tests parked as known defects
 
@@ -197,3 +170,13 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
   §12.4.7 and §12.7–§12.12.
 - The remaining Notes Showcase UX policies stay with the owner and are not
   listed here.
+
+## 6. Closed items
+
+| Item  | Title                                                                                         | Closed by | Pull request                                       |
+| ----- | --------------------------------------------------------------------------------------------- | --------- | -------------------------------------------------- |
+| §1.4  | Notifications of an update nested in a form callback                                          | ADR-0180  | [#1239](https://github.com/thekaveh/VMx/pull/1239) |
+| §2.6  | `SetModel` while approval publishes                                                           | ADR-0174  | [#1211](https://github.com/thekaveh/VMx/pull/1211) |
+| §2.9  | Selecting from a composite's own structural transaction                                       | ADR-0173  | [#1212](https://github.com/thekaveh/VMx/pull/1212) |
+| §2.11 | Lifecycle call during a container's inline dispose cascade                                    | ADR-0175  | [#1216](https://github.com/thekaveh/VMx/pull/1216) |
+| §3    | Swift: throwing inner command in CMDD-010 and CMDD-013, and the FORM-035/036 deny snapshotter | ADR-0184  | PRNUM                                              |
