@@ -14,7 +14,7 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps
 from vmx._subscriber_failures import FanOutSubject
-from vmx.collections._delivery import deliver_then_publish
+from vmx.collections._delivery import deliver_then_publish, first_failure, notify_then_raise
 from vmx.collections.observable_list import ObservableList, ReadOnlyObservableList
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
@@ -257,15 +257,14 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         drop_key2 = not any(_same_key(k2, key2) for _, k2 in self._key_order)
 
         # Keys2 first, so a keys1 subscriber sees the updated keys2, as on add
-        # (#1075). Keys1 is updated even when a keys2 subscriber raises.
-        try:
-            if drop_key2:
-                self._notify_keys2(lambda: self._keys2.remove(key2))
-        finally:
-            if drop_key1:
-                self._remove_key1(key1)
-
-        self._on_removed(key1, key2, value, index)
+        # (#1075). A raising key-view subscriber skips neither the other key
+        # view nor the dictionary's events and hub message; its failure is
+        # re-raised after them (#1430).
+        key_view_failure = first_failure(
+            lambda: self._notify_keys2(lambda: self._keys2.remove(key2)) if drop_key2 else None,
+            lambda: self._remove_key1(key1) if drop_key1 else None,
+        )
+        notify_then_raise(key_view_failure, lambda: self._on_removed(key1, key2, value, index))
         return True
 
     def __delitem__(self, key: tuple[TKey1, TKey2]) -> None:
@@ -279,12 +278,13 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._key_order.clear()
         self._version += 1
         # Keys2 first, so a keys1 subscriber sees the cleared keys2, as on add
-        # (#1075). Keys1 is updated even when a keys2 subscriber raises.
-        try:
-            self._notify_keys2(self._keys2.clear)
-        finally:
-            self._clear_keys1()
-        self._on_reset()
+        # (#1075). A raising key-view subscriber skips neither the other key
+        # view nor the dictionary's events and hub message (#1430).
+        key_view_failure = first_failure(
+            lambda: self._notify_keys2(self._keys2.clear),
+            self._clear_keys1,
+        )
+        notify_then_raise(key_view_failure, self._on_reset)
 
     # ── Enumeration ───────────────────────────────────────────────────────────
 
@@ -339,12 +339,15 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         # first-appearance order (#772).
         # Decide by the entries, not by keys1: a pending key1 is not listed yet.
         new_key1 = not any(_same_key(k1, key1) for k1, _ in self._key_order[:-1])
-        if not self._keys2_contains(key2):
-            self._keys2.add(key2)
-        if new_key1:
-            self._add_key1(key1, version)
-
-        self._on_added(key1, key2, value, index)
+        new_key2 = not self._keys2_contains(key2)
+        # A raising key-view subscriber skips neither the other key view nor
+        # the dictionary's events and hub message; its failure is re-raised
+        # after them (#1430).
+        key_view_failure = first_failure(
+            lambda: self._keys2.add(key2) if new_key2 else None,
+            lambda: self._add_key1(key1, version) if new_key1 else None,
+        )
+        notify_then_raise(key_view_failure, lambda: self._on_added(key1, key2, value, index))
 
     def _add_key1(self, key1: TKey1, version: int) -> None:
         # Append key1 unless a keys2 subscriber changed the entries, or a

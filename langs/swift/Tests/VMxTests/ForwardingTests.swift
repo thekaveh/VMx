@@ -587,4 +587,68 @@ final class ForwardingTests: XCTestCase {
         XCTAssertFalse(decorator.canSelect())
         XCTAssertTrue(decorator.selectCommand === inner.selectCommand)
     }
+
+    // ── Decorator notification helpers (#1352) ─────────────────────────
+
+    private func assertHelpersPublishThroughWrapped(
+        inner: ComponentVMBase,
+        decorator: ComponentVMBase,
+        hub: MessageHub
+    ) {
+        var messages: [PropertyChangedMessage] = []
+        let hubCancel = hub.messages
+            .compactMap { $0 as? PropertyChangedMessage }
+            .sink { messages.append($0) }
+        var names: [String] = []
+        let localCancel = decorator.propertyChanged.sink { names.append($0) }
+
+        decorator._notifyPropertyChanged("custom")
+
+        XCTAssertEqual(names, ["custom"])
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertTrue(messages.first?.sender === inner)
+        XCTAssertEqual(messages.first?.propertyName, "custom")
+
+        decorator._raisePropertyChanged("local")
+
+        XCTAssertEqual(names, ["custom", "local"])
+        XCTAssertEqual(messages.count, 1)
+
+        inner.dispose()
+        names.removeAll()
+        messages.removeAll()
+        decorator._notifyPropertyChanged("after")
+        decorator._raisePropertyChanged("after")
+
+        XCTAssertEqual(names, [])
+        XCTAssertTrue(messages.isEmpty)
+        hubCancel.cancel()
+        localCancel.cancel()
+    }
+
+    /// A component decorator's notification helpers act on the wrapped VM
+    /// (#1352): one hub message with the wrapped VM as sender, one
+    /// `propertyChanged` emission, nothing after the wrapped VM is disposed.
+    func testComponentDecoratorHelpersPublishThroughWrapped() throws {
+        let hub = MessageHub()
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner")
+            .model("m")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .build()
+        let decorator = NoopForwardingComponent(inner)
+        assertHelpersPublishThroughWrapped(inner: inner, decorator: decorator, hub: hub)
+    }
+
+    /// The composite decorator follows the same rule (#1352).
+    func testCompositeDecoratorHelpersPublishThroughWrapped() throws {
+        let hub = MessageHub()
+        let inner = try CompositeVM<ComponentVM>.builder()
+            .name("inner")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [] }
+            .build()
+        let decorator = NoopForwardingComposite(inner)
+        assertHelpersPublishThroughWrapped(inner: inner, decorator: decorator, hub: hub)
+    }
 }

@@ -793,7 +793,7 @@ fn confirmation_resolving_while_disposing_runs_the_inner_command_at_most_once() 
 }
 
 /// CMDD-011 — Disposing a decorator or confirmation decorator leaves the inner
-/// command's change hub, which they delegate to, open
+/// command's change hub open and sends its subscribers nothing
 #[test]
 fn decorator_disposal_leaves_the_delegated_inner_change_hub_open() {
     let inner = RelayCommand::noop();
@@ -1154,4 +1154,45 @@ fn execute_never_runs_the_inner_command_inside_its_own_call() {
         seen.recv_timeout(Duration::from_millis(50)).is_err(),
         "the inner command ran exactly once"
     );
+}
+
+/// Disposing a live wrapper notifies the wrapper's change-hub subscribers
+/// once; a second dispose and the inner subscribers get nothing (#1459)
+#[test]
+fn wrapper_disposal_notifies_wrapper_subscribers_once() {
+    fn assert_once(wrapper: &dyn Command, inner: &RelayCommand, dispose: &dyn Fn()) {
+        let wrapper_seen = Arc::new(Mutex::new(0usize));
+        let inner_seen = Arc::new(Mutex::new(0usize));
+        let (w, i) = (wrapper_seen.clone(), inner_seen.clone());
+        let _wrapper_subscription = wrapper
+            .can_execute_changed()
+            .subscribe(move |_| *w.lock().unwrap() += 1);
+        let _inner_subscription = inner
+            .can_execute_changed()
+            .subscribe(move |_| *i.lock().unwrap() += 1);
+
+        dispose();
+        dispose();
+
+        assert_eq!(*wrapper_seen.lock().unwrap(), 1);
+        assert_eq!(*inner_seen.lock().unwrap(), 0);
+        assert!(!wrapper.can_execute());
+    }
+
+    let inner = RelayCommand::noop();
+    let composite = CompositeCommand::from_commands(vec![inner.clone()]);
+    assert_once(&composite, &inner, &|| composite.dispose());
+
+    let inner = RelayCommand::noop();
+    let decorator = DecoratorCommand::new(
+        inner.clone(),
+        None::<fn() -> bool>,
+        None::<fn()>,
+        None::<fn()>,
+    );
+    assert_once(&decorator, &inner, &|| decorator.dispose());
+
+    let inner = RelayCommand::noop();
+    let confirming = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
+    assert_once(&confirming, &inner, &|| confirming.dispose());
 }

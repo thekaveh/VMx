@@ -36,6 +36,13 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
     private readonly List<(Delegate Handler, NotifyCollectionChangedEventHandler Wrapper)> _localHandlers = [];
     private ExceptionDispatchInfo? _deliveryFailure;
 
+    // PropertyChanged handlers. ObservableCollection raises Count and Item[]
+    // before OnCollectionChanged, so their first failure waits here until
+    // OnCollectionChanged has raised CollectionChanged and sent the hub
+    // message (#1430).
+    private PropertyChangedEventHandler? _propertyChanged;
+    private ExceptionDispatchInfo? _propertyFailure;
+
     /// <summary>
     /// Initializes a new instance, optionally wiring it to <paramref name="hub"/>.
     /// </summary>
@@ -91,6 +98,38 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
                 }
             }
         }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Every handler receives each change once, even when an earlier handler
+    /// throws. A throwing handler skips neither <see cref="CollectionChanged"/>
+    /// nor the hub message of the mutation; the mutation rethrows the first
+    /// failure after the hub send (#1430).
+    /// </remarks>
+    protected override event PropertyChangedEventHandler? PropertyChanged
+    {
+        add
+        {
+            lock (_localHandlers) _propertyChanged += value;
+        }
+        remove
+        {
+            lock (_localHandlers) _propertyChanged -= value;
+        }
+    }
+
+    /// <inheritdoc/>
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+    {
+        // A nested mutation from a handler keeps its own failure: the outer
+        // failure is set aside while the handlers run.
+        ExceptionDispatchInfo? outerFailure = _propertyFailure;
+        _propertyFailure = null;
+        PropertyChangedEventHandler? handler;
+        lock (_localHandlers) handler = _propertyChanged;
+        ExceptionDispatchInfo? failure = FanOut.Raise(handler, h => h(this, e));
+        _propertyFailure = outerFailure ?? failure;
     }
 
     private bool RunMatches(int start, Delegate[] entries)
@@ -174,6 +213,10 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         //    delivery keeps its own first failure. The handlers are invoked
         //    here, not through base.OnCollectionChanged, so no reentrancy
         //    block applies (ADR-0214).
+        //    A PropertyChanged failure of this mutation came first, so it
+        //    takes precedence.
+        ExceptionDispatchInfo? propertyFailure = _propertyFailure;
+        _propertyFailure = null;
         ExceptionDispatchInfo? outerFailure = _deliveryFailure;
         _deliveryFailure = null;
         NotifyCollectionChangedEventHandler[] wrappers;
@@ -183,7 +226,7 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
             for (int i = 0; i < wrappers.Length; i++) wrappers[i] = _localHandlers[i].Wrapper;
         }
         foreach (NotifyCollectionChangedEventHandler wrapper in wrappers) wrapper(this, e);
-        ExceptionDispatchInfo? firstFailure = _deliveryFailure;
+        ExceptionDispatchInfo? firstFailure = propertyFailure ?? _deliveryFailure;
         _deliveryFailure = outerFailure;
 
         // 2. Publish to hub (if present).

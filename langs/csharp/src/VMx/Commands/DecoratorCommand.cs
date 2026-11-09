@@ -70,13 +70,16 @@ public sealed class DecoratorCommand : ICommand, IDisposable
     }
 
     /// <summary>
-    /// Makes the decorator inert and unsubscribes from the inner command's
-    /// <c>CanExecuteChanged</c> (spec §8.4, ADR-0134). Idempotent. The inner command
-    /// stays owned by its creator.
+    /// Makes the decorator inert, unsubscribes from the inner command's
+    /// <c>CanExecuteChanged</c>, and raises this decorator's
+    /// <see cref="CanExecuteChanged"/> once (spec §8.4, ADR-0134). Idempotent.
+    /// The inner command stays owned by its creator, and its own handlers
+    /// receive nothing. Every handler runs; the first failure is rethrown.
     /// </summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _inner.CanExecuteChanged -= _innerHandler;
+        FanOut.Raise(CanExecuteChanged, handler => handler(this, EventArgs.Empty))?.Throw();
     }
 }

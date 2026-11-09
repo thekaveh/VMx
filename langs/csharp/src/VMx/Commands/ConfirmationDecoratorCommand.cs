@@ -171,8 +171,9 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
 
     /// <summary>
     /// Makes the decorator inert, unsubscribes from the inner command's
-    /// <c>CanExecuteChanged</c>, and completes the <see cref="Errors"/> channel
-    /// (spec §8.4, ADR-0134). Idempotent. A pending confirmation that resolves later
+    /// <c>CanExecuteChanged</c>, raises this decorator's
+    /// <see cref="CanExecuteChanged"/> once, and completes the
+    /// <see cref="Errors"/> channel (spec §8.4, ADR-0134). Idempotent. A pending confirmation that resolves later
     /// runs no inner command and emits nothing; the inner command stays owned by its
     /// creator.
     /// </summary>
@@ -185,7 +186,9 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
             _inner.CanExecuteChanged -= _innerHandler;
         }
 
-        ExceptionDispatchInfo? firstError = null;
+        // One change notification for this decorator's handlers (spec §8.4).
+        ExceptionDispatchInfo? firstError =
+            FanOut.Raise(CanExecuteChanged, handler => handler(this, EventArgs.Empty));
         FirstFailure.Capture(ref firstError, _errors.OnCompleted);
         FirstFailure.Capture(ref firstError, _errors.Dispose);
         firstError?.Throw();
