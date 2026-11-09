@@ -707,6 +707,25 @@ before a persister starts prevents the persister call (`FORM-041`,
 
 See ADR-0180 and chapter 20 §5.4 and §10.
 
+v3.30.0 also states the outcome of a loader's own cancellation. A current
+`AsyncResourceVM` loader that ends with its flavor's native cancellation signal
+restores the operation's saved stable state, as `Cancel` does, even when the VM
+did not request it. A C# timeout stays a failure, and a superseded loader's
+cancellation is stale (`ARES-012`). The catalog now contains 452 library IDs
+plus 5 scenario IDs.
+
+See ADR-0199 and chapter 23 §5 and §7.
+
+v3.30.0 also gives each lifecycle failure one reporting route. The call that
+runs a cycle-deferred terminal cleanup reports the cleanup's first failure when
+it has no earlier failure. In a shared-scheduler flush, the first failure is
+thrown to the flush's caller, and every other failure goes to the flavor's
+unhandled-error route after the flush returns. A scheduler that cancels its
+queued work on purpose marks itself first, so VMx runs none of that work. No
+conformance ID is added.
+
+See ADR-0200 and chapter 02 §2.4, §6.1, and §7.
+
 v3.30.0 also makes two composite selection refusals silent. A refused child
 `select()` or `deselect()` changes nothing and raises nothing in every flavor.
 While a composite is `Destructing`, a non-null selection changes nothing and
@@ -735,7 +754,7 @@ upstream publisher and follows the flavor's `HUB-007` route. A call-fed failure
 is rethrown in C# and Python after delivery. A failing `SearchableState`
 predicate keeps the last snapshot (`HUB-007`, `DPROP-013`, `SRCH-009`,
 `CMD-021`, `COL-069`). The subscribers of one `AggregateChangeStream` envelope
-now receive it in subscription order (`AGCH-011`). The catalog now contains 460
+now receive it in subscription order (`AGCH-011`). The catalog now contains 461
 library IDs plus 5 scenario IDs.
 
 See ADR-0191, ADR-0192, chapter 03 §3.4 and §3.6, and chapter 21 §9.5.

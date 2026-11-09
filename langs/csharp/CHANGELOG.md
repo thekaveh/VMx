@@ -21,6 +21,19 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Fixed: `AggregateChangeStream` now delivers each envelope to its subscribers
   in subscription order, for item, structural, final `Batch` and completion
   delivery (ADR-0192, spec/21 §9.5, #1310, `AGCH-011`).
+- Fixed: a current `AsyncResourceVM` loader that ends with its own
+  cancellation now restores the saved stable state, as `Cancel` does, instead
+  of installing `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The
+  cancellation can come from any source, such as a shared request that another
+  owner cancels. A superseded loader's cancellation changes nothing. A
+  `TimeoutException` inner exception stays a failure.
+- Fixed: a terminal cleanup that a wait cycle deferred to an admitted hook's
+  thread no longer loses its failure (ADR-0200, spec/02 §2.4 and §7, #1297).
+  When the hook succeeds, the hook's `Construct()`, `Destruct()` or
+  `Reconstruct()` call now raises the cleanup's first failure, such as a
+  failing child disposal. A hook failure stays first. The cycle-broken
+  `Dispose()` call returns normally. The async methods and the background form
+  report the failure as they report a hook failure.
 - Added: `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
 - Fixed: Disposing the current child of a composite now clears the

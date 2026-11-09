@@ -18,6 +18,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   already behaved this way. The Rust dictionary has no local channel, and
   `SearchableState` is pull-based, so a failing predicate panics in the caller
   of `filtered()`.
+- A regression test for a cycle-deferred disposal failure (ADR-0200,
+  #1297). Rust already returned the failure from the hook thread's call.
 - The `notifications` Cargo feature, which `default` includes (ADR-0211,
   #1264). It gates the notification sub-package of spec/16:
   `NotificationHub`, `NullNotificationHub`, `NotificationHubApi`,
@@ -222,6 +224,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A current `AsyncResourceVm` loader that ends with its own cancellation now
+  restores the saved stable state, as `cancel` does, instead of installing
+  `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The cancellation can come
+  from any source, such as a shared request that another owner cancels. A
+  superseded loader's cancellation changes nothing. The signal is
+  `Err(VmxError::Cancelled)`. `load_async` and `reload_async` return after the
+  restore is published, as they do after a loader failure.
 - `NotificationVm::is_resolved()` and `ConfirmationVm::is_resolved()` no
   longer change from `true` to `false` when `dispose()` races a hub
   `resolve` (ADR-0211, #1293). Both view models now read the hub under their
