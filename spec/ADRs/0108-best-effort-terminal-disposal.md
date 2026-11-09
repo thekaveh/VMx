@@ -1,6 +1,6 @@
 # ADR 0108 — Complete terminal disposal before propagating errors
 
-**Status:** Accepted (2026-07-14)
+**Status:** Accepted (2026-07-14; Extended by ADR-0200)
 **Spec version:** introduced in 3.22.0
 
 ## 1. Context
