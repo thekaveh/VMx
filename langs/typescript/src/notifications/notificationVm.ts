@@ -27,7 +27,8 @@ const DEFAULT_LIFESPAN_MS = 60_000;
  * Exposes UI-bindable state:
  * - `notification` — the consumed datum
  * - `lifespanMs` — configured lifespan in milliseconds (default 60 000)
- * - `remainingMs` — decays toward 0 via the injected scheduler
+ * - `remainingMs` — decays toward 0 via the injected scheduler, then keeps its
+ *   value from the first resolution or disposal (ADR-0197)
  * - `opacity` — derived `remainingMs / lifespanMs`, range [0.0, 1.0]
  * - `isResolved` — `true` once resolved
  * - `dismissCommand` — resolves with Approve and cancels the timer
@@ -56,6 +57,8 @@ export class NotificationVM {
 
   #isResolved = false;
   #disposed = false;
+  /** Remaining time kept at the first resolution or disposal (ADR-0197). */
+  #keptRemainingMs: number | null = null;
   #timerHandle: ReturnType<SchedulerLike["schedule"]> | null = null;
   #pendingSub: Subscription | null = null;
   #tickHandle: Subscription | null = null;
@@ -133,11 +136,12 @@ export class NotificationVM {
     return this.#lifespanMs;
   }
 
-  /** Remaining time in milliseconds. Decays toward 0. */
+  /**
+   * Remaining time in milliseconds. Decays toward 0 until the first
+   * resolution or disposal, then keeps that value (ADR-0197).
+   */
   get remainingMs(): number {
-    const elapsed = this.#scheduler.now() - this.#startTime;
-    const remaining = this.#lifespanMs - elapsed;
-    return remaining > 0 ? remaining : 0;
+    return this.#keptRemainingMs ?? this.#computeRemainingMs();
   }
 
   /**
@@ -160,6 +164,7 @@ export class NotificationVM {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#keepRemainingMs();
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;
     this.#pendingSub?.unsubscribe();
@@ -230,6 +235,17 @@ export class NotificationVM {
 
   // ── Private ─────────────────────────────────────────────────────────────────
 
+  #computeRemainingMs(): number {
+    const elapsed = this.#scheduler.now() - this.#startTime;
+    const remaining = this.#lifespanMs - elapsed;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  /** Keeps the remaining time from the first resolution or disposal. */
+  #keepRemainingMs(): void {
+    this.#keptRemainingMs ??= this.#computeRemainingMs();
+  }
+
   #onExpire(): void {
     this.onExpire();
   }
@@ -238,6 +254,7 @@ export class NotificationVM {
     // A disposed VM's later resolution paths are inert (DISP-004).
     if (this.#disposed || this.#isResolved) return;
     this.#isResolved = true;
+    this.#keepRemainingMs();
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;
     this.#tickHandle?.unsubscribe();
@@ -249,6 +266,7 @@ export class NotificationVM {
   #resolveWith(reaction: NotificationReaction): void {
     if (this.#disposed || this.#isResolved) return;
     this.#isResolved = true;
+    this.#keepRemainingMs();
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;
     this.#tickHandle?.unsubscribe();
@@ -260,6 +278,7 @@ export class NotificationVM {
   #notifyExternalResolve(): void {
     if (this.#isResolved) return;
     this.#isResolved = true;
+    this.#keepRemainingMs();
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;
     this.#tickHandle?.unsubscribe();

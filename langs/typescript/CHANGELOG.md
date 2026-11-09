@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `NOTIF-020` conformance tests (#1476, ADR-0197). A `pending` subscription
+  made after hub disposal receives completion only. TypeScript already behaved
+  this way.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -100,6 +103,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `NotificationVM` and `ConfirmationVM` keep `remainingMs` and `opacity` from
+  their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306). Before,
+  both values kept decaying with the scheduler clock after resolution or
+  `dispose()`, and no change notification reported the new values.
+- `SearchableState` construction no longer starts a term debounce (ADR-0198,
+  `SRCH-008`, #1307). Before, the seeded empty term emitted one filtered
+  snapshot one debounce window after construction, with no term change or
+  `search()` call.
 - A `FormVM` call nested in a preparation callback or an `errorsChanged`
   observer of `setModel` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,
