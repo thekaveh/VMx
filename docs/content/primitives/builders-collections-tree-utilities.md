@@ -418,7 +418,8 @@ Representative traversal contract:
   output as an error and leave the node retryable. Swift `walk`,
   `walkExpanded`, and `find` are `throws` functions, so each call needs `try`.
   Rust `walk`, `walk_expanded`, and `find` return a `VmxResult`. C#, Python,
-  and TypeScript raise the `children` error when the walk reaches the node
+  and TypeScript raise the `Children` / `children` error when the walk reaches
+  the node
   ([spec/13 §6.1](../../../spec/13-tree-utilities.md#61-invalid-factory-output)).
 
 On the collection side, the Notes Workspace note lists and notifications layers

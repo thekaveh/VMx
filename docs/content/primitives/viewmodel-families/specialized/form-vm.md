@@ -448,7 +448,8 @@ changed element still makes the form dirty.
   workflow primitive.
 - Relying on shallow copy semantics for nested mutable models. Inject a custom
   snapshotter and matching equality predicate where the default is not
-  appropriate.
+  appropriate. C# takes no equality predicate; override the model's `Equals`
+  and `GetHashCode` instead.
 - Using a C# record with a collection field and the synthesized equality. The
   form is dirty before any edit; compare the collection element by element in
   the model's `Equals`.
