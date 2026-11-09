@@ -11,6 +11,7 @@
   [ADR-0168](0168-swift-and-rust-paged-composition-page-a-stored-copy.md),
   [ADR-0172](0172-one-wait-for-graph-per-flavor.md),
   [ADR-0177](0177-dictionary-key-views-update-before-dictionary-events.md),
+  [ADR-0193](0193-collection-views-positions-and-python-reverse.md),
   #1256, #1257, #1269, #1296.
 
 ## 1. Context
@@ -107,10 +108,11 @@ forwards the stream of its composite.
    queued under the entries lock, so the queue order is the commit order. If
    the delivering thread has already ended its delivery, the refused mutation
    delivers the queue itself.
-1. An Add message carries the entry's position when the message is sent
-   (spec/21 §2.4, #733). If a local subscriber moved the entry, the hub
-   message carries the new position. If it removed the entry, the position is
-   `None`.
+1. An Add or Replace message carries the entry's position when the message
+   is sent (spec/21 §2.4 and §4.7, #733, ADR-0193). If a local subscriber
+   moved the entry, the hub message carries the new position. If it removed
+   the entry, the position is `None`. A Remove message carries the position
+   that the entry had just before the removal.
 
 ### 2.4 Hashed dictionary lookup
 
@@ -156,7 +158,7 @@ constructor, which takes a hub.
 - A build of n distinct keys makes O(n) comparisons on average. On one machine
   a release build of 40,000 `u64` keys took 4.4 times as long as 10,000 keys,
   for both dictionaries.
-- The Rust capability-parity ledger drops §12.11.
+- The Rust capability-parity ledger closes §12.11.
 
 ## 4. Rejected alternatives
 

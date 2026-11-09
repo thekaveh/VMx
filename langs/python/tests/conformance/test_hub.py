@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from tests.conformance.fixtures.loader import load
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from tests.wait_graph_seams import WaitDecisions, wait_until_waiting
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
@@ -365,7 +365,7 @@ def test_opposing_hub_callbacks_do_not_deadlock() -> None:
     for worker in workers:
         worker.start()
     for worker in workers:
-        worker.join(timeout=2 * HANG_GUARD)
+        join_thread(worker, 2 * HANG_GUARD)
 
     assert not any(worker.is_alive() for worker in workers)
     assert inner_deliveries == 2
@@ -405,7 +405,7 @@ def test_opposing_hub_callback_batches_do_not_deadlock() -> None:
     for worker in workers:
         worker.start()
     for worker in workers:
-        worker.join(timeout=2 * HANG_GUARD)
+        join_thread(worker, 2 * HANG_GUARD)
 
     assert not any(worker.is_alive() for worker in workers)
     assert inner_deliveries == 2
@@ -425,11 +425,11 @@ def test_unrelated_hub_callback_send_waits_for_busy_target() -> None:
     def hold_batch() -> None:
         with target.batch():
             batch_entered.set()
-            assert release_batch.wait(HANG_GUARD)
+            assert wait_event(release_batch)
 
     batch_worker = Thread(target=hold_batch)
     batch_worker.start()
-    assert batch_entered.wait(HANG_GUARD)
+    assert wait_event(batch_entered)
 
     def cross_send(_: object) -> None:
         target.send(_make_msg("nested"))
@@ -442,8 +442,8 @@ def test_unrelated_hub_callback_send_waits_for_busy_target() -> None:
         assert not callback_returned.wait(0.05)
     finally:
         release_batch.set()
-        batch_worker.join(HANG_GUARD)
-        source_worker.join(HANG_GUARD)
+        join_thread(batch_worker)
+        join_thread(source_worker)
 
     assert callback_returned.is_set()
     assert deliveries == ["nested"]
@@ -466,7 +466,7 @@ def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit() -> None:
             return
         callback_entered.set()
         try:
-            if not about_to_send.wait(HANG_GUARD):
+            if not wait_event(about_to_send):
                 raise TimeoutError("batch owner did not reach its cross-hub send")
             # The batch owner's send waits for this drainer, with its edge in
             # the shared wait-for graph, so disposing its batched hub here
@@ -483,7 +483,7 @@ def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit() -> None:
         sender.append(get_ident())
         try:
             with batched.batch():
-                if not callback_entered.wait(HANG_GUARD):
+                if not wait_event(callback_entered):
                     raise TimeoutError("source callback did not start")
                 about_to_send.set()
                 source.send(_make_msg("inner"))
@@ -494,13 +494,13 @@ def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit() -> None:
     source_worker = Thread(target=source.send, args=(_make_msg("outer"),))
     batch_worker.start()
     source_worker.start()
-    batch_worker.join(3 * HANG_GUARD)
-    source_worker.join(3 * HANG_GUARD)
+    join_thread(batch_worker, 3 * HANG_GUARD)
+    join_thread(source_worker, 3 * HANG_GUARD)
 
     assert not batch_worker.is_alive()
     assert not source_worker.is_alive()
     assert errors == []
-    assert completed.wait(HANG_GUARD)
+    assert wait_event(completed)
     source.dispose()
 
 
@@ -558,7 +558,7 @@ def _recording(errors: list[BaseException], callback: Any) -> Any:
 
 def _join_all(*threads: Thread) -> None:
     for thread in threads:
-        thread.join(3 * HANG_GUARD)
+        join_thread(thread, 3 * HANG_GUARD)
     hung = [thread.name for thread in threads if thread.is_alive()]
     assert hung == [], f"threads still waiting: {hung}"
 
@@ -610,7 +610,7 @@ def test_a_wait_for_a_borrowed_scope_records_an_edge(target: str, order: str) ->
         with h.batch():
             borrow_open.set()
             h2.dispose()
-            if order == "borrow_exit_first" and not q_left_h3.wait(HANG_GUARD):
+            if order == "borrow_exit_first" and not wait_event(q_left_h3):
                 errors.append(TimeoutError("Q's h3 batch did not exit"))
             (h3 if target == "h3" else h).send(_make_msg("pm"))
             borrow_open.clear()
@@ -623,7 +623,7 @@ def test_a_wait_for_a_borrowed_scope_records_an_edge(target: str, order: str) ->
         q_left_h3.set()
 
     threads.start("P", lambda: h2.send(_make_msg("p0")))
-    assert p_draining.wait(HANG_GUARD)
+    assert wait_event(p_draining)
     threads.start("Q", q_body)
     threads.join_all()
 
@@ -662,7 +662,7 @@ def test_a_wait_for_a_borrower_closes_a_visible_cycle(operation: str) -> None:
         with h.batch():
             borrow_open.set()
             h2.dispose()
-            if not q_left_h.wait(HANG_GUARD):
+            if not wait_event(q_left_h):
                 errors.append(TimeoutError("Q's h batch did not exit"))
             try:
                 wait_until_waiting(threads.ident("Q"))
@@ -687,7 +687,7 @@ def test_a_wait_for_a_borrower_closes_a_visible_cycle(operation: str) -> None:
                 h.dispose()
 
     threads.start("P", lambda: h2.send(_make_msg("p0")))
-    assert p_draining.wait(HANG_GUARD)
+    assert wait_event(p_draining)
     threads.start("Q", q_body)
     threads.join_all()
 
@@ -727,7 +727,7 @@ def test_a_borrowers_own_hub_calls_do_not_wait_for_its_borrow(operation: str) ->
         with h.batch():
             borrow_open.set()
             h2.dispose()
-            if not q_left_h.wait(HANG_GUARD):
+            if not wait_event(q_left_h):
                 errors.append(TimeoutError("Q's h batch did not exit"))
             if operation == "send":
                 h.send(_make_msg("pm"))
@@ -746,7 +746,7 @@ def test_a_borrowers_own_hub_calls_do_not_wait_for_its_borrow(operation: str) ->
         q_left_h.set()
 
     threads.start("P", lambda: h2.send(_make_msg("p0")))
-    assert p_draining.wait(HANG_GUARD)
+    assert wait_event(p_draining)
     threads.start("Q", q_body)
     threads.join_all()
 
@@ -791,12 +791,12 @@ def test_a_borrowers_dispose_completes_at_the_last_borrowed_scope_exit() -> None
             with h.batch():
                 h.dispose()
                 h2.dispose()
-                if not d_send_returned.wait(HANG_GUARD):
+                if not wait_event(d_send_returned):
                     errors.append(TimeoutError("D's h send did not return"))
                 completed_during_borrow.extend(h_completed)
 
     threads.start("B", b_body)
-    assert b_owns_h2.wait(HANG_GUARD)
+    assert wait_event(b_owns_h2)
     threads.start("D", d_body)
     threads.join_all()
 
@@ -838,14 +838,14 @@ def test_a_borrowers_dispose_is_finished_by_the_last_owner_to_release_the_hub(
                 if borrower_exits_last:
                     # Releasing h2 lets O's h batch exit inside this borrow.
                     h2.dispose()
-                    if not o_returned.wait(HANG_GUARD):
+                    if not wait_event(o_returned):
                         errors.append(TimeoutError("O's h batch did not return"))
                     completed_before_b_exit.extend(h_completed)
             if not borrower_exits_last:
                 completed_before_b_exit.extend(h_completed)
 
     threads.start("B", b_body)
-    assert b_owns_h2.wait(HANG_GUARD)
+    assert wait_event(b_owns_h2)
     threads.start("O", o_body)
     threads.join_all()
 
@@ -889,7 +889,7 @@ def test_a_borrowers_dispose_is_finished_by_the_drainer_that_is_still_delivering
             completed_after_borrow.append(len(h_completed))
 
     threads.start("B", b_body)
-    assert b_owns_h2.wait(HANG_GUARD)
+    assert wait_event(b_owns_h2)
     threads.start("D", lambda: h.send(_make_msg("m")))
     threads.join_all()
 
@@ -954,7 +954,7 @@ def test_an_ended_hub_wait_does_not_cause_a_cycle_escape(
             h2.send(_make_msg("q1"))
 
     threads.start("P", p_body)
-    assert p_owns_h2.wait(HANG_GUARD)
+    assert wait_event(p_owns_h2)
     threads.start("Q", q_body)
     threads.join_all()
 
@@ -997,7 +997,7 @@ def test_a_live_hub_cycle_still_takes_the_send_escape(monkeypatch: pytest.Monkey
             h2.send(_make_msg("q1"))
 
     threads.start("P", lambda: h2.send(_make_msg("p0")))
-    assert p_draining.wait(HANG_GUARD)
+    assert wait_event(p_draining)
     threads.start("Q", q_body)
     threads.join_all()
 
@@ -1047,7 +1047,7 @@ def test_a_drainer_with_queued_messages_releases_the_drain_on_a_cycle() -> None:
                 borrow_open.clear()
 
     threads.start("B", b_body)
-    assert b_owns_h2.wait(HANG_GUARD)
+    assert wait_event(b_owns_h2)
     threads.start("D", d_body)
     threads.join_all()
 
@@ -1095,7 +1095,7 @@ def test_a_batch_owners_nested_batch_waits_for_a_borrowed_scope() -> None:
             h.send(_make_msg("o2"))
 
     threads.start("B", b_body)
-    assert b_owns_h2.wait(HANG_GUARD)
+    assert wait_event(b_owns_h2)
     threads.start("O", o_body)
     threads.join_all()
 
@@ -1138,7 +1138,7 @@ def test_a_batch_owners_cyclic_nested_batch_borrows(monkeypatch: pytest.MonkeyPa
                 h.send(_make_msg("o1"))
 
     threads.start("B", b_body)
-    assert b_owns_h2.wait(HANG_GUARD)
+    assert wait_event(b_owns_h2)
     threads.start("O", o_body)
     threads.join_all()
 

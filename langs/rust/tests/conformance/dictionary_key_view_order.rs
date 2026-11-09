@@ -1,11 +1,13 @@
-//! COL-067 — dictionary events and the hub message follow both key-view
+//! COL-067 — dictionary events and the hub message follow the key-view
 //! updates.
 //!
 //! Rust `ObservableMultiDictionary` updates its live `keys1()` and `keys2()`
 //! views, then sends its local `collection_changed()` event, then the hub
 //! message. Each key-view subscriber reads the updated entries, the count and
-//! its own view. The dictionary-event and hub subscribers read both views
-//! (spec/21-collections.md §4.2, ADR-0177, ADR-0208, #1176, #1257).
+//! its own view. The dictionary-event and hub subscribers read both views. A
+//! mutation can change both key views, one view, or none; each view keeps one
+//! copy of a key that stays in other entries
+//! (spec/21-collections.md §4.2, ADR-0177, ADR-0208, #1176, #1257, #1429).
 
 use std::sync::{Arc, Mutex};
 
@@ -20,8 +22,10 @@ type Snapshot = (Entries, usize, Vec<&'static str>, Vec<i32>);
 type Log = Arc<Mutex<Vec<(&'static str, Snapshot)>>>;
 type Case = (
     &'static str,
+    &'static [(&'static str, i32, &'static str)],
     fn(&Dictionary),
     CollectionChangeAction,
+    &'static [&'static str],
     Snapshot,
 );
 
@@ -80,44 +84,99 @@ fn observe_messages(
 
 /// COL-067 — key-view subscribers see their update first, then the dictionary event, then the hub
 #[test]
-fn dictionary_event_and_hub_message_follow_both_key_view_updates() {
+fn dictionary_event_and_hub_message_follow_the_key_view_updates() {
     let added: Snapshot = (
         vec![("a", 1, "one"), ("b", 2, "two"), ("c", 3, "three")],
         3,
         vec!["a", "b", "c"],
         vec![1, 2, 3],
     );
-    let cases: [Case; 4] = [
+    let both: &[&str] = &["keys1", "keys2"];
+    let cases: [Case; 7] = [
         (
             "add",
+            &[],
             |d| d.add("c", 3, "three").unwrap(),
             CollectionChangeAction::Add,
+            both,
             added.clone(),
         ),
         (
             "insert",
+            &[],
             |d| d.insert("c", 3, "three"),
             CollectionChangeAction::Add,
+            both,
             added,
         ),
         (
             "remove",
+            &[],
             |d| assert_eq!(d.remove(&"a", &1), Some("one")),
             CollectionChangeAction::Remove,
+            both,
             (vec![("b", 2, "two")], 1, vec!["b"], vec![2]),
         ),
         (
             "clear",
+            &[],
             |d| d.clear(),
             CollectionChangeAction::Reset,
+            both,
             (Vec::new(), 0, Vec::new(), Vec::new()),
         ),
+        // Only a new keys2 value appears; keys1() keeps one "a".
+        (
+            "add of a new keys2 value only",
+            &[],
+            |d| d.add("a", 3, "three").unwrap(),
+            CollectionChangeAction::Add,
+            &["keys2"],
+            (
+                vec![("a", 1, "one"), ("b", 2, "two"), ("a", 3, "three")],
+                3,
+                vec!["a", "b"],
+                vec![1, 2, 3],
+            ),
+        ),
+        // Only the keys2 value 1 disappears; ("a", 3) keeps "a" in keys1() at
+        // the position of its first appearance.
+        (
+            "remove of the last keys2 value only",
+            &[("a", 3, "three")],
+            |d| assert_eq!(d.remove(&"a", &1), Some("one")),
+            CollectionChangeAction::Remove,
+            &["keys2"],
+            (
+                vec![("b", 2, "two"), ("a", 3, "three")],
+                2,
+                vec!["a", "b"],
+                vec![2, 3],
+            ),
+        ),
+        // Both keys already appear in other entries, so no key view changes.
+        (
+            "add that changes no key view",
+            &[],
+            |d| d.add("a", 2, "a-two").unwrap(),
+            CollectionChangeAction::Add,
+            &[],
+            (
+                vec![("a", 1, "one"), ("b", 2, "two"), ("a", 2, "a-two")],
+                3,
+                vec!["a", "b"],
+                vec![1, 2],
+            ),
+        ),
     ];
-    for (mutation, act, action, expected) in cases {
+    for (mutation, extra, act, action, changed_views, expected) in cases {
         let hub = MessageHub::new();
         let dictionary: Dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
         dictionary.add("a", 1, "one").unwrap();
         dictionary.add("b", 2, "two").unwrap();
+        for &(key1, key2, value) in extra {
+            dictionary.add(key1, key2, value).unwrap();
+        }
         let log: Log = Arc::new(Mutex::new(Vec::new()));
         let actions = Arc::new(Mutex::new(Vec::new()));
         let _keys1 = observe_view(dictionary.keys1(), &dictionary, "keys1", &log, |d, s| {
@@ -140,11 +199,11 @@ fn dictionary_event_and_hub_message_follow_both_key_view_updates() {
         assert_eq!(read(&dictionary), expected, "{mutation}");
         assert_eq!(*actions.lock().unwrap(), vec![action.clone(); 2]);
         let log = log.lock().unwrap().clone();
-        assert_eq!(log.len(), 4, "{mutation}: {log:?}");
-        let (views, messages) = log.split_at(2);
+        assert_eq!(log.len(), changed_views.len() + 2, "{mutation}: {log:?}");
+        let (views, messages) = log.split_at(changed_views.len());
         let mut labels: Vec<_> = views.iter().map(|(label, _)| *label).collect();
         labels.sort_unstable();
-        assert_eq!(labels, ["keys1", "keys2"], "{mutation}");
+        assert_eq!(labels, changed_views, "{mutation}");
         for (label, snapshot) in views {
             let own = if *label == "keys1" {
                 (

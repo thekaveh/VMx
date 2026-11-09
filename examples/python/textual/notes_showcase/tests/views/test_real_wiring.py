@@ -11,7 +11,7 @@ the view/adapter wiring fails here even when every VM-level test stays green.
 from __future__ import annotations
 
 import pytest
-from textual.widgets import Button, Input, Label, ListItem, Static, Tree
+from textual.widgets import Button, Input, Label, ListItem, ListView, Static, Tree
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
 from notes_showcase.models.seed import build_seed
@@ -334,4 +334,75 @@ async def test_new_note_command_disables_on_a_readonly_notebook() -> None:
         assert workspace.new_note_command.can_execute() is False
         assert changes, "new_note_command never re-published can_execute"
         sub.dispose()
+    workspace.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_search_that_hides_the_selected_note_restores_its_row_after_clearing() -> None:
+    """ADR-0201 §2.1: the search keeps the selection and the draft; the row
+    is highlighted again once the search clears."""
+    workspace, _repo = _build_workspace()
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        rows = list(app.query(ListItem))
+        await pilot.click(rows[0])
+        await pilot.click(rows[0])
+        await _settle(pilot)
+        selected = workspace.notes_view.current
+        assert selected is not None and selected.title == "Standup notes"
+        app.query_one("#form_title", Input).value = "Standup draft"
+        await _settle(pilot)
+
+        app.query_one("#search_input", Input).value = "roadmap"
+        await pilot.pause(0.5)  # past the 150 ms debounce
+        await _settle(pilot)
+        assert len(app.query(ListItem)) == 1
+        assert workspace.notes_view.current is selected
+        assert app.query_one("#form_title", Input).value == "Standup draft"
+
+        app.query_one("#search_input", Input).value = ""
+        await pilot.pause(0.5)
+        await _settle(pilot)
+
+        list_view = app.query_one("#notes_list", ListView)
+        assert list_view.index is not None
+        highlighted = list(app.query(ListItem))[list_view.index]
+        assert "Standup notes" in _rendered(highlighted.query_one(Label))
+        assert workspace.notes_view.current is selected
+        assert app.query_one("#form_title", Input).value == "Standup draft"
+    workspace.dispose()
+
+
+@pytest.mark.asyncio
+async def test_theme_control_strip_runs_the_theme_commands() -> None:
+    """ADR-0201 §2.4: one button per preset, a high-contrast toggle, and
+    font-size buttons that step the current factor by 0.1."""
+    workspace, _repo = _build_workspace()
+    await workspace.construct_async()
+    theme = workspace.theme
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+
+        for preset in theme.presets:
+            await pilot.click(f"#theme_preset_{preset.name.replace('-', '_')}")
+            await _settle(pilot)
+            assert theme.model.name == preset.name
+
+        await pilot.click("#theme_preset_dark")
+        await _settle(pilot)
+        high_contrast = theme.model.high_contrast
+        await pilot.click("#theme_high_contrast")
+        await _settle(pilot)
+        assert theme.model.high_contrast is not high_contrast
+
+        assert theme.model.font_scale_factor == 1.0
+        await pilot.click("#theme_font_larger")
+        await _settle(pilot)
+        assert theme.model.font_scale_factor == 1.1
+        await pilot.click("#theme_font_smaller")
+        await _settle(pilot)
+        assert theme.model.font_scale_factor == 1.0
     workspace.dispose()

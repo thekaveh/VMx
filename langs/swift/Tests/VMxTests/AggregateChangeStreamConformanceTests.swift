@@ -29,7 +29,7 @@ where S.Input == Void, S.Failure == Never {
             subscriber.receive(completion: .finished)
             delivered.signal()
         }
-        precondition(delivered.wait(timeout: .now() + 2) == .success)
+        precondition(delivered.wait(timeout: .now() + hangGuard) == .success)
     }
 
     func cancel() { subscriber = nil }
@@ -64,7 +64,7 @@ where S.Input == Void, S.Failure == Never {
         guard demand > .none, !emitted, let subscriber else { return }
         emitted = true
         DispatchQueue.global().async { _ = subscriber.receive(()) }
-        precondition(hookEntered.wait(timeout: .now() + 2) == .success)
+        precondition(hookEntered.wait(timeout: .now() + hangGuard) == .success)
     }
 
     func cancel() { subscriber = nil }
@@ -301,20 +301,20 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
                 _beforeStageRecord: {
                     hookEnteredByPublisher.signal()
                     hookEnteredByTest.signal()
-                    _ = releaseHook.wait(timeout: .now() + 2)
+                    _ = releaseHook.wait(timeout: .now() + hangGuard * 2)
                 }
             )
             constructionFinished.signal()
             raceAggregate.dispose()
         }
-        XCTAssertEqual(hookEnteredByTest.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(hookEnteredByTest.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(
             constructionFinished.wait(timeout: .now() + 0.05),
             .timedOut,
             "activation must wait for atomic staging record"
         )
         releaseHook.signal()
-        XCTAssertEqual(constructionFinished.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(constructionFinished.wait(timeout: .now() + hangGuard), .success)
 
         // A synchronous value staged during initial construction is pre-existing
         // state: it is discarded, and construction emits no replayable Membership.

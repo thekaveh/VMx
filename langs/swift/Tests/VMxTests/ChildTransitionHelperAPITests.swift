@@ -404,7 +404,7 @@ final class ChildTransitionHelperAPITests: XCTestCase {
                 probe.otherCallReturned = true
                 returned.signal()
             }
-            XCTAssertEqual(returned.wait(timeout: .now() + 10), .success)
+            XCTAssertEqual(returned.wait(timeout: .now() + hangGuard), .success)
         }
 
         parent.dispose()

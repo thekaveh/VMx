@@ -19,7 +19,7 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The
   [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  lists the open items and recorded differences in §12.4.7 and §12.7–§12.11.
+  lists the open items and recorded differences in §12.4.7, §12.7, §12.9 and §12.10.
 
 For hub delivery and callback ordering, see
 [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering).
@@ -61,7 +61,6 @@ fn start_in_background(
 ) -> VmxResult<(ComponentVm<(), DefaultDispatcher>, ValueSubscription)> {
     let vm = ComponentVm::builder()
         .name("loader")
-        .model(())
         .background(true)
         .services(MessageHub::new(), DefaultDispatcher::new())
         .build()?;
@@ -85,8 +84,13 @@ settle. Thus a container `construct`, `destruct`, or `reconstruct` call can
 return `Ok` while the container is still transient. A child failure rolls the
 container back and arrives on the container's `background_errors()` stream.
 Wrapper nodes should forward `VmNode::when_lifecycle_settled`. If a node does
-not forward `when_lifecycle_settled`, the container accepts that node while it
-is still in flight instead of failing.
+not forward it, the container watches its own message hub instead. The
+container waits when it started the node and, by the time the start call
+returned, the hub delivered or queued the node's Constructing or Destructing
+status. A node that then settles at another status rolls the container back.
+Otherwise, for example when the node publishes on another hub, the container
+accepts the node while it is still in flight, so it never waits without limit
+(ADR-0205).
 
 An admitted `AsyncRelayCommand` execution runs on one worker thread, and a
 rejected `execute()` starts none. A rejected `execute_async()` still returns a

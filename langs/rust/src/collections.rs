@@ -1091,6 +1091,7 @@ pub struct ObservableList<T: Clone + Send + 'static> {
     batch_dirty: Arc<Mutex<bool>>,
     batch_count_at_start: Arc<Mutex<usize>>,
     publication_closed: Arc<AtomicBool>,
+    hub_publication_closed: Arc<AtomicBool>,
 }
 
 impl<T: Clone + Send + 'static> ObservableList<T> {
@@ -1106,7 +1107,8 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 
     /// Creates an empty list whose messages carry the owning container's
-    /// identity and diagnostic name (ADR-0120).
+    /// identity and name (ADR-0120). A `CompositeVm` or `GroupVm` passes its
+    /// `name()`, so each message carries the container's name (ADR-0194).
     pub(crate) fn with_owner_name(
         owner_id: usize,
         owner_name: impl Into<Arc<str>>,
@@ -1127,6 +1129,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             batch_dirty: Arc::new(Mutex::new(false)),
             batch_count_at_start: Arc::new(Mutex::new(0)),
             publication_closed: Arc::new(AtomicBool::new(false)),
+            hub_publication_closed: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1135,6 +1138,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     /// nothing to the hub.
     pub(crate) fn close_publication(&self) {
         self.publication_closed.store(true, Ordering::Release);
+    }
+
+    /// Stops hub publication for an owning container whose disposal is
+    /// requested but deferred (ADR-0190). Local subscribers still receive
+    /// each change until the disposal closes all publication.
+    pub(crate) fn close_hub_publication(&self) {
+        self.hub_publication_closed.store(true, Ordering::Release);
     }
 
     /// Returns the local collection-change stream. It receives each
@@ -1562,11 +1572,21 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             new_index,
         });
         self.local.send(message.clone());
-        if let Some(hub) = &self.hub {
-            hub.send(message);
+        // A local subscriber may request the owner's disposal; the hub then
+        // receives nothing for this change (spec/01 §1.4, ADR-0190).
+        if !self.hub_publication_is_closed() {
+            if let Some(hub) = &self.hub {
+                hub.send(message);
+            }
         }
         if count_changed {
+            if self.publication_closed.load(Ordering::Acquire) {
+                return;
+            }
             self.streams.property_changed.notify("Count");
+            if self.hub_publication_is_closed() {
+                return;
+            }
             if let Some(hub) = &self.hub {
                 hub.send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: self.owner_id,
@@ -1575,6 +1595,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 }));
             }
         }
+    }
+
+    /// Returns whether hub publication is closed, by a disposal or by a
+    /// deferred disposal request of the owning container (ADR-0190).
+    fn hub_publication_is_closed(&self) -> bool {
+        self.publication_closed.load(Ordering::Acquire)
+            || self.hub_publication_closed.load(Ordering::Acquire)
     }
 }
 
@@ -1843,22 +1870,24 @@ where
     pub fn insert(&self, key: K, value: V) {
         let hash = self.hasher.hash_one(&key);
         let mut entry = Some((key, value));
-        let ((action, replaced, new_index), retired) = loop {
+        let ((action, replaced, (old_index, new_index)), retired) = loop {
             let (revision, index) = self.locate(&entry.as_ref().expect("entry pending").0, hash);
             let committed = commit_entries(&self.inner, revision, |entries, retired| {
                 let (key, value) = entry.take().expect("entry pending");
                 match index {
                     // The stored key stays; the argument key is returned so
                     // that it drops after the lock is released.
+                    // Replace keeps the entry in place, so both positions
+                    // are its index (spec/21 §2.4 and §4.7, ADR-0193).
                     Some(index) => (
                         CollectionChangeAction::Replace,
                         Some((key, std::mem::replace(&mut entries.values[index], value))),
-                        None,
+                        (Some(index), Some(index)),
                     ),
                     None => {
                         let position = entries.push(key, hash, value, retired);
                         // Add carries its insertion position (spec/21 §2.4).
-                        (CollectionChangeAction::Add, None, Some(position))
+                        (CollectionChangeAction::Add, None, (None, Some(position)))
                     }
                 }
             });
@@ -1867,7 +1896,7 @@ where
             }
         };
         drop((replaced, retired));
-        self.publish_at(action, new_index);
+        self.publish_at(action, old_index, new_index);
     }
 
     /// Returns the value associated with `key`, if present.
@@ -1893,12 +1922,14 @@ where
             if let Some(removed) = commit_entries(&self.inner, revision, |entries, retired| {
                 entries.remove(index, retired)
             }) {
-                break Some(removed);
+                break Some((index, removed));
             }
         };
-        let ((removed_key, value), retired) = removed?;
+        let (index, ((removed_key, value), retired)) = removed?;
         drop((removed_key, retired));
-        self.publish(CollectionChangeAction::Remove);
+        // Remove carries the entry's position before the removal (spec/21
+        // §2.4 and §4.7, ADR-0193).
+        self.publish_at(CollectionChangeAction::Remove, Some(index), None);
         Some(value)
     }
 
@@ -1922,17 +1953,22 @@ where
     }
 
     fn publish(&self, action: CollectionChangeAction) {
-        self.publish_at(action, None);
+        self.publish_at(action, None, None);
     }
 
-    fn publish_at(&self, action: CollectionChangeAction, new_index: Option<usize>) {
+    fn publish_at(
+        &self,
+        action: CollectionChangeAction,
+        old_index: Option<usize>,
+        new_index: Option<usize>,
+    ) {
         self.hub
             .send(Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
                 sender_name: "ObservableDictionary".to_string(),
                 property_name: "items".to_string(),
                 action,
-                old_index: None,
+                old_index,
                 new_index,
             }));
     }
@@ -1948,9 +1984,11 @@ enum KeyViewChange<K> {
 /// One committed dictionary mutation that waits for delivery.
 struct DictionaryChange<K1, K2> {
     action: CollectionChangeAction,
-    /// For an Add: the entry's identity, its commit position and the
-    /// revision of the commit.
-    added: Option<(u64, usize, u64)>,
+    /// For an Add or a Replace: the entry's identity, its commit position
+    /// and the revision of the commit.
+    entry: Option<(u64, usize, u64)>,
+    /// For a Remove: the entry's position just before the removal.
+    removed_at: Option<usize>,
     keys1: Option<KeyViewChange<K1>>,
     keys2: Option<KeyViewChange<K2>>,
 }
@@ -2329,27 +2367,36 @@ where
         if let Some(view) = change.keys2 {
             apply(&self.keys2, view);
         }
-        let message = |new_index| {
+        // Remove carries the entry's position before the removal. Add and
+        // Replace carry the entry's position when each message is sent, and a
+        // Replace's positions are equal (spec/21 §4.7, ADR-0193).
+        let message = |position: Option<usize>| {
+            let (old_index, new_index) = match change.action {
+                CollectionChangeAction::Add => (None, position),
+                CollectionChangeAction::Replace => (position, position),
+                CollectionChangeAction::Remove => (change.removed_at, None),
+                _ => (None, None),
+            };
             Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
                 sender_name: "ObservableMultiDictionary".to_string(),
                 property_name: "items".to_string(),
                 action: change.action.clone(),
-                old_index: None,
+                old_index,
                 new_index,
             })
         };
-        self.local.send(message(self.position(change.added)));
+        self.local.send(message(self.position(change.entry)));
         if let Some(hub) = &self.hub {
-            hub.send(message(self.position(change.added)));
+            hub.send(message(self.position(change.entry)));
         }
     }
 
-    /// Returns an added entry's position now: its commit position when no
-    /// later write happened, otherwise its current position, or `None` when a
-    /// subscriber removed it (spec/21 §2.4, #733).
-    fn position(&self, added: Option<(u64, usize, u64)>) -> Option<usize> {
-        let (id, position, revision) = added?;
+    /// Returns an added or replaced entry's position now: its commit
+    /// position when no later write happened, otherwise its current position,
+    /// or `None` when a subscriber removed it (spec/21 §2.4 and §4.7, #733).
+    fn position(&self, entry: Option<(u64, usize, u64)>) -> Option<usize> {
+        let (id, position, revision) = entry?;
         let inner = lock(&self.inner);
         if inner.entries.revision == revision {
             Some(position)
@@ -2414,9 +2461,11 @@ where
                 key2,
                 std::mem::replace(&mut inner.entries.values[index], value),
             );
+            let entry = (inner.ids[index], index, inner.entries.revision);
             self.enqueue(DictionaryChange {
                 action: CollectionChangeAction::Replace,
-                added: None,
+                entry: Some(entry),
+                removed_at: None,
                 keys1: None,
                 keys2: None,
             });
@@ -2488,7 +2537,8 @@ where
             let added = (id, position, state.entries.revision);
             self.enqueue(DictionaryChange {
                 action: CollectionChangeAction::Add,
-                added: Some(added),
+                entry: Some(added),
+                removed_at: None,
                 keys1,
                 keys2,
             });
@@ -2509,7 +2559,8 @@ where
             state.ids.clear();
             self.enqueue(DictionaryChange {
                 action: CollectionChangeAction::Reset,
-                added: None,
+                entry: None,
+                removed_at: None,
                 keys1: Some(KeyViewChange::Clear),
                 keys2: Some(KeyViewChange::Clear),
             });
@@ -2577,7 +2628,8 @@ where
             let (keys2, key2) = released2.unzip();
             self.enqueue(DictionaryChange {
                 action: CollectionChangeAction::Remove,
-                added: None,
+                entry: None,
+                removed_at: Some(index),
                 keys1,
                 keys2,
             });

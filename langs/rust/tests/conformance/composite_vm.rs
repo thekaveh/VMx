@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use vmx::{
     CollectionChangeAction, Command, ConstructionStatus, Dispatcher, ImmediateDispatcher,
-    ManualDispatcher, Message, MessageHub, NullDispatcher, VmNode, VmxError,
+    ManualDispatcher, Message, MessageHub, NullDispatcher, ObservableMembershipSource, VmNode,
+    VmxError,
 };
 
 type Child = vmx::ComponentVm<&'static str>;
@@ -1025,6 +1026,9 @@ fn replacement_disposal_restores_old_child_before_terminal_cascade() {
 }
 
 /// COMP-040 — deferred disposal failure follows committed transfer events.
+///
+/// The old parent's local `Remove` still publishes, but its hub sends no
+/// message once its disposal is requested (COMP-049, ADR-0190).
 #[test]
 fn deferred_disposal_failure_follows_committed_transfer_events() {
     let item = child("moving");
@@ -1046,6 +1050,11 @@ fn deferred_disposal_failure_follows_committed_transfer_events() {
     destination.construct().unwrap();
     let old_from_hook = old_parent.clone();
     item.on_construct(move || old_from_hook.dispose());
+    let old_local_events = Arc::new(AtomicUsize::new(0));
+    let old_local_sink = Arc::clone(&old_local_events);
+    let _old_local = old_parent.subscribe_membership(move || {
+        old_local_sink.fetch_add(1, Ordering::SeqCst);
+    });
 
     assert_eq!(
         destination.add(item.clone()),
@@ -1053,12 +1062,13 @@ fn deferred_disposal_failure_follows_committed_transfer_events() {
     );
 
     assert_eq!(
+        old_local_events.load(Ordering::SeqCst),
+        1,
+        "old local Remove"
+    );
+    assert_eq!(
         collection_actions(&old_recorder),
-        vec![
-            CollectionChangeAction::Add,
-            CollectionChangeAction::Add,
-            CollectionChangeAction::Remove,
-        ]
+        vec![CollectionChangeAction::Add, CollectionChangeAction::Add]
     );
     assert_eq!(
         collection_actions(&destination_recorder),
@@ -1132,7 +1142,9 @@ fn late_disposal_failure_does_not_retry_committed_population() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(destination.items(), vec![item.clone()]);
-    assert!(collection_actions(&old_recorder).contains(&CollectionChangeAction::Remove));
+    // The old parent's disposal is requested, so its hub gets no `Remove`
+    // (COMP-049, ADR-0190).
+    assert!(!collection_actions(&old_recorder).contains(&CollectionChangeAction::Remove));
     assert!(collection_actions(&destination_recorder).contains(&CollectionChangeAction::Add));
 
     destination.construct().unwrap();

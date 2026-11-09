@@ -68,7 +68,9 @@ fn dictionary_without_a_hub_reports_changes_locally() {
         vec![
             (CollectionChangeAction::Add, Some(0)),
             (CollectionChangeAction::Add, Some(1)),
-            (CollectionChangeAction::Replace, None),
+            // A Replace keeps the entry in place, so its new position is its
+            // index (ADR-0193); a Remove has no new position.
+            (CollectionChangeAction::Replace, Some(0)),
             (CollectionChangeAction::Remove, None),
             (CollectionChangeAction::Reset, None),
         ]

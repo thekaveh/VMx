@@ -200,6 +200,17 @@ gantt
     Auto-dismiss (Approve)   :milestone, 60, 1
 ```
 
+### 6.2 Commands during disposal (spec v3.30, ADR-0196)
+
+`Dispose()` first marks the VM disposed and then disposes the commands that
+the VM owns. These are `DismissCommand` and, for a `ConfirmationVM` (§7),
+`ApproveCommand` and `RejectCommand`. From the moment the VM is marked
+disposed, each of these commands reports `CanExecute == false`. This holds
+also inside a `CanExecuteChanged` notification that a command raises while
+`Dispose()` disposes the commands, and also for a command that is not yet
+disposed. `Execute` stays a no-op, and disposal does not resolve the
+notification. The order in which a VM disposes its commands is not specified.
+
 ## 7. `ConfirmationVM`
 
 Extends `NotificationVM` with explicit Approve/Reject actions and a longer
@@ -298,6 +309,9 @@ hub resolves every in-flight `Post` awaitable with
 subsequent `Post` calls into immediately-`Pending` results that do not
 enqueue, makes subsequent `Resolve` calls no-ops, and is idempotent. These
 were previously C#-only shutdown semantics; all flavors now share them.
+
+`NOTIF-018` (added in v3.30.0 via ADR-0196) covers the commands of a rendering
+VM during its disposal (§6.2).
 
 `DISP-003` adds concurrent/re-entrant at-most-once teardown for the hub, while
 `DISP-004` covers repeated rendering-VM/interaction-owner disposal. Both retain

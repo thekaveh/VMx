@@ -182,6 +182,103 @@ final class ThemeVMTests: XCTestCase {
         XCTAssertEqual(try vm.currentTheme.value.name, "light")
     }
 
+    // MARK: - ADR-0201 §2.5 accent validation
+
+    /// ADR-0201 §2.5 — `setAccentColor` rejects a value that is not `#RGB` or
+    /// `#RRGGBB`: no message and the model is unchanged.
+    func testSetAccentColor_rejectsAMalformedAccent_withoutPublishing() throws {
+        let (vm, hub) = try build()
+        let recorder = capture(hub)
+        let before = try vm.currentTheme.value
+
+        for bad in ["not-a-color", "#12345", "", "#GGGGGG", "123456", "#1234567", "#\u{FF21}\u{FF22}\u{FF23}"] {
+            vm.setAccentColor.execute(bad)
+        }
+
+        XCTAssertTrue(recorder.messages.isEmpty)
+        XCTAssertEqual(try vm.currentTheme.value, before)
+    }
+
+    /// ADR-0201 §2.5 — `applyAccentColor` throws `ThemeError.invalidAccent`
+    /// for a malformed accent, publishes nothing and keeps the model.
+    func testApplyAccentColor_throwsInvalidAccent_forAMalformedAccent() throws {
+        let (vm, hub) = try build()
+        let recorder = capture(hub)
+        let before = try vm.currentTheme.value
+
+        for bad in ["not-a-color", "#12345", ""] {
+            XCTAssertThrowsError(try vm.applyAccentColor(bad)) { error in
+                XCTAssertEqual(error as? ThemeError, .invalidAccent(bad))
+            }
+        }
+
+        XCTAssertTrue(recorder.messages.isEmpty)
+        XCTAssertEqual(try vm.currentTheme.value, before)
+    }
+
+    /// ADR-0201 §2.5 — `#RGB` and `#RRGGBB` in either case are stored as given.
+    func testSetAccentColor_acceptsShortAndLongHex_asGiven() throws {
+        let (vm, hub) = try build()
+        let recorder = capture(hub)
+
+        vm.setAccentColor.execute("#abc")
+        XCTAssertEqual(try vm.currentTheme.value.accentColor, "#abc")
+
+        vm.setAccentColor.execute("#AABBCC")
+        XCTAssertEqual(try vm.currentTheme.value.accentColor, "#AABBCC")
+        XCTAssertEqual(recorder.messages.count, 2)
+    }
+
+    // MARK: - ADR-0201 §2.6 follow-system with no provider
+
+    /// ADR-0201 §2.6 — with no provider, `followSystemCommand` keeps name,
+    /// accent, scale and high contrast, sets `followsSystem`, and publishes
+    /// one message; a second run publishes nothing.
+    func testFollowSystemCommand_withNoProvider_keepsTheThemeAndSetsTheFlag() throws {
+        let custom = ThemeModel(
+            name: "light",
+            accentColor: "#ABCDEF",
+            fontScaleFactor: 1.25,
+            highContrast: false,
+            followsSystem: false
+        )
+        let (vm, hub) = try build(initial: custom)
+        let recorder = capture(hub)
+
+        vm.followSystemCommand.execute()
+
+        let after = try vm.currentTheme.value
+        XCTAssertEqual(after.name, "light")
+        XCTAssertEqual(after.accentColor, "#ABCDEF")
+        XCTAssertEqual(after.fontScaleFactor, 1.25)
+        XCTAssertFalse(after.highContrast)
+        XCTAssertTrue(after.followsSystem)
+        XCTAssertTrue(try vm.followsSystem.value)
+        XCTAssertEqual(recorder.messages.count, 1)
+
+        vm.followSystemCommand.execute()
+
+        XCTAssertEqual(recorder.messages.count, 1)
+    }
+
+    /// ADR-0201 §2.6 — a provider name that is not a preset gives the same
+    /// result as no provider.
+    func testFollowSystemCommand_withAnUnknownProviderName_keepsTheTheme() throws {
+        let (vm, hub) = try build(
+            initial: ThemeModel.LIGHT_PRESET,
+            systemThemeProvider: { "sepia" }
+        )
+        let recorder = capture(hub)
+
+        vm.followSystemCommand.execute()
+
+        let after = try vm.currentTheme.value
+        XCTAssertEqual(after.name, "light")
+        XCTAssertEqual(after.accentColor, ThemeModel.LIGHT_PRESET.accentColor)
+        XCTAssertTrue(after.followsSystem)
+        XCTAssertEqual(recorder.messages.count, 1)
+    }
+
     // MARK: - Sanity
 
     /// Sanity — `presets` exposes exactly 3 models in registry order:

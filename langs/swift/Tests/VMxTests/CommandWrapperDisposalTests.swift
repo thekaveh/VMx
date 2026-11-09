@@ -54,8 +54,6 @@ final class CommandWrapperDisposalTests: XCTestCase {
         }
     }
 
-    private let signalTimeout: TimeInterval = 30
-
     private func makeCommand(label: String, into recorder: Recorder) -> RelayCommand {
         RelayCommand.builder()
             .task { recorder.entries.append(label) }
@@ -139,7 +137,7 @@ final class CommandWrapperDisposalTests: XCTestCase {
         let settled = expectation(description: "fire-and-forget flow settled")
         command.onExecuteSettledForTesting = { settled.fulfill() }
         command.execute()
-        await fulfillment(of: [settled], timeout: signalTimeout)
+        await fulfillment(of: [settled], timeout: hangGuard)
 
         XCTAssertEqual(confirms.entries, [])
         XCTAssertEqual(recorder.entries, [])
@@ -171,11 +169,11 @@ final class CommandWrapperDisposalTests: XCTestCase {
             command.onExecuteSettledForTesting = { settled.fulfill() }
 
             command.execute()
-            await fulfillment(of: [pending.parked], timeout: signalTimeout)
+            await fulfillment(of: [pending.parked], timeout: hangGuard)
             command.dispose()
-            await fulfillment(of: [completed], timeout: signalTimeout)
+            await fulfillment(of: [completed], timeout: hangGuard)
             pending.resolve(outcome)
-            await fulfillment(of: [settled], timeout: signalTimeout)
+            await fulfillment(of: [settled], timeout: hangGuard)
 
             XCTAssertEqual(recorder.entries, [], label)
             XCTAssertEqual(errors.entries, [], label)
@@ -204,9 +202,9 @@ final class CommandWrapperDisposalTests: XCTestCase {
             )
 
             let awaited = Task { try await command.executeAsync() }
-            await fulfillment(of: [pending.parked], timeout: signalTimeout)
+            await fulfillment(of: [pending.parked], timeout: hangGuard)
             command.dispose()
-            await fulfillment(of: [completed], timeout: signalTimeout)
+            await fulfillment(of: [completed], timeout: hangGuard)
             pending.resolve(outcome)
             let result = await awaited.result
 
@@ -241,7 +239,7 @@ final class CommandWrapperDisposalTests: XCTestCase {
             )
 
             let awaited = Task { try await command.executeAsync() }
-            await fulfillment(of: [pending.parked], timeout: signalTimeout)
+            await fulfillment(of: [pending.parked], timeout: hangGuard)
             let resolver = Task.detached { pending.resolve(.success(true)) }
             command.dispose()
             await resolver.value

@@ -2304,7 +2304,8 @@ fn observable_dictionary_add_publishes_its_insertion_index() {
             _ => None,
         })
         .collect();
-    assert_eq!(indices, vec![Some(0), Some(1), None]);
+    // A Replace carries the entry's position (spec/21 §4.7, ADR-0193).
+    assert_eq!(indices, vec![Some(0), Some(1), Some(0)]);
 }
 
 /// COL-010 — ObservableMultiDictionary Add carries its insertion position

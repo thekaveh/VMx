@@ -1,5 +1,5 @@
-// Conformance tests: NOTIF-001..016 — notification sub-package.
-// See spec/16-notifications.md, ADR-0013, ADR-0031.
+// Conformance tests: NOTIF-001..018 — notification sub-package.
+// See spec/16-notifications.md, ADR-0013, ADR-0031, ADR-0196.
 
 import { describe, expect, it } from "vitest";
 
@@ -324,5 +324,64 @@ describe("NOTIF-017", () => {
       NotificationReaction.Approve,
     );
     hub.dispose();
+  });
+});
+
+describe("NOTIF-018", () => {
+  /** Reads the hub's current pending list. */
+  const pendingOf = (hub: INotificationHub): readonly Notification[] => {
+    let current: readonly Notification[] = [];
+    hub.pending.subscribe((list) => (current = list)).unsubscribe();
+    return current;
+  };
+
+  it("ConfirmationVM commands report canExecute false during dispose", async () => {
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Confirmation, "delete?");
+    let settled = false;
+    void hub.post(notification).then(() => (settled = true));
+    const sut = new ConfirmationVM(notification, hub, new FakeScheduler());
+    const commands = [sut.dismissCommand, sut.approveCommand, sut.rejectCommand];
+    const reads: boolean[] = [];
+    let handlerRuns = 0;
+    for (const command of commands) {
+      command.canExecuteChanged.subscribe(() => {
+        handlerRuns += 1;
+        for (const other of commands) reads.push(other.canExecute());
+        sut.rejectCommand.execute();
+      });
+    }
+
+    sut.dispose();
+    await Promise.resolve();
+
+    expect(handlerRuns).toBeGreaterThan(0);
+    expect(reads).not.toContain(true);
+    expect(sut.isResolved).toBe(false);
+    expect(pendingOf(hub)).toContain(notification);
+    expect(settled).toBe(false);
+
+    const runsAfterFirstDispose = handlerRuns;
+    sut.dispose();
+    await Promise.resolve();
+
+    expect(handlerRuns).toBe(runsAfterFirstDispose);
+    expect(pendingOf(hub)).toContain(notification);
+  });
+
+  it("NotificationVM dismissCommand reports canExecute false during dispose", () => {
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "info");
+    hub.post(notification);
+    const sut = new NotificationVM(notification, hub, new FakeScheduler());
+    const reads: boolean[] = [];
+    sut.dismissCommand.canExecuteChanged.subscribe(() =>
+      reads.push(sut.dismissCommand.canExecute()),
+    );
+
+    sut.dispose();
+
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads).not.toContain(true);
   });
 });
