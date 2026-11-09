@@ -1,6 +1,6 @@
-"""Conformance tests: NOTIF-001..016 — notification sub-package.
+"""Conformance tests: NOTIF-001..017, NOTIF-019, NOTIF-020 — notification sub-package.
 
-Per spec/16-notifications.md, ADR-0013, ADR-0031.
+Per spec/16-notifications.md, ADR-0013, ADR-0031, ADR-0197.
 """
 
 from __future__ import annotations
@@ -477,13 +477,16 @@ async def _post_once(hub: NotificationHub, notification: Notification) -> None:
 async def test_NOTIF_017_dispose_resolves_inflight_waiters_with_pending() -> None:
     hub = NotificationHub()
     completed: list[bool] = []
-    hub.pending.subscribe(on_completed=lambda: completed.append(True))
+    values: list[list[Notification]] = []
+    hub.pending.subscribe(on_next=values.append, on_completed=lambda: completed.append(True))
     task = hub.post(Notification(NotificationType.CONFIRMATION, "in-flight"))
+    before_dispose = len(values)
 
     hub.dispose()
 
     assert await task == NotificationReaction.PENDING
     assert completed == [True], "pending observable completes on dispose"
+    assert len(values) == before_dispose, "dispose sends no final snapshot (ADR-0197)"
 
     # Subsequent post resolves immediately with PENDING and does not enqueue.
     late = hub.post(Notification(NotificationType.NOTIFICATION, "late"))
@@ -493,3 +496,81 @@ async def test_NOTIF_017_dispose_resolves_inflight_waiters_with_pending() -> Non
     # Subsequent resolve is a no-op; second dispose is a no-op.
     hub.resolve(Notification(NotificationType.NOTIFICATION, "ghost"), NotificationReaction.APPROVE)
     hub.dispose()
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-019 — Remaining time and opacity stop at resolution or disposal
+# ---------------------------------------------------------------------------
+
+
+def _vm_with_ten_second_lifespan(
+    hub: NotificationHub, scheduler: TestScheduler, text: str
+) -> NotificationVM:
+    notification = Notification(NotificationType.NOTIFICATION, text)
+    hub.post(notification)
+    return NotificationVM(
+        notification=notification,
+        hub=hub,
+        scheduler=scheduler,
+        lifespan=timedelta(seconds=10),
+    )
+
+
+@pytest.mark.conformance("NOTIF-019")
+async def test_NOTIF_019_render_state_stops_at_resolution_or_disposal() -> None:
+    """remaining_time and opacity keep their values from resolution or disposal."""
+    hub = NotificationHub()
+
+    scheduler = TestScheduler()
+    dismissed = _vm_with_ten_second_lifespan(hub, scheduler, "dismissed")
+    dismissed.dismiss_command.execute()
+    scheduler.advance_by(10)
+    assert dismissed.remaining_time == timedelta(seconds=10)
+    assert dismissed.opacity == pytest.approx(1.0)
+    dismissed.dispose()
+
+    scheduler = TestScheduler()
+    disposed = _vm_with_ten_second_lifespan(hub, scheduler, "disposed")
+    disposed.dispose()
+    scheduler.advance_by(10)
+    assert disposed.remaining_time == timedelta(seconds=10)
+    assert disposed.opacity == pytest.approx(1.0)
+
+    scheduler = TestScheduler()
+    late = _vm_with_ten_second_lifespan(hub, scheduler, "late")
+    scheduler.advance_by(4)
+    late.dismiss_command.execute()
+    scheduler.advance_by(6)
+    assert late.remaining_time == timedelta(seconds=6)
+    assert abs(late.opacity - 0.6) < 0.01
+    late.dispose()
+    hub.dispose()
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-020 — A pending subscription after hub dispose receives completion only
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("NOTIF-020")
+async def test_NOTIF_020_late_pending_subscription_receives_completion_only() -> None:
+    hub = NotificationHub()
+    hub.post(Notification(NotificationType.NOTIFICATION, "posted"))
+    hub.dispose()
+
+    values: list[list[Notification]] = []
+    errors: list[Exception] = []
+    completed: list[bool] = []
+    hub.pending.subscribe(
+        on_next=values.append,
+        on_error=errors.append,
+        on_completed=lambda: completed.append(True),
+    )
+
+    assert values == [], "no snapshot: neither the posted notification nor []"
+    assert errors == []
+    assert completed == [True]
+
+    # A subscriber with no error handler does not raise either.
+    hub.pending.subscribe(on_next=values.append)
+    assert values == []

@@ -225,3 +225,48 @@ def test_with_null_hub_does_not_auto_resolve_from_pending() -> None:
     # At t=0 must not be resolved
     assert not vm.is_resolved
     vm.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Kept render state (ADR-0197, NOTIF-019) and a disposed hub (NOTIF-020)
+# ---------------------------------------------------------------------------
+
+
+async def test_external_resolve_keeps_remaining_time() -> None:
+    vm, hub, scheduler, notification = await make_vm(lifespan=timedelta(seconds=10))
+    scheduler.advance_by(3)
+    hub.resolve(notification, NotificationReaction.APPROVE)
+    scheduler.advance_by(5)
+    assert vm.is_resolved
+    assert vm.remaining_time == timedelta(seconds=7)
+    assert vm.opacity == pytest.approx(0.7)
+    vm.dispose()
+    scheduler.advance_by(2)
+    assert vm.remaining_time == timedelta(seconds=7), "dispose keeps the first kept value"
+
+
+async def test_auto_dismiss_keeps_zero_remaining_time() -> None:
+    vm, _, scheduler, _ = await make_vm(lifespan=timedelta(seconds=10))
+    scheduler.advance_by(10)
+    assert vm.is_resolved
+    scheduler.advance_by(10)
+    assert vm.remaining_time == timedelta(0)
+    assert vm.opacity == pytest.approx(0.0)
+    vm.dispose()
+
+
+async def test_vm_over_disposed_hub_constructs_and_dismisses() -> None:
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    hub.dispose()
+    notification = Notification(NotificationType.NOTIFICATION, "late")
+
+    vm = NotificationVM(notification, hub, scheduler, lifespan=timedelta(seconds=10))
+
+    assert not vm.is_resolved
+    vm.dismiss_command.execute()
+    assert vm.is_resolved
+    snapshots: list[list[Notification]] = []
+    hub.pending.subscribe(on_next=snapshots.append)
+    assert snapshots == [], "the disposed hub stays empty"
+    vm.dispose()
