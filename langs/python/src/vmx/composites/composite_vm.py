@@ -6,6 +6,7 @@ See spec/06-composite-vm.md.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
+from functools import partial
 from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar, overload
 
@@ -26,6 +27,8 @@ from vmx.components._container_helpers import (
     emit_collection_changed,
     enter_batch,
     exit_batch,
+    finish_failed_add_start,
+    is_member,
     join_if_pending,
     maybe_auto_construct,
     seal_or_next_late,
@@ -413,6 +416,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     value._set_parent(None)
                 self._pending_admission = None
                 self._late_starts.remove(value, record)
+            finish_failed_add_start(record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and value.status is ConstructionStatus.CONSTRUCTED
@@ -510,6 +514,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     item._set_parent(None)
                 self._pending_admission = None
                 self._late_starts.remove(item, record)
+            finish_failed_add_start(record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and item.status is ConstructionStatus.CONSTRUCTED
@@ -577,6 +582,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     item._set_parent(None)
                 self._pending_admission = None
                 self._late_starts.remove(item, record)
+            finish_failed_add_start(record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and item.status is ConstructionStatus.CONSTRUCTED
@@ -852,7 +858,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._apply_selector_result(initial)
 
         # This walk's scope of start records, begun before its snapshot.
-        walk = self._late_starts.begin_walk(self)
+        # The walk counts members only (ADR-0186).
+        member = partial(is_member, self)
+        walk = self._late_starts.begin_walk(self, member)
         visited: dict[int, VM] = {}
         walking = self._transition_container_children(
             self._construct_walk(joined, visited, walk),
@@ -865,6 +873,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 if self._auto_construct_on_add
                 else None
             ),
+            is_member=member,
         )
 
         # A failed walk ends its own scope when it fails, not at a later GC.

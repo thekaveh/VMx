@@ -14,6 +14,9 @@ below for them.
 
 ### Added
 
+- `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
+  membership change during another open membership transaction fails at once
+  and changes nothing. Python already behaved this way.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `count` first. Then it updates each key
   view that changes, emits the dictionary events and sends the hub message.
@@ -67,8 +70,21 @@ below for them.
   changes a node. `dispose()` releases the subscriptions and completes the
   stream without emitting.
 
+### Changed
+
+- The construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back, and
+  the walk does not construct a snapshot child removed before it reaches it.
+  `COMP-047` and `GRP-015` cover the four removal cases.
+
 ### Fixed
 
+- A construct hook that raises after it started the container walk no longer
+  lets the walk's commit step set `status` to `CONSTRUCTED` (ADR-0186,
+  spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
+  walk under the lock that writes the status.
 - A `FormVM` call nested in a preparation callback or an `errors_changed`
   observer of `set_model` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,

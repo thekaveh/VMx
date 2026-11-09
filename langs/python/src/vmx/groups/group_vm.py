@@ -13,6 +13,7 @@ See spec/07-group-vm.md.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
+from functools import partial
 from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar
 
@@ -33,6 +34,8 @@ from vmx.components._container_helpers import (
     emit_collection_changed,
     enter_batch,
     exit_batch,
+    finish_failed_add_start,
+    is_member,
     join_if_pending,
     maybe_auto_construct,
     seal_or_next_late,
@@ -222,6 +225,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     old._set_parent(parent)
                     value._set_parent(None)
                 self._late_starts.remove(value, record)
+            finish_failed_add_start(record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and value.status is ConstructionStatus.CONSTRUCTED
@@ -310,6 +314,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     self._children.remove(item)
                     item._set_parent(None)
                 self._late_starts.remove(item, record)
+            finish_failed_add_start(record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and item.status is ConstructionStatus.CONSTRUCTED
@@ -374,6 +379,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     self._children.remove(item)
                     item._set_parent(None)
                 self._late_starts.remove(item, record)
+            finish_failed_add_start(record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and item.status is ConstructionStatus.CONSTRUCTED
@@ -535,7 +541,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         finally:
             self._population_joined = None
         # This walk's scope of start records, begun before its snapshot.
-        walk = self._late_starts.begin_walk(self)
+        # The walk counts members only (ADR-0186).
+        member = partial(is_member, self)
+        walk = self._late_starts.begin_walk(self, member)
         visited: dict[int, VM] = {}
         walking = self._transition_container_children(
             self._construct_walk(joined, visited, walk),
@@ -547,6 +555,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 if self._auto_construct_on_add
                 else None
             ),
+            is_member=member,
         )
 
         # A failed walk ends its own scope when it fails, not at a later GC.
