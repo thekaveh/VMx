@@ -197,6 +197,10 @@ class NotificationProbeVM extends ComponentVMBase {
   emitValueNotification(): void {
     this._notifyPropertyChanged("value");
   }
+
+  raiseLocalValueNotification(): void {
+    this._raisePropertyChanged("value");
+  }
 }
 
 describe("CVM-007", () => {
@@ -288,6 +292,8 @@ describe("CVM-009", () => {
     localNames.length = 0;
 
     vm.emitValueNotification();
+    // The local-only primitive is inert after disposal too (ADR-0223).
+    vm.raiseLocalValueNotification();
 
     expect(hubNames).toEqual([]);
     expect(localNames).toEqual([]);

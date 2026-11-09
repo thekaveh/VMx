@@ -35,6 +35,10 @@ private final class NotificationProbeVM: ComponentVMBase {
     func emitValueNotification() {
         _notifyPropertyChanged("value")
     }
+
+    func raiseLocalValueNotification() {
+        _raisePropertyChanged("value")
+    }
 }
 
 final class ComponentVMTests: XCTestCase {
@@ -266,7 +270,8 @@ final class ComponentVMTests: XCTestCase {
         localCancel.cancel()
     }
 
-    /// CVM-009 — helper calls after disposal are silent on both channels.
+    /// CVM-009 — helper and local-only raise calls after disposal are silent
+    /// on both channels.
     func testCvm009NotificationHelperIsInertAfterDisposal() {
         let hub = MessageHub()
         let vm = NotificationProbeVM(
@@ -283,6 +288,8 @@ final class ComponentVMTests: XCTestCase {
         localNames.removeAll()
 
         vm.emitValueNotification()
+        // The local-only primitive is inert after disposal too (ADR-0223).
+        vm.raiseLocalValueNotification()
 
         XCTAssertEqual(hubNames, [])
         XCTAssertEqual(localNames, [])

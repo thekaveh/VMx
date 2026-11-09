@@ -267,6 +267,9 @@ class _NotificationProbeVM(_ComponentVMBase):
     def emit_value_notification(self) -> None:
         self._notify_property_changed("value")
 
+    def raise_local_value_notification(self) -> None:
+        self._raise_property_changed("value")
+
 
 @pytest.mark.conformance("CVM-007")
 def test_CVM_007_notification_helper_emits_hub_then_local_once() -> None:
@@ -397,6 +400,8 @@ def test_CVM_009_notification_helper_is_inert_after_disposal() -> None:
     local_names.clear()
 
     vm.emit_value_notification()
+    # The local-only primitive is inert after disposal too (ADR-0223).
+    vm.raise_local_value_notification()
 
     assert hub_names == []
     assert local_names == []

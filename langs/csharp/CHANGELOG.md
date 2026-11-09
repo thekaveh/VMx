@@ -72,6 +72,12 @@ All notable changes to the C# flavor are documented here. The format is based on
   act on the wrapped VM: the hub message names the wrapped VM as its sender,
   and the decorator's `PropertyChanged` event fires once.
 
+- Fixed: `ComponentVMBase.RaisePropertyChanged` is now a no-op after the VM is
+  disposed, as in Python, TypeScript and Swift (ADR-0223, spec/05 §2.3,
+  spec/09 §1, #1542). The `ForwardingComponentVM` and `ForwardingCompositeVM`
+  helpers forward to it, so they raise nothing after the wrapped VM is
+  disposed. The terminal `Status` and `IsConstructed` events still fire.
+
 - Changed: disposing a live `CompositeCommand`, `DecoratorCommand` or
   `ConfirmationDecoratorCommand` now raises the wrapper's own
   `CanExecuteChanged` once, as TypeScript and Swift do (#1459, spec/04 §8.4).

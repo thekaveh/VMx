@@ -13,8 +13,8 @@ namespace VMx.Conformance.Tests;
 /// VM (spec/09-forwarding.md §1, ADR-0221, #1352). The dual-channel helper
 /// sends one hub message whose sender is the wrapped VM, and the decorator's
 /// PropertyChanged event fires once. The local-only helper fires the event and
-/// sends no message. After the wrapped VM is disposed, the dual-channel helper
-/// notifies on neither channel.
+/// sends no message. After the wrapped VM is disposed, neither helper notifies
+/// on either channel (ADR-0223, #1542).
 /// </summary>
 public class FWD_006_ForwardingNotificationHelpers_Tests
 {
@@ -85,6 +85,7 @@ public class FWD_006_ForwardingNotificationHelpers_Tests
         names.Clear();
         messages.Clear();
         notify("After");
+        raiseLocal("AfterLocal");
 
         names.Should().BeEmpty();
         messages.Should().BeEmpty();

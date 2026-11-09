@@ -1,6 +1,6 @@
 # ADR 0221 — Forwarding decorators report property changes through the wrapped component
 
-- **Status:** Accepted
+- **Status:** Accepted (Decision rule 4 amended by ADR-0223)
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (chapter 09 §1, §2, §3 and `FWD-006`)
 - **Extends:** [ADR-0151](0151-forwarding-decorators-own-resources-on-the-wrapped-component.md).
