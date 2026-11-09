@@ -61,6 +61,13 @@ function idleState<T>(): StableAsyncResourceState<T> {
   return Object.freeze({ status: AsyncResourceStatus.Idle });
 }
 
+/** The loader's own cancellation signal: a rejection whose `name` is "AbortError". */
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && (error as { name?: unknown }).name === "AbortError";
+}
+
 function valueOf<T>(state: StableAsyncResourceState<T>): OptionalValue<T> {
   if (state.status === AsyncResourceStatus.Ready) {
     return { present: true, value: state.value };
@@ -304,6 +311,19 @@ export class AsyncResourceVM<T> extends ComponentVMBase {
     if (!this.#isCurrent(operationId, controller)) return;
     unlinkExternal();
     this.#controller = null;
+
+    if (isAbortError(outcome.error)) {
+      // The loader cancelled itself: restore the baseline as cancel() does
+      // (ADR-0199, ARES-012).
+      controller.signal.removeEventListener("abort", finishCancellation);
+      this.#operationId += 1;
+      try {
+        this.#setState(baseline);
+      } catch {
+        // Cancellation is nonthrowing; state rollback remains authoritative.
+      }
+      return;
+    }
 
     const previous = this.#retention === AsyncResourceRetention.RetainPrevious
       ? valueOf(this.#stableState)

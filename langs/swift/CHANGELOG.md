@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `NOTIF-020` conformance tests (#1476, ADR-0197). A `pending` subscription
   made after hub disposal receives completion only. Swift already behaved
   this way.
+- `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
+  cancellation restores the saved stable state. Swift already behaved this
+  way.
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
