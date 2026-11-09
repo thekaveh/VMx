@@ -28,6 +28,12 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `post_notification`, `resolve`, `pending` and `pending_stream`.
   `NotificationHub`, `NullNotificationHub` and `Arc<H>` for every implementer
   `H` implement it, so `Arc<dyn NotificationHubApi>` works.
+- `COL-070` conformance tests (#1316, ADR-0193). An edit to a `keys1()` or
+  `keys2()` snapshot does not change the dictionary. Rust already behaved this
+  way.
+- The `COMP-042` and `GRP-012` tests now assert that each container message
+  carries the container's name (#1309, ADR-0194). Rust already behaved this
+  way.
 - `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
   `ComponentVm::own_member` contract and rejects the container itself with
@@ -255,6 +261,11 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   flags lock, so `dispose()` reads the hub and sets `disposed` in one critical
   section, and `is_resolved()` returns a hub value only if no disposal
   completed between its `disposed` check and its hub read.
+- `ObservableMultiDictionary` and `ObservableDictionary` Remove and Replace hub
+  messages now carry the entry's position in enumeration order (#1316,
+  ADR-0193, `COL-068`). Remove sends `old_index: Some(position)` and
+  `new_index: None`. Replace sends `Some(position)` in both fields. Before,
+  both sent `None`.
 - Breaking: a `CompositeVm` or `GroupVm` from the builder or from
   `create(options)` has no children until its first `construct()` (#1255,
   ADR-0204, spec/06 §1, spec/07 §3). That construct calls the `children`

@@ -687,5 +687,99 @@ five flavors where ADR-0121 requires it. It moves the spec release history from
 The 31 new conformance IDs bring the catalog to 456 library IDs plus 5
 scenario IDs. Chapter count stays at 24.
 
+v3.30.0 also defines lifecycle calls during the inline dispose cascade, in
+which a view-model disposes its children and members before it publishes
+`Disposed`. A `construct()`, `destruct()`, or `reconstruct()` call that starts
+during the cascade fails with the error of a call on a `Disposed` view-model,
+even where it would be a no-op. It publishes no status, runs no hook, and calls
+no slot factory. Once the cascade has started, no hook is admitted and no
+status other than `Disposed` commits. A transition that started earlier
+publishes nothing more and returns as a call that `Disposed` superseded. The
+member cascade follows the same rules (`LIFE-021`). The catalog now contains
+447 library IDs plus 5 scenario IDs.
+
+See ADR-0175 and chapter 02 §2.4, §7.1, and §7.2.
+v3.30.0 also makes a failing local subscriber leave the hub message intact. A
+hub-publishing collection or container that commits a change sends exactly one
+`CollectionChangedMessage` for it, even when a local subscriber fails. C# and
+Python then rethrow the first failure; TypeScript, Swift, and Rust return
+normally (`COL-066`). The catalog now contains 445 library IDs plus 5 scenario
+IDs.
+
+See ADR-0171, chapter 01 §1.4, and chapter 21 §2.5.
+
+v3.30.0 also states the `ObservableDictionary` key-view order. A mutation
+changes the entries and `Count`, then the key views that change, then raises the
+dictionary events and sends the hub message. The order of the two key-view
+notifications is not specified, so a key-view handler must not rely on the
+other view (`COL-067`). No flavor changes behavior. The catalog now contains
+449 library IDs plus 5 scenario IDs.
+
+See ADR-0177 and chapter 21 §4.2.
+
+v3.30.0 also defines when a `FormVM` update nested in a form callback notifies.
+A `SetModel`, deny, or approve call made from a preparation callback, or from an
+`ErrorsChanged` observer of `SetModel` or deny, does its state work at once. It
+sends no notification before it returns. The outermost update on the thread
+sends the queue before it returns, with no form lock held: error maps first, in
+commit order, then the other notifications. A nested approval's persister
+starts after the queue. A nested call never waits for another thread's
+publication scope. Disposal drops queued notifications, and a `Dispose()`
+before a persister starts prevents the persister call (`FORM-041`,
+`FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
+
+See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also states the outcome of a loader's own cancellation. A current
+`AsyncResourceVM` loader that ends with its flavor's native cancellation signal
+restores the operation's saved stable state, as `Cancel` does, even when the VM
+did not request it. A C# timeout stays a failure, and a superseded loader's
+cancellation is stale (`ARES-012`). The catalog now contains 452 library IDs
+plus 5 scenario IDs.
+
+See ADR-0199 and chapter 23 §5 and §7.
+
+v3.30.0 also gives each lifecycle failure one reporting route. The call that
+runs a cycle-deferred terminal cleanup reports the cleanup's first failure when
+it has no earlier failure. In a shared-scheduler flush, the first failure is
+thrown to the flush's caller, and every other failure goes to the flavor's
+unhandled-error route after the flush returns. A scheduler that cancels its
+queued work on purpose marks itself first, so VMx runs none of that work. No
+conformance ID is added.
+
+See ADR-0200 and chapter 02 §2.4, §6.1, and §7.
+
+v3.30.0 also makes two composite selection refusals silent. A refused child
+`select()` or `deselect()` changes nothing and raises nothing in every flavor.
+While a composite is `Destructing`, a non-null selection changes nothing and
+raises nothing, so `destruct()` always returns with `Current` null
+(`COMP-051`, `COMP-052`).
+
+See ADR-0188 and chapter 05 §6 and chapter 06 §3.1, §4.3 and §5.
+
+v3.30.0 also covers a child that is disposed while it is still a member.
+Container walks and the child-transition helper skip a `Disposed` child, so
+the container still destructs, constructs and reconstructs (`LIFE-022`). A
+`Disposed` child is not selectable. When the current child publishes
+`Disposed` from its own `dispose()`, the composite clears `Current`, and the
+child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 455
+library IDs plus 5 scenario IDs.
+
+See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
+
+v3.30.0 also makes the `ObservableDictionary` key views read-only. `Keys1` and
+`Keys2` return a `ReadOnlyObservableList` facade in C#, Python, TypeScript, and
+Swift (`COL-070`). Dictionary Remove and Replace hub messages now carry the
+entry's position, as the §2.4 tables state (`COL-068`). Python's unkeyed
+`reverse()` sends one Reset. The catalog now contains 458 library IDs plus 5
+scenario IDs.
+
+See ADR-0193 and chapter 21 §2.3.6, §4.2, and §4.7.
+
+v3.30.0 also fixes the sender name of container collection messages. A
+`CollectionChangedMessage` from a `CompositeVM` or `GroupVM` carries the
+container's `Name` in every flavor (`COMP-042`, `GRP-012`).
+
+See ADR-0194, chapter 03 §1, and chapter 21 §2.4.
 See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
 ADR-0199, ADR-0200, ADR-0202, ADR-0204 and the affected behavior chapters.

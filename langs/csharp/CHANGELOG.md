@@ -52,6 +52,30 @@ All notable changes to the C# flavor are documented here. The format is based on
   throws nothing (ADR-0188, #1424). Before, it threw
   `InvalidOperationException`.
 
+- Changed: **Source-breaking:** `ObservableDictionary.Keys1` and `Keys2` now
+  return a read-only `ReadOnlyObservableList<TKey>` (#1316, ADR-0193,
+  `COL-070`). The view reads and notifies as before, but it has no mutator and
+  no batch member. Its `CollectionChanged`, `PropertyChanged` and granular
+  events carry the view as sender. Before, it was the backing
+  `ObservableList`, and a caller edit made it disagree with the entries. This
+  is a narrow 3.x exception (ADR-0009 §2.21). Migration: change an
+  `ObservableList<TKey>` annotation on a key view to
+  `ReadOnlyObservableList<TKey>`. Change keys through the dictionary.
+
+- Fixed: `ObservableDictionary` Remove and Replace hub messages now carry the
+  entry's position in enumeration order (#1316, ADR-0193, `COL-068`). Remove
+  sets `Index` and `OldIndex` to the position before the removal, and
+  `NewIndex` to -1. Replace sets all three to the entry's position when the
+  message is sent, as Add does (#733). If a local handler removed the entry
+  first, Replace sends -1. Before, both sent -1.
+
+- Changed: a `CollectionChangedMessage` from a `CompositeVM` or `GroupVM` now
+  carries the container's `Name` as its `SenderName` (#1309, ADR-0194). Before,
+  it carried the runtime type name, such as `` CompositeVM`1 ``. A hub filter on
+  that type name must use the container's name or sender identity instead.
+  Plain collections and dictionaries keep their type name. `SenderName` is now
+  an `init` property; its default is still the sender's runtime type name.
+
 - Added: `COL-067` conformance tests (#1176, ADR-0177). An
   `ObservableDictionary` mutation changes the entries and `Count` first. Then
   it updates each key view that changes, raises the dictionary events and

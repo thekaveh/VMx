@@ -318,21 +318,22 @@ ADR-0006 and require no further action:
 - **Rationale**: TS follows the `Map.prototype.get` no-throw convention. C# and Python
   match the dictionary-throws idiom of their standard libraries.
 
-### 2.21 `ObservableDictionary` key-axis view mutability (Python read-only)
+### 2.21 `ObservableDictionary` key-axis view mutability (resolved by ADR-0193)
 
-- **C# / TypeScript / Swift**: `Keys1`/`Keys2` return the live **mutable**
-  `ObservableList<TKey>` — spec-literal (spec/21 §4.1 declares
-  `Keys1 : ObservableList<TKey1>`, "live view").
-- **Python**: `keys1`/`keys2` return a `ReadOnlyObservableList` facade over the same
-  live key axis — identical read + subscribe surface, but no mutators (VMX-014), so a
-  caller cannot desync the view from the entries.
-- **Rationale**: the documented use (spec/21 §4.2 — bind to `Keys1`/`Keys2` for
-  category-view UIs) is read/subscribe-only, which the facade serves fully. Directly
-  mutating the view in the spec-literal flavors (e.g. `Keys1.Clear()`) desyncs it from
-  the entries — an unsupported footgun Python structurally prevents. Every
-  event/order/count thread is identical across all four. Converging the three mutable
-  flavors to a read-only view (and tightening spec/21 §4.1's declared type) is a
-  reasonable future spec decision for the maintainer.
+No divergence remains. Before ADR-0193, C#, TypeScript and Swift returned the
+mutable backing `ObservableList<TKey>` from `Keys1`/`Keys2`, and Python
+returned a `ReadOnlyObservableList` facade (VMX-014). A caller edit in the
+mutable flavors desynced the view from the entries. Now C#, Python, TypeScript
+and Swift all return a `ReadOnlyObservableList<TKey>` facade with no mutator
+and no batch member (spec/21 §4.2). Rust keeps its `Vec` snapshots.
+
+One 3.x exception to the major-version deferral: the C#, TypeScript and Swift
+change breaks source in a minor version. Only code that edits a view, or that
+names the view's type as `ObservableList`, fails to compile. An edit corrupted
+the dictionary, so no correct program depended on it, and read and subscribe
+code compiles unchanged. Each CHANGELOG lists the change as source-breaking,
+with a migration line. Where a flavor's current source version is already a
+major, the change rides in it.
 
 ### 2.22 `ServicedObservableCollection` append method
 

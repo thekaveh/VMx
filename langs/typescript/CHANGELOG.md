@@ -111,6 +111,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   uncommitted membership transaction and while disposal of the composite was
   pending.
 
+- **Source-breaking:** `ObservableDictionary.keys1` and `keys2` now return a
+  read-only `ReadOnlyObservableList<TKey>` (#1316, ADR-0193, `COL-070`). The
+  view reads and notifies as before, but it has no mutator and no batch
+  member. Before, it was the backing `ObservableList`, and a caller edit made
+  it disagree with the entries. `ReadOnlyObservableList` is exported from the
+  package root, and `recordObservableList` accepts it. Migration: change an
+  `ObservableList<TKey>` annotation on a key view to
+  `ReadOnlyObservableList<TKey>`. Change keys through the dictionary.
+
+- A `CollectionChangedMessage` from a `CompositeVM` or `GroupVM` now carries
+  the container's `name` as its `senderName` (#1309, ADR-0194). Before, it
+  carried the runtime type name, such as `CompositeVM`. A hub filter on that
+  type name must use the container's name or sender identity instead. Plain
+  collections and dictionaries keep their type name. `senderName` is now a
+  stored field, and each factory takes an optional trailing `senderName`. The
+  DevTools action type now shows the container's name.
+
 - `TokenPagedComposition`: a load also checks `hasMore` when it starts, as in
   the other flavors (#1161, ADR-0169). Behavior does not change: the load body
   already starts in the admission turn.
@@ -157,6 +174,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
   therefore return with no current child, also when an `onCurrentChanged`
   callback or a child's destruct hook selects a child.
+
+- `ObservableDictionary` Remove and Replace hub messages now carry the entry's
+  position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets
+  `index` and `oldIndex` to the position before the removal, and `newIndex` to
+  -1. Replace sets all three to the entry's position when the message is sent,
+  as Add does (#733). If a local subscriber removed the entry first, Replace
+  sends -1. Before, both sent -1.
 
 - A `FormVM` call nested in a preparation callback or an `errorsChanged`
   observer of `setModel` or deny now returns before its notifications
