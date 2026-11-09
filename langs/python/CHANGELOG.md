@@ -69,6 +69,19 @@ below for them.
 
 ### Fixed
 
+- A disposed `HierarchicalVM` node now refuses `add_child`, `remove_child`,
+  `reparent_child`, `invalidate_children`, `invalidate_subtree` and
+  `attach_many`, also where the call would do nothing (ADR-0190, spec/18
+  §7.1, #1318). A transfer out of a disposed parent refuses too. A refused
+  call changes nothing and publishes nothing. `attach_many` rejects a
+  candidate under a disposed parent, and `invalidate_subtree` skips a disposed
+  descendant. It raises `RuntimeError`.
+- A `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage` once its
+  disposal is requested, also when the disposal is deferred (ADR-0190, spec/01
+  §1.4, #1351). A local subscriber or `on_current_changed` callback that
+  disposes the container now suppresses the hub message of that change. In a
+  transfer whose old container disposes itself, the hub receives only the new
+  container's `Add`.
 - A `FormVM` call nested in a preparation callback or an `errors_changed`
   observer of `set_model` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,
