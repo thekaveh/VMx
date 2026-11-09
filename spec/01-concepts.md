@@ -165,8 +165,10 @@ suppress its hub message. The container still sends exactly one
 `CollectionChangedMessage` for the change. C# and Python then rethrow the first
 failure, and a local failure takes precedence over a later hub failure.
 TypeScript reports the failure through rxjs, and the call returns normally.
-Swift local subscribers cannot fail, and Rust containers have no separate local
-event (ADR-0171). Chapter 21 §2.5 applies the same rule to the hub-publishing
+Rust containers deliver the local event through
+`ObservableMembershipSource::subscribe_membership`; Rust catches a panicking
+local subscriber, and the call returns normally. Swift local subscribers cannot
+fail (ADR-0171). Chapter 21 §2.5 applies the same rule to the hub-publishing
 collections.
 
 ## 2. Dependency philosophy

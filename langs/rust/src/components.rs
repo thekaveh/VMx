@@ -49,6 +49,22 @@ impl ComponentCommands {
     where
         F: Fn() + Send + Sync + 'static,
     {
+        Self::with_liveness(core, || true, reconstruct_action)
+    }
+
+    /// Builds the commands of a container whose reconstruct action holds the
+    /// container weakly. The reconstruct predicate is also false once
+    /// `alive` is false, so a stored command that outlives its container is
+    /// disabled rather than enabled with no effect (#1483).
+    pub(crate) fn with_liveness<D: Dispatcher, A, F>(
+        core: &ComponentCore<D>,
+        alive: A,
+        reconstruct_action: F,
+    ) -> Self
+    where
+        A: Fn() -> bool + Send + Sync + 'static,
+        F: Fn() + Send + Sync + 'static,
+    {
         let select = {
             let action_core = core.clone();
             let predicate_core = core.clone();
@@ -64,7 +80,7 @@ impl ComponentCommands {
         let reconstruct = {
             let predicate_core = core.clone();
             RelayCommand::new_shared(reconstruct_action)
-                .with_can_execute(move || predicate_core.can_reconstruct())
+                .with_can_execute(move || alive() && predicate_core.can_reconstruct())
         };
         let select_next = RelayCommand::noop().with_can_execute(|| false);
         let select_previous = RelayCommand::noop().with_can_execute(|| false);
