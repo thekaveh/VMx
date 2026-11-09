@@ -10,6 +10,31 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The `notifications` Cargo feature, which `default` includes (ADR-0211,
+  #1264). It gates the notification sub-package of spec/16:
+  `NotificationHub`, `NullNotificationHub`, `NotificationHubApi`,
+  `make_confirm`, `Notification`, `NotificationType`, `NotificationReaction`,
+  `NotificationWaiter`, `NotificationVm` and `ConfirmationVm`. A dependency
+  with `default-features = false` builds the core without them. `ModalVm`
+  stays in the core.
+- The `NotificationHubApi` trait (ADR-0211, #1264). It declares
+  `post_notification`, `resolve`, `pending` and `pending_stream`.
+  `NotificationHub`, `NullNotificationHub` and `Arc<H>` for every implementer
+  `H` implement it, so `Arc<dyn NotificationHubApi>` works.
+- `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
+  `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
+  `ComponentVm::own_member` contract and rejects the container itself with
+  `VmxError::OwnershipCycle`. `dispose()` disposes the children and then the
+  registered members, before the container publishes `Disposed`. During a
+  foreign dispose the container publishes `Disposed` first and disposes both
+  after the hook returns (ADR-0179). A member registered after the disposal
+  started is disposed by its registration.
+- `CompositeVm::with_destruct_order` and `GroupVm::with_destruct_order`, public
+  raw constructors that take a `ChildOrder` (#1287, ADR-0204). `new` and
+  `with_services` keep `ChildOrder::Insertion`.
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189). A refused child `select()` or `deselect()` already
+  changed nothing and returned nothing in Rust (`COMP-052`).
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear, and
@@ -88,9 +113,34 @@ project adheres to [Semantic Versioning](https://semver.org/).
   reaction stays authoritative, and a second call has no effect. Disposal
   never disposes the hub. Before this change, a kept command still resolved
   the hub after the host dropped the view model.
+- `HierarchicalVm<M, N = ()>` takes a node-data type `N`, the Rust form of a
+  `TVM` subclass (#1263, ADR-0202). `parent()`, `children()`, `path()`, the
+  children factory and `attach_many` use `HierarchicalVm<M, N>`, and
+  `node_data()` returns the node's own `N`. `HierarchicalVm::with_node_data`
+  and `HierarchicalVmBuilder::with_node_data` create such nodes, and
+  `TreeSelection<M, N = ()>` follows the node type. `N` defaults to `()`, so
+  code that names `HierarchicalVm<M>` or `TreeSelection<M>` is unchanged.
 
 ### Changed
 
+- Breaking: `NullNotificationHub` functions are instance methods that mirror
+  `NotificationHub` (ADR-0211, #1264): `new`, `post_notification`, `post`,
+  `post_with_waiter`, `resolve` (no effect), `pending` (always empty) and
+  `pending_stream`. The type derives `Clone`, `Copy`, `Debug`, `Default`,
+  `PartialEq` and `Eq`. Migration: `NullNotificationHub::post(notification)`
+  becomes `NullNotificationHub.post_notification(notification)`,
+  `NullNotificationHub::pending_stream()` becomes
+  `NullNotificationHub.pending_stream()`, and the removed
+  `NullNotificationHub::post_message(message)` becomes
+  `NullNotificationHub.post_with_waiter(NotificationType::Notification, message)`.
+- `make_confirm` accepts any `NotificationHubApi + Clone + 'static` hub, such
+  as a `NullNotificationHub`, whose predicate completes with `true` at once
+  (ADR-0211, #1264). A `NotificationHub` argument works as before.
+- `NotificationHub` keeps no history of committed pending snapshots
+  (ADR-0211, #1275). Before, each post, resolve and dispose kept a full copy
+  of the pending list for the life of the hub, and `dispose()` did not clear
+  them. One pending notification and 100,000 post and resolve pairs kept
+  200,001 snapshots.
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default
@@ -149,9 +199,45 @@ project adheres to [Semantic Versioning](https://semver.org/).
   ADR-0178). Clones of the view model share the commands. A command holds
   only the shared notification state, so a kept command makes no reference
   cycle.
+- Breaking: `TokenPagedComposition` requires
+  `Token: Clone + Send + Sync + 'static` and runs `Token::clone` with no pager
+  lock held (#1278, ADR-0202). Clones of one stored token no longer take
+  turns, and a clone that reads the cursor again on its own thread no longer
+  blocks forever. A `Send`-only token, for example one that holds a `Cell`, no
+  longer compiles. Wrap its state in a `Mutex` or an atomic.
+
+### Deprecated
+
+- `NotificationHub::pending_snapshots()`, which is now always empty
+  (ADR-0211, #1275). Migration: subscribe to `pending_stream()` before the
+  posts and resolutions to observe, and collect the values. The first value
+  is the snapshot that is current at subscription.
 
 ### Fixed
 
+- `NotificationVm::is_resolved()` and `ConfirmationVm::is_resolved()` no
+  longer change from `true` to `false` when `dispose()` races a hub
+  `resolve` (ADR-0211, #1293). Both view models now read the hub under their
+  flags lock, so `dispose()` reads the hub and sets `disposed` in one critical
+  section, and `is_resolved()` returns a hub value only if no disposal
+  completed between its `disposed` check and its hub read.
+- Breaking: a `CompositeVm` or `GroupVm` from the builder or from
+  `create(options)` has no children until its first `construct()` (#1255,
+  ADR-0204, spec/06 §1, spec/07 §3). That construct calls the `children`
+  factory once, inside the construct transition and after the construct hook,
+  as in C# and TypeScript, and attaches the result before the construct walk;
+  `build()` no longer calls it. A construct that starts while the factory runs
+  fails with `VmxError::ConcurrentOperation`. A refused population, such as
+  `VmxError::DuplicateChild`, now fails the first `construct()` instead of
+  `build()`: the container publishes `Constructing`, rolls back to
+  `Destructed`, attaches nothing and keeps the factory for the next construct.
+  A factory that panics also keeps its slot.
+- A stored `reconstruct_command()` of `CompositeVm`, `GroupVm` and
+  `AggregateVm1` to `AggregateVm6` reports `can_execute()` false once every
+  container handle dropped, as in Swift; its `execute()` stays inert (#1483,
+  ADR-0204). The aggregate command now holds the parent registration weakly,
+  so the children of a dropped aggregate report no parent and can join
+  another container while the command handle exists.
 - The `FormVm::dispose()` rustdoc now states the deferred-teardown rule
   (#1292). After a refused wait, or while a delivery outside a publication
   scope is in progress, the teardown runs when no publication and no delivery
@@ -169,6 +255,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `set_model()`, `approve()`, `revert()` and the approve and deny commands,
   and `can_approve()` in strict mode. A model `Clone` can read `is_valid()`,
   `errors()`, `error_map()` and `field_error()`. The code does not change.
+- Disposing the current child of a `CompositeVm` now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `on_current_changed(None)` once. The
+  disposed child reads `is_current()` false and publishes no change for it. A
+  disposed child can no longer become current: `set_current` returns
+  `VmxError::NonChild`. The composite's own dispose cascade does not clear
+  `current`.
+- A `CompositeVm`, `GroupVm` or fixed-arity aggregate that holds a directly
+  disposed child now destructs, constructs and reconstructs (ADR-0189,
+  #1383). Container walks and the child-transition helper skip a disposed
+  child. A walk that waits for a background child that is disposed meanwhile
+  now goes on. Before, every `destruct()` failed with `VmxError::Disposed`
+  and the container stayed `Constructed`.
+- A non-null selection while a `CompositeVm` is `Destructing` now changes
+  nothing and returns `Ok(())` (ADR-0188, #1425). This covers `set_current`,
+  `select_component`, the child `select()` path, and an async call and its
+  delivery. `can_select_component` returns `false` meanwhile. `destruct()`
+  and `reconstruct()` therefore return with no current child, also when
+  `on_current_changed`, a child's destruct hook or another thread selects a
+  child.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
@@ -281,10 +387,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   clone that waited for a refresh to finish, or for a start while another
   commit waited, blocked forever. The pager now stores the token behind its
   own lock, which no commit takes. A reader takes the cursor lock only to copy
-  that handle, and runs `Token::clone` after it releases the lock. The bound
-  stays `Token: Clone + Send + 'static`. The `current_token()` rustdoc states
-  the remaining limits: clones of one stored token take turns, and a clone
-  must not read the cursor again on its own thread.
+  that handle, and runs `Token::clone` after it releases the lock. #1278
+  later removed the token lock in this release.
 - The `CompositeVm` construct walk's `Current(selector)` assignment follows
   ADR-0165 (#1151). It skips a child that an add, insert, replacement or
   population has attached but not admitted, skips while disposal is pending,

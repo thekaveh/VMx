@@ -114,9 +114,9 @@ the returned array in place no longer compiles, and doing it through a cast
 would corrupt the cached snapshot:
 
 ```tsx
-// Before: a local hook returned a mutable array.
+// Before: a local hook returned a mutable array, so an in-place sort compiled.
 const items = useLocalList(list);
-items.sort((left, right) => left - right); // error: readonly number[]
+items.sort((left, right) => left - right);
 ```
 
 After: copy before changing the order. The source list is untouched, and the

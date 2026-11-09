@@ -57,8 +57,10 @@ _current_change_coordinator = RLock()
 
 # The kinds of _CompositeVMBase._apply_current_change (spec/06 §4.3).
 _CALL = "call"
+_CHILD = "child"
 _DELIVERY = "delivery"
 _CLEAR = "clear"
+_DISPOSE_CLEAR = "dispose-clear"
 
 
 def _transaction_in_progress() -> RuntimeError:
@@ -182,26 +184,49 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return self._current
 
     def select_child(self, vm: _ComponentVMBase) -> None:
-        self._raise_if_caller_owns_uncommitted_transaction()
+        """The child ``select()`` path: every refusal is silent (ADR-0188).
+
+        It runs the checks of ``select_component`` (spec/05 §6, spec/06 §3.1).
+        A non-member, a member that is not Constructed, the caller's own
+        uncommitted transaction, pending disposal and a check that fails at
+        the commit change nothing and raise nothing. An async delivery drops
+        a child that is no longer valid (#1220).
+        """
         if isinstance(vm, _ComponentVMBase):
-            # Use typed access via _set_current
             for child in self.snapshot():
                 if child is vm:
-                    # A member that is not Constructed is refused as silently
-                    # as a non-member (spec/05 §6, spec/06 §3.1, #1229). The
-                    # commit checks Constructed again under its locks, and an
-                    # async delivery drops such a child (#1220).
                     if child.status is not ConstructionStatus.CONSTRUCTED:
                         return
                     self._set_current(
-                        child, async_sel=self._async_selection, require_constructed=True
+                        child,
+                        async_sel=self._async_selection,
+                        require_constructed=True,
+                        silent=True,
                     )
                     return
 
     def deselect_child(self, vm: _ComponentVMBase) -> None:
-        self._raise_if_caller_owns_uncommitted_transaction()
+        """The child ``deselect()`` path: every refusal is silent (ADR-0188)."""
         if self.current is vm:
-            self._set_current(None, async_sel=self._async_selection)
+            self._set_current(None, async_sel=self._async_selection, silent=True)
+
+    def _child_disposed(self, vm: _ComponentVMBase) -> None:
+        """Clear ``current`` after the current child published Disposed.
+
+        The dispose clear of spec/06 §4.3 rule 9 (ADR-0189). It clears only
+        while that child is still current, compared by ownership identity so
+        a forwarding decorator matches. It never runs during this composite's
+        own disposal: requested, deferred or Disposed. The commit checks that
+        again, because the composite's dispose can start in between.
+        """
+        identity = vm._ownership_identity
+        with self._membership_gate:
+            if self._disposal_pending_locked() or self._status is ConstructionStatus.DISPOSED:
+                return
+            current = self._current
+            if current is None or current._ownership_identity is not identity:
+                return
+        self._apply_current_change(None, kind=_DISPOSE_CLEAR, only_replacing=current)
 
     def contains_child(self, vm: _ComponentVMBase) -> bool:
         with self._membership_gate:
@@ -298,6 +323,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         - Non-None raises RuntimeError while disposal is pending.
         - Any value raises RuntimeError inside the caller's own uncommitted
           membership transaction.
+        - A Disposed child is not a member: it raises the non-member
+          ValueError (ADR-0189).
+        - After those checks, a non-None value while this composite is
+          Destructing changes nothing and raises nothing (ADR-0188).
         - Another thread's membership transaction never fails or delays it.
         - If async_selection is True, validates now, then dispatches via the
           foreground scheduler; the delivery validates again.
@@ -307,8 +336,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     # ── Selection methods ─────────────────────────────────────────────────────
 
     def select_component(self, vm: VM) -> None:
-        """Select *vm* as current.  Raises if ``can_select_component`` is False."""
-        if not self.can_select_component(vm):
+        """Select *vm* as current.  Raises if ``can_select_component`` is False.
+
+        A call that only the Destructing rule refuses changes nothing and
+        raises nothing (spec/06 §3.1, §4.3 rule 8, ADR-0188).
+        """
+        if not self._can_select_component(vm, destructing_refuses=False):
             raise _cannot_select(vm)
         # The commit checks Constructed again under its locks, so a destruct
         # on another thread after this check cannot pass it (#1220).
@@ -332,9 +365,13 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         """Return True iff ``select_component(vm)`` would succeed now.
 
         *vm* is an admitted child and Constructed, no disposal of this
-        composite is pending, and the caller is not inside its own uncommitted
-        membership transaction (spec/06 §3.1, ADR-0173).
+        composite is pending, the composite is not Destructing, and the caller
+        is not inside its own uncommitted membership transaction (spec/06
+        §3.1, ADR-0173, ADR-0188).
         """
+        return self._can_select_component(vm, destructing_refuses=True)
+
+    def _can_select_component(self, vm: VM, *, destructing_refuses: bool) -> bool:
         if vm.status != ConstructionStatus.CONSTRUCTED:
             return False
         with self._membership_gate:
@@ -342,6 +379,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 not self._caller_owns_uncommitted_transaction_locked()
                 and not self._disposal_pending_locked()
                 and self._is_committed_member_locked(vm)
+                and not (destructing_refuses and self._selection_silenced_locked(vm))
             )
 
     # ── MutableSequence-like collection API ───────────────────────────────────
@@ -1183,13 +1221,6 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             and self._membership_transaction_owner == get_ident()
         )
 
-    def _raise_if_caller_owns_uncommitted_transaction(self) -> None:
-        """Every selection call fails inside the caller's own uncommitted
-        transaction, also one that would change nothing (spec/06 §4.3 rule 4)."""
-        with self._membership_gate:
-            if self._caller_owns_uncommitted_transaction_locked():
-                raise _transaction_in_progress()
-
     def _selection_refusal_locked(
         self, value: VM | None, *, disposed: bool, require_constructed: bool = False
     ) -> Exception | None:
@@ -1213,7 +1244,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return _selection_while_disposing() if disposed and self._current is not None else None
         if self._disposal_pending_locked():
             return None if disposed and value is self._current else _selection_while_disposing()
-        if not self._is_committed_member_locked(value):
+        # A Disposed child is not a member for selection (spec/06 §4.3 rule 2,
+        # ADR-0189).
+        if (
+            not self._is_committed_member_locked(value)
+            or value.status is ConstructionStatus.DISPOSED
+        ):
             return ValueError(
                 f"Cannot set current to '{getattr(value, 'name', value)!r}': "
                 "it is not a member of this composite."
@@ -1222,12 +1258,33 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return _cannot_select(value)
         return None
 
+    def _selection_silenced_locked(self, value: VM | None) -> bool:
+        """A non-null selection while this composite is Destructing (rule 8).
+
+        Checked after the refusals of rules 2, 3 and 4, which keep their
+        errors. It changes nothing and raises nothing (ADR-0188). The status
+        is Destructing before the destruct clear runs, so this read under the
+        membership gate never lets a selection outlive the clear.
+        """
+        return value is not None and self._status is ConstructionStatus.DESTRUCTING
+
     def _set_current(
-        self, value: VM | None, *, async_sel: bool, require_constructed: bool = False
+        self,
+        value: VM | None,
+        *,
+        async_sel: bool,
+        require_constructed: bool = False,
+        silent: bool = False,
     ) -> None:
-        """Apply the current change, optionally dispatching via foreground."""
+        """Apply the current change, optionally dispatching via foreground.
+
+        *silent* (the child ``select`` and ``deselect`` paths) turns every
+        refusal into a no-op (ADR-0188).
+        """
         if not async_sel:
-            self._apply_current_change(value, kind=_CALL, require_constructed=require_constructed)
+            self._apply_current_change(
+                value, kind=_CHILD if silent else _CALL, require_constructed=require_constructed
+            )
             return
         # The call validates now and raises as the synchronous setter does;
         # the delivery validates again (spec/06 §4.3 rule 7).
@@ -1236,8 +1293,13 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             refusal = self._selection_refusal_locked(
                 value, disposed=disposed, require_constructed=require_constructed
             )
+            silenced = self._selection_silenced_locked(value)
         if refusal is not None:
+            if silent:
+                return
             raise refusal
+        if silenced:
+            return
         captured = value
 
         def _dispatch(scheduler: SchedulerBase, state: object | None) -> None:
@@ -1262,28 +1324,39 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         thread's transaction neither fails nor delays it. The publication runs
         after both are released, under the current-publication lease, so a
         dispose from the callbacks is deferred until they return. *kind* is
-        ``_CALL`` (a refusal raises), ``_DELIVERY`` (an async delivery or the
-        walk's assignment: a refusal is a silent no-op) or ``_CLEAR`` (the
-        destruct or detach clear: never refused). With *only_replacing*, the
-        change applies only while that child is still current: a transaction
-        clears the child it detached, never a selection made after the detach
-        (#1064).
+        ``_CALL`` (a refusal raises), ``_CHILD`` (the child ``select`` and
+        ``deselect`` paths: a refusal is a silent no-op, ADR-0188),
+        ``_DELIVERY`` (an async delivery or the walk's assignment: a refusal
+        is a silent no-op), ``_CLEAR`` (the destruct or detach clear: never
+        refused) or ``_DISPOSE_CLEAR`` (the dispose clear: skipped while this
+        composite's own disposal is pending or done, ADR-0189 rule 6). A
+        non-null selection while the composite is Destructing changes nothing
+        for every kind (rule 8). With *only_replacing*, the change applies
+        only while that child is still current: a transaction clears the child
+        it detached, never a selection made after the detach (#1064).
         """
-        if kind == _CLEAR:
+        clear = kind in (_CLEAR, _DISPOSE_CLEAR)
+        if clear:
             # A clear with nothing to clear skips the global lane.
             with self._membership_gate:
                 if self._current is None:
                     return
-        disposed = kind != _CLEAR and self._is_disposed()
+        disposed = not clear and self._is_disposed()
         with _current_change_coordinator:
             with self._membership_gate:
-                if kind != _CLEAR:
+                if kind == _DISPOSE_CLEAR and (
+                    self._disposal_pending_locked() or self._status is ConstructionStatus.DISPOSED
+                ):
+                    return
+                if not clear:
                     refusal = self._selection_refusal_locked(
                         value, disposed=disposed, require_constructed=require_constructed
                     )
                     if refusal is not None:
                         if kind == _CALL:
                             raise refusal
+                        return
+                    if self._selection_silenced_locked(value):
                         return
                 previous = self._current
                 if previous is value or (

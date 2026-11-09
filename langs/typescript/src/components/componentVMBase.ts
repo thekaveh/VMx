@@ -39,6 +39,12 @@ export interface IOwningParentVM extends IParentVM {
   readonly ownerParent: IOwningParentVM | null;
   containsChild(vm: ComponentVMBase): boolean;
   detachForTransfer(vm: ComponentVMBase): ParentTransfer;
+  /**
+   * Called once by a child right after it publishes Disposed from its own
+   * `dispose()`. A composite clears `current` if that child is still current
+   * (spec/06 §4.3 rule 9, ADR-0189); other parents do nothing.
+   */
+  childDisposed(vm: ComponentVMBase): void;
 }
 
 /** @internal One-shot staged old-parent removal. */
@@ -516,9 +522,13 @@ export abstract class ComponentVMBase {
    */
   _commitIsCurrent(value: boolean): boolean {
     // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
-    // selection change on an already-disposed VM is a silent no-op (no
-    // local or hub property-change emission), mirroring Swift (VMX-006).
-    if (this.#status === ConstructionStatus.Disposed) return false;
+    // selection change on an already-disposed VM publishes nothing (VMX-006).
+    // Only a change to false still applies, when the composite stops making
+    // this VM current (ADR-0189); a change to true is a no-op.
+    if (this.#status === ConstructionStatus.Disposed) {
+      if (!value) this.#isCurrent = false;
+      return false;
+    }
     if (this.#isCurrent === value) return false;
     this.#isCurrent = value;
     return true;
@@ -1035,16 +1045,18 @@ export abstract class ComponentVMBase {
    * - The walk takes `children` in the order given, one child at a time: a
    *   child starts only after the previous child settled. To destruct in
    *   reverse order, pass a reversed list.
-   * - A child already at the target status is skipped. A child already in the
-   *   transient status (`Constructing` / `Destructing`) is joined: the walk
-   *   waits for it and does not start it again.
+   * - A child already at the target status, or `Disposed`, is skipped. A
+   *   child already in the transient status (`Constructing` /
+   *   `Destructing`) is joined: the walk waits for it and does not start it
+   *   again. A child that reaches `Disposed` during the wait counts as
+   *   settled (ADR-0189).
    * - A child left in its transient status (a background child) defers this
    *   VM's terminal status. This VM stays `Constructing` / `Destructing` until
    *   the child settles, and then the walk continues.
-   * - A child that settles at any other status (its hook failed, or it was
-   *   disposed) stops the walk and rolls this VM back to its prior settled
-   *   status. Siblings that already reached the target are not undone. A
-   *   synchronous failure is thrown from `construct()` / `destruct()`.
+   * - A child that settles at any other status (its hook failed) stops the
+   *   walk and rolls this VM back to its prior settled status. Siblings that
+   *   already reached the target are not undone. A synchronous failure is
+   *   thrown from `construct()` / `destruct()`.
    * - `after` runs exactly once, after every child reached the target and
    *   before this VM publishes its terminal status. A throwing `after` rolls
    *   this VM back like a child failure.
@@ -1111,6 +1123,8 @@ export abstract class ComponentVMBase {
     const targetName = construct ? "Constructed" : "Destructed";
     const iterator = children[Symbol.iterator]();
     let deferred: DeferredLifecycle | null = null;
+    const reachedTargetOrDisposed = (child: ComponentVMBase): boolean =>
+      child.status === target || child.status === ConstructionStatus.Disposed;
 
     const settle = (result: DeferredLifecycleResult): void => {
       this.#cancelChildWait = null;
@@ -1134,6 +1148,30 @@ export abstract class ComponentVMBase {
         subscription?.unsubscribe();
         return true;
       };
+      const continueWalk = (): void => {
+        // This VM was disposed (or abandoned the wait) in the meantime.
+        if (cancelled) return;
+        // Read the status now, not at the settle: a joined reconstructing
+        // child is Constructed again by its release (spec/02 §6). A child
+        // that reached Disposed meanwhile counts as settled (ADR-0189).
+        if (!reachedTargetOrDisposed(child)) {
+          // The child rolled back and surfaced its own failure.
+          settle({
+            failed: true,
+            error: new Error(`Child '${child.name}' did not reach ${targetName}`),
+            rethrow: false,
+          });
+          return;
+        }
+        let stillPending: boolean;
+        try {
+          stillPending = advance();
+        } catch (error) {
+          settle({ failed: true, error, rethrow: !(error instanceof JoinedChildFailure) });
+          return;
+        }
+        if (!stillPending) settle({ failed: false, error: undefined, rethrow: false });
+      };
       subscription = child.propertyChanged.subscribe({
         next: (name) => {
           // "isConstructed" is the last per-status notification _setStatus raises.
@@ -1142,37 +1180,12 @@ export abstract class ComponentVMBase {
           // Continue only after the child finished publishing and released its
           // in-flight guard, so this VM may start the child's next transition
           // and a failure here does not escape from the child's subscriber.
-          child._ownershipIdentity.#runWhenReleased(() => {
-            // This VM was disposed (or abandoned the wait) in the meantime.
-            if (cancelled) return;
-            // Read the status now, not at the settle: a joined reconstructing
-            // child is Constructed again by its release (spec/02 §6).
-            if (child.status !== target) {
-              // The child rolled back (and surfaced its own failure) or was disposed.
-              settle({
-                failed: true,
-                error: new Error(`Child '${child.name}' did not reach ${targetName}`),
-                rethrow: false,
-              });
-              return;
-            }
-            let stillPending: boolean;
-            try {
-              stillPending = advance();
-            } catch (error) {
-              settle({ failed: true, error, rethrow: !(error instanceof JoinedChildFailure) });
-              return;
-            }
-            if (!stillPending) settle({ failed: false, error: undefined, rethrow: false });
-          });
+          child._ownershipIdentity.#runWhenReleased(continueWalk);
         },
+        // The child's notifications ended: it is Disposed (ADR-0189).
         complete: () => {
           if (!stopWaiting()) return;
-          settle({
-            failed: true,
-            error: new Error(`Child '${child.name}' was disposed before reaching ${targetName}`),
-            rethrow: false,
-          });
+          continueWalk();
         },
       });
       // propertyChanged does not replay, so no settle can have arrived yet.
@@ -1186,6 +1199,8 @@ export abstract class ComponentVMBase {
     const advance = (): boolean => {
       for (let next = iterator.next(); next.done !== true; next = iterator.next()) {
         const child = next.value;
+        // A Disposed child is skipped: no lifecycle call (spec/02 §6, ADR-0189).
+        if (child.status === ConstructionStatus.Disposed) continue;
         if (
           child.status !== target &&
           child.status !== transient &&
@@ -1198,7 +1213,8 @@ export abstract class ComponentVMBase {
           waitFor(child);
           return true;
         }
-        if (child.status !== target) {
+        // A child disposed during its own transition counts as settled.
+        if (!reachedTargetOrDisposed(child)) {
           const message = `Child '${child.name}' did not reach ${targetName}`;
           // A joined child already surfaced its own failure.
           throw joined?.has(child) === true ? new JoinedChildFailure(message) : new Error(message);
@@ -1226,6 +1242,9 @@ export abstract class ComponentVMBase {
       // this VM publishes Disposed.
       () => this.#disposeMembers(),
       () => this._setStatus(ConstructionStatus.Disposed),
+      // A composite clears this VM as its current child (spec/06 §4.3 rule 9,
+      // ADR-0189). It skips the clear during its own dispose cascade.
+      () => this._parent?.childDisposed(this),
       // A parent waiting for this VM's release now sees Disposed and settles.
       () => this.#runAfterRelease(),
       () => {
