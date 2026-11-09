@@ -59,11 +59,16 @@ The rules:
 1. The restore follows chapter 23 §7. It creates no `Error`, emits nothing on
    a command error channel, and does not clean the restored value. The
    awaitable intent completes normally.
-1. A timeout is a failure, not a cancellation. A C#
+1. A timeout that the flavor reports with a timeout error is a failure and
+   installs `Error`. These errors are Python `TimeoutError`, TypeScript
+   `TimeoutError`, Swift `URLError.timedOut`, and a C#
    `OperationCanceledException` whose `InnerException` is a
-   `TimeoutException`, as `HttpClient` throws on a timeout, installs `Error`.
-   The other flavors already report a timeout with a timeout error: Python
-   `TimeoutError`, TypeScript `TimeoutError`, Swift `URLError.timedOut`.
+   `TimeoutException`, as `HttpClient` throws on a timeout. A timeout that the
+   loader implements by cancelling a token, such as C#
+   `CancellationTokenSource.CancelAfter`, ends with the native signal. It is a
+   cancellation and restores the saved stable state. Rust has no timeout
+   signal, so a Rust loader that reports a timeout returns an error other than
+   `VmxError::Cancelled`.
 1. A superseded loader that ends with the signal is a stale completion
    (chapter 23 §6). The newer operation stays current, and the state does not
    change.

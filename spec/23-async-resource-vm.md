@@ -150,10 +150,14 @@ owner cancels. The native signals are:
 | Swift      | `CancellationError`                          |
 | Rust       | `Err(VmxError::Cancelled)`                   |
 
-A timeout is a failure, not a cancellation. A C#
-`OperationCanceledException` whose `InnerException` is a `TimeoutException`
-installs `Error`. Any other error installs `Error` as well. A superseded loader
-that ends with the signal is a stale completion (§6).
+A timeout that the flavor reports with a timeout error is a failure and
+installs `Error`. These errors are Python `TimeoutError`, TypeScript
+`TimeoutError`, Swift `URLError.timedOut`, and a C# `OperationCanceledException`
+whose `InnerException` is a `TimeoutException`. A timeout that the loader
+implements by cancelling a token ends with the native signal. It is a
+cancellation and restores the saved stable state. Any other error installs
+`Error`. A superseded loader that ends with the signal is a stale completion
+(§6).
 
 ## 8. Previous-value policy
 

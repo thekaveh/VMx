@@ -94,10 +94,13 @@ Error or a command error channel.
 | Swift      | `CancellationError`                          |
 | Rust       | `Err(VmxError::Cancelled)`                   |
 
-A timeout is a failure, not a cancellation. A C# `OperationCanceledException`
-whose `InnerException` is a `TimeoutException` installs Error, as any other
-loader error does. The cancellation of a superseded loader is a stale
-completion, so it never rolls back newer work.
+A timeout that the flavor reports with a timeout error installs Error, as any
+other loader error does. These errors are Python `TimeoutError`, TypeScript
+`TimeoutError`, Swift `URLError.timedOut`, and a C#
+`OperationCanceledException` whose `InnerException` is a `TimeoutException`. A
+timeout that the loader implements by cancelling a token is a cancellation, so
+it restores the saved stable state. The cancellation of a superseded loader is
+a stale completion, so it never rolls back newer work.
 
 <!-- checked-snippet: langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py#loader-cancellation -->
 
