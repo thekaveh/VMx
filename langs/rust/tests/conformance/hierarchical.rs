@@ -967,7 +967,13 @@ fn walk_expanded_honors_hierarchy_expansion_boundary() {
 #[test]
 fn searchable_state_filters_materialized_nodes() {
     let root = leaf("root");
-    root.add_child(leaf("alpha")).unwrap();
+    // A grandchild that matches below a node whose children are materialized,
+    // so the search must cover deeper nodes, not only the root's children
+    // (#1399).
+    let alpha = leaf("alpha");
+    alpha.add_child(leaf("alpaca")).unwrap();
+    assert!(alpha.is_children_materialized());
+    root.add_child(alpha).unwrap();
     root.add_child(leaf("beta")).unwrap();
     root.add_child(leaf("alps")).unwrap();
     let lazy_calls = Arc::new(AtomicUsize::new(0));
@@ -1007,10 +1013,14 @@ fn searchable_state_filters_materialized_nodes() {
     state.set_search_term("alp");
 
     let filtered = state.filtered();
-    assert_eq!(filtered.len(), 2);
     assert_eq!(
         filtered.iter().map(|node| node.model()).collect::<Vec<_>>(),
-        vec!["alpha", "alps"]
+        vec!["alpha", "alpaca", "alps"],
+        "exactly the matching materialized nodes, in walk order"
+    );
+    assert!(
+        !filtered.iter().any(|node| node.model() == "alpine"),
+        "the un-materialized lazy child is not in the results"
     );
     assert_eq!(lazy_calls.load(Ordering::SeqCst), 0);
     assert!(!lazy.is_children_materialized());
