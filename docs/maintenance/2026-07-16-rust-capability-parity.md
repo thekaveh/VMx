@@ -369,9 +369,12 @@ do complete in Rust.
 
 ## 12.10. Recorded Difference: Notification Hub Disposal Snapshot
 
-When `NotificationHub` is disposed, Rust emits a final empty `pending` snapshot
-before completion. C#, Python, TypeScript, and Swift complete without a final
-snapshot. Waiters resolve to `Pending` in every flavor (NOTIF-017).
+**Resolved.** ADR-0197 removes the final snapshot in every flavor. Rust
+dispose sends no value on `pending_stream()` and no `pending` message on
+`pending_changed()` before completion, as C#, Python, TypeScript and Swift
+already did. A `pending_stream()` subscription made after dispose completes at
+once with no replay (NOTIF-017, NOTIF-020).
+Waiters resolve to `Pending` in every flavor.
 
 ## 12.11. Open Item: PagedComposition Notifications
 

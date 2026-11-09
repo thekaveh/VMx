@@ -56,10 +56,13 @@ class SearchableState(ISearchable, Generic[T]):
         self._disposed = False
         sched = scheduler or TimeoutScheduler()
 
+        # Skip the seeded "" so construction starts no term debounce
+        # (ADR-0198, SRCH-008); the constructor already emitted that snapshot.
+        term_changes = self._term_subject.pipe(ops.skip(1))
         if debounce_seconds > 0:
-            debounced = self._term_subject.pipe(ops.debounce(debounce_seconds, sched))
+            debounced = term_changes.pipe(ops.debounce(debounce_seconds, sched))
         else:
-            debounced = self._term_subject
+            debounced = term_changes
 
         force = self._force_search.pipe(ops.map(lambda _: self._term_subject.value))
         source = (

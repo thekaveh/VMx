@@ -1,4 +1,4 @@
-"""Conformance tests for SearchableState source reactivity (SRCH-001..007)."""
+"""Conformance tests for SearchableState source reactivity (SRCH-001..008)."""
 
 from __future__ import annotations
 
@@ -223,3 +223,31 @@ def test_SRCH_007_omitted_signal_preserves_explicit_refresh_and_ownership() -> N
 
     assert first.dispose_count == 0
     assert second.dispose_count == 0
+
+
+@pytest.mark.conformance("SRCH-008")
+def test_SRCH_008_construction_starts_no_term_debounce() -> None:
+    scheduler = TestScheduler()
+    items = ["one"]
+    state = SearchableState(
+        items=lambda: items,
+        predicate=_matches,
+        debounce_seconds=0.1,
+        scheduler=scheduler,
+    )
+    snapshots: list[list[str]] = []
+    state.filtered.subscribe(on_next=snapshots.append)
+    assert snapshots == [["one"]], "subscribe replays only the initial value"
+
+    items.append("two")
+    scheduler.advance_by(0.3)
+    assert snapshots == [["one"]], "construction starts no term debounce (ADR-0198)"
+
+    state.search()
+    assert snapshots == [["one"], ["one", "two"]]
+
+    state.search_term = "o"
+    scheduler.advance_by(0.1)
+    assert len(snapshots) == 3
+    assert snapshots[-1] == ["one", "two"]
+    state.dispose()

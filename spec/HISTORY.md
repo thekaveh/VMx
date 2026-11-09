@@ -810,6 +810,24 @@ v3.30.0 also fixes the sender name of container collection messages. A
 container's `Name` in every flavor (`COMP-042`, `GRP-012`).
 
 See ADR-0194, chapter 03 §1, and chapter 21 §2.4.
+
+v3.30.0 also stops the notification render state at the first terminal step. A
+`NotificationVM` or `ConfirmationVM` keeps `RemainingTime` and `Opacity` from
+its first resolution, an observed hub resolution, or its disposal
+(`NOTIF-019`). After auto-dismiss both values are 0 and 0.0. Hub dispose sends
+no final `Pending` snapshot. It completes `Pending` once, after any snapshots
+queued before dispose (`NOTIF-017`, `DISP-003`). A `Pending` subscription made
+after dispose receives completion only, with no value and no error
+(`NOTIF-020`). The catalog now contains 466 library IDs plus 5 scenario IDs.
+
+See ADR-0197 and chapter 16 §2.3, §6, §7, and §9.
+
+v3.30.0 also makes `SearchableState` construction start no term debounce. This
+holds for every debounce length, zero included (`SRCH-008`). The catalog now
+contains 467 library IDs plus 5 scenario IDs.
+
+See ADR-0198 and chapter 06 §8 and §10.
+
 See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
 ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204 and the affected behavior
 chapters.

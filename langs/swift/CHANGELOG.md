@@ -17,6 +17,9 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `NOTIF-020` conformance tests (#1476, ADR-0197). A `pending` subscription
+  made after hub disposal receives completion only. Swift already behaved
+  this way.
 - `HierarchyError.disposed` (ADR-0190, #1318). An exhaustive `switch` over
   `HierarchyError` must now handle `.disposed`.
 - `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
@@ -109,6 +112,18 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `try` at each call site, and handle or propagate the error.
 
 ### Fixed
+
+- `NotificationVM` and `ConfirmationVM` keep `remaining` and `opacity` from
+  their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306). Before,
+  both values kept decaying with the scheduler clock after resolution or
+  `dispose()`, and no change notification reported the new values.
+  After auto-dismiss both values are 0, even when the expiry timer fires while
+  the clock still reads a little before expiry.
+
+- `SearchableState` construction no longer starts a term debounce (ADR-0198,
+  `SRCH-008`, #1307). Before, the seeded empty term emitted one filtered
+  snapshot one debounce window after construction, with no term change or
+  `search()` call.
 
 - A disposed `HierarchicalVM` node now refuses `addChild`, `removeChild`,
   `reparentChild`, `invalidateChildren`, `invalidateSubtree` and

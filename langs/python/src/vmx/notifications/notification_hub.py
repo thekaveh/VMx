@@ -11,8 +11,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Protocol, cast, runtime_checkable
 
+import reactivex as rx
 from reactivex import Observable
-from reactivex import operators as ops
+from reactivex.abc import DisposableBase, ObserverBase, SchedulerBase
+from reactivex.disposable import Disposable
+from reactivex.internal.exceptions import DisposedException
 from reactivex.subject import BehaviorSubject
 
 from vmx.notifications.notification import Notification
@@ -98,10 +101,30 @@ class NotificationHub:
 
     @property
     def pending(self) -> Observable[list[Notification]]:
-        # Sealed behind ``as_observable`` so subscribers can only subscribe —
+        # Sealed behind ``rx.create`` so subscribers can only subscribe —
         # never ``on_next``/``dispose`` the internal BehaviorSubject (VMX-013).
         # Replay of the current pending snapshot is preserved.
-        return self._pending_subject.pipe(ops.as_observable())
+        return rx.create(self._subscribe_pending)
+
+    def _subscribe_pending(
+        self,
+        observer: ObserverBase[list[Notification]],
+        scheduler: SchedulerBase | None = None,
+    ) -> DisposableBase:
+        # A subscription made after dispose receives completion only: no
+        # snapshot, no error, no raise (ADR-0197, NOTIF-020). The observer
+        # runs outside the hub lock.
+        with self._lock:
+            disposed = self._disposed
+        if not disposed:
+            try:
+                return self._pending_subject.subscribe(observer, scheduler=scheduler)
+            except DisposedException:
+                # Only a subject disposed after the check above is absorbed.
+                if not self._pending_subject.is_disposed:
+                    raise
+        observer.on_completed()
+        return Disposable()
 
     def post(self, notification: Notification) -> asyncio.Future[NotificationReaction]:
         """Post a notification and return a future that resolves on Resolve.
@@ -150,6 +173,9 @@ class NotificationHub:
 
     def dispose(self) -> None:
         """Resolve in-flight waiters with ``PENDING`` and complete ``pending``.
+
+        Dispose sends no final snapshot (ADR-0197). Snapshots queued before it
+        are still delivered, then one completion.
 
         Idempotent (NOTIF-017). Mirrors the C# hub's shutdown semantics:
         subsequent :meth:`post` calls resolve immediately with ``PENDING``
