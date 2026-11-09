@@ -8,7 +8,7 @@ import threading
 import pytest
 from reactivex.subject import BehaviorSubject
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread
 from vmx.capabilities import ExpandableState
 from vmx.collections import BatchUpdateHandle
 from vmx.commands import AsyncRelayCommand
@@ -131,7 +131,7 @@ async def test_disp_003_concurrent_notification_hub_dispose_completes_once() -> 
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(2 * HANG_GUARD)
+        join_thread(thread, 2 * HANG_GUARD)
     assert not any(thread.is_alive() for thread in threads)
 
     assert await pending is NotificationReaction.PENDING

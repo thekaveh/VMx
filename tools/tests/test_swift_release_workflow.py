@@ -149,7 +149,7 @@ def test_swift_ci_runs_the_library_tests_under_thread_sanitizer() -> None:
         "python3 tools/swift-test-watchdog.py --per-test-timeout 240"
         " -- swift test --package-path langs/swift --sanitize=thread"
     ) in command
-    assert "needs: [build, platforms, examples, coverage, thread-sanitizer]" in workflow
+    assert "needs: [build, platforms, examples, public-api, coverage, thread-sanitizer]" in workflow
 
 
 def test_swift_single_process_runs_name_and_stop_a_hung_case() -> None:

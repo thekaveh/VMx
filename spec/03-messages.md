@@ -19,7 +19,10 @@ current public surfaces express that invariant as follows:
 | Swift      | `Message.senderName`, `Message.senderObject`         | concrete typed messages expose `sender`        |
 | Rust       | `sender_name`, `sender_id`                           | enum variants retain the same numeric identity |
 
-The diagnostic name typically equals the sender VM's `Name`. In the four
+The diagnostic name typically equals the sender VM's `Name`. A
+`CollectionChangedMessage` from a `CompositeVM` or `GroupVM` always carries the
+container's `Name`; a plain collection or dictionary uses a flavor-defined name
+(chapter 21 §2.4, ADR-0194). In the four
 object-sender flavors, typed messages expose the canonical runtime sender as
 `Sender`/`sender`. TypeScript also exposes that canonical member on its untyped
 base. C#, Python, and Swift retain their legacy untyped base aliases for source
@@ -176,7 +179,10 @@ production bundle cannot accidentally truncate a valid finite transaction.
 
 If a subscriber's handler raises, the hub MUST swallow the exception (the stream
 continues for other subscribers and for future `Send` calls). Raising subscribers
-are a contributor concern, not a hub concern.
+are a contributor concern, not a hub concern. The raising subscriber stays
+attached and receives later messages. The same holds for a subscription to the
+§7.1 and §7.2 helpers. Section 3.6 extends these rules to the other library
+channels (ADR-0191).
 
 If a subscriber disposes its subscription during the delivery of a message (e.g.,
 the handler calls `subscription.Dispose()`), the in-flight dispatch of *that* message
@@ -188,6 +194,56 @@ subscriber. Other subscribers are unaffected.
 A host application MAY create as many `IMessageHub` instances as it likes. The
 common pattern is one hub per VM tree (per "screen" or "feature"); shared root hubs
 across the whole app are also valid.
+
+### 3.6 Subscriber failures on library channels (spec v3.30)
+
+A subscriber can fail: it throws, raises or panics while it handles a delivery.
+These rules apply to the hub and to the library channels below (ADR-0191):
+
+- the hub `Messages` stream and the §7.1 and §7.2 helpers;
+- `DerivedProperty.ValueChanged` (chapter 15 §4.1);
+- `SearchableState.Filtered` and its recompute (chapter 06 §8.2);
+- command `CanExecuteChanged` and the trigger subscriptions (chapter 04 §4);
+- the local collection-change channels of the hub-publishing collections and
+  of `CompositeVM` and `GroupVM`, and the dictionary's granular events
+  (chapter 01 §1.4, chapter 21 §2.5).
+
+Only these deliveries are *call-fed*:
+
+- a mutation or disposal of a collection or container;
+- the disposal of a `DerivedProperty` or `SearchableState`;
+- a `RaiseCanExecuteChanged` call.
+
+Every other delivery is *stream-fed*. This includes a hub `Send`, a source or
+trigger emission, a debounce timer, a `SearchableState` term change and a
+`search()` call (chapter 06 §8.2).
+
+1. **Every subscriber.** A delivery MUST reach each subscriber that is attached
+   when it starts, once, even when an earlier subscriber fails. Completion
+   follows the same rule.
+1. **No detach.** A failure MUST NOT detach the failing subscriber, another
+   subscriber or the library's own source subscription. Later deliveries reach
+   all of them.
+1. **State first.** The library commits the state that a delivery announces
+   before it delivers. A failure does not roll that state back.
+1. **Stream-fed route.** A stream-fed failure MUST NOT reach the upstream
+   publisher. C# discards it, as the hub does. Python logs it with
+   `logger.exception`. TypeScript reports it through rxjs
+   `config.onUnhandledError`. Rust catches the panic for each subscriber.
+   Swift subscribers on these channels cannot fail.
+1. **Call-fed route.** After the delivery and any hub send, C# and Python
+   rethrow the first failure to the caller (ADR-0171). TypeScript, Swift and
+   Rust use the stream-fed route, and the call returns normally.
+1. **Consumer operators.** The rules cover a subscription made directly on a
+   stream that the library returns. A subscription made through operators that
+   the consumer adds follows the reactive library's own rules. For example,
+   C# Rx disposes such a subscription when its callback throws.
+
+These rules do not fix the order among the subscribers of one delivery. Only
+`AggregateChangeStream` fixes it (chapter 21 §9.5). They do not cover
+`PropertyChanged` handlers, the dictionary key views, `AggregateChangeStream`
+subscriber failures (chapter 21 §9.5), or a failing `DerivedProperty`
+transform or source.
 
 ## 4. Threading
 
@@ -238,6 +294,7 @@ column instead of blocking.
 | A cross-thread container disposal waits for a membership transaction                    | The transaction owner                        | Deferred terminal intent that the owner finishes (chapter 06 §4.2, ADR-0153)                                                                                                                                     |
 | A structural operation waits for a child's ownership gate or lock                       | The thread whose transaction holds it        | The operation fails before mutation: `InvalidOperationException` in C#, `RuntimeError` in Python, and the container's attachment failure in Swift. Rust claims ownership without waiting, so it has no such wait |
 | A `FormVM` call, settlement, or `Dispose()` waits for a form publication scope          | A thread that holds a scope on that form     | `SetModel` and deny are queued for the publisher, an approve call is admitted, a settlement opens its own scope, and `Dispose()` leaves the teardown to the publisher (chapter 20 §5.5, ADR-0176)                |
+| A Rust `ObservableMultiDictionary` mutation waits for another thread's delivery         | The thread that delivers the changes         | The mutation commits and queues its change for that thread, which delivers it in commit order (chapter 21 §4.2, ADR-0208)                                                                                        |
 
 1. **One graph.** A wait that would close a cycle across any mix of these
    waits is refused. A wait that closes no cycle blocks as before. No flavor
@@ -246,8 +303,8 @@ column instead of blocking.
 1. **Edges per resource instance.** An edge names the waiting thread, the
    resource instance it waits for, and the thread that owns that resource. The
    resource instance is one hub, one lifecycle delivery, one hook lease, one
-   container's membership transaction, one ownership gate or lock object, or
-   one form's publication scope.
+   container's membership transaction, one ownership gate or lock object, one
+   form's publication scope, or one Rust dictionary's delivery.
    An edge is never keyed by VM identity: a container that is also a child has
    a membership transaction and an ownership gate, and they are two resources.
    A waiting thread has at most one edge. A wait with several possible owners
@@ -262,7 +319,7 @@ column instead of blocking.
    wakes the waiters. This applies when a thread finishes a hook, delivers a
    publication, ends a membership transaction, releases an ownership gate,
    ends a batch, releases a drain, closes its outermost form publication
-   scope, and when a borrower ends or partially exits its borrowed scopes. A
+   scope, ends a dictionary delivery, and when a borrower ends or partially exits its borrowed scopes. A
    woken waiter that must still wait records its wait
    again. A stale edge never makes an operation take its refused-wait result,
    and a released owner never keeps a waiter blocked.
@@ -560,7 +617,8 @@ and `NULL-003` (paired null variants exist for the core service contracts) in
 - subscriber disposing during emit does not crash the hub
 - multiple subscribers each observe every post-subscribe message
 - table-driven scenarios from `fixtures/message-ordering.json`
-- subscriber handler raising does not break the hub
+- subscriber handler raising does not break the hub, and the raising
+  subscriber stays attached (ADR-0191)
 - nested transaction deferral and lossless FIFO delivery
 - transaction-body errors drain queued messages before rethrowing
 - iterative re-entrant publishing without recursive stack growth

@@ -21,8 +21,6 @@ import Foundation
 import XCTest
 @testable import VMx
 
-private let hangGuard: TimeInterval = 5
-
 /// A child or member whose `_onDispose()` runs a test action.
 private final class CascadeProbe: ComponentVM {
     private let lock = NSLock()
@@ -303,7 +301,7 @@ final class InlineDisposeCascadeConformanceTests: XCTestCase {
         let disposed = DispatchSemaphore(value: 0)
         box.vm.afterHookReleaseForTesting = {
             hookReturned.signal()
-            _ = resume.wait(timeout: .now() + hangGuard)
+            _ = resume.wait(timeout: .now() + hangGuard * 2)
         }
         // The transition commits while the cascade disposes c1.
         var resumedInCascade = DispatchTimeoutResult.timedOut

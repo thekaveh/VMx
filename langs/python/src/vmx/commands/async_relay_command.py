@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import logging
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 from threading import RLock
@@ -37,8 +38,12 @@ from reactivex.subject import Subject
 
 from vmx._asyncio_runner import ScheduledRun, post_to_loop, submit_background
 from vmx._disposal import _run_disposal_steps
+from vmx._subscriber_failures import FanOutSubject
 
 TEmission = TypeVar("TEmission")
+
+_logger = logging.getLogger(__name__)
+
 CancellationOrigin = Literal["command", "external"]
 
 
@@ -95,7 +100,7 @@ class AsyncRelayCommand:
         self._gate = RLock()
         self._can_execute_changed_delivery_gate = RLock()
         self._errors_delivery_gate = RLock()
-        self._can_execute_changed_subject: Subject[None] = Subject()
+        self._can_execute_changed_subject: Subject[None] = FanOutSubject()
         self._errors: Subject[BaseException] = Subject()
         self._current_task: asyncio.Task[None] | None = None
         self._current_loop: asyncio.AbstractEventLoop | None = None
@@ -105,9 +110,7 @@ class AsyncRelayCommand:
         self._disposed = False
         self._active_emissions = 0
         self._terminal_pending = False
-        self._subscriptions = [
-            t.subscribe(lambda _: self.raise_can_execute_changed()) for t in triggers
-        ]
+        self._subscriptions = [t.subscribe(lambda _: self._raise_from_trigger()) for t in triggers]
 
     # ------------------------------------------------------------------
     # Command protocol implementation
@@ -398,6 +401,19 @@ class AsyncRelayCommand:
             None,
             self._can_execute_changed_delivery_gate,
         )
+
+    def _raise_from_trigger(self) -> None:
+        """Raise ``can_execute_changed`` for a trigger emission (stream-fed).
+
+        A handler failure is logged and never reaches the trigger's publisher
+        (spec/03 §3.6, ADR-0191).
+        """
+        try:
+            self.raise_can_execute_changed()
+        except Exception:
+            _logger.exception(
+                "can_execute_changed handler raised on a trigger emission; isolating per ADR-0191"
+            )
 
     def dispose(self) -> None:
         """Cancel any in-flight task, release subscriptions, complete the subjects.

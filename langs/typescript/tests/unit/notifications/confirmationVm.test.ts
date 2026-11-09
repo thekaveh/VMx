@@ -237,3 +237,22 @@ describe("ConfirmationVM dispose", () => {
     expect(rejectCompletions).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Render state stops at resolution (ADR-0197, #1306)
+// ---------------------------------------------------------------------------
+
+describe("ConfirmationVM render state after resolution", () => {
+  it("keeps opacity from an approve at 60 s", () => {
+    const { vm, scheduler } = makeConfirmationVm();
+
+    scheduler.advanceBy(60_000);
+    vm.approveCommand.execute();
+    scheduler.advanceBy(240_000);
+
+    expect(vm.isResolved).toBe(true);
+    expect(vm.remainingMs).toBe(240_000);
+    expect(vm.opacity).toBeCloseTo(0.8, 5);
+    vm.dispose();
+  });
+});

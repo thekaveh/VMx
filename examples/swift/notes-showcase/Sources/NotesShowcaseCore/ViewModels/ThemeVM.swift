@@ -15,12 +15,15 @@ import VMx
 
 // MARK: - ThemeError
 
-/// Domain error raised by `ThemeVM` when an unknown preset name is applied.
+/// Domain error raised by `ThemeVM` for a rejected input.
 ///
-/// Used by `applyPreset(_:)` (THEME-002).
+/// Used by `applyPreset(_:)` (THEME-002) and `applyAccentColor(_:)`
+/// (ADR-0201 §2.5).
 public enum ThemeError: Error, Equatable {
     /// The supplied preset name is not in the registry.
     case unknownPreset(String)
+    /// The supplied accent is not `#RGB` or `#RRGGBB`.
+    case invalidAccent(String)
 }
 
 // MARK: - ThemeVM
@@ -69,7 +72,9 @@ public final class ThemeVM: ComponentVMBase {
     /// Flips `highContrast`. Preserves accent and font scale (THEME-003).
     public private(set) var toggleHighContrast: RelayCommand
 
-    /// Replaces `accentColor`. Argument is a hex string; no parsing performed.
+    /// Replaces `accentColor` with a `#RGB` or `#RRGGBB` value. Other values
+    /// are silently swallowed in the command path; call `applyAccentColor(_:)`
+    /// directly to receive the throw (ADR-0201 §2.5).
     public private(set) var setAccentColor: RelayCommandOf<String>
 
     /// Sets `fontScaleFactor`, clamped to `[0.75, 1.75]` (THEME-004).
@@ -131,7 +136,7 @@ public final class ThemeVM: ComponentVMBase {
             .build()
 
         setAccentColor = RelayCommandOf<String>.builder()
-            .task({ [weak self] hex in self?.applySetAccentColor(hex) })
+            .task({ [weak self] hex in try? self?.applyAccentColor(hex) })
             .build()
 
         setFontScale = RelayCommandOf<Double>.builder()
@@ -165,6 +170,32 @@ public final class ThemeVM: ComponentVMBase {
         ))
     }
 
+    /// Replaces `accentColor`, keeping the value as given.
+    ///
+    /// - Throws: `ThemeError.invalidAccent` unless `hex` is `#RGB` or
+    ///   `#RRGGBB` — without publishing a `ThemeChangedMessage` (ADR-0201 §2.5).
+    ///
+    /// `setAccentColor` wraps this with `try?`, as `setThemeCommand` does.
+    public func applyAccentColor(_ hex: String) throws {
+        guard Self.isHexAccent(hex) else {
+            throw ThemeError.invalidAccent(hex)
+        }
+        setModel(ThemeModel(
+            name: _model.name,
+            accentColor: hex,
+            fontScaleFactor: _model.fontScaleFactor,
+            highContrast: _model.highContrast,
+            followsSystem: _model.followsSystem
+        ))
+    }
+
+    /// `true` for `#` followed by 3 or 6 hexadecimal digits, in either case.
+    private static func isHexAccent(_ value: String) -> Bool {
+        guard value.first == "#" else { return false }
+        let digits = value.dropFirst()
+        return (digits.count == 3 || digits.count == 6) && digits.allSatisfy { $0.isASCII && $0.isHexDigit }
+    }
+
     // ── Private command implementations ────────────────────────────────────
 
     private func applyToggleHighContrast() {
@@ -173,16 +204,6 @@ public final class ThemeVM: ComponentVMBase {
             accentColor: _model.accentColor,
             fontScaleFactor: _model.fontScaleFactor,
             highContrast: !_model.highContrast,
-            followsSystem: _model.followsSystem
-        ))
-    }
-
-    private func applySetAccentColor(_ hex: String) {
-        setModel(ThemeModel(
-            name: _model.name,
-            accentColor: hex,
-            fontScaleFactor: _model.fontScaleFactor,
-            highContrast: _model.highContrast,
             followsSystem: _model.followsSystem
         ))
     }

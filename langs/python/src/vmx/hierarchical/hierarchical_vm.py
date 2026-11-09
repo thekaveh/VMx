@@ -12,6 +12,7 @@ from typing import Any, Generic, TypeVar, overload
 
 from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
+from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.tree_structure_changed import TreeStructureChange, TreeStructureChangedMessage
 from vmx.services.dispatcher import Dispatcher
@@ -288,6 +289,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self._reject_structural_reentry()
         if child is None:
             raise ValueError("child must not be None")
+        self._reject_if_disposed()
         self._attach_child(child, explicit_reparent=False)
 
     def remove_child(self, child: TVM) -> None:
@@ -297,6 +299,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self._reject_structural_reentry()
         if child is None:
             raise ValueError("child must not be None")
+        self._reject_if_disposed()
         self._ensure_children_materialized()
         assert self._children_list is not None
         # Match by identity (not value equality) so a TVM overriding __eq__
@@ -327,11 +330,20 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self._reject_structural_reentry()
         if child is None:
             raise ValueError("child must not be None")
+        self._reject_if_disposed()
         self._attach_child(child, explicit_reparent=True)
 
     def _attach_child(self, child: TVM, *, explicit_reparent: bool) -> None:
         if child._hierarchical_parent is self:
             return  # already our child — no-op
+
+        # A disposed parent's child list is frozen, so a transfer out of it
+        # refuses before any check or materialization (spec/18 §7.1).
+        old_parent = child._hierarchical_parent
+        if old_parent is not None and old_parent._is_status_disposed():
+            raise RuntimeError(
+                f"Cannot move '{child.name}' out of disposed parent '{old_parent.name}'."
+            )
 
         # HIER-018: reparenting this node or one of its ancestors under
         # itself would create a parent cycle and corrupt depth/path/walk.
@@ -344,6 +356,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         # Materialize before mutation so factory failure cannot leave a child
         # detached from its original parent.
         self._ensure_children_materialized()
+        # The receiver's factory can adopt the child, so read the parent again.
         old_parent = child._hierarchical_parent
         old_index = -1
         if old_parent is not None:
@@ -407,7 +420,9 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         missing-parent items are retained by the ``PARK`` policy.
         """
         self._reject_structural_reentry()
+        self._reject_if_disposed()
         root = self._tree_root()
+        root._reject_if_disposed()
         incoming = list(items)
         parked = list(root._parked_attach_items)
         root._parked_attach_items.clear()
@@ -549,9 +564,14 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         """Drop this node's materialized child cache.
 
         The next :attr:`children` access invokes ``children_factory`` again.
-        Invalidating an unmaterialized node is a no-op.
+        Invalidating an unmaterialized node is a no-op. A disposed node
+        refuses (spec/18 §7.1).
         """
         self._reject_structural_reentry()
+        self._reject_if_disposed()
+        self._drop_children_cache()
+
+    def _drop_children_cache(self) -> None:
         if self._children_list is None:
             return
         for child in self._children_list:
@@ -570,13 +590,23 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         )
 
     def invalidate_subtree(self) -> None:
-        """Drop cached children for this node and all materialized descendants."""
+        """Drop cached children for this node and all materialized descendants.
+
+        A disposed node refuses. A disposed descendant keeps its cache, and
+        its materialized children are still visited (spec/18 §7.1).
+        """
+        self._reject_structural_reentry()
+        self._reject_if_disposed()
+        self._invalidate_subtree_nodes()
+
+    def _invalidate_subtree_nodes(self) -> None:
         self._reject_structural_reentry()
         if self._children_list is None:
             return
         for child in list(self._children_list):
-            child.invalidate_subtree()
-        self.invalidate_children()
+            child._invalidate_subtree_nodes()
+        if not self._is_status_disposed():
+            self._drop_children_cache()
 
     def _on_dispose(self) -> None:
         self._parked_attach_items.clear()
@@ -625,6 +655,14 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
             return
         self._materialization_reentered = True
         raise ValueError("children factory re-entered a structural operation on its receiver")
+
+    def _is_status_disposed(self) -> bool:
+        return self.status is ConstructionStatus.DISPOSED
+
+    def _reject_if_disposed(self) -> None:
+        """Refuse a structural call on a disposed node (spec/18 §7.1, ADR-0190)."""
+        if self._is_status_disposed():
+            raise RuntimeError(f"Cannot change the children of disposed node '{self.name}'.")
 
     def _tree_root(self) -> TVM:
         node: TVM = self  # type: ignore[assignment]  # CRTP self view

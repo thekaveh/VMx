@@ -62,13 +62,13 @@ final class CompositeVMTests: XCTestCase {
     /// after the failure.
     private func waitForWorkersOrEndTheProcess(
         _ group: DispatchGroup,
-        seconds: Int,
+        timeout: TimeInterval,
         _ message: String,
         test: String = #function,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard group.wait(timeout: .now() + .seconds(seconds)) != .success else { return }
+        guard group.wait(timeout: .now() + timeout) != .success else { return }
         XCTFail(message, file: file, line: line)
         fputs(
             "error: CompositeVMTests.\(test) failed: \(message). A deadlocked worker "
@@ -542,13 +542,13 @@ final class CompositeVMTests: XCTestCase {
         left = try CompositeVM<ComponentVM>.builder().name("left")
             .withNullServices().children { [leftChild] }
             .onCurrentChanged { _ in
-                if leftMet.value == nil { leftMet.value = rendezvous.meet(timeout: 10) }
+                if leftMet.value == nil { leftMet.value = rendezvous.meet(timeout: hangGuard) }
                 right.selectChild(rightChild)
             }.build()
         right = try CompositeVM<ComponentVM>.builder().name("right")
             .withNullServices().children { [rightChild] }
             .onCurrentChanged { _ in
-                if rightMet.value == nil { rightMet.value = rendezvous.meet(timeout: 10) }
+                if rightMet.value == nil { rightMet.value = rendezvous.meet(timeout: hangGuard) }
                 left.selectChild(leftChild)
             }.build()
         try left.construct()
@@ -571,7 +571,7 @@ final class CompositeVMTests: XCTestCase {
         start.signal()
         start.signal()
 
-        waitForWorkersOrEndTheProcess(done, seconds: 20, "opposing current callbacks must not deadlock")
+        waitForWorkersOrEndTheProcess(done, timeout: hangGuard * 2, "opposing current callbacks must not deadlock")
         XCTAssertEqual(leftMet.value, true, "the left callback met the right one")
         XCTAssertEqual(rightMet.value, true, "the right callback met the left one")
         XCTAssertTrue(left.current === leftChild)
@@ -635,7 +635,7 @@ final class CompositeVMTests: XCTestCase {
         start.signal()
 
         waitForWorkersOrEndTheProcess(
-            done, seconds: 10, "crossing collection/current callbacks must not deadlock"
+            done, timeout: hangGuard, "crossing collection/current callbacks must not deadlock"
         )
         XCTAssertNotNil(left.current)
         XCTAssertEqual(right.count, 2)
@@ -666,7 +666,7 @@ final class CompositeVMTests: XCTestCase {
             .onCurrentChanged { selected in
                 guard selected === l1 else { return }
                 inCurrentCallback.signal()
-                guard collectionCallbackSelected.wait(timeout: .now() + 10) == .success else {
+                guard collectionCallbackSelected.wait(timeout: .now() + hangGuard) == .success else {
                     return
                 }
                 let result = right.addResult(self.leaf("from-current-callback"))
@@ -690,7 +690,7 @@ final class CompositeVMTests: XCTestCase {
             left.selectChild(l1)
             done.leave()
         }
-        XCTAssertEqual(inCurrentCallback.wait(timeout: .now() + 10), .success,
+        XCTAssertEqual(inCurrentCallback.wait(timeout: .now() + hangGuard), .success,
                        "thread A reaches left's current callback")
         done.enter()
         DispatchQueue.global().async {
@@ -699,7 +699,7 @@ final class CompositeVMTests: XCTestCase {
         }
 
         waitForWorkersOrEndTheProcess(
-            done, seconds: 10, "crossing collection/current callbacks must not deadlock"
+            done, timeout: hangGuard * 2, "crossing collection/current callbacks must not deadlock"
         )
         let added = lock.withLock { currentCallbackAdd }
         guard case .success? = added else {
@@ -730,7 +730,7 @@ final class CompositeVMTests: XCTestCase {
             let parked = try! ComponentVM.builder().name(name).withNullServices()
                 .onConstruct {
                     entered.signal()
-                    released.value = selected.wait(timeout: .now() + 10)
+                    released.value = selected.wait(timeout: .now() + hangGuard)
                 }.build()
             let added = DispatchGroup()
             added.enter()
@@ -738,10 +738,10 @@ final class CompositeVMTests: XCTestCase {
                 composite.add(parked)
                 added.leave()
             }
-            XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
+            XCTAssertEqual(entered.wait(timeout: .now() + hangGuard), .success)
             try select()
             selected.signal()
-            XCTAssertEqual(added.wait(timeout: .now() + 20), .success)
+            XCTAssertEqual(added.wait(timeout: .now() + hangGuard * 2), .success)
             XCTAssertEqual(released.value, .success, "\(name): the selection returned while the add was open")
         }
 
@@ -785,7 +785,7 @@ final class CompositeVMTests: XCTestCase {
             .onConstruct {
                 entered.signal()
                 // Select only once the other thread's selection has returned.
-                released.value = selected.wait(timeout: .now() + 10)
+                released.value = selected.wait(timeout: .now() + hangGuard)
                 other.selectChild(o)
             }.build()
 
@@ -795,7 +795,7 @@ final class CompositeVMTests: XCTestCase {
             composite.add(parked)
             done.leave()
         }
-        XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(entered.wait(timeout: .now() + hangGuard), .success)
         done.enter()
         DispatchQueue.global().async {
             composite.selectChild(a)
@@ -804,7 +804,7 @@ final class CompositeVMTests: XCTestCase {
         }
 
         waitForWorkersOrEndTheProcess(
-            done, seconds: 20, "a selection must not block selection in another composite"
+            done, timeout: hangGuard * 2, "a selection must not block selection in another composite"
         )
         XCTAssertEqual(released.value, .success, "the selection returned while the add was open")
         XCTAssertTrue(other.current === o)

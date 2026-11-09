@@ -578,7 +578,7 @@ final class LifecycleTests: XCTestCase {
             }
             for _ in 0..<16 { start.signal() }
 
-            XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+            XCTAssertEqual(group.wait(timeout: .now() + hangGuard), .success)
             XCTAssertEqual(vm.disposeCalls, 1)
         }
     }

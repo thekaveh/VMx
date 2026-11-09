@@ -21,6 +21,7 @@ on:
       - "tools/check-conformance-coverage.py"
       - "tools/check-conformance-execution.py"
       - "tools/check-typescript-schema-sync.py"
+      - "tools/check-typescript-api.py"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
@@ -102,6 +103,13 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Compare public declarations with the API baseline
+        # The declarations come from the locked TypeScript and tsup versions,
+        # so one combination is enough. Update langs/typescript/api/vmx.api.txt
+        # for an intended change (CONTRIBUTING.md, "Public API baselines").
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '26'
+        run: python3 ../../tools/check-typescript-api.py
 
       - name: Test
         # On the matrix combination that uploads coverage, run with --coverage

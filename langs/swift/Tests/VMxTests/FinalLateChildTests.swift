@@ -20,9 +20,6 @@ import Foundation
 @testable import VMx
 
 final class FinalLateChildTests: XCTestCase {
-    /// The bound on every wait in these tests, in seconds.
-    private let bound: TimeInterval = 5
-
     /// Runs foreground work inline and queues background work, so a test
     /// decides when each background hook runs.
     private final class StepDispatcher: Dispatcher {
@@ -91,7 +88,6 @@ final class FinalLateChildTests: XCTestCase {
         let pullRuns = Box(0)
         let added = Box<Bool?>(nil)
         let addTimedOut = Box(false)
-        let bound = self.bound
 
         var addToRoot: (() -> Bool)!
         let addLate: () -> Void = {
@@ -104,7 +100,7 @@ final class FinalLateChildTests: XCTestCase {
                     result.value = addToRoot()
                     done.signal()
                 }.start()
-                if done.wait(timeout: .now() + bound) == .timedOut {
+                if done.wait(timeout: .now() + hangGuard) == .timedOut {
                     addTimedOut.value = true
                     return
                 }

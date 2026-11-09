@@ -1,10 +1,10 @@
 //
-// NotificationVMTests.swift — NOTIF-011..016 conformance.
+// NotificationVMTests.swift — NOTIF-011..016, NOTIF-018 and NOTIF-019 conformance.
 //
 // Claimed IDs: NOTIF-011, NOTIF-012, NOTIF-013, NOTIF-014, NOTIF-015,
-//              NOTIF-016.
+//              NOTIF-016, NOTIF-018, NOTIF-019.
 //
-// See spec/16-notifications.md §6-7, ADR-0031.
+// See spec/16-notifications.md §6-7, ADR-0031, ADR-0197.
 //
 // Virtual time is driven by `VirtualTimeScheduler` (Sources/VMx/Services):
 // `scheduler.advance(toSeconds:)` moves the virtual clock and runs every
@@ -70,7 +70,7 @@ final class NotificationVMTests: XCTestCase {
             poster.reaction = await hub.post(n)
             poster.resolved.fulfill()
         }
-        await fulfillment(of: [registered], timeout: 2.0)
+        await fulfillment(of: [registered], timeout: hangGuard)
         cancellables.removeAll()
         return poster
     }
@@ -116,7 +116,7 @@ final class NotificationVMTests: XCTestCase {
         scheduler.advance(toSeconds: 10)
 
         XCTAssertTrue(sut.isResolved, "NOTIF-012: resolved at lifespan")
-        await fulfillment(of: [poster.resolved], timeout: 2.0)
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
         XCTAssertEqual(poster.reaction, .approve,
                        "NOTIF-012: auto-dismiss resolves with .approve")
 
@@ -156,7 +156,7 @@ final class NotificationVMTests: XCTestCase {
 
         sutA.approveCommand.execute()
         XCTAssertTrue(sutA.isResolved)
-        await fulfillment(of: [posterA.resolved], timeout: 2.0)
+        await fulfillment(of: [posterA.resolved], timeout: hangGuard)
         XCTAssertEqual(posterA.reaction, .approve,
                        "NOTIF-013: approveCommand resolves with .approve")
         sutA.dispose()
@@ -170,7 +170,7 @@ final class NotificationVMTests: XCTestCase {
 
         sutR.rejectCommand.execute()
         XCTAssertTrue(sutR.isResolved)
-        await fulfillment(of: [posterR.resolved], timeout: 2.0)
+        await fulfillment(of: [posterR.resolved], timeout: hangGuard)
         XCTAssertEqual(posterR.reaction, .reject,
                        "NOTIF-013: rejectCommand resolves with .reject")
         sutR.dispose()
@@ -193,7 +193,7 @@ final class NotificationVMTests: XCTestCase {
 
         sut.dismissCommand.execute()
         XCTAssertTrue(sut.isResolved, "NOTIF-014: dismissed manually")
-        await fulfillment(of: [poster.resolved], timeout: 2.0)
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
         XCTAssertEqual(poster.reaction, .approve)
 
         // Advance past lifespan — the cancelled timer must not fire again.
@@ -227,7 +227,7 @@ final class NotificationVMTests: XCTestCase {
 
         hub.resolve(n, .approve)  // external resolution
         XCTAssertTrue(sut.isResolved, "NOTIF-015: external resolve propagates")
-        await fulfillment(of: [poster.resolved], timeout: 2.0)
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
         XCTAssertEqual(poster.reaction, .approve)
 
         // The timer was cancelled — no further resolution emissions.
@@ -269,7 +269,7 @@ final class NotificationVMTests: XCTestCase {
         scheduler.advance(toSeconds: 10)
         XCTAssertTrue(sut.isResolved, "NOTIF-016: auto-dismissed at lifespan")
         XCTAssertEqual(sut.opacity, 0.0, accuracy: 0.01)
-        await fulfillment(of: [poster.resolved], timeout: 2.0)
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
         XCTAssertEqual(poster.reaction, .approve)
 
         // No double-resolve: advancing far past lifespan is inert.
@@ -279,6 +279,134 @@ final class NotificationVMTests: XCTestCase {
                        "NOTIF-016: auto-dismiss fires exactly once")
 
         cancellables.removeAll()
+        sut.dispose()
+    }
+
+    // MARK: NOTIF-019
+
+    /// NOTIF-019 — `remaining` and `opacity` keep their values from the first
+    /// resolution or disposal (ADR-0197).
+    func testNotif019RenderStateStopsAtResolutionOrDisposal() async {
+        // Dismissed at 0 s, then 10 s pass.
+        let schedulerA = VirtualTimeScheduler()
+        let hubA = NotificationHub()
+        let nA = Notif(type: .notification, message: "dismissed")
+        _ = await post(hubA, nA)
+        let sutA = NotificationVM(notification: nA, hub: hubA, scheduler: schedulerA, lifespan: 10)
+        sutA.dismissCommand.execute()
+        schedulerA.advance(by: .seconds(10))
+        XCTAssertEqual(sutA.remaining, 10, accuracy: 0.001,
+                       "NOTIF-019: remaining keeps its value from dismissal")
+        XCTAssertEqual(sutA.opacity, 1.0, accuracy: 0.001,
+                       "NOTIF-019: opacity keeps its value from dismissal")
+        sutA.dispose()
+
+        // Disposed at 0 s, then 10 s pass.
+        let schedulerB = VirtualTimeScheduler()
+        let hubB = NotificationHub()
+        let nB = Notif(type: .notification, message: "disposed")
+        _ = await post(hubB, nB)
+        let sutB = NotificationVM(notification: nB, hub: hubB, scheduler: schedulerB, lifespan: 10)
+        sutB.dispose()
+        schedulerB.advance(by: .seconds(10))
+        XCTAssertEqual(sutB.remaining, 10, accuracy: 0.001,
+                       "NOTIF-019: remaining keeps its value from disposal")
+        XCTAssertEqual(sutB.opacity, 1.0, accuracy: 0.001,
+                       "NOTIF-019: opacity keeps its value from disposal")
+        hubB.dispose()
+
+        // 4 s pass, dismissed, then 6 s more pass.
+        let schedulerC = VirtualTimeScheduler()
+        let hubC = NotificationHub()
+        let nC = Notif(type: .notification, message: "late dismiss")
+        _ = await post(hubC, nC)
+        let sutC = NotificationVM(notification: nC, hub: hubC, scheduler: schedulerC, lifespan: 10)
+        schedulerC.advance(by: .seconds(4))
+        sutC.dismissCommand.execute()
+        schedulerC.advance(by: .seconds(6))
+        XCTAssertEqual(sutC.remaining, 6, accuracy: 0.001,
+                       "NOTIF-019: remaining keeps its value from a later dismissal")
+        XCTAssertEqual(sutC.opacity, 0.6, accuracy: 0.01,
+                       "NOTIF-019: opacity keeps its value from a later dismissal")
+        sutC.dispose()
+    }
+
+    /// An approved `ConfirmationVM` keeps the opacity it had at approval.
+    func testConfirmationApprovalKeepsOpacity() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .confirmation, message: "confirm?")
+        _ = await post(hub, n)
+        let sut = ConfirmationVM(notification: n, hub: hub, scheduler: scheduler)
+
+        scheduler.advance(by: .seconds(60))
+        sut.approveCommand.execute()
+        scheduler.advance(by: .seconds(240))
+
+        XCTAssertEqual(sut.remaining, 240, accuracy: 0.001)
+        XCTAssertEqual(sut.opacity, 0.8, accuracy: 0.001)
+        sut.dispose()
+    }
+
+    /// An observed hub resolution keeps the remaining time it had then.
+    func testExternalResolveKeepsRemaining() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "hub resolves")
+        _ = await post(hub, n)
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
+
+        scheduler.advance(by: .seconds(3))
+        hub.resolve(n, .approve)
+        XCTAssertTrue(sut.isResolved)
+        scheduler.advance(by: .seconds(5))
+
+        XCTAssertEqual(sut.remaining, 7, accuracy: 0.001)
+        XCTAssertEqual(sut.opacity, 0.7, accuracy: 0.001)
+        sut.dispose()
+    }
+
+    /// Auto-dismiss keeps exactly 0 even when the clock at expiry reads a
+    /// little before `start + lifespan`. Here `(0.7 + 0.1) - 0.7` rounds
+    /// below 0.1 in `Double` (ADR-0197).
+    func testAutoDismissKeepsZeroWhenTheClockReadsBeforeExpiry() async {
+        let scheduler = VirtualTimeScheduler(now: 0.7)
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "early")
+        _ = await post(hub, n)
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 0.1)
+
+        scheduler.advance(by: .seconds(0.1))
+
+        XCTAssertTrue(sut.isResolved)
+        XCTAssertEqual(sut.remaining, 0)
+        XCTAssertEqual(sut.opacity, 0)
+        sut.dispose()
+    }
+
+    /// A `NotificationVM` over a disposed hub constructs normally, and
+    /// `dismiss` resolves the VM without changing the hub (ADR-0197).
+    func testVMOverDisposedHubConstructsAndDismisses() {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        hub.dispose()
+        let n = Notif(type: .notification, message: "after dispose")
+
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
+        XCTAssertFalse(sut.isResolved)
+
+        sut.dismissCommand.execute()
+        XCTAssertTrue(sut.isResolved)
+
+        var values: [[Notif]] = []
+        var completions = 0
+        let cancellable = hub.pending.sink(
+            receiveCompletion: { _ in completions += 1 },
+            receiveValue: { values.append($0) }
+        )
+        XCTAssertTrue(values.isEmpty, "a disposed hub sends no pending value")
+        XCTAssertEqual(completions, 1)
+        cancellable.cancel()
         sut.dispose()
     }
 
@@ -317,6 +445,75 @@ final class NotificationVMTests: XCTestCase {
         XCTAssertEqual(approveChanges, 1)
         XCTAssertEqual(approveCompletions, 1)
         XCTAssertEqual(rejectCompletions, 1)
+        hub.dispose()
+    }
+
+    // MARK: NOTIF-018
+
+    /// NOTIF-018 — every command of a disposing ConfirmationVM reports
+    /// `canExecute() == false` inside the disposal notifications, and a
+    /// handler that executes `rejectCommand` there cannot resolve the hub.
+    func testNotif018ConfirmationCommandsReportFalseDuringDispose() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .confirmation, message: "confirm?")
+        let poster = await post(hub, n)
+        let pending = PendingRecorder()
+        var cancellables = Set<AnyCancellable>()
+        hub.pending.sink { pending.last = $0 }.store(in: &cancellables)
+        let sut = ConfirmationVM(notification: n, hub: hub, scheduler: scheduler)
+
+        var handlerRuns = 0
+        var reads: [Bool] = []
+        let commands = [sut.dismissCommand, sut.approveCommand, sut.rejectCommand]
+        for command in commands {
+            command.canExecuteChanged
+                .sink {
+                    handlerRuns += 1
+                    reads.append(contentsOf: commands.map { $0.canExecute() })
+                    sut.rejectCommand.execute()
+                }
+                .store(in: &cancellables)
+        }
+
+        poster.resolved.isInverted = true
+        sut.dispose()
+
+        XCTAssertGreaterThanOrEqual(handlerRuns, 1, "NOTIF-018: the handlers ran")
+        XCTAssertFalse(reads.isEmpty)
+        XCTAssertEqual(reads.filter { $0 }, [], "NOTIF-018: every read returned false")
+        XCTAssertFalse(sut.isResolved)
+        XCTAssertTrue(pending.last.contains { $0 === n }, "NOTIF-018: still pending")
+
+        let runsAfterFirstDispose = handlerRuns
+        sut.dispose()
+        XCTAssertEqual(handlerRuns, runsAfterFirstDispose, "NOTIF-018: no handler runs again")
+        XCTAssertTrue(pending.last.contains { $0 === n })
+
+        await fulfillment(of: [poster.resolved], timeout: 0.3)
+        XCTAssertNil(poster.reaction, "NOTIF-018: the posted awaitable has not resolved")
+        cancellables.removeAll()
+        hub.dispose()
+    }
+
+    /// NOTIF-018 — a disposing NotificationVM's `dismissCommand` reports
+    /// `canExecute() == false` inside its disposal notification.
+    func testNotif018DismissCommandReportsFalseDuringDispose() {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "info")
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler)
+        var reads: [Bool] = []
+        var cancellables = Set<AnyCancellable>()
+        sut.dismissCommand.canExecuteChanged
+            .sink { reads.append(sut.dismissCommand.canExecute()) }
+            .store(in: &cancellables)
+
+        sut.dispose()
+
+        XCTAssertFalse(reads.isEmpty, "NOTIF-018: the handler ran")
+        XCTAssertEqual(reads.filter { $0 }, [], "NOTIF-018: every read returned false")
+        cancellables.removeAll()
         hub.dispose()
     }
 }

@@ -3,8 +3,8 @@
 //! Spec: `spec/14-capabilities.md`; ADR-0010, ADR-0057.
 
 use super::{
-    finish_with_first_failure, lock, retain_first_failure, Arc, AtomicBool, ConstructionStatus,
-    Message, MessageHub, Mutex, Ordering, RelayCommand, VmNode,
+    finish_with_first_failure, lock, retain_first_failure, Arc, AtomicBool, AtomicU64,
+    ConstructionStatus, Message, MessageHub, Mutex, Ordering, RelayCommand, ValueStream, VmNode,
 };
 
 /// Opt-in selection capability.
@@ -220,10 +220,11 @@ pub trait Pageable {
 }
 
 #[derive(Clone, Default)]
-/// Reusable expansion state with a hot change-notification hub and the
+/// Reusable expansion state with a hot change-notification hub, a typed
+/// [`expansion_changes`](ExpandableState::expansion_changes) stream, and the
 /// matching expand, collapse and toggle commands.
 ///
-/// Clones share the state, the hub and the commands. Each command is built on
+/// Clones share the state, the hub, the stream and the commands. Each command is built on
 /// its first read (ADR-0159), so a state whose commands are never read holds no
 /// trigger subscriptions, and [`ExpandableState::dispose`] creates none.
 ///
@@ -246,11 +247,20 @@ pub struct ExpandableState {
 
 /// The state that the command closures share. It does not hold the command
 /// cache, so a cached command never keeps itself alive through its closures.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct ExpansionCore {
     expanded: Arc<Mutex<bool>>,
+    /// Counts effective changes; only changed while `expanded` is locked.
+    generation: Arc<AtomicU64>,
     expanded_changed: MessageHub,
+    expansion_changes: ValueStream<bool>,
     disposed: Arc<AtomicBool>,
+}
+
+impl Default for ExpansionCore {
+    fn default() -> Self {
+        Self::with_initial(false)
+    }
 }
 
 #[derive(Default)]
@@ -261,6 +271,16 @@ struct ExpansionCommands {
 }
 
 impl ExpansionCore {
+    fn with_initial(expanded: bool) -> Self {
+        Self {
+            expanded: Arc::new(Mutex::new(expanded)),
+            generation: Arc::new(AtomicU64::new(0)),
+            expanded_changed: MessageHub::new(),
+            expansion_changes: ValueStream::hot(expanded),
+            disposed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     fn is_expanded(&self) -> bool {
         *lock(&self.expanded)
     }
@@ -276,13 +296,20 @@ impl ExpansionCore {
         let changed = {
             let mut current = lock(&self.expanded);
             if *current == expanded {
-                false
+                None
             } else {
                 *current = expanded;
-                true
+                Some(self.generation.fetch_add(1, Ordering::AcqRel) + 1)
             }
         };
-        if changed {
+        if let Some(generation) = changed {
+            // The typed stream goes first, as in `DiscriminatorVm`. A newer
+            // change that committed in the gap publishes its own value, so
+            // this one is skipped and the stream ends on the current value.
+            let current = Arc::clone(&self.generation);
+            self.expansion_changes.send_if(expanded, move || {
+                current.load(Ordering::Acquire) == generation
+            });
             self.expanded_changed.send(Message::Custom {
                 sender_id: 0,
                 sender_name: "ExpandableState".to_string(),
@@ -301,10 +328,7 @@ impl ExpandableState {
     /// Creates expansion state with the requested initial value.
     pub fn with_initial(initially_expanded: bool) -> Self {
         Self {
-            core: ExpansionCore {
-                expanded: Arc::new(Mutex::new(initially_expanded)),
-                ..ExpansionCore::default()
-            },
+            core: ExpansionCore::with_initial(initially_expanded),
             commands: Arc::default(),
         }
     }
@@ -350,8 +374,29 @@ impl ExpandableState {
     }
 
     /// Returns the hub that publishes effective expansion changes.
+    ///
+    /// Its messages carry the new value only as the `"true"` or `"false"`
+    /// message name; use [`expansion_changes`](Self::expansion_changes) to
+    /// receive the new value as a `bool`. The expansion commands use this hub
+    /// as their trigger.
     pub fn expanded_changed(&self) -> MessageHub {
         self.core.expanded_changed.clone()
+    }
+
+    /// Returns a typed stream of the new expansion value, one value per
+    /// effective change (spec/05 §8 `IsExpandedChanged`).
+    ///
+    /// It does not replay the current value to a new subscriber. A verb call
+    /// that does not change the state sends nothing. [`dispose`](Self::dispose)
+    /// completes the stream. When a newer change commits before an older one
+    /// publishes, the older value is skipped, so the stream ends on the
+    /// current value.
+    ///
+    /// The returned handle shares the state's stream. Callers subscribe to
+    /// it and must not call `send` on it: only this state sends, so that
+    /// every value matches [`is_expanded`](Self::is_expanded).
+    pub fn expansion_changes(&self) -> ValueStream<bool> {
+        self.core.expansion_changes.clone()
     }
 
     /// Returns the command that runs [`ExpandableState::expand`] when
@@ -396,8 +441,8 @@ impl ExpandableState {
         )
     }
 
-    /// Disposes the commands that were read and the owned change hub, and
-    /// makes later mutations inert.
+    /// Disposes the commands that were read, the owned change hub and the
+    /// typed change stream, and makes later mutations inert.
     ///
     /// Every step runs, and the first panic resumes after the last step.
     /// Disposal is idempotent.
@@ -424,6 +469,10 @@ impl ExpandableState {
         }
         retain_first_failure(&mut first_failure, || {
             self.core.expanded_changed.dispose();
+            Ok(())
+        });
+        retain_first_failure(&mut first_failure, || {
+            self.core.expansion_changes.dispose();
             Ok(())
         });
         // Every step returns `Ok`, so only a captured panic can resume here.

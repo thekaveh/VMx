@@ -10,6 +10,7 @@
 import { BuilderValidationError } from "../builders/exceptions.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import { ViewModelType } from "../components/types.js";
+import { ConstructionStatus } from "../lifecycle/status.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import {
   TreeStructureChangedMessage,
@@ -248,6 +249,7 @@ export abstract class HierarchicalVM<
     this.#rejectStructuralReentry();
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
+    this.#rejectIfDisposed();
     this.#attachChild(child, false);
   }
 
@@ -259,6 +261,7 @@ export abstract class HierarchicalVM<
     this.#rejectStructuralReentry();
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
+    this.#rejectIfDisposed();
     const list = this.#requireChildren();
     const index = list.indexOf(child);
     if (index < 0) return; // not a child — no-op
@@ -283,10 +286,14 @@ export abstract class HierarchicalVM<
     this.#rejectStructuralReentry();
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
+    this.#rejectIfDisposed();
     this.#attachChild(child, true);
   }
 
   #attachChild(child: TVM, explicitReparent: boolean): void {
+    // spec/18 §7.1: a disposed parent's child list is frozen, so a transfer
+    // out of it refuses before any other check.
+    if (child.#hierarchicalParent !== null) child.#hierarchicalParent.#rejectIfDisposed();
     if (child.#hierarchicalParent === this.#self) return;
 
     // HIER-018: reparenting this node or one of its ancestors under
@@ -351,7 +358,9 @@ export abstract class HierarchicalVM<
     options: BatchAttachOptions<TVM, TKey>,
   ): BatchAttachResult<TVM> {
     this.#rejectStructuralReentry();
+    this.#rejectIfDisposed();
     const root = this.#treeRoot();
+    root.#rejectIfDisposed();
     const incoming = Array.from(items);
     const parked = [...root.#parkedAttachItems];
     root.#parkedAttachItems = [];
@@ -482,6 +491,7 @@ export abstract class HierarchicalVM<
    */
   invalidateChildren(): void {
     this.#rejectStructuralReentry();
+    this.#rejectIfDisposed();
     if (this.#children === null) return;
     for (const child of this.#children) {
       if (child.#hierarchicalParent !== this.#self) continue;
@@ -502,11 +512,29 @@ export abstract class HierarchicalVM<
   /** Drops cached children for this node and all materialized descendants. */
   invalidateSubtree(): void {
     this.#rejectStructuralReentry();
+    this.#rejectIfDisposed();
     if (this.#children === null) return;
     for (const child of [...this.#children]) {
-      child.invalidateSubtree();
+      child.#invalidateDescendant();
     }
     this.invalidateChildren();
+  }
+
+  /**
+   * One step of {@link invalidateSubtree} below its receiver. A disposed
+   * descendant keeps its own cache, but its children are still visited
+   * (spec/18 §7.1).
+   */
+  #invalidateDescendant(): void {
+    if (this.status !== ConstructionStatus.Disposed) {
+      this.invalidateSubtree();
+      return;
+    }
+    this.#rejectStructuralReentry();
+    if (this.#children === null) return;
+    for (const child of [...this.#children]) {
+      child.#invalidateDescendant();
+    }
   }
 
   protected override _onDispose(): void {
@@ -570,6 +598,14 @@ export abstract class HierarchicalVM<
     this.#materializationReentered = true;
     throw new Error(
       "children factory re-entered a structural operation on its receiver",
+    );
+  }
+
+  /** spec/18 §7.1: a disposed node refuses structural calls (ADR-0190). */
+  #rejectIfDisposed(): void {
+    if (this.status !== ConstructionStatus.Disposed) return;
+    throw new Error(
+      `'${this.name}' is disposed; its child list no longer changes (spec/18 §7.1)`,
     );
   }
 

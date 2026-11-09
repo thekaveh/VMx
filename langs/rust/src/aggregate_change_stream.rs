@@ -824,7 +824,7 @@ impl<T: VmNode, D: Dispatcher> ObservableMembershipSource<T> for CompositeVm<T, 
         F: Fn() + Send + Sync + 'static,
     {
         let owner_id = self.id();
-        self.membership_changes().subscribe(move |message| {
+        self.collection_changed().subscribe(move |message| {
             if membership_message(message, owner_id) {
                 handler();
             }
@@ -842,7 +842,7 @@ impl<T: VmNode, D: Dispatcher> ObservableMembershipSource<T> for GroupVm<T, D> {
         F: Fn() + Send + Sync + 'static,
     {
         let owner_id = self.id();
-        self.membership_changes().subscribe(move |message| {
+        self.collection_changed().subscribe(move |message| {
             if membership_message(message, owner_id) {
                 handler();
             }
