@@ -378,7 +378,7 @@ module vmx
     attribute old_index: int
     attribute old_items: tuple[object, ...]
   class CollectionChangedMessage(typing.Generic[~T])
-    def __init__(self, sender: 'object', action: 'str', new_items: 'tuple[T, ...]' = <factory>, old_items: 'tuple[T, ...]' = <factory>, index: 'int' = -1, old_index: 'int' = -1, new_index: 'int' = -1) -> None
+    def __init__(self, sender: 'object', action: 'str', new_items: 'tuple[T, ...]' = <factory>, old_items: 'tuple[T, ...]' = <factory>, index: 'int' = -1, old_index: 'int' = -1, new_index: 'int' = -1, *, sender_name: 'str' = '') -> None
     attribute action: str
     classmethod def for_add(cls, sender: 'object', item: 'T', index: 'int') -> 'CollectionChangedMessage[T]'
     classmethod def for_move(cls, sender: 'object', item: 'T', old_index: 'int', new_index: 'int') -> 'CollectionChangedMessage[T]'
@@ -391,7 +391,7 @@ module vmx
     attribute old_index: int
     attribute old_items: tuple[T, ...]
     attribute sender: object
-    property sender_name [get] -> str
+    attribute sender_name: str
     property sender_object [get] -> object
   class Command(Protocol)
     def can_execute(self, parameter: 'object' = None) -> 'bool'
@@ -1174,6 +1174,18 @@ module vmx
     attribute sender: TSender
     attribute sender_name: str
     property sender_object [get] -> object
+  class ReadOnlyObservableList(typing.Generic[~T])
+    def __contains__(self, item: 'object') -> 'bool'
+    def __getitem__(self, index: 'int | slice') -> 'T | list[T]'
+    def __init__(self, source: 'ObservableList[T]') -> 'None'
+    def __iter__(self) -> 'Iterator[T]'
+    def __len__(self) -> 'int'
+    property count [get] -> int
+    property on_item_added [get] -> rx.Observable[tuple[T, int]]
+    property on_item_removed [get] -> rx.Observable[tuple[T, int]]
+    property on_item_replaced [get] -> rx.Observable[tuple[T, T, int]]
+    property on_property_changed [get] -> rx.Observable[str]
+    property on_reset [get] -> rx.Observable[None]
   class ReadonlyComponentVMOf(typing.Generic[~M], _ComponentVMBase)
     def __init__(self, *, name: 'str', hint: 'str' = '', model: 'M', modeled_hinter: 'Callable[[M], str] | None' = None, hub: 'MessageHubProto[Message]', dispatcher: 'Dispatcher', on_construct: 'Callable[[], None] | None' = None, on_destruct: 'Callable[[], None] | None' = None, background: 'bool' = False) -> 'None'
     static def builder() -> 'ReadonlyComponentVMOfBuilder[M]'
@@ -1282,6 +1294,7 @@ module vmx
     def remove_at(self, index: 'int') -> 'T'
     def replace(self, index: 'int', new_item: 'T') -> 'T'
     def replace_all(self, values: 'Iterable[T]') -> 'None'
+    def reverse(self) -> 'None'
     def snapshot(self) -> 'tuple[T, ...]'
     def subscribe_membership(self, callback: 'Callable[[], None]') -> 'DisposableBase'
   class StatusTransitionError(RuntimeError)
@@ -1424,6 +1437,7 @@ module vmx.collections
   ObservableList = vmx.ObservableList
   ObservableMembershipSource = vmx.ObservableMembershipSource
   PagedComposition = vmx.PagedComposition
+  ReadOnlyObservableList = vmx.ReadOnlyObservableList
   SelectableVmCollectionProto = vmx.SelectableVmCollectionProto
   ServicedObservableCollection = vmx.ServicedObservableCollection
   TokenPagedComposition = vmx.TokenPagedComposition
