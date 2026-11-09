@@ -175,6 +175,13 @@ removes nothing and may insert following items. A splice that removes and
 inserts nothing is a true no-op; every effective insertion-only or bulk splice
 emits one Reset under §2.4.
 
+#### 2.3.6 Python reverse
+
+Python's unkeyed `reverse()` reverses the items atomically (ADR-0193). Lengths
+zero and one are no-ops. Reversing two or more items emits exactly one Reset and
+no granular messages, as the keyed collection does (§2.11). Observers never see
+an interim order. The other flavors have no unkeyed `reverse`.
+
 ### 2.4 `CollectionChangedMessage`
 
 A `CollectionChangedMessage` is emitted for each mutation. `CompositeVM` and
@@ -191,6 +198,14 @@ CollectionChangedMessage:
     OldIndex : int               # -1 when there is no old position
     NewIndex : int               # -1 when there is no new position
 ```
+
+Each message also carries a diagnostic sender name (chapter 03 §1). A
+`CompositeVM` or `GroupVM` message, including one from a subclass, carries the
+container's `Name` (ADR-0194). A plain collection or dictionary message carries
+a flavor-defined name, its type name in every flavor. C#, Python, and
+TypeScript store the name in the typed message as `SenderName` / `sender_name` /
+`senderName`; its default is the sender's runtime type name. Swift stores
+`senderName`, and Rust stores `sender_name`.
 
 Their action member's type is per-flavor idiom (ADR-0006): C# reuses the BCL
 `NotifyCollectionChangedAction`, Python uses action string literals, TypeScript
@@ -682,16 +697,21 @@ ObservableDictionary<TKey1, TKey2, TValue>:
     Clear() : void
     Count : int
 
-    Keys1 : ObservableList<TKey1>    # distinct Key1 values, live view
-    Keys2 : ObservableList<TKey2>    # distinct Key2 values, live view
+    Keys1 : ReadOnlyObservableList<TKey1>    # distinct Key1 values, live read-only view
+    Keys2 : ReadOnlyObservableList<TKey2>    # distinct Key2 values, live read-only view
 
     CollectionChanged : event/Observable
 ```
 
 ### 4.2 Distinct-key observable views
 
-`Keys1` and `Keys2` are live `ObservableList<TKey>` views that stay in sync with
-mutations:
+`Keys1` and `Keys2` are live, read-only `ReadOnlyObservableList<TKey>` views
+that stay in sync with mutations (ADR-0193). A `ReadOnlyObservableList<T>` is a
+facade over the dictionary's backing `ObservableList<T>`. It has every read and
+subscribe member of `ObservableList<T>` (§3.1), including the C# platform
+events, and no mutator and no batch member. It does not expose the backing
+list: the C# `CollectionChanged` and `PropertyChanged` events carry the facade
+as sender. Only the dictionary changes a key view.
 
 - `Keys1` holds the set of distinct Key1 values currently present in the
   dictionary, in insertion order of their **first** appearance.
@@ -725,7 +745,7 @@ in that view when the outer mutation completes.
 
 Open Rust gap: Rust `ObservableMultiDictionary` requires a `MessageHub` at
 construction. `keys1()` and `keys2()` return `Vec` snapshots, not live
-`ObservableList` views. The type has no local collection-changed event, no
+read-only views. The type has no local collection-changed event, no
 indexer, and no `TryGetValue`; `get` returns `Option<V>`, and mutations are
 observable only through the hub. Each snapshot reads the current entries, so a
 hub subscriber reads both key snapshots in their updated state.
@@ -783,10 +803,26 @@ For `Clear()`, the hub message uses action `Reset` with empty `NewItems` and
 `OldItems` arrays (no entry data is needed because the entire collection is
 cleared). This divergence between flavors is catalogued in ADR-0009.
 
+The hub message positions follow the §2.4 tables (ADR-0193). A position is the
+entry's index in enumeration order (§4.5):
+
+| Action  |     `index` |  `oldIndex` | `newIndex` | Rust `old_index`    | Rust `new_index`  |
+| ------- | ----------: | ----------: | ---------: | ------------------- | ----------------- |
+| Add     |   insertion |          -1 |  insertion | `None`              | `Some(insertion)` |
+| Remove  | pre-removal | pre-removal |         -1 | `Some(pre-removal)` | `None`            |
+| Replace |    replaced |    replaced |   replaced | `Some(replaced)`    | `Some(replaced)`  |
+| Reset   |          -1 |          -1 |         -1 | `None`              | `None`            |
+
+Remove and Replace report the position that the entry had when the change
+committed. A subscriber that changes the dictionary before the hub message is
+sent does not change these values. A value replacement does not move the entry,
+so its old and new positions are equal. The Rust single-key
+`ObservableDictionary<K, V>` follows the same table.
+
 ### 4.8 Conformance
 
-`COL-010` through `COL-015`, `COL-022`, `COL-066`, and `COL-067` in
-`12-conformance.md`.
+`COL-010` through `COL-015`, `COL-022`, `COL-066`, `COL-067`, `COL-068`, and
+`COL-070` in `12-conformance.md`.
 
 ## 5. Paging: `PagedComposition<TVM>`
 

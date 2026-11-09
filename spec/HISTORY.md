@@ -706,3 +706,18 @@ before a persister starts prevents the persister call (`FORM-041`,
 `FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
 
 See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also makes the `ObservableDictionary` key views read-only. `Keys1` and
+`Keys2` return a `ReadOnlyObservableList` facade in C#, Python, TypeScript, and
+Swift (`COL-070`). Dictionary Remove and Replace hub messages now carry the
+entry's position, as the §2.4 tables state (`COL-068`). Python's unkeyed
+`reverse()` sends one Reset. The catalog now contains 453 library IDs plus 5
+scenario IDs.
+
+See ADR-0193 and chapter 21 §2.3.6, §4.2, and §4.7.
+
+v3.30.0 also fixes the sender name of container collection messages. A
+`CollectionChangedMessage` from a `CompositeVM` or `GroupVM` carries the
+container's `Name` in every flavor (`COMP-042`, `GRP-012`).
+
+See ADR-0194, chapter 03 §1, and chapter 21 §2.4.

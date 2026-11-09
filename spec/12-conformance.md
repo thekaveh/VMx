@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 451 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 453 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -2156,12 +2156,14 @@ observes a membership event
 
 ### COMP-042 — Composite collection changes publish on the hub
 
-**Given** a composite `p` with hub `H`, a recorder of `CollectionChangedMessage`
+**Given** a composite `p` named `people` with hub `H`, a recorder of
+`CollectionChangedMessage`
 on `H`, and a local collection-change recorder on `p`
 **When** `p` adds, inserts, removes, removes by index, replaces, moves, and
 clears children, one effective mutation at a time
 **Then** each local event is followed by exactly one `CollectionChangedMessage`
 on `H` whose sender is `p`
+**And** each message's sender name equals `p`'s `Name` (ADR-0194)
 **And** each message carries the local event's action, positions, and (in typed
 flavors) items, with replacement keeping the flavor's local decomposition
 **And** the local event is delivered before its hub message, and both observe
@@ -2325,11 +2327,13 @@ window elapses
 
 ### GRP-012 — Group collection changes publish on the hub
 
-**Given** a group `g` with hub `H` and a recorder of `CollectionChangedMessage`
+**Given** a group `g` named `team` with hub `H` and a recorder of
+`CollectionChangedMessage`
 on `H`
 **When** `g` adds, inserts, removes, replaces, moves, and clears children
 **Then** each local event is followed by exactly one message on `H` whose sender
 is `g`, carrying the local event's action and positions
+**And** each message's sender name equals `g`'s `Name` (ADR-0194)
 **And** the local event is delivered first
 **And** a mutation that raises no local event, and any mutation after `g` is
 disposed, publishes nothing
@@ -2485,8 +2489,8 @@ Each COL-NNN test verifies a collection primitive from `spec/21-collections.md`.
 See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionary`),
 ADR-0026 (`ObservableList<T>`), ADR-0023 (`PagedComposition<TVM>`), and
 ADR-0096 (serviced collection parity), ADR-0097 (keyed serviced
-collection), ADR-0171 (failing local subscribers), and ADR-0177 (dictionary
-key-view order).
+collection), ADR-0171 (failing local subscribers), ADR-0177 (dictionary
+key-view order), and ADR-0193 (read-only key views and dictionary positions).
 
 ### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
 
@@ -3206,6 +3210,35 @@ notifications
 **And** the test does not check the order of the two key-view notifications
 **And** Rust, whose `keys1()` and `keys2()` return snapshots and which has no
 local event, checks the hub subscriber only
+
+### COL-068 — dictionary Remove and Replace hub messages carry the entry position
+
+**Given** an `ObservableDictionary` with a hub and the entries `("a", 1)`,
+`("b", 2)`, and `("c", 3)`, inserted in that order
+**And** a hub subscriber that records each `CollectionChangedMessage`
+**When** the value of `("c", 3)` is replaced through the indexer or `set`
+**Then** the message has action Replace, and `Index`, `OldIndex`, and
+`NewIndex` all equal 2
+**When** `("b", 2)` is then removed
+**Then** the message has action Remove, `Index` and `OldIndex` equal 1, and
+`NewIndex` equals -1
+**And** Rust, for `ObservableMultiDictionary`, checks Replace as
+`old_index == Some(2)` and `new_index == Some(2)`, and Remove as
+`old_index == Some(1)` and `new_index == None`
+
+### COL-070 — dictionary key views give callers no mutator
+
+**Given** an `ObservableDictionary` with the entries `("a", 1)` and `("b", 2)`
+**When** a caller reads `Keys1` and `Keys2`
+**Then** each view lists the distinct keys in first-appearance order
+**And** the view's type is `ReadOnlyObservableList<T>`, which has no add,
+insert, remove, replace, clear, or batch member: C# checks the type by
+reflection, TypeScript with `@ts-expect-error` lines, Swift with a typed
+binding, and Python by the absence of each attribute
+**And** in C#, the view cannot be cast to `ObservableList<T>`, and its
+`CollectionChanged` sender is the view itself
+**And** Rust, whose `keys1()` and `keys2()` return `Vec` snapshots, checks that
+an edit to a snapshot leaves `keys1()`, `keys2()`, and `entries()` unchanged
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
