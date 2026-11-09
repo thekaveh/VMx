@@ -77,3 +77,18 @@ extension NoteModel: Equatable {
             && lhs.tags == rhs.tags
     }
 }
+
+extension NoteModel {
+    /// The search rule of every notes showcase, for the notes list and the
+    /// global search alike. The term is trimmed, and an empty term matches
+    /// every note. Otherwise a note matches when its title, its body or one
+    /// of its tags contains the term, ignoring case. Each field is matched on
+    /// its own, so a term never spans two fields.
+    public func matches(searchTerm term: String) -> Bool {
+        let needle = term.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if needle.isEmpty { return true }
+        return title.lowercased().contains(needle)
+            || body.lowercased().contains(needle)
+            || tags.contains { $0.lowercased().contains(needle) }
+    }
+}

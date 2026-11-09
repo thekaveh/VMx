@@ -62,6 +62,11 @@ private final class HeldSearchRepository: NoteRepository, @unchecked Sendable {
     /// The token of each `searchNotes` call, in call order.
     var tokens: [String?] { lock.withLock { _tokens } }
 
+    /// The number of first-page `searchNotes` calls for `term`.
+    func firstPageCalls(of term: String) -> Int {
+        lock.withLock { zip(_terms, _tokens).filter { $0.0 == term && $0.1 == nil }.count }
+    }
+
     /// Holds every later `searchNotes` call until `release()`.
     func hold() {
         lock.withLock { holding = true }
@@ -228,10 +233,18 @@ final class GlobalSearchVMTests: XCTestCase {
     }
 
     private func matches(_ note: NoteVM, _ term: String) -> Bool {
-        let model = note.model
-        return "\(model.title) \(model.body) \(model.tags.joined(separator: " "))"
-            .lowercased()
-            .contains(term)
+        note.model.matches(searchTerm: term)
+    }
+
+    func testRefresh_usesTheSharedSearchRule() async throws {
+        let vm = try buildVM(repo: searchRuleRepository())
+        defer { vm.dispose() }
+
+        for (query, titles) in searchRuleCases {
+            vm.searchTerm = query
+            try await vm.refreshCommand.executeAsync()
+            XCTAssertEqual(titles, vm.results.map(\.title), "query \(query.debugDescription)")
+        }
     }
 
     func testLoadMore_afterAnUnsearchedTermEdit_continuesTheTermOfTheLoadedPages() async throws {
@@ -406,31 +419,40 @@ final class GlobalSearchVMTests: XCTestCase {
     /// Runs the order in which the load discards the refresh. The second
     /// `canExecuteChanged` event of "Load more" comes from the inner load's
     /// admission. That is after the in-flight check and before the load starts.
-    /// The hook starts the "plan" refresh there and waits for its fetch.
+    /// The hook starts the `refreshTerm` refresh there and waits for its fetch.
+    /// With `deleteFirstMatch`, the repository loses the first "review" match
+    /// after the "review" search, so a "review" refresh has a new first page.
     private func runDiscardedRefresh(
         laterPage: LaterPage,
-        failRefresh: Bool = false
+        failRefresh: Bool = false,
+        refreshTerm: String = "plan",
+        deleteFirstMatch: Bool = false
     ) async throws -> (GlobalSearchVM, HeldSearchRepository) {
         let repo = HeldSearchRepository()
         repo.release()
         let vm = try buildVM(repo: repo, pageSize: 1)
         vm.searchTerm = "review"
         try await vm.refreshCommand.executeAsync()
+        if deleteFirstMatch { try await repo.deleteNote(id: "note-01") }
         switch laterPage {
         case .normal: break
         case .empty: repo.returnEmptyLaterPages()
         case .failing: repo.failLaterPages()
         }
-        if failRefresh { repo.failFirstPages(for: "plan") }
+        if failRefresh { repo.failFirstPages(for: refreshTerm) }
+        let callsBefore = repo.terms.count
+        let fetchesBefore = repo.firstPageCalls(of: refreshTerm)
 
         let events = EventCounter()
         let hook = vm.loadMoreCommand.canExecuteChanged.sink { [vm, repo] in
             guard events.next() == 2 else { return }
             repo.holdFirstPages()
-            vm.searchTerm = "plan"
+            vm.searchTerm = refreshTerm
             vm.searchNow()
             let deadline = Date().addingTimeInterval(2)
-            while !repo.terms.contains("plan") && Date() < deadline { usleep(100) }
+            while repo.firstPageCalls(of: refreshTerm) == fetchesBefore && Date() < deadline {
+                usleep(100)
+            }
         }
         vm.loadMoreCommand.execute()
         await waitUntil { !vm.loadMoreCommand.isExecuting }
@@ -442,10 +464,11 @@ final class GlobalSearchVMTests: XCTestCase {
         await waitUntil(idle)
         hook.cancel()
 
-        // The "plan" refresh fetched before the load, so the load discarded it.
+        // The refresh fetched before the load, so the load discarded it.
         let calls = zip(repo.terms, repo.tokens).map { "\($0)@\($1 ?? "nil")" }
-        let refreshAt = calls.firstIndex(of: "plan@nil")
-        let loadAt = calls.firstIndex(of: "review@1")
+        let raced = Array(calls.dropFirst(callsBefore))
+        let refreshAt = raced.firstIndex(of: "\(refreshTerm)@nil")
+        let loadAt = raced.firstIndex(of: "review@1")
         XCTAssertNotNil(refreshAt, "calls \(calls)")
         XCTAssertNotNil(loadAt, "calls \(calls)")
         if let refreshAt, let loadAt {
@@ -480,5 +503,36 @@ final class GlobalSearchVMTests: XCTestCase {
         defer { vm.dispose() }
         let planFirstPages = zip(repo.terms, repo.tokens).filter { $0.0 == "plan" && $0.1 == nil }
         XCTAssertEqual(1, planFirstPages.count)
+    }
+
+    // MARK: - A discarded refresh for the unchanged term (#1469)
+
+    func testADiscardedSameTermRefresh_runsAgain_andShowsTheNewFirstPage() async throws {
+        let (vm, _) = try await runDiscardedRefresh(
+            laterPage: .normal, refreshTerm: "review", deleteFirstMatch: true
+        )
+        defer { vm.dispose() }
+        let ids = vm.results.map { $0.model.id }
+        // "Q1 design review" (note-01) is gone; "Privacy review notes" is the
+        // new first "review" match.
+        XCTAssertEqual("note-05", ids.first, "results \(ids)")
+        XCTAssertFalse(ids.contains("note-01"), "results \(ids)")
+        XCTAssertTrue(vm.results.allSatisfy { matches($0, "review") })
+    }
+
+    func testASameTermRefreshThatNoLoadDiscards_fetchesTheFirstPageOnce() async throws {
+        let repo = HeldSearchRepository()
+        repo.release()
+        let vm = try buildVM(repo: repo, pageSize: 1)
+        defer { vm.dispose() }
+        vm.searchTerm = "review"
+        try await vm.refreshCommand.executeAsync()
+        try await repo.deleteNote(id: "note-01")
+
+        vm.searchNow()
+        await settle(vm, repo, fetches: 2)
+
+        XCTAssertEqual(2, repo.firstPageCalls(of: "review"))
+        XCTAssertEqual(["note-05"], vm.results.map { $0.model.id })
     }
 }

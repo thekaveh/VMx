@@ -42,6 +42,16 @@ public final class NoteFormVM: ComponentVMBase {
     private var _pendingApprovals: [ObjectIdentifier: Int] = [:]
     private var _retiredForms: [ObjectIdentifier: (FormVM<NoteModel>, AnyCancellable?)] = [:]
     private let _retireLock = NSLock()
+    /// Save order (#1379): the number of the save each bound form runs, keyed
+    /// by that form's `SaveSlot`, and the number of the latest save started
+    /// for each note id. Only the latest save of a note refreshes its list
+    /// row and rebinds the editor, so an older save that settles last never
+    /// shows the older values. Guarded by `_saveOrderLock`: the persister and
+    /// `onApproved` run on the saving task's thread.
+    private var _savesStarted = 0
+    private var _formSaves: [ObjectIdentifier: Int] = [:]
+    private var _latestSaves: [String: Int] = [:]
+    private let _saveOrderLock = NSLock()
     private let _editorMode = DiscriminatorVM<String>(initial: "edit")
     private var _editorModeCancellable: AnyCancellable?
     private var _tagCatalog: [String] = []
@@ -303,13 +313,24 @@ public final class NoteFormVM: ComponentVMBase {
     public func bindTo(_ note: NoteModel) {
         retireCurrentForm()
 
+        // Identifies this form's saves; the persister cannot capture the form.
+        let slot = SaveSlot()
         let form = FormVM<NoteModel>(
             initial: note,
             persister: { [weak self] n in
                 guard let self else { return }
                 // The form calls its persister only for an admitted approval.
                 self._admissionLock.withLock { self._admissions += 1 }
-                try await self._repo.saveNote(n)
+                self.beginSave(in: slot, of: n.id)
+                do {
+                    try await self._repo.saveNote(n)
+                } catch {
+                    // A failed save never settles, so it has no entry to keep.
+                    self._saveOrderLock.withLock {
+                        _ = self._formSaves.removeValue(forKey: ObjectIdentifier(slot))
+                    }
+                    throw error
+                }
             },
             hub: hub,
             strict: true,
@@ -325,6 +346,9 @@ public final class NoteFormVM: ComponentVMBase {
         _approvedCancellable = form.onApproved
             .sink { [weak self, weak form] model in
                 guard let self, let form else { return }
+                // A newer save of this note started after this one. Its values
+                // are the ones the repository keeps, so this one shows nothing.
+                guard self.settleSave(in: slot, of: model.id) else { return }
                 self._onSaved.send(model)
                 // `onApproved` can arrive off the UI thread; `bindTo` emits
                 // property changes, so adopt the save on the foreground.
@@ -333,6 +357,27 @@ public final class NoteFormVM: ComponentVMBase {
                 }
             }
         emitDraftChanges()
+    }
+
+    private func beginSave(in slot: SaveSlot, of noteId: String) {
+        _saveOrderLock.withLock {
+            _savesStarted += 1
+            _formSaves[ObjectIdentifier(slot)] = _savesStarted
+            _latestSaves[noteId] = _savesStarted
+        }
+    }
+
+    /// Returns `true` when the form of `slot` ran the latest save started for
+    /// `noteId`, and forgets that save once it settles.
+    private func settleSave(in slot: SaveSlot, of noteId: String) -> Bool {
+        _saveOrderLock.withLock {
+            guard let save = _formSaves.removeValue(forKey: ObjectIdentifier(slot)) else {
+                return true
+            }
+            guard _latestSaves[noteId] == save else { return false }
+            _latestSaves.removeValue(forKey: noteId)
+            return true
+        }
     }
 
     /// A save on a retired form settled (#761). If the user returned to that
@@ -701,3 +746,6 @@ public final class NoteFormVM: ComponentVMBase {
         }
     }
 }
+
+/// Identifies the saves of one bound form for the save-order check (#1379).
+private final class SaveSlot: Sendable {}

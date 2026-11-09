@@ -70,16 +70,10 @@ public actor InMemoryNoteRepository: NoteRepository {
         pageSize: Int
     ) async throws -> (items: [NoteModel], nextToken: String?) {
         try await sleep(loadNotesDelay)
-        let normalized = term.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let parsed = token.flatMap(Int.init) ?? 0
         let start = max(0, parsed)
         let safePageSize = max(1, pageSize)
-        let matches = notes.filter { note in
-            if normalized.isEmpty { return true }
-            let haystack = "\(note.title) \(note.body) \(note.tags.joined(separator: " "))"
-                .lowercased()
-            return haystack.contains(normalized)
-        }
+        let matches = notes.filter { $0.matches(searchTerm: term) }
         guard start < matches.count else { return ([], nil) }
         let count = min(safePageSize, matches.count - start)
         let end = start + count
