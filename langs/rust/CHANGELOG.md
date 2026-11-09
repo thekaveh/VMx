@@ -617,6 +617,54 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   and `can_approve()` in strict mode. A model `Clone` can read `is_valid()`,
   `errors()`, `error_map()` and `field_error()`. The code does not change.
 
+- `KeyedServicedObservableCollection`, `ObservableDictionary` and
+  `ObservableMultiDictionary` run user `Hash`, `Eq` and `Clone` code with no
+  collection lock held (#1276). The keyed collection hashes each key once,
+  with no lock held, when its membership is added, and its index finds
+  memberships by that stored hash. `get_by_key`, `contains_key`, `push`,
+  `replace`, `upsert`, `remove_key` and `replace_all` run `K::hash` and
+  `K::eq` with no lock held, and `remove`, `remove_at` and `move_item` run no
+  key code. `get_by_key` also clones its item from a snapshot. The
+  dictionaries keep each value behind its own lock, which no write takes, so
+  `get` and `ObservableMultiDictionary::entries` run `V::clone` (and `entries`
+  runs `K::clone`) with no dictionary lock held. A key or value that reads its
+  collection no longer deadlocks. Clones of one stored dictionary value take
+  turns. While another thread clones a value that `remove` removes, `remove`
+  waits for that clone and returns a clone of its own.
+
+- `TokenPagedComposition` runs the item `T::clone` with no pager lock held
+  (#1277). Each stored item has a copy for `items()` and a copy for the
+  refresh comparison, behind their own locks, which no commit takes. A
+  refresh compares and clones before its commit begins. An item clone in
+  `items()` or in a refresh comparison can therefore wait for a load or
+  refresh of the same pager on another thread. Each loaded item is cloned
+  once more when its page is stored. The `items()` and `refresh()` rustdoc
+  state the remaining limits: clones of one stored copy take turns, and an
+  item clone must not call `items()` again on its own thread. The bounds stay
+  `T: Clone + PartialEq + Send + 'static`.
+
+- The collections publish a committed change before they drop the removed or
+  replaced items (#1295, spec/21 §2.5). An item whose `Drop` panics no longer
+  suppresses the local and hub notifications of `clear()`, `remove()`,
+  `replace_all()` and the other mutations of `ServicedObservableCollection`,
+  `KeyedServicedObservableCollection`, `ObservableList`,
+  `ObservableDictionary` and `ObservableMultiDictionary`. The panic still
+  reaches the caller. When a notification itself panics, the items drop
+  before that panic resumes.
+
+- A `ValueStream` `send` or `dispose()` that waits for another thread's
+  delivery records the wait in the wait-for graph (#1298, ADR-0209, spec/03
+  §4.1). A hub and a stream that send to each other from two threads no longer
+  deadlock: the wait that closes the cycle is refused, and a refused stream
+  wait returns with its value or terminal still queued for the drainer.
+
+- A `DerivedProperty::recompute` that waits for another thread's recompute
+  gate records the wait in the wait-for graph (#1463, ADR-0209, spec/03
+  §4.1). A transform that sends on a hub whose drainer recomputes the same
+  property no longer deadlocks. A refused gate wait runs its transform
+  without the gate, and its result is discarded if another commit lands after
+  its snapshot.
+
 - Disposing the current child of a `CompositeVm` now clears the composite's
   `current` before `dispose()` returns (ADR-0189, #1317). The composite
   publishes the change once and calls `on_current_changed(None)` once. The
