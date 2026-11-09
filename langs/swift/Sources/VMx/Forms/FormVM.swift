@@ -387,6 +387,22 @@ public final class FormVM<Model> {
         var queued: UInt64 = 0
     }
 
+    /// Applies `change` to the update frame of `caller`, when it has one. The
+    /// lookup is bound first: a member access chained onto the subscript is
+    /// unsafe at `-Onone` (#1462). The caller holds `stateGate`.
+    private func updateFrameLocked(_ caller: UInt64, _ change: (inout UpdateFrame) -> Void) {
+        guard var frame = frames[caller] else { return }
+        change(&frame)
+        frames[caller] = frame
+    }
+
+    /// The update-frame depth of `caller`, or 0 when it has no frame. The
+    /// caller holds `stateGate`.
+    private func frameDepthLocked(_ caller: UInt64) -> Int {
+        guard let frame = frames[caller] else { return 0 }
+        return frame.depth
+    }
+
     /// A completed preparation, ready to commit.
     private struct PreparedUpdate {
         let model: Model
@@ -426,7 +442,7 @@ public final class FormVM<Model> {
         }
         // Observers are notified after the gate is released (ADR-0143,
         // #704), by the outermost update on this thread (#1057).
-        frames[caller]?.depth -= 1
+        updateFrameLocked(caller) { $0.depth -= 1 }
         let delivery = takeNoticesLocked(notices)
         stateGate.unlock()
         deliver(delivery)
@@ -482,8 +498,9 @@ public final class FormVM<Model> {
     ) -> Bool {
         let caller = Self.currentThread
         guard !_disposed,
-              frames[caller]?.commits == base.ownCommits,
-              frames[caller]?.queued == base.ownQueued
+              let frame = frames[caller],
+              frame.commits == base.ownCommits,
+              frame.queued == base.ownQueued
         else { return false }
 
         if let queueOwner {
@@ -492,14 +509,14 @@ public final class FormVM<Model> {
             // preparation has replayed its queue, so the call runs again.
             guard queueOwner == caller || scopeDepths[queueOwner] != nil else { return true }
             deferredUpdates[queueOwner, default: []].append(update)
-            frames[caller]?.queued &+= 1
+            updateFrameLocked(caller) { $0.queued &+= 1 }
             return false
         }
         guard commitGeneration == base.generation else { return true }
 
         // Commit in one step.
         commitGeneration &+= 1
-        frames[caller]?.commits &+= 1
+        updateFrameLocked(caller) { $0.commits &+= 1 }
         _model = prepared.model
         let errorsChanged = prepared.errors != _errors
         _errors = prepared.errors
@@ -586,8 +603,8 @@ public final class FormVM<Model> {
     /// queued notices as nested.
     private func takeNoticesLocked(_ notices: Notices) -> Notices {
         let caller = Self.currentThread
-        if let depth = frames[caller]?.depth, depth > 0 {
-            frames[caller]?.pending.append(notices.markedNested())
+        if frameDepthLocked(caller) > 0 {
+            updateFrameLocked(caller) { $0.pending.append(notices.markedNested()) }
             return Notices()
         }
         var delivery = frames.removeValue(forKey: caller)?.pending ?? Notices()
@@ -915,7 +932,7 @@ public final class FormVM<Model> {
         // counts as a commit by this thread; it remains authoritative over
         // earlier edits (§5.1, §5.3).
         commitGeneration &+= 1
-        frames[caller]?.commits &+= 1
+        updateFrameLocked(caller) { $0.commits &+= 1 }
         if let model = prepared.model { _model = model }
         _snapshot = prepared.snapshot
         _errors = committedErrors
@@ -1018,7 +1035,7 @@ public final class FormVM<Model> {
     private func awaitForeignScopesLocked() -> UInt64? {
         let caller = Self.currentThread
         while !_disposed, let owner = scopeDepths.keys.first(where: { $0 != caller }) {
-            guard (frames[caller]?.depth ?? 0) == 0,
+            guard frameDepthLocked(caller) == 0,
                   ThreadWaitGraph.shared.beginWait(caller: caller, owner: owner, resource: scopeResource)
             else { return owner }
             scopeWaitsRecorded = true

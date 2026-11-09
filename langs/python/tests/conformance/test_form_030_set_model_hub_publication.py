@@ -175,7 +175,7 @@ def test_concurrent_dispose_during_preparation_returns_and_the_update_commits_no
     )
     disposer.start()
     try:
-        assert dispose_finished.wait(HANG_GUARD)
+        assert wait_event(dispose_finished)
         completed_during_validation = bool(completed)
     finally:
         release_validation.set()
