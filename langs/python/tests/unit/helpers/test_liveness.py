@@ -42,8 +42,12 @@ class _EarlyThread(threading.Thread):
         self.release = threading.Event()
         super().__init__(target=self.release.wait, daemon=True)
         self.calls = 0
+        self.early = True
 
     def join(self, timeout: float | None = None) -> None:
+        if not self.early:
+            super().join(timeout)
+            return
         self.calls += 1
         time.sleep(_EARLY)
 
@@ -86,8 +90,9 @@ def test_join_thread_joins_again_until_the_monotonic_deadline() -> None:
         assert thread.calls > 1
         assert thread.is_alive()
     finally:
+        thread.early = False
         thread.release.set()
-        threading.Thread.join(thread, liveness.HANG_GUARD)
+        join_thread(thread)
 
 
 def test_join_thread_returns_once_the_thread_ends() -> None:
