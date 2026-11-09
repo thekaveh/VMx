@@ -95,7 +95,9 @@ tests/conformance/forwarding.rs
 tests/conformance/group_vm.rs
 tests/conformance/hierarchical.rs
 tests/conformance/hierarchical_batch.rs
+tests/conformance/hierarchical_disposed_node.rs
 tests/conformance/hub_collection_changes.rs
+tests/conformance/hub_disposal_during_publication.rs
 tests/conformance/hub_membership_wait_cycle.rs
 tests/conformance/inline_dispose_cascade.rs
 tests/conformance/leaf_hook_disposal.rs
