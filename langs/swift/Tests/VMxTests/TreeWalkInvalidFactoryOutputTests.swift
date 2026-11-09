@@ -67,9 +67,13 @@ final class TreeWalkInvalidFactoryOutputTests: XCTestCase {
         assertInvalidFactoryOutput(try find(root) { _ in false }, "find")
         XCTAssertEqual(calls, 3, "each walk retries the factory")
         XCTAssertNil(c.parent, "a rejected snapshot assigns no parent")
+        guard case .failure = b.tryChildren() else {
+            return XCTFail("b keeps no children cache, so a direct read fails again")
+        }
+        XCTAssertEqual(calls, 4, "a direct read runs the factory again")
 
         XCTAssertTrue(try find(root) { $0 === a } === a)
-        XCTAssertEqual(calls, 3, "find returns a match before the failing node")
+        XCTAssertEqual(calls, 4, "find returns a match before the failing node")
 
         snapshot = [c, d]
         XCTAssertEqual(try walk(root).count, 5)

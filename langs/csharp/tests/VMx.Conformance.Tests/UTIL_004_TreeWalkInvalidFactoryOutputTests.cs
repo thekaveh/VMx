@@ -46,9 +46,11 @@ public class UTIL_004_TreeWalkInvalidFactoryOutputTests
         FluentActions.Invoking(() => Find(root, _ => false)).Should().Throw<InvalidOperationException>();
         calls.Should().Be(3, "each walk retries the factory");
         c.HierarchicalParent.Should().BeNull("a rejected snapshot assigns no parent");
+        FluentActions.Invoking(() => b.Children).Should().Throw<InvalidOperationException>();
+        calls.Should().Be(4, "b keeps no children cache, so a direct read runs the factory again");
 
         Find(root, node => ReferenceEquals(node, a)).Should().BeSameAs(a);
-        calls.Should().Be(3, "find returns a match before the failing node");
+        calls.Should().Be(4, "find returns a match before the failing node");
 
         snapshot = [c, d];
         Walk(root).Select(node => node.Name).Should().Equal("root", "a", "b", "c", "d");

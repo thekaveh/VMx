@@ -267,14 +267,18 @@ describe("UTIL-004", () => {
     expect(root.children[0]).toBe(a);
     expect(root.children[1]).toBe(b);
 
-    expect(() => [...walk(root)]).toThrow(Error);
-    expect(() => [...walkExpanded(root)]).toThrow(Error);
-    expect(() => find(root, () => false)).toThrow(Error);
+    const duplicateChild = "children factory returned duplicate child identity";
+    expect(() => [...walk(root)]).toThrow(duplicateChild);
+    expect(() => [...walkExpanded(root)]).toThrow(duplicateChild);
+    expect(() => find(root, () => false)).toThrow(duplicateChild);
     expect(calls).toBe(3);
     expect(c.parent).toBeNull();
+    // B keeps no children cache: a direct read runs the factory again.
+    expect(() => b.children).toThrow(duplicateChild);
+    expect(calls).toBe(4);
 
     expect(find(root, (node) => node === a)).toBe(a);
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
 
     snapshot = [c, d];
     expect([...walk(root)].map((node) => node.name)).toEqual(["root", "a", "b", "c", "d"]);
