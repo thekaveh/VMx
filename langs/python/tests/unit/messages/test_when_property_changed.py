@@ -53,6 +53,24 @@ def test_emits_the_matching_message() -> None:
     assert captured[0].property_name == "p"
 
 
+def test_single_name_accepts_the_property_name_keyword() -> None:
+    # ADR-0160 keeps a single-name call unchanged, including a keyword call (#1400).
+    hub: MessageHub[object] = MessageHub()
+    sender = object()
+    other = object()
+
+    captured: list[PropertyChangedMessage[object]] = []
+    sub = when_property_changed(hub, sender, property_name="foo").subscribe(on_next=captured.append)
+
+    hub.send(PropertyChangedMessage.create(sender, "S", "foo"))  # match
+    hub.send(PropertyChangedMessage.create(sender, "S", "bar"))  # wrong property
+    hub.send(PropertyChangedMessage.create(other, "O", "foo"))  # wrong sender
+    hub.send(PropertyChangedMessage.create(sender, "S", "foo"))  # match
+    sub.dispose()
+
+    assert [(m.sender, m.property_name) for m in captured] == [(sender, "foo"), (sender, "foo")]
+
+
 def test_several_names_emit_matching_messages_in_hub_order() -> None:
     hub: MessageHub[object] = MessageHub()
     sender_a = object()
