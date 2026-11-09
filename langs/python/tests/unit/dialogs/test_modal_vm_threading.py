@@ -99,8 +99,11 @@ def test_cancelled_waiter_is_released_and_others_still_resolve() -> None:
         cancelled.cancel()
         with pytest.raises(asyncio.CancelledError):
             await cancelled
+        # White-box leak check: a cancelled waiter must leave the waiter list
+        # before any dismissal, or an undismissed modal keeps it forever.
+        # dismiss() clears the list, so this check has to run before it.
+        assert len(modal._waiters) == 1
         modal.dismiss("ok")
         return await asyncio.wait_for(kept, timeout=HANG_GUARD)
 
     assert asyncio.run(main()) == "ok"
-    assert modal._waiters == []
