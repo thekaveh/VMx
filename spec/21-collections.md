@@ -1042,6 +1042,8 @@ commands' `CanExecuteChanged`. A refresh that replaces the accumulator, and a
 load that appends items, publishes one `Reset` before that same sequence. A
 fetch or equality hook that fails leaves `Items`, `CurrentToken`, and `HasMore`
 unchanged, publishes nothing, and surfaces the failure through the command.
+These notifications run where the fetch completes. The composition does not
+marshal them to the caller's thread (chapter 11 §3.1, ADR-0195).
 
 Each load or refresh supersedes every operation started before it. An
 operation that completes after a later load or refresh started is stale: it

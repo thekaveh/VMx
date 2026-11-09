@@ -695,6 +695,20 @@ imperative raise, and completion
 
 > Spec: `04-commands.md §4.3` and §10.2, ADR-0086.
 
+### CMD-020 — a fire-and-forget fault reaches `errors` after the completion notification
+
+**Given** an `AsyncRelayCommand` whose task fails with error `e`
+**And** a `CanExecuteChanged` subscriber that appends each notification to a
+shared log
+**And** an `errors` subscriber that appends `e` and the current `IsExecuting`
+value to the same log
+**When** `Execute()` is called and the test waits a bounded time for `e`
+**Then** the log holds the start notification, the completion notification,
+and `e`, in that order
+**And** the `errors` subscriber read `IsExecuting == false`
+
+> Spec: `04-commands.md §10.2/§10.4`, ADR-0195.
+
 ______________________________________________________________________
 
 ## 7. ComponentVM (`CVM-NNN`)
@@ -1759,6 +1773,21 @@ body ran exactly once
 **When** a decorator is disposed while its confirmation is pending
 **Then** resolving the confirmation `true` starts no inner work
 
+### CMDD-018 — `Execute()` never runs the inner command inside its own call
+
+Per spec/04-commands.md §8.3.1 and ADR-0195.
+
+**Given** a `ConfirmationDecoratorCommand` over a synchronous inner command
+**And** a `confirm` delegate that returns a `true` result that is already
+complete
+**And** the test marks its own thread as inside `Execute()` for the duration
+of the call (a thread-local mark where the flavor has threads)
+**When** `Execute()` is called and the test then waits a bounded time for the
+inner command
+**Then** the inner command ran exactly once
+**And** the inner command did not see the mark, so it did not run inside the
+`Execute()` call
+
 ______________________________________________________________________
 
 ## 19. Notification sub-package (`NOTIF-NNN`) — spec v2.0 / v2.1
@@ -1905,6 +1934,28 @@ virtual time 0
 **And** a subsequent `Post` resolves immediately with `Pending` and does not enqueue
 **And** a subsequent `Resolve` is a no-op
 **And** disposing again is a no-op (idempotent)
+
+### NOTIF-018 — commands report `CanExecute == false` during VM disposal
+
+**Given** a posted confirmation and a `ConfirmationVM` for it
+**And** a handler on the `CanExecuteChanged` of each of `DismissCommand`,
+`ApproveCommand`, and `RejectCommand`
+**And** each handler reads `CanExecute()` of all three commands and then calls
+`RejectCommand.Execute()`
+**When** `Dispose()` is called
+**Then** the handlers ran at least once
+**And** every read returned `false`
+**And** the notification is still pending in the hub, and the awaitable that
+`Post` returned has not resolved
+**When** `Dispose()` is called again
+**Then** no handler runs, and the notification is still pending
+
+**Given** a `NotificationVM` with a handler on `DismissCommand.CanExecuteChanged`
+that reads `DismissCommand.CanExecute()`
+**When** `Dispose()` is called
+**Then** every read returned `false`
+
+> Spec: `16-notifications.md §6.2`, ADR-0196.
 
 ______________________________________________________________________
 
@@ -4447,6 +4498,29 @@ scheduled task. Their test calls `Dispose()` before that task runs, so
 with the task start held back until `dispose()` returns.
 
 > Spec: `20-form-vm.md §5.3/§5.4/§10`, ADR-0180.
+
+### FORM-043 — an update raises the approve notification when its gates change
+
+**Given** a strict `FormVM<TM>` with a validator that rejects model `bad`, a
+counter on `ApproveCommand.CanExecuteChanged`, and the dirty, invalid model
+`bad`
+**When** `SetModel` sets a valid model equal to `Snapshot`
+**Then** the counter rose by exactly one
+**And** `ApproveCommand.CanExecute()` returns `false`
+**When** `SetModel` sets a valid model `a` that differs from `Snapshot`
+**Then** the counter rose by exactly one
+**And** `ApproveCommand.CanExecute()` returns `true`
+**When** `SetModel` sets another valid model `b` that differs from `Snapshot`
+**Then** the counter did not change
+
+**Given** a valid, non-strict form with the same validator and counter
+**And** a persister that calls `SetModel(bad)` and then reads the counter
+**When** `ApproveAsync()` is awaited
+**Then** the persister's read is exactly one more than the count after
+admission
+**And** the approval settles with exactly one more `CanExecuteChanged`
+
+> Spec: `20-form-vm.md §5.2/§5.3`, ADR-0196.
 
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 

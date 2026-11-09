@@ -52,6 +52,24 @@ All notable changes to the C# flavor are documented here. The format is based on
   throws nothing (ADR-0188, #1424). Before, it threw
   `InvalidOperationException`.
 
+- Changed: the fire-and-forget `Execute()` of `ConfirmationDecoratorCommand`
+  no longer runs the inner command inside its own call when the confirmation
+  is already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner
+  command now runs after `Execute()` returns, on a thread-pool thread, not
+  through the caller's `SynchronizationContext`. Migration: code that needs
+  the inner command to have run calls `ExecuteAsync()` and awaits it, or waits
+  for the inner command. The post hook of an outer decorator and a
+  `SucceedWith` successor now run before a confirmed inner command.
+
+- Added: `CMD-020` and `FORM-043` conformance tests (ADR-0195, ADR-0196,
+  #1327). C# already behaved this way.
+
+- Changed: the README now states that a confirmed inner command, the
+  completion notifications of an `AsyncRelayCommand` and a
+  `TokenPagedComposition` load can run on a thread-pool thread (documentation
+  only; ADR-0195, spec/11 §3.1, #1345). VMx keeps `ConfigureAwait(false)` and
+  does not marshal this work.
+
 - Changed: **Source-breaking:** `ObservableDictionary.Keys1` and `Keys2` now
   return a read-only `ReadOnlyObservableList<TKey>` (#1316, ADR-0193,
   `COL-070`). The view reads and notifies as before, but it has no mutator and
@@ -719,6 +737,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [VMx.Notifications 1.2.0] — unreleased source version
 
+- Fixed: every command of a disposing `NotificationVM` or `ConfirmationVM` now
+  reports `CanExecute` false from the start of `Dispose()` (ADR-0196, spec/16
+  §6.2, #1458, `NOTIF-018`). Before, a command that was not yet disposed
+  reported true inside a disposal `CanExecuteChanged` notification, while its
+  `Execute` did nothing.
 - Fixed: when a `Pending` subscriber disposes the hub and then throws, the
   queued completion still runs, so `Pending` completes and its subject is
   disposed before any waiting thread wakes. Before, the abandoned queue

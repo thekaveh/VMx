@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   hook and publishes no status for that work.
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
+- `CMD-020`, `CMDD-018` and `FORM-043` conformance tests (ADR-0195,
+  ADR-0196, #1327). TypeScript already behaved this way.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -174,6 +176,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
   therefore return with no current child, also when an `onCurrentChanged`
   callback or a child's destruct hook selects a child.
+
+- Every command of a disposing `NotificationVM` or `ConfirmationVM` now
+  reports `canExecute()` false from the start of `dispose()` (ADR-0196,
+  spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet
+  disposed reported true inside a disposal `canExecuteChanged` notification,
+  while its `execute()` did nothing.
 
 - `ObservableDictionary` Remove and Replace hub messages now carry the entry's
   position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets

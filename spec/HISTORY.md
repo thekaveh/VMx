@@ -767,6 +767,22 @@ library IDs plus 5 scenario IDs.
 
 See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
 
+v3.30.0 also sets three command rules. The fire-and-forget `Execute()` of
+`ConfirmationDecoratorCommand` never invokes the inner command inside its own
+call, also when `confirm()` is already complete (`CMDD-018`). A fire-and-forget
+`AsyncRelayCommand` fault reaches `errors` after the completion
+`CanExecuteChanged` (`CMD-020`). VMx does not marshal the work that follows an
+awaited step, so it runs where that step completes. See ADR-0195, chapter 04
+§8.3.1 and §10.4, and chapter 11 §3.1.
+
+v3.30.0 also defines two command-enablement notifications. A `FormVM` update
+raises `ApproveCommand.CanExecuteChanged` exactly once when it changes
+`IsValid`, or `IsDirty` in strict mode, also during an approval (`FORM-043`).
+From the start of `NotificationVM` or `ConfirmationVM` disposal, every command
+of the VM reports `CanExecute == false` (`NOTIF-018`).
+
+See ADR-0196, chapter 20 §5.2, and chapter 16 §6.2.
+
 v3.30.0 also makes the `ObservableDictionary` key views read-only. `Keys1` and
 `Keys2` return a `ReadOnlyObservableList` facade in C#, Python, TypeScript, and
 Swift (`COL-070`). Dictionary Remove and Replace hub messages now carry the

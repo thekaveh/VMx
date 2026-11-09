@@ -19,6 +19,13 @@ below for them.
   way.
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
+- `CMD-020`, `CMDD-018` and `FORM-043` conformance tests (ADR-0195,
+  ADR-0196, #1327). A fire-and-forget `AsyncRelayCommand` fault reaches
+  `errors` after the completion notification, and `execute()` of
+  `ConfirmationDecoratorCommand` never runs the inner command inside its own
+  call. An update raises `approve_command.can_execute_changed` exactly once
+  when it changes `is_valid`, or `is_dirty` in strict mode, also during an
+  approval. Python already behaved this way.
 - `ReadOnlyObservableList` is exported from `vmx` and `vmx.collections`, and
   `COL-070` conformance tests cover it (#1316, ADR-0193). `keys1` and `keys2`
   already returned this read-only view.
@@ -109,6 +116,11 @@ below for them.
   and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
   therefore return with no current child, also when an `on_current_changed`
   callback or a child's destruct hook selects a child.
+- Every command of a disposing `NotificationVM` or `ConfirmationVM` now
+  reports `can_execute()` as `False` from the start of `dispose()` (ADR-0196,
+  spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet
+  disposed reported `True` inside a disposal `can_execute_changed`
+  notification, while its `execute()` did nothing.
 - `ObservableDictionary` Remove and Replace hub messages now carry the entry's
   position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets
   `index` and `old_index` to the position before the removal, and `new_index` to

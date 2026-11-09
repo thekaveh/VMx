@@ -222,6 +222,18 @@ host as `(current, previous)` and returns an `IDisposable` that the host owns.
 VMx does not attach that handle to the observed VM's lifetime. See
 [C# imperative engine bridge](../../docs/content/flavors/csharp.md#724-imperative-engine-bridge).
 
+### 4.3 Threads after awaited work
+
+VMx awaits with `ConfigureAwait(false)` and does not marshal the work that
+follows. A command that `ConfirmationDecoratorCommand` confirms can therefore
+run on a thread-pool thread. This holds also when the caller and the
+confirmation use a UI `SynchronizationContext`. The completion
+`CanExecuteChanged` and `Errors` of an `AsyncRelayCommand`, and the
+`CollectionChanged` reset of a `TokenPagedComposition` load, can also run on a
+pool thread. Marshal UI work yourself, for example through
+`ObserveOn(dispatcher.Foreground)` or a dispatcher call in the inner command.
+See spec chapter 11 §3.1 and ADR-0195.
+
 ## 5. Companion packages
 
 `VMx.Extensions.DependencyInjection` adds:

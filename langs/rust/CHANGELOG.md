@@ -166,6 +166,16 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   them. One pending notification and 100,000 post and resolve pairs kept
   200,001 snapshots.
 
+- Breaking: the fire-and-forget `execute()` of `ConfirmationDecoratorCommand`
+  no longer runs the inner command inside its own call when the confirmation
+  is already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner
+  command now runs after `execute()` returns, or on another thread. A settled
+  confirmation now runs the inner command on a VMx worker thread. Migration:
+  code that needs the inner command to have run calls `execute_async()` and
+  waits for it, or waits for the inner command. The post hook of an outer
+  `wrap_with` decorator and a `succeed_with` successor now run before a
+  confirmed inner command.
+
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default
@@ -261,6 +271,19 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   flags lock, so `dispose()` reads the hub and sets `disposed` in one critical
   section, and `is_resolved()` returns a hub value only if no disposal
   completed between its `disposed` check and its hub read.
+- Every command of a disposing `NotificationVm` or `ConfirmationVm` now
+  reports `can_execute()` false from the start of `dispose()` (ADR-0196,
+  spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet
+  disposed reported true inside a disposal `can_execute_changed`
+  notification, while its `execute` did nothing.
+- A fire-and-forget `AsyncRelayCommand` fault now reaches `error_stream()`
+  after the completion `can_execute_changed` message (ADR-0195, spec/04
+  §10.4, #1327, `CMD-020`). An error subscriber now reads `is_executing()` as
+  false.
+- A `FormVm` update now raises the approve command's `can_execute_changed`
+  exactly once when it changes validity, or dirty state in strict mode
+  (ADR-0196, spec/20 §5.2, #1327, `FORM-043`). Before, Rust raised it only
+  when the computed eligibility flipped, and never during an approval.
 - `ObservableMultiDictionary` and `ObservableDictionary` Remove and Replace hub
   messages now carry the entry's position in enumeration order (#1316,
   ADR-0193, `COL-068`). Remove sends `old_index: Some(position)` and
