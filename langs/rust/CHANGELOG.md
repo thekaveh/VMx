@@ -144,6 +144,24 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Every command of a disposing `NotificationVm` or `ConfirmationVm` now
+  reports `can_execute()` false from the start of `dispose()` (ADR-0196,
+  spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet
+  disposed reported true inside a disposal `can_execute_changed`
+  notification, while its `execute` did nothing.
+- The fire-and-forget `execute()` of `ConfirmationDecoratorCommand` no longer
+  runs the inner command inside its own call when the confirmation is
+  already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner
+  command now runs after `execute()` returns, or on another thread. A settled
+  confirmation now runs the inner command on a VMx worker thread.
+- A fire-and-forget `AsyncRelayCommand` fault now reaches `error_stream()`
+  after the completion `can_execute_changed` message (ADR-0195, spec/04
+  §10.4, #1327, `CMD-020`). An error subscriber now reads `is_executing()` as
+  false.
+- A `FormVm` update now raises the approve command's `can_execute_changed`
+  exactly once when it changes validity, or dirty state in strict mode
+  (ADR-0196, spec/20 §5.2, #1327, `FORM-043`). Before, Rust raised it only
+  when the computed eligibility flipped, and never during an approval.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
