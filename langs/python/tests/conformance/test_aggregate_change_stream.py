@@ -1,4 +1,4 @@
-"""Conformance tests for the dynamic aggregate change stream (AGCH-001..010)."""
+"""Conformance tests for the dynamic aggregate change stream (AGCH-001..011)."""
 
 from __future__ import annotations
 
@@ -686,3 +686,52 @@ def test_AGCH_010_failures_disposal_ownership_and_observer_recovery_are_bounded(
     recovery_source.items[-1].changes.emit()  # type: ignore[union-attr]
     assert any(change.reason is AggregateChangeReason.ITEM for change in safe)
     recovery.dispose()
+
+
+@pytest.mark.conformance("AGCH-011")
+def test_AGCH_011_subscribers_receive_each_envelope_in_subscription_order() -> None:
+    source = _TestSource(Item("first"))
+    sut = aggregate(source)
+    order: list[tuple[str, int]] = []
+
+    def subscribe(label: int) -> DisposableBase:
+        return sut.observe().subscribe(
+            on_next=lambda change: order.append((change.reason.value, label)),
+            on_completed=lambda: order.append(("completed", label)),
+        )
+
+    for label in range(5):
+        subscribe(label)
+
+    source.add(Item("plain"))
+    assert order == [("membership", label) for label in range(5)]
+
+    order.clear()
+    with sut.batch():
+        source.add(Item("batched"))
+    assert order == [("batch", label) for label in range(5)]
+
+    order.clear()
+    sut.dispose()
+    assert order == [("completed", label) for label in range(5)]
+
+
+def test_AGCH_011_resubscription_receives_last() -> None:
+    source = _TestSource(Item("first"))
+    sut = aggregate(source)
+    order: list[int] = []
+    subscriptions = [
+        sut.observe().subscribe(lambda _, label=label: order.append(label)) for label in range(5)
+    ]
+
+    subscriptions[1].dispose()
+    sut.observe().subscribe(lambda _: order.append(1))
+
+    source.add(Item("plain"))
+    assert order == [0, 2, 3, 4, 1]
+
+    order.clear()
+    with sut.batch():
+        source.add(Item("batched"))
+    assert order == [0, 2, 3, 4, 1]
+    sut.dispose()

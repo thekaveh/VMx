@@ -14,6 +14,7 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx._indexes import _reject_bool_index
+from vmx._subscriber_failures import FanOutSubject
 from vmx.collections._delivery import deliver_then_publish
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
@@ -45,7 +46,7 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
     ) -> None:
         self._hub = hub
         self._items: list[T] = []
-        self._subject: Subject[CollectionChangedMessage[T]] = Subject()
+        self._subject: Subject[CollectionChangedMessage[T]] = FanOutSubject()
 
     # ── Public surface ────────────────────────────────────────────────────────
 

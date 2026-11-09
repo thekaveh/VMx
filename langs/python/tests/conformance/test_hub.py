@@ -215,7 +215,10 @@ def test_HUB_006_fixture_scenarios(scenario_id: str, scenario: dict[str, Any]) -
 def test_HUB_007_raising_subscriber_does_not_break_hub() -> None:
     hub = _fresh_hub()
 
+    bad_calls: list[object] = []
+
     def bad_handler(m: object) -> None:
+        bad_calls.append(m)
         raise ValueError("subscriber explodes")
 
     good_received: list[str] = []
@@ -228,6 +231,8 @@ def test_HUB_007_raising_subscriber_does_not_break_hub() -> None:
     assert good_received == ["M1", "M2"], (
         f"Good subscriber should receive both messages but got: {good_received}"
     )
+    # ADR-0191: the raising subscriber stays attached and handles message2 too.
+    assert len(bad_calls) == 2
     hub.dispose()
 
 
