@@ -254,7 +254,7 @@ callers can branch on the result. Builders return `Err` from `build()` when a
 required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
-> lifecycle contract (`LIFE-001..021`), including transition and disposal
+> lifecycle contract (`LIFE-001..022`), including transition and disposal
 > coordination.
 
 ## 3.6.7. Where to go next

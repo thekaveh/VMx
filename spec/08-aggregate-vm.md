@@ -79,6 +79,11 @@ an existing aggregate because doing so would leave an invalid empty slot.
 1. Waits for every child to reach `Destructed`.
 1. Transitions to `Destructed`.
 
+The walk skips a slot that is `Disposed` (chapter 02 §6, ADR-0189). An
+aggregate that holds a slot that was disposed directly therefore still
+destructs and reconstructs. Its next `construct()` replaces the slot from the
+slot factory, as every construct does.
+
 As with `construct()`, the order is unspecified and the reference
 implementations drive the slots sequentially.
 
