@@ -94,8 +94,19 @@ model.
   runs. Flavors that throw or return results report the first failure only
   after all mandatory cleanup completes.
 - Disposal deferred by an ownership transfer runs after commit or rollback.
-- A committed transfer publishes both membership events before it propagates a
-  disposal failure.
+- A committed transfer delivers both local membership events before it
+  propagates a disposal failure. The old container sends no hub message,
+  because its disposal is requested.
+- A composite or group sends no `CollectionChangedMessage` once its disposal is
+  requested, also when the disposal is deferred. A local subscriber or
+  current-changed callback that disposes the container therefore suppresses
+  the hub message of the change it observes. The local event is still
+  delivered (spec 01 §1.4, ADR-0190).
+- A disposed `HierarchicalVM` refuses `AddChild`, `RemoveChild`,
+  `ReparentChild`, `InvalidateChildren`, `InvalidateSubtree`, and
+  `AttachMany`, also where the call would do nothing. A transfer out of a
+  disposed parent refuses too. A refused call changes nothing and publishes
+  nothing. Spec 18 §7.1 lists the refusal channel of each flavor (ADR-0190).
 - If rollback also triggers failing disposal, an earlier attachment failure
   stays first.
 - Disposal requested from a current-changed callback is likewise deferred until
@@ -136,7 +147,7 @@ flavor-specific difference.
 | Type                                                                           | Dispose behavior                                                      | Later calls                                                                 | Released                                                                                                                                                                                           | Readable state            |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
 | VM families: component, read-only, composite, group, aggregate 1–6             | One `Disposed` transition; VM-local streams complete                  | Lifecycle calls other than dispose fail; changes are inert                  | Children depth-first, then subclass hook, LIFO owned registrations, stream completion, commands                                                                                                    | Status                    |
-| `HierarchicalVM`                                                               | One `Disposed` transition; VM-local streams complete                  | Lifecycle calls other than dispose fail; changes are inert                  | No children, which stay live (see [Disposing A Subtree](viewmodel-families/hierarchical-family.md#6264-disposing-a-subtree)); subclass hook, LIFO owned registrations, stream completion, commands | Status                    |
+| `HierarchicalVM`                                                               | One `Disposed` transition; VM-local streams complete                  | Lifecycle calls other than dispose fail; structural calls refuse            | No children, which stay live (see [Disposing A Subtree](viewmodel-families/hierarchical-family.md#6264-disposing-a-subtree)); subclass hook, LIFO owned registrations, stream completion, commands | Status                    |
 | Forwarding component and composite VMs                                         | Delegates to the wrapped VM, which completes once                     | Wrapped VM contract                                                         | Delegates to the wrapped VM                                                                                                                                                                        | Wrapped VM contract       |
 | Message hub                                                                    | Message stream completes once                                         | Sends are ignored                                                           | Pending transaction queue and subject                                                                                                                                                              | —                         |
 | Relay command, with and without parameter                                      | Terminal disabled state                                               | `CanExecute` is false; execute is inert                                     | Trigger subscriptions                                                                                                                                                                              | —                         |

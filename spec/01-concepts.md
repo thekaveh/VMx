@@ -162,6 +162,16 @@ disposed container publishes nothing, and a forwarding wrapper publishes
 nothing of its own. Rust additionally publishes `PropertyChanged("Count")` when
 the size changes (ADR-0085). `COMP-042..045` and `GRP-012..013` are normative.
 
+A container sends no hub message once its disposal is requested, also when it
+defers the disposal (chapter 06 §4.2, §4.3 rule 5). It checks after its local
+subscribers return. So a local subscriber or an `OnCurrentChanged` callback
+that disposes the container suppresses the hub message of the change it
+observes, and the local event is still delivered. The result is the same
+whether the disposal runs at once or is deferred. In a transfer whose old
+container requests its own disposal before its `Remove` publication, the hub
+receives only the new container's `Add`. Rust's `Count` message follows the
+same rule (ADR-0190, `COMP-049`).
+
 A failing local subscriber does not undo the committed change and does not
 suppress its hub message. The container still sends exactly one
 `CollectionChangedMessage` for the change. C# and Python then rethrow the first

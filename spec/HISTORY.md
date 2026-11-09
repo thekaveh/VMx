@@ -706,3 +706,16 @@ before a persister starts prevents the persister call (`FORM-041`,
 `FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
 
 See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also defines structural calls on a disposed `HierarchicalVM` node. From
+the moment a node is `Disposed`, `AddChild`, `RemoveChild`, `ReparentChild`,
+`InvalidateChildren`, `InvalidateSubtree`, and `AttachMany` on it refuse, also
+where the call would do nothing. A transfer out of a disposed parent refuses
+too. `AttachMany` rejects a candidate under a disposed parent, and
+`InvalidateSubtree` skips a disposed descendant (`HIER-041`). A `CompositeVM`
+or `GroupVM` also sends no `CollectionChangedMessage` once its disposal is
+requested or deferred. A local subscriber or `OnCurrentChanged` callback that
+disposes the container therefore suppresses the hub message of that change
+(`COMP-049`). The catalog now contains 453 library IDs plus 5 scenario IDs.
+
+See ADR-0190, chapter 01 §1.4, chapters 06 and 07, and chapter 18 §7.1.
