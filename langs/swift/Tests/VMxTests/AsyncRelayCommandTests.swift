@@ -216,8 +216,11 @@ final class AsyncRelayCommandTests: XCTestCase {
     /// CMD-016 — async imperative raise after disposal is a no-op.
     func testCmd016ImperativeRaiseAfterDisposalIsNoOp() {
         let cmd = AsyncRelayCommand.builder().build()
-        // Subscribe before disposal: a later subscriber could never observe a
-        // stray emission, so the assertion below could not fail.
+        // Disposal finishes the change subject, and a finished subject drops
+        // later values. So the closed channel alone keeps a later raise from
+        // reaching this subscriber, with or without the disposed check. The
+        // async dispose() sends no final value, so no subscriber can raise
+        // from one.
         var fires = 0
         let cancel = cmd.canExecuteChanged.sink { fires += 1 }
         cmd.dispose()

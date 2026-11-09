@@ -457,4 +457,210 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
         )
         XCTAssertEqual(form.model, "after")
     }
+
+    // ── A nested call meets another thread's scope (spec/20 §5.4, #1472) ──────
+
+    /// Thread Y holds the drain of hub `H`. Thread X's `setModel("bad")`
+    /// delivers `errorsChanged` in its scope, and X's sink sends on `H`, so the
+    /// send waits for Y. Y's subscriber then calls `setModel("outer")`. Its
+    /// wait for X's scope closes a cycle and is refused, so the call prepares
+    /// at once (spec/20 §5.5). Y's validator then makes the nested call, which
+    /// never waits for X's scope (spec/20 §5.4). `onWaitDecidedForTesting`
+    /// records every wait request, accepted or refused.
+    private func runNestedCall(
+        dispose: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> (run: NestedRun, form: FormVM<String>)? {
+        let hub = MessageHub()
+        let formHub = MessageHub()
+        let run = NestedRun()
+        let form = FormVM<String>(
+            initial: "initial",
+            persister: { _ in },
+            hub: formHub,
+            validators: ["value": { value in
+                if value == "outer" && ThreadWaitGraph.currentThread == run.drainer {
+                    run.nestedCall {
+                        guard let form = run.target else { return }
+                        if dispose {
+                            form.dispose()
+                        } else {
+                            form.setModel("nested")
+                            run.modelAfterNestedCall = form.model
+                        }
+                    }
+                }
+                return value == "bad" ? "rejected" : nil
+            }]
+        )
+        run.target = form
+        let boxedForm = UncheckedSendableBox(form)
+        let boxedHub = UncheckedSendableBox(hub)
+        let drainerEntered = DispatchSemaphore(value: 0)
+        let releaseDrainer = DispatchSemaphore(value: 0)
+        let publisherWaitsOnHub = DispatchSemaphore(value: 0)
+        let publisherDone = DispatchSemaphore(value: 0)
+        let drainerDone = DispatchSemaphore(value: 0)
+
+        hub.onWaitRegisteredForTesting = { publisherWaitsOnHub.signal() }
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            if caller == run.drainer { run.recordRequest(accepted) }
+        }
+        form.onApproved
+            .sink(receiveCompletion: { _ in run.approvedCompleted() }, receiveValue: { _ in })
+            .store(in: &cancellables)
+        // X's update sends its `model` message after its outermost scope
+        // closes (spec/20 §5.4).
+        formHub.messages
+            .sink { message in
+                guard (message as? PropertyChangedMessage)?.propertyName == "model",
+                      ThreadWaitGraph.currentThread == run.publisher
+                else { return }
+                run.publisherScopeClosed()
+            }
+            .store(in: &cancellables)
+        hub.messages
+            .sink { message in
+                guard message.senderName == "drainer" else { return }
+                drainerEntered.signal()
+                _ = releaseDrainer.wait(timeout: .now() + graphTimeout)
+                // X's hub send waits for Y before Y calls the form.
+                _ = publisherWaitsOnHub.wait(timeout: .now() + graphTimeout)
+                boxedForm.value.setModel("outer")
+            }
+            .store(in: &cancellables)
+        let once = Once()
+        form.errorsChanged
+            .sink { _ in
+                guard once.isCall(1) else { return }
+                releaseDrainer.signal()
+                // Y drains H, so this send waits for Y.
+                boxedHub.value.send(Ping(senderObject: NSObject(), senderName: "publisher"))
+                run.publisherSinkReturned()
+            }
+            .store(in: &cancellables)
+
+        Thread {
+            run.drainer = ThreadWaitGraph.currentThread
+            boxedHub.value.send(Ping(senderObject: NSObject(), senderName: "drainer"))
+            drainerDone.signal()
+        }.start()
+        guard wait(drainerEntered, "Y never took the drain", file: file, line: line) else { return nil }
+        Thread {
+            run.publisher = ThreadWaitGraph.currentThread
+            boxedForm.value.setModel("bad")
+            publisherDone.signal()
+        }.start()
+
+        // Both threads return within the fixed bound.
+        guard wait(publisherDone, "thread X did not return: deadlock", file: file, line: line),
+              wait(drainerDone, "thread Y did not return: deadlock", file: file, line: line)
+        else { return nil }
+        ThreadWaitGraph.shared.onWaitDecidedForTesting = nil
+
+        XCTAssertTrue(run.requests.contains(false), "Y's outer wait is refused", file: file, line: line)
+        XCTAssertEqual(run.nestedCalls, 1, file: file, line: line)
+        XCTAssertEqual(run.publisherScopeOpenAfterNestedCall, true,
+            "the nested call returns while X holds its scope", file: file, line: line)
+        XCTAssertEqual(run.requestsDuringNestedCall, [],
+            "a nested call makes no wait request", file: file, line: line)
+        return (run, form)
+    }
+
+    /// The nested call joins X's queue and replays after X's scope ends.
+    func testANestedSetModelNeverWaitsForAnotherThreadsScope() {
+        guard let (run, form) = runNestedCall(dispose: false) else { return }
+
+        XCTAssertNotNil(run.modelAfterNestedCall)
+        XCTAssertNotEqual(run.modelAfterNestedCall, "nested",
+            "the nested call returns before it takes effect")
+        XCTAssertEqual(form.model, "nested", "the nested call replays after X's scope ends")
+        XCTAssertTrue(form.isValid)
+    }
+
+    /// A nested dispose returns at once; `onApproved` completes after X's
+    /// outermost scope closes.
+    func testANestedDisposeNeverWaitsForAnotherThreadsScope() {
+        guard let (run, _) = runNestedCall(dispose: true) else { return }
+
+        XCTAssertEqual(run.approvedCompletions, [true],
+            "onApproved completes once, after X's outermost scope closed and X sent its model message")
+    }
+}
+
+/// What a nested call observed while another thread held a scope (#1472).
+private final class NestedRun: @unchecked Sendable {
+    private let lock = NSLock()
+    private var drainerThread: UInt64 = 0
+    private var publisherThread: UInt64 = 0
+    private var allRequests: [Bool] = []
+    private var nestedActive = false
+    private var nestedRequests: [Bool] = []
+    private var sinkReturned = false
+    private var scopeClosed = false
+    private var completions: [Bool] = []
+    private var calls = 0
+    private var scopeOpen: Bool?
+    private var modelAfterNested: String?
+    private weak var targetForm: FormVM<String>?
+
+    /// The form under test; weak, because its validator captures this run.
+    var target: FormVM<String>? {
+        get { lock.withLock { targetForm } }
+        set { lock.withLock { targetForm = newValue } }
+    }
+
+    var drainer: UInt64 {
+        get { lock.withLock { drainerThread } }
+        set { lock.withLock { drainerThread = newValue } }
+    }
+
+    var publisher: UInt64 {
+        get { lock.withLock { publisherThread } }
+        set { lock.withLock { publisherThread = newValue } }
+    }
+
+    var requests: [Bool] { lock.withLock { allRequests } }
+    var requestsDuringNestedCall: [Bool] { lock.withLock { nestedRequests } }
+    var approvedCompletions: [Bool] { lock.withLock { completions } }
+    var nestedCalls: Int { lock.withLock { calls } }
+    var publisherScopeOpenAfterNestedCall: Bool? { lock.withLock { scopeOpen } }
+
+    var modelAfterNestedCall: String? {
+        get { lock.withLock { modelAfterNested } }
+        set { lock.withLock { modelAfterNested = newValue } }
+    }
+
+    func recordRequest(_ accepted: Bool) {
+        lock.withLock {
+            allRequests.append(accepted)
+            if nestedActive { nestedRequests.append(accepted) }
+        }
+    }
+
+    func nestedCall(_ body: () -> Void) {
+        lock.withLock {
+            calls += 1
+            nestedActive = true
+        }
+        body()
+        lock.withLock {
+            nestedActive = false
+            scopeOpen = !sinkReturned
+        }
+    }
+
+    func publisherSinkReturned() {
+        lock.withLock { sinkReturned = true }
+    }
+
+    /// X's `model` message arrived, so X's outermost scope has closed.
+    func publisherScopeClosed() {
+        lock.withLock { scopeClosed = true }
+    }
+
+    func approvedCompleted() {
+        lock.withLock { completions.append(scopeClosed) }
+    }
 }

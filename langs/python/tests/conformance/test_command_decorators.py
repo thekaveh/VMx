@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from reactivex import Subject
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread
 from vmx.commands import (
     CompositeCommand,
     ConfirmationDecoratorCommand,
@@ -422,7 +422,7 @@ async def test_CMDD_012_error_racing_disposal_on_another_thread_is_dropped() -> 
     def _dispose_then_publish(value: BaseException) -> None:
         disposer = threading.Thread(target=decorator.dispose, daemon=True)
         disposer.start()
-        disposer.join(HANG_GUARD)
+        join_thread(disposer)
         disposer_finished.append(not disposer.is_alive())
         publish(value)
 

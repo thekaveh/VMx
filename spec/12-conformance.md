@@ -3344,22 +3344,32 @@ is sent after the local delivery
 TypeScript, Swift, and Rust return normally (Swift subscribers cannot fail;
 Swift asserts this structurally)
 
-### COL-067 — dictionary events and the hub message follow both key-view updates
+### COL-067 — dictionary events and the hub message follow the key-view updates
 
 **Given** an `ObservableDictionary` with a hub and the entries `("a", 1)` and
 `("b", 2)`
 **And** subscribers on `Keys1`, `Keys2`, the dictionary's own events, and the
 hub, each of which records the entries, `Count`, `Keys1`, and `Keys2`
-**When** `Add`, an indexer or `set` insert, `Remove`, or `Clear` occurs
-**Then** each key-view subscriber sees the updated entries, the updated
-`Count`, and its own updated view
-**And** the dictionary events and the hub message arrive after both key-view
-notifications
+**When** one of these mutations occurs:
+
+- `Add`, an indexer or `set` insert of `("c", 3)`, `Remove` of `("a", 1)`, or
+  `Clear`, each of which changes both key views
+- `Add` of `("a", 3)`, which changes only `Keys2`
+- `Remove` of `("a", 1)` when the dictionary also holds `("a", 3)`, which
+  changes only `Keys2`
+- `Add` of `("a", 2)`, which changes no key view
+
+**Then** only the key views that change notify, and each key-view subscriber
+sees the updated entries, the updated `Count`, and its own updated view
+**And** the dictionary events and the hub message arrive after the
+notification of each key view that changes
 **And** the dictionary-event and hub subscribers see the updated entries,
-`Count`, `Keys1`, and `Keys2`
-**And** the test does not check the order of the two key-view notifications
+`Count`, `Keys1`, and `Keys2`, and a key view that does not change keeps its
+content
+**And** the test does not check the order of two key-view notifications
 **And** Rust, whose `keys1()` and `keys2()` return snapshots and which has no
-local event, checks the hub subscriber only
+local event, checks the hub subscriber only, with one copy of each key in
+each snapshot
 
 ### COL-068 — dictionary Remove and Replace hub messages carry the entry position
 

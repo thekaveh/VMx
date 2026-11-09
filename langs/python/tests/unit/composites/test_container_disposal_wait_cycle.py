@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx._wait_for_graph import WAITS
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -95,8 +95,8 @@ def test_opposing_disposals_inside_transactions_complete(kind: str) -> None:
     errors: list[BaseException] = []
     first = _start(lambda: _add(x, a), errors)
     second = _start(lambda: _add(z, b), errors)
-    first.join(HANG_GUARD)
-    second.join(HANG_GUARD)
+    join_thread(first)
+    join_thread(second)
 
     assert not first.is_alive() and not second.is_alive(), "opposing disposals must not hang"
     assert errors == []
@@ -122,7 +122,7 @@ def test_one_sided_disposal_still_waits_for_the_transaction(kind: str) -> None:
     def hold_z(event: Any) -> None:
         if event.action == "add":
             z_entered.set()
-            assert release_z.wait(2 * HANG_GUARD)
+            assert wait_event(release_z, 2 * HANG_GUARD)
             order.append("z transaction ends")
 
     def dispose_z(event: Any) -> None:
@@ -135,7 +135,7 @@ def test_one_sided_disposal_still_waits_for_the_transaction(kind: str) -> None:
     x.on_collection_changed.subscribe(dispose_z)
     errors: list[BaseException] = []
     holder = _start(lambda: _add(z, b), errors)
-    assert z_entered.wait(HANG_GUARD)
+    assert wait_event(z_entered)
     disposer = _start(lambda: _add(x, a), errors)
     try:
         deadline = time.monotonic() + HANG_GUARD
@@ -145,8 +145,8 @@ def test_one_sided_disposal_still_waits_for_the_transaction(kind: str) -> None:
             time.sleep(0.001)
     finally:
         release_z.set()
-    holder.join(3 * HANG_GUARD)
-    disposer.join(3 * HANG_GUARD)
+    join_thread(holder, 3 * HANG_GUARD)
+    join_thread(disposer, 3 * HANG_GUARD)
 
     assert not holder.is_alive() and not disposer.is_alive()
     assert errors == []

@@ -60,6 +60,19 @@ public class WhenPropertyChangedTests
     }
 
     [Fact]
+    public void Null_Hub_Throws_For_Each_Overload()
+    {
+        // The tests above call the helper on a hub, so their null first argument
+        // is the sender. These calls pass a null hub to each overload (#1400).
+        var sender = new object();
+
+        ((Action)(() => MessageHubExtensions.WhenPropertyChanged(null!, sender, "P")))
+            .Should().Throw<ArgumentNullException>().Which.ParamName.Should().Be("hub");
+        ((Action)(() => MessageHubExtensions.WhenPropertyChanged(null!, sender, "P", "Q")))
+            .Should().Throw<ArgumentNullException>().Which.ParamName.Should().Be("hub");
+    }
+
+    [Fact]
     public void Single_String_Argument_Binds_To_The_Single_Name_Overload()
     {
         // A one-name call keeps binding to the string overload, which rejects a

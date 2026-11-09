@@ -1801,6 +1801,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private void ApplySelectorResult(VM value) => ApplyCurrentChange(value, CurrentChange.Delivery);
 
     /// <summary>
+    /// Test-only seam: runs at the entry of <see cref="DetachClearingCurrent"/>,
+    /// before the coordination lane (#1406). Production code never sets it.
+    /// </summary>
+    internal Action<VM>? DetachProbeForTesting { get; set; }
+
+    /// <summary>
     /// Frees <paramref name="detached"/> and clears it as Current in one locked
     /// section (#1219). Under the coordination lane and the membership gate,
     /// the child loses this composite as its parent and, while it is still
@@ -1812,6 +1818,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     private void DetachClearingCurrent(VM detached)
     {
+        DetachProbeForTesting?.Invoke(detached);
         bool previousFlagChanged;
         lock (CompositeCurrentChangeCoordinator.Gate)
         {
