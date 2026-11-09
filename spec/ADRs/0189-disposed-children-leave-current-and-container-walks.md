@@ -124,8 +124,9 @@ The implementation PR confirms the exact sites.
   disposed value.
 - **Swift.** `_transitionChildren` and the container walks skip a
   `.disposed` child. `_commitIsCurrent(false)` sets the flag once disposal is
-  requested and returns `false`. `ParentVM` gains a dispose-clear
-  requirement with a default no-op implementation. `isAdmittedMemberLocked`
+  requested and returns `false`. A new internal `ChildDisposalObserver`
+  protocol carries the dispose clear. Only `CompositeVM` adopts it, so the
+  public `ParentVM` protocol does not change. `isAdmittedMemberLocked`
   callers refuse a disposed value.
 - **Rust.** `run_child_transition` returns `Ok(())` for a `Disposed` child,
   and `child_settled_result` accepts `Disposed`. On a `Disposed` node,

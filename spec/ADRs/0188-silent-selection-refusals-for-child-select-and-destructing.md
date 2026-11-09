@@ -63,9 +63,9 @@ same rule, and the simplest rule wins.
 1. **Sound check.** The composite enters `Destructing` before its destruct
    clear. The clear and every selection commit take the coordination lane and
    the membership gate. A commit that reads `Destructing` under the gate
-   therefore cannot commit after the clear. A flavor that cannot read its own status under the gate uses a flag. The
-   destruct clear sets it under the gate. The composite resets it when the
-   destruct ends: at `Destructed`, at the rollback, or at `Disposed`.
+   therefore cannot commit after the clear. Every flavor reads its own
+   status under the gate. No flag is needed, so nothing resets at
+   `Destructed`, at the rollback, or at `Disposed`.
 
 ### 2.2. Decided under the owner's delegation
 
@@ -113,9 +113,10 @@ The implementation PR confirms the exact sites.
   rule 4 window and a pending disposal. `_setCurrent`, `#deliverSelection`
   and `canSelectComponent` add the `Destructing` check.
 - **Swift.** `selectChild` and `deselectChild` already discard refusals.
-  `_commitSelectionLocked` returns `.inert` for a non-null value while the
-  composite is `Destructing`. The composite's own status is not read under
-  `membershipGate`, so Swift uses the flag of rule 4.
+  `_commitSelectionLocked` returns a new `.ignored` outcome for a non-null
+  value while the composite is `Destructing`. It reads the composite's own
+  status under `membershipGate`. `ContainerSupport.registerLateStartLocked`
+  and the construct seal already take the lifecycle lock under that gate.
 - **Rust.** `select_via_parent` and `deselect_via_parent` already discard
   refusals. `validate_locked` and `can_select` gain the `Destructing` check,
   and the request returns `Ok(())` without a change for it.
