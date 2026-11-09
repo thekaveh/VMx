@@ -10,6 +10,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The `notifications` Cargo feature, which `default` includes (ADR-0211,
+  #1264). It gates the notification sub-package of spec/16:
+  `NotificationHub`, `NullNotificationHub`, `NotificationHubApi`,
+  `make_confirm`, `Notification`, `NotificationType`, `NotificationReaction`,
+  `NotificationWaiter`, `NotificationVm` and `ConfirmationVm`. A dependency
+  with `default-features = false` builds the core without them. `ModalVm`
+  stays in the core.
+- The `NotificationHubApi` trait (ADR-0211, #1264). It declares
+  `post_notification`, `resolve`, `pending` and `pending_stream`.
+  `NotificationHub`, `NullNotificationHub` and `Arc<H>` for every implementer
+  `H` implement it, so `Arc<dyn NotificationHubApi>` works.
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
@@ -90,6 +101,24 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Breaking: `NullNotificationHub` functions are instance methods that mirror
+  `NotificationHub` (ADR-0211, #1264): `new`, `post_notification`, `post`,
+  `post_with_waiter`, `resolve` (no effect), `pending` (always empty) and
+  `pending_stream`. The type derives `Clone`, `Copy`, `Debug`, `Default`,
+  `PartialEq` and `Eq`. Migration: `NullNotificationHub::post(notification)`
+  becomes `NullNotificationHub.post_notification(notification)`,
+  `NullNotificationHub::pending_stream()` becomes
+  `NullNotificationHub.pending_stream()`, and the removed
+  `NullNotificationHub::post_message(message)` becomes
+  `NullNotificationHub.post_with_waiter(NotificationType::Notification, message)`.
+- `make_confirm` accepts any `NotificationHubApi + Clone + 'static` hub, such
+  as a `NullNotificationHub`, whose predicate completes with `true` at once
+  (ADR-0211, #1264). A `NotificationHub` argument works as before.
+- `NotificationHub` keeps no history of committed pending snapshots
+  (ADR-0211, #1275). Before, each post, resolve and dispose kept a full copy
+  of the pending list for the life of the hub, and `dispose()` did not clear
+  them. One pending notification and 100,000 post and resolve pairs kept
+  200,001 snapshots.
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default
@@ -149,8 +178,21 @@ project adheres to [Semantic Versioning](https://semver.org/).
   only the shared notification state, so a kept command makes no reference
   cycle.
 
+### Deprecated
+
+- `NotificationHub::pending_snapshots()`, which is now always empty
+  (ADR-0211, #1275). Migration: subscribe to `pending_stream()` before the
+  posts and resolutions to observe, and collect the values. The first value
+  is the snapshot that is current at subscription.
+
 ### Fixed
 
+- `NotificationVm::is_resolved()` and `ConfirmationVm::is_resolved()` no
+  longer change from `true` to `false` when `dispose()` races a hub
+  `resolve` (ADR-0211, #1293). Both view models now read the hub under their
+  flags lock, so `dispose()` reads the hub and sets `disposed` in one critical
+  section, and `is_resolved()` returns a hub value only if no disposal
+  completed between its `disposed` check and its hub read.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,

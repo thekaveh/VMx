@@ -11,11 +11,10 @@ Per ADR-0013, the distribution shape is per-flavor:
 - **TypeScript**: subpath export `@thekaveh/vmx/notifications` (same package
   as `@thekaveh/vmx`)
 - **Swift**: module namespace in the `VMx` package
-- **Rust**: notification types in `vmx-rs`, using the VMx-owned hot-stream
-  and executor-neutral completion facades
-
-Open Rust gap: the Rust notification types are not behind a Cargo feature. The
-crate root always exports them, so Rust consumers do not opt in at build time.
+- **Rust**: the `notifications` Cargo feature of `vmx-rs`, on by default,
+  using the VMx-owned hot-stream and executor-neutral completion facades. A
+  dependency with `default-features = false` builds the core without it
+  (ADR-0211).
 
 The asymmetry preserves "opt-in, no core surface impact" without forcing a
 TypeScript monorepo restructure.
@@ -76,8 +75,12 @@ Rust splits `Post` into three inherent methods on `NotificationHub`.
 `Notification`. `post_notification(notification)` posts an existing value and
 returns its `NotificationWaiter`. `post_with_waiter(kind, message)` returns
 both. `resolve` takes the notification id. `pending()` returns the current
-snapshot, `pending_stream()` returns the replaying stream, and
-`pending_snapshots()` returns the history of committed snapshots.
+snapshot, and `pending_stream()` returns the replaying stream. The hub keeps no
+history of committed snapshots. The deprecated `pending_snapshots()` always
+returns an empty list; a caller subscribes to `pending_stream()` instead
+(ADR-0211). The public trait `NotificationHubApi` declares
+`post_notification`, `resolve`, `pending` and `pending_stream`, and
+`NotificationHub` and `NullNotificationHub` both implement it.
 
 ### 2.1 `Post` semantics
 
@@ -118,10 +121,11 @@ variant:
 - `Resolve(notification, reaction)` is a no-op.
 - `Pending` is an observable that emits the empty list once and completes.
 
-Open Rust gap: Rust has no `INotificationHub` trait, so `NullNotificationHub`
-cannot replace `NotificationHub` at a call site. It is a unit struct with the
-associated functions `post`, `post_message`, and `pending_stream`. It has no
-`resolve` function.
+Rust `NullNotificationHub` implements `NotificationHubApi`, so it replaces
+`NotificationHub` wherever a caller takes that trait, such as `make_confirm`.
+Its `resolve` has no effect, and its `pending()` is always empty.
+`NotificationVm` and `ConfirmationVm` keep the concrete `NotificationHub`,
+because they read its record of each resolution and reaction (ADR-0211).
 
 ## 4. Bridging command decorators
 
