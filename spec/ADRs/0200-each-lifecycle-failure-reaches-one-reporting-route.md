@@ -101,7 +101,9 @@ because it loses a failure that the other disposal rules report.
    unhandled-error route, after the flush returns. For TypeScript that route is
    rxjs `config.onUnhandledError`. This covers:
    - a later failure that an active drain records;
-   - a queued foreground throw that a flush error unsubscribed before it ran;
+   - a queued foreground throw that a scheduler unsubscribed before it ran,
+     whether a flush error dropped it or a separate or cancelled scheduler
+     unsubscribed it;
    - a failure of recovered work (#1052); and
    - an error that left the flush after the drain had already recorded a
      failure.

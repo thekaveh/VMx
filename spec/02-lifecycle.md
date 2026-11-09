@@ -367,7 +367,9 @@ error dropped it. A scheduler that cancels its queued work on purpose marks
 itself first, so VMx runs none of the lifecycle work that it unsubscribes. Only
 TypeScript has such a flush: `RxDispatcher.immediate()` and `NullDispatcher`
 run both channels on rxjs `queueScheduler`. Its unhandled-error route is rxjs
-`config.onUnhandledError`, and its mark is `markSchedulerCancelled`.
+`config.onUnhandledError`, and its mark is `markSchedulerCancelled`. TypeScript
+also uses that route for a failure throw that any foreground scheduler
+unsubscribes before it runs, including a separate or cancelled scheduler.
 
 The helper has no child-order option: the caller passes the children in the
 order it wants. A leaf that destructs its members in reverse passes the

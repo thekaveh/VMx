@@ -82,6 +82,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Every other failure of the flush, including a failure of recovered work
   (#1052), is reported once through rxjs `config.onUnhandledError` after the
   flush returns.
+- A pending lifecycle-failure throw that any foreground scheduler unsubscribes
+  before it runs is now reported through rxjs `config.onUnhandledError`
+  (ADR-0200 §2.3). Before, the failure was dropped. This covers a separate
+  scheduler and a cancelled scheduler, such as `ManualDispatcher.dispose()`.
+  With no `config.onUnhandledError` handler, rxjs rethrows the report on a
+  timer. In Node, that is an uncaught exception.
 - `TokenPagedComposition`: a load also checks `hasMore` when it starts, as in
   the other flavors (#1161, ADR-0169). Behavior does not change: the load body
   already starts in the admission turn.
