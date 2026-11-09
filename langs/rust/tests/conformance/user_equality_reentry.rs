@@ -9,10 +9,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use vmx::{
-    ComponentVm, ConfirmationVm, ConstructionStatus, DiscriminatorVm,
-    KeyedServicedObservableCollection, Message, MessageHub, NotificationHub, NotificationReaction,
-    NotificationType, NotificationVm, NullDispatcher, ObservableDictionary, ObservableList,
-    ObservableMultiDictionary, ServicedObservableCollection, TokenPagedComposition, VmNode,
+    ComponentVm, ConstructionStatus, DiscriminatorVm, KeyedServicedObservableCollection, Message,
+    MessageHub, NullDispatcher, ObservableDictionary, ObservableList, ObservableMultiDictionary,
+    ServicedObservableCollection, TokenPagedComposition, VmNode,
+};
+#[cfg(feature = "notifications")]
+use vmx::{
+    ConfirmationVm, NotificationHub, NotificationReaction, NotificationType, NotificationVm,
 };
 
 /// The bound on every wait in this file.
@@ -223,6 +226,7 @@ fn token_paged_refresh_eq_may_read_the_pager() {
     *probe.lock().unwrap() = None;
 }
 
+#[cfg(feature = "notifications")]
 #[test]
 fn notification_clock_saturates_instead_of_overflowing() {
     let hub = NotificationHub::new();
@@ -237,6 +241,7 @@ fn notification_clock_saturates_instead_of_overflowing() {
     assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
 }
 
+#[cfg(feature = "notifications")]
 #[test]
 fn confirmation_clock_saturates_instead_of_overflowing() {
     let hub = NotificationHub::new();

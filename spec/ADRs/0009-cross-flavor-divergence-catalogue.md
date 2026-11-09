@@ -106,7 +106,7 @@ ADR-0006 and require no further action:
   shadowing/hiding warnings (`CS0108`) and makes the tree-parent semantics
   explicit at the call site.
 
-### 2.5 `HierarchicalVM` recursive-generic constraint (Python)
+### 2.5 `HierarchicalVM` recursive-generic constraint (Python and Rust)
 
 - **C#**: `where TVM : HierarchicalVM<TModel, TVM>` — true F-bounded
   generic constraint enforced by the compiler.
@@ -120,6 +120,11 @@ ADR-0006 and require no further action:
   a self-referential, parameter-bound recursion the way the nominal type
   systems do. The runtime/subclass contract is still enforced by
   convention and by `mypy --strict` against concrete subclasses.
+- **Rust**: `HierarchicalVm<M, N = ()>` — Rust has no subclassing, so a
+  node-data type `N` takes the place of `TVM` (ADR-0202). The node type is
+  `HierarchicalVm<M, N>`, and `parent()`, `children()` and `path()` return
+  it. `node_data()` returns the consumer's per-node state, and an extension
+  trait adds node methods.
 
 ### 2.6 Python interface-prefix convention (v2.0 vs v2.1 split)
 
@@ -457,22 +462,6 @@ here so audits don't reopen them prematurely:
   likewise build a private `NotificationHub`; `with_hub` takes the shared one.
   Removing the conveniences would break Rust callers and is not scheduled.
   Documented here so audits don't re-flag it as accidental drift.
-- **Runtime `select_child`/`deselect_child` on a member-but-not-Constructed child.**
-  The construct-time `Current(selector)` path is a non-raising validated assignment
-  (spec/06 §5.4, ADR-0050). The RUNTIME path is `child.select()` →
-  `parent.select_child`. Every flavor now refuses a member that is not
-  `Constructed`, so such a member never becomes current (spec/05 §6, spec/06
-  §3.1). Only the refusal channel differs. C# `SelectChild`→`SelectComponent`
-  **throws** `InvalidOperationException`. Python, TypeScript, Swift and Rust
-  **no-op**, as they do for a non-member (#1229). Swift keeps the no-op instead
-  of an uncatchable trap (ADR-0037). Inside the caller's own uncommitted
-  membership transaction, Python and TypeScript still raise the spec/06 §4.3
-  rule 4 error. In Python, a destruct on another thread after the entry check
-  raises the predicate `ValueError` at the commit. A membership race there
-  already raises the same way. `deselect` of a non-current child throws in C#
-  and no-ops in the other flavors. This edge is reachable only by a direct
-  `select()`/`deselect()` that bypasses `can_select()`. Recorded here so audits
-  don't re-flag it as accidental drift.
 - **Swift `TokenPagedComposition` default page-equality comparer.** Swift defaults
   `pagesEqual` to `{ _, _ in false }` — the unconstrained generic `TVM` cannot
   synthesize a universal equality — so a redundant `refresh()` of a byte-identical
@@ -546,6 +535,11 @@ here so audits don't reopen them prematurely:
 - Modeled assignment after disposal is inert in all five flavors (ADR-0091,
   `DISP-014`).
 
+- A refused child `select()` or `deselect()` changes nothing and raises
+  nothing in all five flavors (ADR-0188, `COMP-052`). C# used to throw
+  `InvalidOperationException`, and Python and TypeScript raised for some
+  refusals.
+
 - **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
   captured model snapshot while Python and TypeScript emitted the live model
   after the persister await. ADR-0048 §2.4 (VMX-047) converged all three flavors
@@ -555,6 +549,50 @@ here so audits don't reopen them prematurely:
   `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
   `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
   `this.#onApproved.next(current)`).
+
+### 2.34 Dropped container that waits for a background child (Rust and Swift)
+
+Chapter 02 §6 says that a container completes `construct()` only when every
+child reaches `Constructed`. It does not say what happens when no reference to
+the waiting container remains (#1280).
+
+- **Rust**: a container's queued child steps and its settle callbacks hold the
+  container core through a `WeakComponentCore` (`langs/rust/src/runtime.rs`).
+  When the last handle and command of a waiting container drop, the core is
+  freed and the transition is abandoned. The child still settles. The
+  container publishes no terminal status: the hub carries only its
+  `Constructing`. The test
+  `dropped_waiting_composite_lets_its_child_settle_alone` in
+  `langs/rust/tests/conformance/background_child_settle.rs` asserts this.
+  **Reason:** a strong reference would keep a container that waits for a child
+  that never settles alive after its last handle drops. That is the leak of
+  #750, which PR #904 fixed.
+- **Swift**: the same result. The walk keeps the container alive until the
+  last child settles: the child's settle waiter holds the walk
+  (`ChildTransitionWalker.advance` in
+  `langs/swift/Sources/VMx/Lifecycle/ComponentVMBase.swift`), and the walk
+  holds the `CompositeVM` construct hook's `after` closure, which captures the
+  container (`langs/swift/Sources/VMx/Composites/CompositeVM.swift`). The
+  walk releases `after` before it settles its deferral. The deferral callbacks
+  that publish the terminal status capture the container weakly
+  (`[weak self]` in `_completeTransitionAfterChildren` and in the `finish`
+  closure of the construct path in `ComponentVMBase.swift`). So the container
+  is freed when the walk ends, and no terminal status follows. A local
+  `swift test` run of a dropped waiting `CompositeVM` on a `ManualDispatcher`
+  recorded only `comp:constructing`, `child:constructing` and
+  `child:constructed` on the hub.
+- **C#, Python and TypeScript**: the child's settle notification keeps the
+  container reachable, so the container completes when the child settles. In
+  C#, the walk's `await` continuation on the child's task holds the container
+  (`langs/csharp/src/VMx/Components/ComponentVMBase.cs`). In Python, the
+  `add_done_callback(child_settled)` closure holds it
+  (`langs/python/src/vmx/components/base.py`). In TypeScript, the child's
+  `propertyChanged` subscription calls the container's `settle`
+  (`langs/typescript/src/components/componentVMBase.ts`).
+- **Rationale**: Rust and Swift free memory when the last reference drops, so
+  a container that nothing references cannot complete. The garbage-collected
+  flavors keep the container reachable through the child. A host that needs
+  the terminal status keeps a handle until the transition completes.
 
 ## 3. Rationale
 

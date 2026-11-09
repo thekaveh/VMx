@@ -28,6 +28,12 @@ or reparent its children; only eager construction cascades (spec 18 §3). The
 consumer owns child lifetimes: dispose a subtree explicitly (§6.2.6.4), or
 register cleanup through the owned-resource helper.
 
+A consumer `TVM` subclass adds per-node fields and methods. Rust has no
+subclassing, so `HierarchicalVm<M, N = ()>` takes a node-data type `N`.
+`parent()`, `children()` and `path()` return `HierarchicalVm<M, N>`, and
+`node_data()` returns the node's own `N`. An extension trait adds node
+methods (ADR-0202).
+
 Children are lazy by default. Eager mode applies per node. An eager node
 constructs its children depth-first. The whole tree is eager only when every
 node is eager.
@@ -202,16 +208,18 @@ hub. So a transfer to a tree on another hub also clears the selection.
 
 ## 6.2.6.7. Cross-Language Surface
 
-| Concept            | C#                                   | Python                               | TypeScript                           | Swift                                   | Rust                              |
-| ------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | --------------------------------------- | --------------------------------- |
-| Core type          | `HierarchicalVM<TModel, TVM>`        | `HierarchicalVM[TModel, TVM]`        | `HierarchicalVM<TModel, TVM>`        | `HierarchicalVM<TModel, TVM>`           | `HierarchicalVm<M>`               |
-| Builder            | `HierarchicalVMBuilder<TModel, TVM>` | `HierarchicalVMBuilder[TModel, TVM]` | `HierarchicalVMBuilder<TModel, TVM>` | `HierarchicalVM<TModel, TVM>.builder()` | `HierarchicalVm::builder()`       |
-| Eager flag         | `EagerChildren(true)`                | `eager_children(True)`               | `eagerChildren(true)`                | `eagerChildren(true)`                   | `eager_children(true)`            |
-| Invalidate subtree | `InvalidateSubtree()`                | `invalidate_subtree()`               | `invalidateSubtree()`                | `invalidateSubtree()`                   | `invalidate_subtree()`            |
-| Batch attach       | `AttachMany(...)`                    | `attach_many(...)`                   | `attachMany(...)`                    | `attachMany(...)`                       | `attach_many(...)`                |
-| Root parent key    | `BatchParentKey<TKey>.Root`          | `None`                               | `null`                               | `nil`                                   | `None`                            |
-| Parked count       | `ParkedAttachCount`                  | `parked_attach_count`                | `parkedAttachCount`                  | `parkedAttachCount`                     | `parked_attach_count()`           |
-| Current node       | `TreeSelection<TModel, TVM>`         | `TreeSelection[TVM]`                 | `TreeSelection<TVM>`                 | `TreeSelection<TModel, TVM>`            | `TreeSelection<M>`                |
+| Concept            | C#                                   | Python                               | TypeScript                           | Swift                                   | Rust                                       |
+| ------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | --------------------------------------- | ------------------------------------------ |
+| Core type          | `HierarchicalVM<TModel, TVM>`        | `HierarchicalVM[TModel, TVM]`        | `HierarchicalVM<TModel, TVM>`        | `HierarchicalVM<TModel, TVM>`           | `HierarchicalVm<M, N = ()>`                |
+| Per-node state     | `TVM` subclass fields                | `TVM` subclass fields                | `TVM` subclass fields                | `TVM` subclass fields                   | `node_data()` on `N`                       |
+| Builder            | `HierarchicalVMBuilder<TModel, TVM>` | `HierarchicalVMBuilder[TModel, TVM]` | `HierarchicalVMBuilder<TModel, TVM>` | `HierarchicalVM<TModel, TVM>.builder()` | `HierarchicalVm::builder()`                |
+| Node-type builder  | `VmFactory(...)`                     | `vm_factory(...)`                    | `vmFactory(...)`                     | `vmFactory { ... }`                     | `HierarchicalVmBuilder::with_node_data(n)` |
+| Eager flag         | `EagerChildren(true)`                | `eager_children(True)`               | `eagerChildren(true)`                | `eagerChildren(true)`                   | `eager_children(true)`                     |
+| Invalidate subtree | `InvalidateSubtree()`                | `invalidate_subtree()`               | `invalidateSubtree()`                | `invalidateSubtree()`                   | `invalidate_subtree()`                     |
+| Batch attach       | `AttachMany(...)`                    | `attach_many(...)`                   | `attachMany(...)`                    | `attachMany(...)`                       | `attach_many(...)`                         |
+| Root parent key    | `BatchParentKey<TKey>.Root`          | `None`                               | `null`                               | `nil`                                   | `None`                                     |
+| Parked count       | `ParkedAttachCount`                  | `parked_attach_count`                | `parkedAttachCount`                  | `parkedAttachCount`                     | `parked_attach_count()`                    |
+| Current node       | `TreeSelection<TModel, TVM>`         | `TreeSelection[TVM]`                 | `TreeSelection<TVM>`                 | `TreeSelection<TModel, TVM>`            | `TreeSelection<M, N = ()>`                 |
 
 ## 6.2.6.8. Example
 
