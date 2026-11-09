@@ -43,9 +43,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
       emits ``(key1, key2, new_value, old_value)``
     - ``on_reset``         — ``Observable[None]`` — fired by :meth:`clear`
 
-    ``keys1`` and ``keys2`` are live :class:`ObservableList` views of the
-    distinct Key1 / Key2 values currently present, in insertion order of
-    their first appearance.
+    ``keys1`` and ``keys2`` are live, read-only
+    :class:`~vmx.collections.ReadOnlyObservableList` views of the distinct
+    Key1 / Key2 values currently present, in insertion order of their first
+    appearance (ADR-0193).
 
     Null (``None``) keys are not permitted; a :class:`TypeError` is raised.
 
@@ -210,9 +211,7 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         if (k1, k2) in self._data:
             old = self._data[(k1, k2)]
             self._data[(k1, k2)] = value
-            # The position when the change commits (spec/21 §4.7, ADR-0193).
-            index = self._key_order.index((k1, k2))
-            self._on_replaced(k1, k2, value, old, index)
+            self._on_replaced(k1, k2, value, old)
         else:
             self._internal_add(k1, k2, value)
 
@@ -449,11 +448,14 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
 
     def _current_index(self, key1: TKey1, key2: TKey2, index: int) -> int:
         """The entry's position now: a subscriber may have removed an entry or cleared."""
-        key = (key1, key2)
-        if index < len(self._key_order) and self._key_order[index] == key:
+        if index < len(self._key_order) and self._key_order[index] == (key1, key2):
             return index
+        return self._index_of(key1, key2)
+
+    def _index_of(self, key1: TKey1, key2: TKey2) -> int:
+        """The entry's position in enumeration order, or -1 when it is gone."""
         try:
-            return self._key_order.index(key)
+            return self._key_order.index((key1, key2))
         except ValueError:
             return -1
 
@@ -468,19 +470,27 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
             ),
         )
 
-    def _on_replaced(
-        self, key1: TKey1, key2: TKey2, new_value: TValue, old_value: TValue, index: int
-    ) -> None:
+    def _on_replaced(self, key1: TKey1, key2: TKey2, new_value: TValue, old_value: TValue) -> None:
         if self._disposed:
             return
+
+        # The hub message reads the entry's position when it is sent, as an Add
+        # does: a local subscriber may have moved or removed it (ADR-0193).
+        def publish() -> None:
+            if self._hub is not None:
+                self._hub.send(
+                    CollectionChangedMessage.for_replace(
+                        self,
+                        (key1, key2, new_value),
+                        (key1, key2, old_value),
+                        self._index_of(key1, key2),
+                    )
+                )
+
         # Local granular event first, then the hub (ADR-0171).
         deliver_then_publish(
             lambda: self._replaced_subject.on_next((key1, key2, new_value, old_value)),
-            lambda: self._publish_to_hub(
-                CollectionChangedMessage.for_replace(
-                    self, (key1, key2, new_value), (key1, key2, old_value), index
-                )
-            ),
+            publish,
         )
 
     def _on_reset(self) -> None:

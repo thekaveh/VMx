@@ -25,8 +25,10 @@ final class DictionaryKeyViewsReadOnlyTests: XCTestCase {
 
     /// COL-070 — the key views are `ReadOnlyObservableList` values that list
     /// the distinct keys in first-appearance order and are not the backing
-    /// `ObservableList`. The typed bindings fail to compile on a mutable view
-    /// type, and `ReadOnlyObservableList` declares no mutator or batch member.
+    /// `ObservableList`. The typed bindings fail to compile on another view
+    /// type. Swift cannot check at run time that a member is absent, so the
+    /// evidence for "no mutator or batch member" is the declaration of
+    /// `ReadOnlyObservableList`.
     func testCOL070KeyViewsAreReadOnlyObservableLists() {
         let sut = ObservableDictionary<String, Int, String>()
         sut.set("a", 1, "x")

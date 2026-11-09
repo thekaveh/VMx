@@ -13,8 +13,9 @@
  *
  * Null/undefined keys are not permitted; passing one throws Error.
  *
- * Remove and Replace hub messages carry the entry's position in enumeration
- * order when the change committed (spec/21 §4.7, ADR-0193).
+ * Hub messages carry the entry's position in enumeration order. Remove reports
+ * the position before the removal. Add and Replace report the position when
+ * the message is sent, or -1 when the entry is gone (spec/21 §4.7, ADR-0193).
  *
  * See spec/21-collections.md §4 and ADR-0025.
  */
@@ -208,18 +209,18 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     if (entry !== undefined) {
       const oldValue = entry.value;
       entry.value = value;
-      // Capture the position at commit: a local subscriber may change the entries.
-      const index = this.#keyOrder.indexOf(entry);
       // 1. Local granular event first.
       this.#itemReplaced.next({ key1, key2, newValue: value, oldValue });
       // 2. Publish to hub (if present). Element type includes both keys so
-      //    subscribers can recover which entry was replaced.
+      //    subscribers can recover which entry was replaced. The position is
+      //    read now, as for an Add: a local subscriber may have moved or
+      //    removed the entry (ADR-0193).
       this.#hub?.send(
         CollectionChangedMessage.forReplace<DictionaryEntry<TKey1, TKey2, TValue>>(
           this,
           { key1, key2, value },
           { key1, key2, value: oldValue },
-          index,
+          this.#indexOf(key1, key2),
         ),
       );
     } else {
@@ -533,6 +534,12 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     const current = this.#data.get(key1)?.get(key2);
     if (current === undefined) return -1;
     return this.#keyOrder[index] === current ? index : this.#keyOrder.indexOf(current);
+  }
+
+  // The key pair's position in enumeration order, or -1 when it is gone.
+  #indexOf(key1: TKey1, key2: TKey2): number {
+    const current = this.#data.get(key1)?.get(key2);
+    return current === undefined ? -1 : this.#keyOrder.indexOf(current);
   }
 
   #requireKeys(key1: TKey1, key2: TKey2): void {

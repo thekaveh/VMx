@@ -20,8 +20,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Fixed: `ObservableDictionary` Remove and Replace hub messages now carry the
   entry's position in enumeration order (#1316, ADR-0193, `COL-068`). Remove
   sets `Index` and `OldIndex` to the position before the removal, and
-  `NewIndex` to -1. Replace sets all three to the entry's position. Before,
-  both sent -1.
+  `NewIndex` to -1. Replace sets all three to the entry's position when the
+  message is sent, as Add does (#733). If a local handler removed the entry
+  first, Replace sends -1. Before, both sent -1.
 - Changed: a `CollectionChangedMessage` from a `CompositeVM` or `GroupVM` now
   carries the container's `Name` as its `SenderName` (#1309, ADR-0194). Before,
   it carried the runtime type name, such as ``CompositeVM`1``. A hub filter on

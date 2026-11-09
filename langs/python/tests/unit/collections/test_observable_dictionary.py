@@ -735,9 +735,10 @@ def test_key_view_contains_a_nan_key_by_identity() -> None:
     assert nan in sut.keys1
 
 
-def test_replace_position_is_captured_when_the_change_commits() -> None:
-    # A local Replace handler that removes an earlier entry does not move the
-    # Replace hub message's position (spec/21 §4.7, ADR-0193, #1316).
+def test_replace_position_is_the_entry_position_when_the_message_is_sent() -> None:
+    # A local Replace handler that removes an earlier entry moves the entry.
+    # The Replace hub message reports the new position, as an Add does
+    # (spec/21 §4.7, ADR-0193, #733).
     hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
     d: ObservableDictionary[str, int, str] = ObservableDictionary(hub=hub)
     d.add("a", 1, "one")
@@ -750,4 +751,21 @@ def test_replace_position_is_captured_when_the_change_commits() -> None:
     d["c", 3] = "z"
 
     replace = next(m for m in messages if m.action == "replace")
-    assert (replace.index, replace.old_index, replace.new_index) == (2, 2, 2)
+    assert (replace.index, replace.old_index, replace.new_index) == (1, 1, 1)
+
+
+def test_replace_position_is_minus_one_when_a_local_handler_removes_the_entry() -> None:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    d: ObservableDictionary[str, int, str] = ObservableDictionary(hub=hub)
+    d.add("a", 1, "one")
+    d.add("b", 2, "two")
+    messages: list[CollectionChangedMessage[object]] = []
+    hub.messages.subscribe(messages.append)  # type: ignore[arg-type]
+    d.on_item_replaced.subscribe(lambda _: d.remove("b", 2))
+
+    d["b", 2] = "z"
+
+    assert [(m.action, m.index, m.old_index, m.new_index) for m in messages] == [
+        ("remove", 1, 1, -1),
+        ("replace", -1, -1, -1),
+    ]

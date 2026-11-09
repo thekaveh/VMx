@@ -345,3 +345,14 @@ def test_direct_message_derives_the_sender_type_name_unless_given() -> None:
     assert derived.sender_name == "ServicedObservableCollection"
     assert named.sender_name == "people"
     assert named.sender_object is sender
+
+
+def test_direct_message_keeps_an_explicit_empty_sender_name() -> None:
+    # An empty container name stays empty, as in the other flavors (ADR-0194).
+    sender = ServicedObservableCollection[int]()
+
+    message: CollectionChangedMessage[int] = CollectionChangedMessage(
+        sender=sender, action="reset", sender_name=""
+    )
+
+    assert message.sender_name == ""

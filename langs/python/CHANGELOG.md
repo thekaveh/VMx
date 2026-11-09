@@ -77,14 +77,17 @@ below for them.
   carried the runtime type name, such as `CompositeVM`. A hub filter on that
   type name must use the container's name or sender identity instead. Plain
   collections and dictionaries keep their type name. `sender_name` is now a
-  keyword-only field. When it is empty, it defaults to the sender's type name.
+  keyword-only field. When it is not given, it defaults to the sender's type
+  name. An explicit empty name, such as a container named `""`, stays empty.
 
 ### Fixed
 
 - `ObservableDictionary` Remove and Replace hub messages now carry the entry's
   position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets
-  `index` and `old_index` to the position before the removal, and `new_index`
-  to -1. Replace sets all three to the entry's position. Before, both sent -1.
+  `index` and `old_index` to the position before the removal, and `new_index` to
+  -1. Replace sets all three to the entry's position when the message is sent,
+  as Add does (#733). If a local subscriber removed the entry first, Replace
+  sends -1. Before, both sent -1.
 - `ServicedObservableCollection.reverse()` now sends one Reset (#1316,
   ADR-0193, spec/21 §2.3.6). Before, it sent one Replace for each position it
   wrote, and observers saw interim orders such as `[4, 2, 3, 4]`. Reversing

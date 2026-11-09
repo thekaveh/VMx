@@ -750,7 +750,7 @@ public class ObservableDictionaryTests
     // ── Hub message positions (ADR-0193, #1316) ─────────────────────────────
 
     [Fact]
-    public void Hub_Replace_And_Remove_Positions_Are_Captured_At_Commit()
+    public void Hub_Replace_Position_Is_The_Entry_Position_When_The_Message_Is_Sent()
     {
         using var hub = new MessageHub();
         var sut = new ObservableDictionary<string, int, string>(hub);
@@ -769,9 +769,32 @@ public class ObservableDictionaryTests
 
         sut["c", 3] = "z";
 
+        // "c" moved from 2 to 1 before the Replace message, as an Add reports (#733).
         messages.Select(m => (m.Action, m.Index, m.OldIndex, m.NewIndex)).Should().Equal(
             (NotifyCollectionChangedAction.Remove, 0, 0, -1),
-            (NotifyCollectionChangedAction.Replace, 2, 2, 2));
+            (NotifyCollectionChangedAction.Replace, 1, 1, 1));
+    }
+
+    [Fact]
+    public void Hub_Replace_Position_Is_Minus_One_When_A_Local_Handler_Removes_The_Entry()
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, string>(hub);
+        sut.Add("a", 1, "one");
+        sut.Add("b", 2, "two");
+        var messages = new List<CollectionChangedMessage<KeyValuePair<(string, int), string>>>();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is CollectionChangedMessage<KeyValuePair<(string, int), string>> message)
+                messages.Add(message);
+        });
+        sut.ItemReplaced += (_, _) => sut.Remove("b", 2);
+
+        sut["b", 2] = "z";
+
+        messages.Select(m => (m.Action, m.Index, m.OldIndex, m.NewIndex)).Should().Equal(
+            (NotifyCollectionChangedAction.Remove, 1, 1, -1),
+            (NotifyCollectionChangedAction.Replace, -1, -1, -1));
     }
 
     [Fact]

@@ -813,11 +813,14 @@ entry's index in enumeration order (§4.5):
 | Replace |    replaced |    replaced |   replaced | `Some(replaced)`    | `Some(replaced)`  |
 | Reset   |          -1 |          -1 |         -1 | `None`              | `None`            |
 
-Remove and Replace report the position that the entry had when the change
-committed. A subscriber that changes the dictionary before the hub message is
-sent does not change these values. A value replacement does not move the entry,
-so its old and new positions are equal. The Rust single-key
-`ObservableDictionary<K, V>` follows the same table.
+Remove reports the position that the entry had just before the removal. Add
+and Replace report the entry's position when the hub message is sent. A local
+subscriber can change the dictionary before the hub message. If it moves the
+entry, Add and Replace report the new position. If it removes the entry, they
+report -1. A value replacement does not move the entry, so its old and new
+positions are equal. Rust has no local event, so its positions are the commit
+positions. The Rust single-key `ObservableDictionary<K, V>` follows the same
+table.
 
 ### 4.8 Conformance
 

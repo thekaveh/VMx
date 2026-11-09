@@ -121,6 +121,22 @@ def _assert_hub_follows_each_local_event(log: list[_Entry], local_events: int) -
         assert hub == ("hub:" + local[0].removeprefix("local:"), *local[1:]), log
 
 
+def test_empty_named_containers_send_an_empty_sender_name() -> None:
+    # The container's name, even when empty, not its type name (ADR-0194).
+    hub: MessageHub[Any] = MessageHub()
+    composite = _composite(hub, "")
+    group = _group(hub, "")
+    messages = _hub_messages(hub)
+
+    composite.add(_child(hub, "a"))
+    group.add(_child(hub, "b"))
+
+    assert [(type(m.sender).__name__, m.sender_name) for m in messages] == [
+        ("CompositeVM", ""),
+        ("GroupVM", ""),
+    ]
+
+
 # ===========================================================================
 # COMP-042 — Composite collection changes publish on the hub
 # ===========================================================================

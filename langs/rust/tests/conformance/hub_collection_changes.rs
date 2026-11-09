@@ -216,7 +216,7 @@ impl VmNode for Nested {
 #[test]
 fn comp_042_each_composite_mutation_publishes_one_hub_message() {
     let hub = MessageHub::new();
-    let parent = composite(&hub, "parent");
+    let parent = composite(&hub, "people");
     let id = parent.id();
     let [a, b, c, d] = ["a", "b", "c", "d"].map(|name| child(&hub, name));
     let delivered = Delivered::on(&hub);
@@ -251,7 +251,7 @@ fn comp_042_each_composite_mutation_publishes_one_hub_message() {
     assert_eq!(delivered.changes().len(), 8);
     assert_eq!(
         *names.lock().unwrap(),
-        vec!["parent"; 8],
+        vec!["people"; 8],
         "each message carries the container's name (ADR-0194)"
     );
     assert!(parent.is_empty());
@@ -489,7 +489,7 @@ fn comp_045_forwarding_wrapper_publishes_each_change_once() {
 #[test]
 fn grp_012_each_group_mutation_publishes_one_hub_message() {
     let hub = MessageHub::new();
-    let peers = group(&hub, "peers");
+    let peers = group(&hub, "team");
     let id = peers.id();
     let [a, b, c, d] = ["a", "b", "c", "d"].map(|name| child(&hub, name));
     let delivered = Delivered::on(&hub);
@@ -525,7 +525,7 @@ fn grp_012_each_group_mutation_publishes_one_hub_message() {
     assert_eq!(delivered.changes().len(), 8);
     assert_eq!(
         *names.lock().unwrap(),
-        vec!["peers"; 8],
+        vec!["team"; 8],
         "each message carries the container's name (ADR-0194)"
     );
     assert!(peers.is_empty());

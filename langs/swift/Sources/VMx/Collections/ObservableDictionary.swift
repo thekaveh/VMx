@@ -20,9 +20,10 @@
 // Hub publication (COL-022): when a hub is injected, each mutation fires the
 // local granular event FIRST, then sends a `CollectionChangedMessage` carrying
 // a `DictionaryEntry` (both keys + value) so subscribers can recover the full
-// identity of the mutated entry. Remove and Replace messages carry the entry's
-// position at commit (COL-068, ADR-0193). A nil hub is a structural no-op (no
-// error).
+// identity of the mutated entry. A Remove message carries the entry's position
+// before the removal. Add and Replace messages carry its position when the
+// message is sent, or -1 when it is gone (COL-068, ADR-0193). A nil hub is a
+// structural no-op (no error).
 //
 // Swift null-key divergence (for ADR-0060): the TS / C# / Python flavors guard
 // against null/undefined keys with a runtime precondition. In Swift the generic
@@ -227,20 +228,19 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
             // Existing pair → replace in place. Keys are unchanged, so the
             // key-axis views and order list are untouched.
             data[key] = value
-            // Capture the position at commit: a local subscriber may change
-            // the entries before the hub message (COL-068).
-            let index = keyOrder.firstIndex(of: key) ?? -1
             // 1. Local granular event first (COL-022 ordering).
             itemReplacedSubject.send(
                 DictionaryItemReplacedEvent(key1: key1, key2: key2,
                                             newValue: value, oldValue: oldValue))
-            // 2. Hub publication (no-op when hub is nil).
+            // 2. Hub publication (no-op when hub is nil). The position is read
+            //    now, as for an Add: a local subscriber may have moved or
+            //    removed the entry (COL-068, ADR-0193).
             hub?.send(
                 CollectionChangedMessage.forReplace(
                     sender: self, senderName: typeName,
                     newItem: DictionaryEntry(key1: key1, key2: key2, value: value),
                     oldItem: DictionaryEntry(key1: key1, key2: key2, value: oldValue),
-                    index: index))
+                    index: keyOrder.firstIndex(of: key) ?? -1))
         } else {
             internalAdd(key, key1: key1, key2: key2, value: value)
         }

@@ -88,7 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ObservableDictionary` Remove and Replace hub messages now carry the entry's
   position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets
   `index` and `oldIndex` to the position before the removal, and `newIndex` to
-  -1. Replace sets all three to the entry's position. Before, both sent -1.
+  -1. Replace sets all three to the entry's position when the message is sent,
+  as Add does (#733). If a local subscriber removed the entry first, Replace
+  sends -1. Before, both sent -1.
 - A `FormVM` approval started from a preparation callback or an
   `errorsChanged` sink of `setModel` or deny now starts its persister after
   the outermost update sends all queued notifications (ADR-0180, spec/20

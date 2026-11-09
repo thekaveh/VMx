@@ -203,8 +203,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             if (_data.TryGetValue((key1, key2), out TValue? old))
             {
                 _data[(key1, key2)] = value;
-                // Capture the position at commit: a local handler may change the entries (ADR-0193).
-                OnReplaced(key1, key2, value, old, _keyOrder.IndexOf((key1, key2)));
+                OnReplaced(key1, key2, value, old);
             }
             else
             {
@@ -497,14 +496,17 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(this, entry, index));
     }
 
-    private void OnReplaced(TKey1 key1, TKey2 key2, TValue newValue, TValue oldValue, int index)
+    // The hub message reads the entry's position when it is sent, as OnAdded
+    // does: a local handler may have moved or removed the entry (ADR-0193).
+    private void OnReplaced(TKey1 key1, TKey2 key2, TValue newValue, TValue oldValue)
     {
         var newEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue);
         var oldEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue);
         Notify(
             () => ItemReplaced?.Invoke(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue)),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, newEntry, oldEntry),
-            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(this, newEntry, oldEntry, index));
+            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(
+                this, newEntry, oldEntry, _keyOrder.IndexOf((key1, key2))));
     }
 
     private void OnReset()

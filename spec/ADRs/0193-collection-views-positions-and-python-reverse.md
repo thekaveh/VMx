@@ -27,6 +27,8 @@ the dictionary.
 **Remove and Replace positions.** The §2.4 table gives Remove its pre-removal
 position and Replace its replaced position. Chapter 21 §4.7 did not say whether
 the dictionary follows the table. Dictionary Add sends the insertion position.
+If a local subscriber moves or removes the entry before the hub message, Add
+sends the entry's position at send time, or `-1` when it is gone (#733).
 Remove and Replace send `-1` in C#, Python, TypeScript and Swift, and `None` in
 Rust. The Rust single-key `ObservableDictionary<K, V>` does the same.
 
@@ -57,8 +59,10 @@ common-sense rule that all flavors can follow.
    not change the dictionary.
 1. `COL-070` is normative. C#, TypeScript and Swift show that the key-view
    type is `ReadOnlyObservableList<T>`, with no add, remove or clear member:
-   C# by reflection, TypeScript with `@ts-expect-error` lines, and Swift with
-   a typed binding. Python shows that the view has no mutator attribute. Rust
+   C# by reflection and TypeScript with `@ts-expect-error` lines. Swift binds
+   the views to the declared `ReadOnlyObservableList<T>` type. Swift has no
+   runtime check for an absent member, so the declaration is the evidence.
+   Python shows that the view has no mutator attribute. Rust
    shows that a snapshot edit leaves `keys1()`, `keys2()` and `entries()`
    unchanged.
 
@@ -81,12 +85,20 @@ enumeration (insertion) order.
 | Remove  | pre-removal | pre-removal |         -1 | `Some(pre-removal)` | `None`           |
 | Replace |    replaced |    replaced |   replaced | `Some(replaced)`    | `Some(replaced)` |
 
-- Remove and Replace report the position that the entry had when the change
-  committed. A subscriber that changes the dictionary before the hub message
-  is sent does not change these values.
+- Remove reports the position that the entry had just before the removal. A
+  local subscriber that changes the dictionary before the hub message does not
+  change it.
+- Replace reports the entry's position when the hub message is sent, as Add
+  already does (#733). If a local subscriber moved the entry, Replace reports
+  the new position. If it removed the entry, Replace reports `-1`. One rule
+  thus covers both actions whose entry stays in the dictionary.
 - A replacement does not move the entry, so its old and new positions are
   equal.
-- Add keeps its established rule: the insertion position (§2.4).
+- Add keeps its established rule: the insertion position, read when the hub
+  message is sent (§2.4, #733).
+- Rust has no local dictionary event. Nothing can change the dictionary
+  between the commit and the hub message, so its positions are the commit
+  positions.
 - Reset keeps `-1` (`None` in Rust).
 - The Rust single-key `ObservableDictionary<K, V>` follows the same rule.
 - `COL-068` is normative in all five flavors.
@@ -110,6 +122,8 @@ conformance ID. A Python unit test covers it.
   receives `CollectionChanged` from the C# facade.
 - A hub subscriber can locate a removed or replaced dictionary entry by
   position, as it can for a serviced collection.
+- A Replace position computes the entry's index only when a hub is present.
+  A dictionary without a hub keeps an O(1) value replacement.
 - A Python `reverse()` observer sees only the final order.
 - The library conformance catalog grows by two IDs, `COL-068` and `COL-070`.
 
@@ -125,8 +139,11 @@ conformance ID. A Python unit test covers it.
   type annotations break. A major bump for this alone would force a release
   decision on a defect repair. ADR-0009 already records narrow 3.x exceptions
   of this kind.
-- **Dictionary positions computed when the hub message is sent.** A removed
-  entry has no current position. The commit-time position is defined for both
-  actions and needs no lookup.
+- **Commit-time positions for Remove and Replace.** Add already reads the
+  position when the hub message is sent (#733). A commit-time Replace would
+  give one dictionary two rules after a local re-entry, and a stale Replace
+  position could name another entry.
+- **Send-time positions for Remove.** A removed entry has no current position.
+  The pre-removal position is the only one that names the entry.
 - **Python `reverse()` as granular Move messages.** Several Move messages would
   still expose interim orders. One Reset matches the keyed collection.

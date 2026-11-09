@@ -52,8 +52,10 @@ that a container sends, such as `ConstructionStatusChangedMessage`.
    - C#: `SenderName` becomes an `init` property whose default is
      `Sender.GetType().Name`. The container helper sets it with a `with`
      expression.
-   - Python: `sender_name` becomes a keyword field that defaults to `""`.
-     `__post_init__` replaces an empty value with `type(sender).__name__`.
+   - Python: `sender_name` becomes a keyword field with a private "not
+     given" default. `__post_init__` replaces only that default with
+     `type(sender).__name__`. An explicit `""` stays, so a container named
+     `""` sends `""`, as in the other flavors.
    - TypeScript: `senderName` becomes a stored `readonly` field. Each factory
      takes an optional trailing `senderName`, which defaults to the
      constructor name.

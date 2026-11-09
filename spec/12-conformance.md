@@ -3233,8 +3233,9 @@ local event, checks the hub subscriber only
 **Then** each view lists the distinct keys in first-appearance order
 **And** the view's type is `ReadOnlyObservableList<T>`, which has no add,
 insert, remove, replace, clear, or batch member: C# checks the type by
-reflection, TypeScript with `@ts-expect-error` lines, Swift with a typed
-binding, and Python by the absence of each attribute
+reflection, TypeScript with `@ts-expect-error` lines, and Python by the absence
+of each attribute; Swift binds each view to the declared type and has no
+runtime check for an absent member
 **And** in C#, the view cannot be cast to `ObservableList<T>`, and its
 `CollectionChanged` sender is the view itself
 **And** Rust, whose `keys1()` and `keys2()` return `Vec` snapshots, checks that

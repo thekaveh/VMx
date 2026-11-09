@@ -4,8 +4,8 @@
 // Claimed IDs: COL-068.
 //
 // `ObservableDictionary` Remove and Replace hub messages carry the entry's
-// position in enumeration order at commit (spec/21-collections.md §4.7,
-// ADR-0193, #1316).
+// position in enumeration order (spec/21-collections.md §4.7, ADR-0193,
+// #1316).
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
 // module); this target is CI-verified only (`swift.yml` on macos-latest).
@@ -59,9 +59,10 @@ final class DictionaryRemoveReplacePositionsTests: XCTestCase {
         XCTAssertEqual(recorded[1].newIndex, -1)
     }
 
-    /// The Replace position is captured at commit. A local `itemReplaced`
-    /// subscriber that removes an earlier entry does not change it.
-    func testReplacePositionIsCapturedBeforeLocalSubscribersRun() {
+    /// The Replace position is the entry's position when the message is sent.
+    /// A local `itemReplaced` subscriber that removes an earlier entry moves
+    /// it, as an Add reports (#733).
+    func testReplacePositionIsReadWhenTheMessageIsSent() {
         let hub = MessageHub()
         let sut = ObservableDictionary<String, Int, String>(hub: hub)
         sut.set("a", 1, "x")
@@ -75,9 +76,30 @@ final class DictionaryRemoveReplacePositionsTests: XCTestCase {
         sut.set("c", 3, "z")
 
         let replace = messages().first { $0.action == .replace }
-        XCTAssertEqual(replace?.index, 2)
-        XCTAssertEqual(replace?.oldIndex, 2)
-        XCTAssertEqual(replace?.newIndex, 2)
+        XCTAssertEqual(replace?.index, 1)
+        XCTAssertEqual(replace?.oldIndex, 1)
+        XCTAssertEqual(replace?.newIndex, 1)
+    }
+
+    /// The Replace position is -1 when a local `itemReplaced` subscriber
+    /// removes the replaced entry.
+    func testReplacePositionIsMinusOneWhenALocalSubscriberRemovesTheEntry() {
+        let hub = MessageHub()
+        let sut = ObservableDictionary<String, Int, String>(hub: hub)
+        sut.set("a", 1, "x")
+        sut.set("b", 2, "y")
+        sut.itemReplaced
+            .sink { _ in sut.delete("b", 2) }
+            .store(in: &cancellables)
+        let messages = record(hub)
+
+        sut.set("b", 2, "z")
+
+        let recorded = messages()
+        XCTAssertEqual(recorded.map(\.action), [.remove, .replace])
+        XCTAssertEqual(recorded.map(\.index), [1, -1])
+        XCTAssertEqual(recorded.map(\.oldIndex), [1, -1])
+        XCTAssertEqual(recorded.map(\.newIndex), [-1, -1])
     }
 
     /// The Remove position is captured at commit. A local `itemRemoved`

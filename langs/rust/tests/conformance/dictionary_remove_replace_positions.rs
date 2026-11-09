@@ -1,8 +1,8 @@
 //! COL-068 — dictionary Remove and Replace hub messages carry the entry
 //! position (spec/21-collections.md §2.4 and §4.7, ADR-0193, #1316).
 //!
-//! The position is the entry's index in enumeration order when the change
-//! commits. Remove sends `old_index: Some(pre-removal)` and `new_index: None`.
+//! The position is the entry's index in enumeration order. Rust has no local
+//! dictionary event, so it is the commit position. Remove sends `old_index: Some(pre-removal)` and `new_index: None`.
 //! Replace sends `Some(position)` in both fields.
 
 use std::sync::{Arc, Mutex};

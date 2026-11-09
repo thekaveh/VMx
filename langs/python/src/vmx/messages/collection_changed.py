@@ -12,9 +12,19 @@ ADR-0194.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
+from typing import Final, Generic, TypeVar
 
 T = TypeVar("T")
+
+
+class _UnsetSenderName(str):
+    """Marks a sender name that the caller did not give."""
+
+    __slots__ = ()
+
+
+# Compared by identity, so an explicit empty name stays empty (ADR-0194).
+_UNSET_SENDER_NAME: Final[str] = _UnsetSenderName()
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,9 +49,10 @@ class CollectionChangedMessage(Generic[T]):
     new_index:
         Current index of the item, or -1 when there is no new position.
     sender_name:
-        Keyword-only. ``CompositeVM`` and ``GroupVM`` pass their ``name``.
-        When empty, it defaults to the sender's runtime type name, which plain
-        collections and dictionaries keep (spec §2.4, ADR-0194).
+        Keyword-only. ``CompositeVM`` and ``GroupVM`` pass their ``name``,
+        even when it is empty. When it is not given, it defaults to the
+        sender's runtime type name, which plain collections and dictionaries
+        keep (spec §2.4, ADR-0194).
     """
 
     sender: object
@@ -51,10 +62,10 @@ class CollectionChangedMessage(Generic[T]):
     index: int = -1
     old_index: int = -1
     new_index: int = -1
-    sender_name: str = field(default="", kw_only=True)
+    sender_name: str = field(default=_UNSET_SENDER_NAME, kw_only=True)
 
     def __post_init__(self) -> None:
-        if not self.sender_name:
+        if self.sender_name is _UNSET_SENDER_NAME:
             object.__setattr__(self, "sender_name", type(self.sender).__name__)
 
     @property

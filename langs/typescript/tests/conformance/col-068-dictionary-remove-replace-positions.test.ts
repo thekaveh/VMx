@@ -1,5 +1,5 @@
 // Conformance tests: COL-068 — dictionary Remove and Replace hub messages
-// carry the entry's position in enumeration order, captured at commit.
+// carry the entry's position in enumeration order.
 // See spec/21-collections.md §4.7 and ADR-0193 (#1316).
 
 import { describe, expect, it } from "vitest";
@@ -46,8 +46,8 @@ describe("COL-068", () => {
   });
 });
 
-describe("ObservableDictionary Remove and Replace positions at commit", () => {
-  it("a local itemReplaced subscriber's removal does not change the Replace position", () => {
+describe("ObservableDictionary Remove and Replace positions after local re-entry", () => {
+  it("the Replace position is the entry's position when the message is sent", () => {
     const { sut, messages } = setUp();
     sut.itemReplaced.subscribe(() => {
       if (sut.has("a", 1)) sut.delete("a", 1);
@@ -55,8 +55,23 @@ describe("ObservableDictionary Remove and Replace positions at commit", () => {
 
     sut.set("c", 3, "z");
 
+    // "c" moved from 2 to 1 before the Replace message, as an Add reports (#733).
     const replace = messages.find((message) => message.action === "replace");
-    expect([replace?.index, replace?.oldIndex, replace?.newIndex]).toEqual([2, 2, 2]);
+    expect([replace?.index, replace?.oldIndex, replace?.newIndex]).toEqual([1, 1, 1]);
+  });
+
+  it("the Replace position is -1 when a local subscriber removes the entry", () => {
+    const { sut, messages } = setUp();
+    sut.itemReplaced.subscribe(({ key1 }) => {
+      if (key1 === "c") sut.delete("c", 3);
+    });
+
+    sut.set("c", 3, "z");
+
+    expect(messages.map((m) => [m.action, m.index, m.oldIndex, m.newIndex])).toEqual([
+      ["remove", 2, 2, -1],
+      ["replace", -1, -1, -1],
+    ]);
   });
 
   it("a local itemRemoved subscriber's removal does not change the Remove position", () => {
