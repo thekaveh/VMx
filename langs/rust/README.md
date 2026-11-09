@@ -16,6 +16,10 @@ flavors. See the
 
 - Package: `vmx-rs`; code imports the crate as `vmx` (`use vmx::…`).
 - Minimum supported Rust version: 1.88.
+- Cargo features: `notifications`, on by default, builds the notification
+  sub-package of spec/16 (`NotificationHub`, `NullNotificationHub`,
+  `NotificationHubApi`, `make_confirm`, `NotificationVm`, `ConfirmationVm`).
+  Set `default-features = false` to build the core without it (ADR-0211).
 - Add the crate from crates.io. A git or path dependency also works.
 
 ```toml

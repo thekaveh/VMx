@@ -22,6 +22,22 @@ Use `.product(name: "VMx", package: "vmx")` in the consuming target. The
 lowercase package value is SwiftPM's canonical identity for the repository;
 the imported module and product remain `VMx`.
 
+`VMx.Notification` has the same name as `Foundation.Notification`. In a file
+that imports both modules, the unqualified `Notification` in a type position
+fails with `'Notification' is ambiguous for type lookup in this context`.
+Write `VMx.Notification`, or declare a type alias:
+
+```swift
+import Foundation
+import VMx
+
+typealias VMxNotification = VMx.Notification
+
+func messages(of pending: [VMxNotification]) -> [String] {
+    pending.map(\.message)
+}
+```
+
 ## 7.5.3. Serviced Collections
 
 `ServicedObservableCollection<T>` publishes locally through Combine, then to
