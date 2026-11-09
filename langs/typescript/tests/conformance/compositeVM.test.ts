@@ -1368,6 +1368,96 @@ describe("COMP-040", () => {
     expect((rollback.rollbackError as Error).message).toBe("compensation failed");
     expect(destination.snapshot()).toEqual([]);
   });
+
+  // ADR-0218 rule 1: the error carries the original and the first compensation failure.
+  for (const kind of ["composite", "group"] as const) {
+    for (const operation of ["add", "insert", "setAt"] as const) {
+      it(`${kind} ${operation} reports the original and the compensation failure`, () => {
+        const hub = makeHub();
+        const dispatcher = makeDisp();
+        const member = makeChild(hub, "member");
+        const destination =
+          kind === "composite"
+            ? CompositeVM.builder<ComponentVM>()
+                .name("destination")
+                .services(hub, dispatcher)
+                .children(() => [member])
+                .autoConstructOnAdd(true)
+                .build()
+            : GroupVM.builder<ComponentVM>()
+                .name("destination")
+                .services(hub, dispatcher)
+                .children(() => [member])
+                .autoConstructOnAdd(true)
+                .build();
+        destination.construct();
+        const child = ComponentVM.builder()
+          .name("child")
+          .services(hub, dispatcher)
+          .onConstruct(() => { destination.dispose(); })
+          .onDestruct(() => { throw new Error("compensation failed"); })
+          .build();
+
+        let caught: unknown;
+        try {
+          if (operation === "add") destination.add(child);
+          else if (operation === "insert") destination.insert(0, child);
+          else destination.setAt(0, child);
+        } catch (error) {
+          caught = error;
+        }
+
+        expect(caught).toBeInstanceOf(Error);
+        const rollback = caught as Error & { rollbackError: unknown };
+        expect(rollback.name).toBe("ContainerRollbackError");
+        expect((rollback.cause as Error).message).toBe(
+          "Cannot attach a child while the container is disposing",
+        );
+        expect((rollback.rollbackError as Error).message).toBe("compensation failed");
+        expect(child._parent).toBeNull();
+      });
+    }
+
+    it(`${kind} population reports the first compensation failure`, () => {
+      const hub = makeHub();
+      const dispatcher = makeDisp();
+      const compensated = (name: string): ComponentVM =>
+        ComponentVM.builder()
+          .name(name)
+          .services(hub, dispatcher)
+          .onDestruct(() => { throw new Error(`${name} compensation failed`); })
+          .build();
+      const first = compensated("first");
+      const second = compensated("second");
+      const blocker = ComponentVM.builder()
+        .name("blocker")
+        .services(hub, dispatcher)
+        .onConstruct(() => { throw new Error("population failed"); })
+        .build();
+      const members = (): ComponentVM[] => [first, second, blocker];
+      const destination =
+        kind === "composite"
+          ? CompositeVM.builder<ComponentVM>()
+              .name("destination").services(hub, dispatcher).children(members).build()
+          : GroupVM.builder<ComponentVM>()
+              .name("destination").services(hub, dispatcher).children(members).build();
+
+      let caught: unknown;
+      try {
+        destination.construct();
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(Error);
+      const rollback = caught as Error & { rollbackError: unknown };
+      expect(rollback.name).toBe("ContainerRollbackError");
+      expect((rollback.cause as Error).message).toBe("population failed");
+      // Rollback runs in reverse order, so `second` is compensated first.
+      expect((rollback.rollbackError as Error).message).toBe("second compensation failed");
+      expect(destination.snapshot()).toEqual([]);
+    });
+  }
 });
 
 describe("COMP-041", () => {

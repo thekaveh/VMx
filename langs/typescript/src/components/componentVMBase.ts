@@ -95,6 +95,64 @@ export class ContainerRollbackError extends Error {
   }
 }
 
+/** Set by the `ComponentVMBase` static block: runs `continuation` once `vm` is released. */
+let runWhenReleased: (vm: ComponentVMBase, continuation: () => void) => void;
+
+/**
+ * @internal Return a child that a failed container change auto-started to
+ * `Destructed` (spec/06 §4.2, ADR-0218 rule 7). Call it after the rollback
+ * took the child out of the container. Returns the failure of an immediate
+ * compensation, or `undefined`.
+ *
+ * - A child that was not `Destructed` before the change is left alone.
+ * - A `Constructed` child is destructed now.
+ * - A child whose construct is still in flight is not waited for. Once its
+ *   construct settles `Constructed` with no parent, its `destruct()` runs. A
+ *   failure of that later call goes to `reportUnhandled` (ADR-0200 §2.3).
+ */
+export function compensateAutoConstruct(
+  child: ComponentVMBase,
+  originalStatus: ConstructionStatus,
+): unknown {
+  if (originalStatus !== ConstructionStatus.Destructed) return undefined;
+  if (child.status === ConstructionStatus.Constructed) {
+    try {
+      child.destruct();
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  }
+  if (child.status !== ConstructionStatus.Constructing) return undefined;
+  let done = false;
+  let subscription: Subscription | undefined;
+  const stop = (): boolean => {
+    if (done) return false;
+    done = true;
+    subscription?.unsubscribe();
+    return true;
+  };
+  subscription = child.propertyChanged.subscribe({
+    next: (name) => {
+      // "isConstructed" is the last per-status notification _setStatus raises.
+      if (name !== "isConstructed" || child.status === ConstructionStatus.Constructing) return;
+      if (!stop()) return;
+      // Destruct only after the child released its in-flight guard.
+      runWhenReleased(child._ownershipIdentity, () => {
+        if (child.status !== ConstructionStatus.Constructed || child._parent !== null) return;
+        try {
+          child.destruct();
+        } catch (error) {
+          reportUnhandled(error);
+        }
+      });
+    },
+    // The child's notifications ended: it is Disposed.
+    complete: () => { stop(); },
+  });
+  return undefined;
+}
+
 /** @internal Validate exclusive ownership/cycles and stage the old removal. */
 export function beginParentTransfer(
   child: ComponentVMBase,
@@ -991,6 +1049,11 @@ export abstract class ComponentVMBase {
     } else {
       continuation();
     }
+  }
+
+  static {
+    // Internal seam for compensateAutoConstruct; stays out of the declarations.
+    runWhenReleased = (vm, continuation) => { vm.#runWhenReleased(continuation); };
   }
 
   /** Run a lifecycle hook and return its deferred completion, if it registered one. */
