@@ -334,6 +334,19 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Changed
 
+- `DecoratorCommand` and `ConfirmationDecoratorCommand` now have their own
+  change hub (#1459, spec/04 §8.4). It relays each change of the inner
+  command's hub, and `dispose()` sends one more message on it and then disposes
+  it, as `CompositeCommand` already did. Subscribers of the inner command's hub
+  receive no disposal message. `can_execute_changed()` no longer returns the
+  inner command's hub. As with `CompositeCommand`, each relayed message is a
+  new `Message::Custom` named `"can_execute_changed"` with `sender_name`
+  `"DecoratorCommand"` or `"ConfirmationDecoratorCommand"` and `sender_id` 0,
+  not the inner command's message. When the inner hub completes, for example
+  because the inner command was disposed, the decorator's hub completes too, so
+  a `subscribe_with_completion` subscriber of the decorator still receives the
+  completion.
+
 - Breaking: `CompositeVm::clear()`, `GroupVm::clear()`,
   `ForwardingCompositeVm::clear()` and `VmCollection::clear()` now return
   `VmxResult<()>`, so a refused clear is reported. A container membership

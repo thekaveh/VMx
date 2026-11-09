@@ -33,3 +33,36 @@ def deliver_then_publish(deliver: Callable[[], None], publish: Callable[[], None
             first_error = error
     if first_error is not None:
         raise first_error
+
+
+def first_failure(*steps: Callable[[], object]) -> BaseException | None:
+    """Run every step and return the first failure instead of raising it.
+
+    The dictionary runs its key-view updates through this helper, so a
+    raising key-view subscriber skips neither the other key view nor the
+    dictionary's own events and hub message. The caller re-raises the failure
+    after those (#1430).
+    """
+    failure: BaseException | None = None
+    for step in steps:
+        try:
+            step()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+    return failure
+
+
+def notify_then_raise(earlier: BaseException | None, notify: Callable[[], None]) -> None:
+    """Run *notify*, then re-raise *earlier*, or else the failure of *notify*.
+
+    *earlier* is a failure that happened before *notify* started, so it takes
+    precedence (#1430).
+    """
+    try:
+        notify()
+    except BaseException:
+        if earlier is None:
+            raise
+    if earlier is not None:
+        raise earlier

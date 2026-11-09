@@ -107,6 +107,11 @@ below for them.
 
 ### Changed
 
+- Disposing a live `CompositeCommand`, `DecoratorCommand` or
+  `ConfirmationDecoratorCommand` now emits one `can_execute_changed`
+  notification to the wrapper's own subscribers, as TypeScript and Swift do
+  (#1459, spec/04 §8.4). Subscribers of the inner command receive nothing, and
+  the inner stream's completion still passes through the wrapper stream.
 - The construct walk of a composite or group now counts members only
   (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
   joins a child, and again after the child settles. A child that a removal or
@@ -139,6 +144,21 @@ below for them.
 
 ### Fixed
 
+- `ObservableList` no longer skips the `"Count"` notification when a
+  granular or reset subscriber raises (#1367, spec/21 §3.3). Every
+  subscriber of the event runs, `"Count"` follows when the count changed, and
+  the first failure is re-raised to the caller after the last step. This
+  covers `append`, `insert`, `remove`, `remove_at`, `replace`, `clear`,
+  `replace_all` and the batch exit.
+- A raising `keys1` or `keys2` subscriber of `ObservableDictionary` no longer
+  skips the other key view, the dictionary's own events or its hub message
+  (#1430). The dictionary runs every step and then re-raises the first failure.
+  After a failed `keys2` add, `keys1` now lists the new key.
+- `ForwardingComponentVM` and `ForwardingCompositeVM` no longer raise
+  `AttributeError` from `_notify_property_changed` and
+  `_raise_property_changed` (#1352). Both helpers act on the wrapped VM: the
+  hub message names the wrapped VM as its sender, and the decorator's
+  `property_changed` emits the name once.
 - A construct hook that raises after it started the container walk no longer
   lets the walk's commit step set `status` to `CONSTRUCTED` (ADR-0186,
   spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
