@@ -296,7 +296,8 @@ another thread (an aggregate is constructed once first, so that `c1` exists)
 **When** `box.dispose()` is called
 **Then** the recorded error is the one that the same call raises on a
 `Disposed` VM: a `StatusTransitionError` / `StatusTransitionException` that
-names `Disposed` and the attempted operation, or `VmxError::Disposed` in Rust
+names `Disposed` and the attempted operation, or
+`VmxError::InvalidLifecycleTransition` from `Disposed` in Rust
 **And** no construct or destruct hook of `box` runs, and the aggregate's slot
 factory is not called again
 **And** the subscriber records only `Disposed` for `box`

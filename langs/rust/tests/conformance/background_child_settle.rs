@@ -118,7 +118,7 @@ fn failing_background_child_rolls_composite_back() {
         .contains(&(composite.id(), ConstructionStatus::Constructed)));
     assert!(!matches!(
         composite.construct(),
-        Err(VmxError::ConcurrentOperation)
+        Err(VmxError::InvalidLifecycleTransition { .. })
     ));
 }
 
@@ -364,7 +364,8 @@ fn wrapper_forwarding_settle_hook_makes_container_wait() {
     assert_eq!(composite.status(), ConstructionStatus::Constructed);
 }
 
-/// LIFE-008 — reconstruct during another transition is a concurrent operation
+/// LIFE-008 — reconstruct during another transition raises the lifecycle
+/// transition error naming the transient status and `reconstruct`
 #[test]
 fn reconstruct_during_a_transition_reports_a_concurrent_operation() {
     let hub = MessageHub::new();
@@ -373,11 +374,23 @@ fn reconstruct_during_a_transition_reports_a_concurrent_operation() {
 
     child.construct().unwrap();
     assert_eq!(child.status(), ConstructionStatus::Constructing);
-    assert_eq!(child.reconstruct(), Err(VmxError::ConcurrentOperation));
+    assert_eq!(
+        child.reconstruct(),
+        Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Constructing,
+            operation: "reconstruct",
+        })
+    );
 
     dispatcher.drain();
     child.dispose().unwrap();
-    assert_eq!(child.reconstruct(), Err(VmxError::Disposed));
+    assert_eq!(
+        child.reconstruct(),
+        Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Disposed,
+            operation: "reconstruct",
+        })
+    );
 }
 
 /// LIFE-008 — the Reconstructable trait reconstructs only from Constructed
@@ -518,7 +531,7 @@ fn child_failing_during_composite_action_rolls_back_once() {
     assert!(errors.try_recv().is_err());
     assert!(!matches!(
         composite.construct(),
-        Err(VmxError::ConcurrentOperation)
+        Err(VmxError::InvalidLifecycleTransition { .. })
     ));
 }
 
@@ -695,8 +708,8 @@ fn panicking_dispose_hook_on_an_awaited_child_settles_the_composite() {
             ConstructionStatus::Destructed,
             "panics: {panics}"
         );
-        // A later construct and destruct run normally, without
-        // `ConcurrentOperation`, once the disposed child is removed.
+        // A later construct and destruct run normally, with no
+        // transition still in flight, once the disposed child is removed.
         composite.remove(&child).unwrap();
         composite.construct().unwrap();
         dispatcher.drain();
@@ -724,8 +737,8 @@ fn panicking_dispose_hook_on_an_awaited_child_settles_the_group() {
             ConstructionStatus::Destructed,
             "panics: {panics}"
         );
-        // A later construct and destruct run normally, without
-        // `ConcurrentOperation`, once the disposed child is removed.
+        // A later construct and destruct run normally, with no
+        // transition still in flight, once the disposed child is removed.
         group.remove(&child).unwrap();
         group.construct().unwrap();
         dispatcher.drain();

@@ -263,7 +263,7 @@ flavor unless the exceptions below say otherwise.
   `VmNode::dispose`. It returns `Ok(())` on a repeated call with no new work.
 - A VM sends one `Disposed` message. It releases children, LIFO owned
   registrations, and its property-change stream. Illegal lifecycle calls return
-  `VmxError::Disposed`.
+  `VmxError::InvalidLifecycleTransition` from `Disposed` (ADR-0203).
 - `MessageHub` claims disposal under its state mutex. It removes subscribers and
   drops queued messages instead of completing a stream.
 - `Subscription` and `PropertyChangedSubscription` are the hub subscription
@@ -297,8 +297,8 @@ flavor unless the exceptions below say otherwise.
 - `AggregateChangeSubscription` detaches one output subscription.
   `AggregateChangeStream::batch` panics after disposal.
 - A `construct()`, `destruct()`, or `reconstruct()` of a VM during its inline
-  cascade, before it publishes `Disposed`, returns `VmxError::Disposed` and
-  publishes nothing ([Ownership Rules](#683-ownership-rules)).
+  cascade, before it publishes `Disposed`, returns
+  `VmxError::InvalidLifecycleTransition` from `Disposed` and publishes nothing ([Ownership Rules](#683-ownership-rules)).
 
 ## 6.8.6. Practical Teardown Pattern
 

@@ -159,19 +159,25 @@ pub(crate) fn evaluate_command_predicate(predicate: impl FnOnce() -> bool) -> bo
 /// Errors produced by VMx lifecycle, ownership, validation, and service contracts.
 pub enum VmxError {
     #[error("invalid lifecycle transition from {from:?} via {operation}")]
-    /// A lifecycle operation is invalid for the current status.
+    /// A lifecycle operation is invalid for the current status (spec/02
+    /// §2.1, ADR-0203).
+    ///
+    /// Every illegal `construct`, `destruct`, or `reconstruct` returns this
+    /// variant: from `Disposed` (also once the inline dispose cascade has
+    /// started), during another transition (`from` is the transient status,
+    /// LIFE-008), and from any other status that does not admit the call.
     InvalidLifecycleTransition {
         /// Status from which the operation was attempted.
         from: ConstructionStatus,
-        /// Stable operation name used in the diagnostic.
+        /// Stable operation name used in the diagnostic: `"construct"`,
+        /// `"destruct"`, or `"reconstruct"`.
         operation: &'static str,
     },
     #[error("viewmodel is disposed")]
-    /// The target view model has already been disposed.
+    /// A non-lifecycle operation targets a disposed view model or a container
+    /// whose disposal is pending. An illegal lifecycle call from `Disposed`
+    /// returns [`VmxError::InvalidLifecycleTransition`] instead.
     Disposed,
-    #[error("operation already in progress")]
-    /// Another lifecycle operation is already in progress.
-    ConcurrentOperation,
     #[error("component is not a child of this container")]
     /// The supplied component is not a child of the container.
     NonChild,
@@ -609,6 +615,24 @@ pub enum LifecycleOperation {
     Destruct,
     /// Enter the terminal disposed state.
     Dispose,
+}
+
+impl LifecycleOperation {
+    /// The stable operation name that
+    /// [`VmxError::InvalidLifecycleTransition`] carries.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Construct => "construct",
+            Self::Destruct => "destruct",
+            Self::Dispose => "dispose",
+        }
+    }
+}
+
+/// The lifecycle transition error for `operation` attempted from `from`
+/// (spec/02 §2.1, ADR-0203).
+pub(crate) fn invalid_transition(from: ConstructionStatus, operation: &'static str) -> VmxError {
+    VmxError::InvalidLifecycleTransition { from, operation }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -2944,6 +2968,11 @@ pub trait TreeNode: VmNode {
 }
 
 type Hook = Arc<Mutex<dyn FnMut() -> VmxResult<()> + Send + 'static>>;
+
+/// Work a construct or destruct runs after the hook succeeds, inside the
+/// transition: a component's member walk (spec/02 §6.1, ADR-0203). For a
+/// background component it runs on the background dispatcher.
+pub(crate) type TransitionBody<D> = Box<dyn FnOnce(&ComponentCore<D>) -> VmxResult<()> + Send>;
 type OwnedCleanup = Box<dyn FnOnce() + Send + 'static>;
 /// Disposes one member registered through `ComponentVm::own_member`.
 pub(crate) type MemberDisposal = Box<dyn FnOnce() -> VmxResult<()> + Send + 'static>;
@@ -3041,20 +3070,24 @@ impl<D: Dispatcher> ComponentCoreInner<D> {
     }
 }
 
-/// Admits `reconstruct` from `status` with the same errors the lifecycle core
-/// returns: `Disposed`, `ConcurrentOperation` during another transition
-/// (spec/02 §2.1, LIFE-008), or `InvalidLifecycleTransition` otherwise.
+/// Admits `reconstruct` from `status` with the error the lifecycle core
+/// returns: `InvalidLifecycleTransition` naming `status` and `reconstruct`
+/// from every status but `Constructed` (spec/02 §2.1, LIFE-008, ADR-0203).
 pub(crate) fn reconstruct_admission(status: ConstructionStatus) -> VmxResult<()> {
     match status {
         ConstructionStatus::Constructed => Ok(()),
-        ConstructionStatus::Disposed => Err(VmxError::Disposed),
-        ConstructionStatus::Constructing | ConstructionStatus::Destructing => {
-            Err(VmxError::ConcurrentOperation)
-        }
-        other => Err(VmxError::InvalidLifecycleTransition {
-            from: other,
-            operation: "reconstruct",
-        }),
+        other => Err(invalid_transition(other, "reconstruct")),
+    }
+}
+
+/// The status an illegal call names: a sealed construct whose `Constructed`
+/// publication has not started yet is still `Constructing` to every observer
+/// (spec/06 §5.1).
+fn observed_status<D: Dispatcher>(inner: &ComponentCoreInner<D>) -> ConstructionStatus {
+    if inner.transitioning && inner.status == ConstructionStatus::Constructed {
+        ConstructionStatus::Constructing
+    } else {
+        inner.status
     }
 }
 
@@ -3206,9 +3239,24 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     pub(crate) fn transition(&self, operation: LifecycleOperation) -> VmxResult<()> {
         if operation != LifecycleOperation::Dispose && lock(&self.inner).background {
-            return self.transition_background(operation);
+            return self.transition_background(operation, None);
         }
         self.transition_with(operation, || Ok(()))
+    }
+
+    /// Runs a construct or destruct with `body` after the hook, where the
+    /// hook runs: on the background dispatcher for a background component,
+    /// otherwise on the calling thread (spec/02 §6.1, spec/11 §4, ADR-0203).
+    /// A rejected transition runs nothing.
+    pub(crate) fn transition_with_walk(
+        &self,
+        operation: LifecycleOperation,
+        body: TransitionBody<D>,
+    ) -> VmxResult<()> {
+        if operation != LifecycleOperation::Dispose && lock(&self.inner).background {
+            return self.transition_background(operation, Some(body));
+        }
+        self.transition_with(operation, || body(self))
     }
 
     pub(crate) fn reconstruct(&self) -> VmxResult<()> {
@@ -3218,13 +3266,19 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     /// Admits `reconstruct` as [`reconstruct_admission`] does, after the
     /// refusal of the inline dispose cascade: once that cascade has started,
-    /// the call fails with [`VmxError::Disposed`] whatever `Status` reads
-    /// (spec/02 §7.2).
+    /// the call fails as from `Disposed` whatever `Status` reads (spec/02
+    /// §7.2).
     pub(crate) fn admit_reconstruct(&self) -> VmxResult<()> {
         let status = {
             let inner = lock(&self.inner);
             if inner.hook_admission_closed {
-                return Err(VmxError::Disposed);
+                return Err(invalid_transition(
+                    ConstructionStatus::Disposed,
+                    "reconstruct",
+                ));
+            }
+            if inner.transitioning {
+                return Err(invalid_transition(observed_status(&inner), "reconstruct"));
             }
             inner.status
         };
@@ -3336,17 +3390,17 @@ impl<D: Dispatcher> ComponentCore<D> {
                 // The inline dispose cascade refuses the call first (spec/02
                 // §7.2).
                 if inner.status == ConstructionStatus::Disposed || inner.hook_admission_closed {
-                    return (Err(VmxError::Disposed), None);
-                }
-                if inner.transitioning {
-                    return (Err(VmxError::ConcurrentOperation), None);
-                }
-                if inner.status != ConstructionStatus::Constructed {
                     return (
-                        Err(VmxError::InvalidLifecycleTransition {
-                            from: inner.status,
-                            operation: "reconstruct",
-                        }),
+                        Err(invalid_transition(
+                            ConstructionStatus::Disposed,
+                            "reconstruct",
+                        )),
+                        None,
+                    );
+                }
+                if inner.transitioning || inner.status != ConstructionStatus::Constructed {
+                    return (
+                        Err(invalid_transition(observed_status(&inner), "reconstruct")),
                         None,
                     );
                 }
@@ -3460,7 +3514,12 @@ impl<D: Dispatcher> ComponentCore<D> {
         }
     }
 
-    fn run_background_hook(&self, hook: Option<Hook>, generation: u64) -> Option<VmxResult<()>> {
+    fn run_background_hook(
+        &self,
+        hook: Option<Hook>,
+        body: Option<TransitionBody<D>>,
+        generation: u64,
+    ) -> Option<VmxResult<()>> {
         {
             let mut inner = lock(&self.inner);
             if inner.transition_generation != generation
@@ -3476,8 +3535,22 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
             inner.active_hook_owner = Some(thread::current().id());
         }
+        // The body (a member walk) runs after the hook inside the same hook
+        // admission, as in the foreground transition (LIFE-015).
         let execution = catch_unwind(AssertUnwindSafe(|| {
-            hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()))
+            hook.map(|hook| (lock(&hook))())
+                .unwrap_or(Ok(()))
+                .and_then(|()| {
+                    let body_allowed = {
+                        let inner = lock(&self.inner);
+                        inner.transition_generation == generation
+                            && inner.status != ConstructionStatus::Disposed
+                    };
+                    match body {
+                        Some(body) if body_allowed => body(self),
+                        _ => Ok(()),
+                    }
+                })
         }));
         let deferred = {
             let mut inner = lock(&self.inner);
@@ -3526,17 +3599,26 @@ impl<D: Dispatcher> ComponentCore<D> {
         Some(result)
     }
 
-    fn transition_background(&self, operation: LifecycleOperation) -> VmxResult<()> {
+    fn transition_background(
+        &self,
+        operation: LifecycleOperation,
+        body: Option<TransitionBody<D>>,
+    ) -> VmxResult<()> {
         let hub = lock(&self.inner).hub.clone();
         let started = self.send_status(&hub, || {
             let mut inner = lock(&self.inner);
             // The inline dispose cascade refuses the call before the
             // idempotent no-op (spec/02 §7.2).
-            if inner.hook_admission_closed {
-                return (Err(VmxError::Disposed), None);
+            if inner.hook_admission_closed || inner.status == ConstructionStatus::Disposed {
+                return (
+                    Err(invalid_transition(
+                        ConstructionStatus::Disposed,
+                        operation.name(),
+                    )),
+                    None,
+                );
             }
             match (inner.status, operation) {
-                (ConstructionStatus::Disposed, _) => return (Err(VmxError::Disposed), None),
                 (ConstructionStatus::Constructed, LifecycleOperation::Construct)
                 | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
                     return (Ok(None), None)
@@ -3544,7 +3626,13 @@ impl<D: Dispatcher> ComponentCore<D> {
                 _ => {}
             }
             if inner.transitioning {
-                return (Err(VmxError::ConcurrentOperation), None);
+                return (
+                    Err(invalid_transition(
+                        observed_status(&inner),
+                        operation.name(),
+                    )),
+                    None,
+                );
             }
             let transition_status = match operation {
                 LifecycleOperation::Construct => ConstructionStatus::Constructing,
@@ -3596,9 +3684,14 @@ impl<D: Dispatcher> ComponentCore<D> {
         let scheduling_name = sender_name.clone();
         let action_dispatcher = dispatcher.clone();
         let background_action = Box::new(move || {
-            let Some(result) = core.run_background_hook(hook, generation) else {
+            let Some(result) = core.run_background_hook(hook, body, generation) else {
                 return;
             };
+            // A member walk still waiting on a child hands the terminal
+            // publication to the settle continuation (spec/02 §6.1).
+            if result.is_ok() && core.defer_until_children_settle(generation) {
+                return;
+            }
             let error = result.err();
             let settled = if error.is_none() { target } else { rollback };
             let publication_core = core.clone();
@@ -3611,6 +3704,9 @@ impl<D: Dispatcher> ComponentCore<D> {
             let fallback_name = sender_name.clone();
             let foreground_action = Box::new(move || {
                 let emission = error.as_ref().and_then(|_| errors.begin_emission());
+                // A failed walk can leave a settle with queued steps; they
+                // drop after `send_status` releases the hub and core locks.
+                let mut cleared = None;
                 publication_core.send_status(&hub, || {
                     let mut inner = lock(&publication_core.inner);
                     if inner.transition_generation != generation
@@ -3624,6 +3720,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                         inner.transitioning = false;
                         return ((), None);
                     }
+                    cleared = inner.child_settle.take();
                     inner.status = settled;
                     inner.transitioning = false;
                     (
@@ -3641,6 +3738,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                     errors.send(error);
                 }
                 drop(emission);
+                drop(cleared);
                 publication_core.release_settle_waiters();
             });
             if catch_unwind(AssertUnwindSafe(|| {
@@ -3752,20 +3850,30 @@ impl<D: Dispatcher> ComponentCore<D> {
                 // destruct fails as from Disposed, before the idempotent
                 // no-op, the legality check, and the concurrent-operation
                 // check (spec/02 §7.2, LIFE-021).
-                if inner.hook_admission_closed && operation != LifecycleOperation::Dispose {
-                    return (Err(VmxError::Disposed), None);
+                if operation != LifecycleOperation::Dispose
+                    && (inner.hook_admission_closed || inner.status == ConstructionStatus::Disposed)
+                {
+                    return (
+                        Err(invalid_transition(
+                            ConstructionStatus::Disposed,
+                            operation.name(),
+                        )),
+                        None,
+                    );
                 }
                 match (inner.status, operation) {
-                    (ConstructionStatus::Disposed, LifecycleOperation::Construct)
-                    | (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
-                        return (Err(VmxError::Disposed), None)
-                    }
                     // A sealed construct still publishing Constructed is in
                     // flight: a second construct is concurrent, not idempotent.
                     (ConstructionStatus::Constructed, LifecycleOperation::Construct)
                         if inner.transitioning =>
                     {
-                        return (Err(VmxError::ConcurrentOperation), None)
+                        return (
+                            Err(invalid_transition(
+                                ConstructionStatus::Constructing,
+                                operation.name(),
+                            )),
+                            None,
+                        )
                     }
                     (ConstructionStatus::Constructed, LifecycleOperation::Construct)
                     | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
@@ -3779,7 +3887,13 @@ impl<D: Dispatcher> ComponentCore<D> {
                     _ => {}
                 }
                 if inner.transitioning && operation != LifecycleOperation::Dispose {
-                    return (Err(VmxError::ConcurrentOperation), None);
+                    return (
+                        Err(invalid_transition(
+                            observed_status(&inner),
+                            operation.name(),
+                        )),
+                        None,
+                    );
                 }
 
                 let transition_status = match operation {
@@ -4266,12 +4380,6 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// Marks the member cascade finished.
     pub(crate) fn finish_member_disposal(&self) {
         lock(&self.inner).member_phase = MemberPhase::Done;
-    }
-
-    /// Whether construct and destruct hooks run through the background
-    /// dispatcher.
-    pub(crate) fn is_background(&self) -> bool {
-        lock(&self.inner).background
     }
 
     /// Whether auto-construct-on-add constructs a child added now without a
@@ -4823,7 +4931,7 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// admission closes first. With no hook admitted on another thread,
     /// `cascade` runs now, before this core publishes `Disposed` (LIFE-013,
     /// LIFE-018): this is the inline cascade, during which a construct,
-    /// destruct, or reconstruct fails with [`VmxError::Disposed`] and no
+    /// destruct, or reconstruct fails as from `Disposed` and no
     /// status other than `Disposed` commits (spec/02 §7.2, LIFE-021).
     /// Otherwise this core publishes `Disposed`, and `cascade` runs after
     /// that hook returns. It runs on this thread after its wait, or on the

@@ -2334,6 +2334,36 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         self.inner.own(cleanup);
     }
 
+    /// Replaces the hook invoked during construction, including the construct
+    /// phase of `reconstruct` (spec/02 §2.2, ADR-0203). It runs as
+    /// [`CompositeVm::on_construct`] does, after the children are
+    /// materialized. The hook must not capture this composite (#750).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_construct(hook);
+    }
+
+    /// Replaces the hook invoked during destruction, including the destruct
+    /// phase of `reconstruct` (spec/02 §2.2, ADR-0203). The hook must not
+    /// capture this composite (#750).
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_destruct(hook);
+    }
+
+    /// Replaces the hook invoked during disposal (spec/02 §2.2, ADR-0203).
+    /// The hook must not capture this composite (#750).
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_dispose(hook);
+    }
+
     /// Publishes a change for an application-defined property.
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.inner.notify_property_changed(property_name);

@@ -66,6 +66,21 @@ enum Op {
     Reconstruct,
 }
 
+impl Op {
+    /// The error a refused call returns: the lifecycle transition error from
+    /// `Disposed` naming the operation (spec/02 §7.2, ADR-0203).
+    fn refused(self) -> VmxResult<()> {
+        Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Disposed,
+            operation: match self {
+                Op::Construct => "construct",
+                Op::Destruct => "destruct",
+                Op::Reconstruct => "reconstruct",
+            },
+        })
+    }
+}
+
 /// A container kind under test, with counters for its own hooks and for
 /// its slot factory.
 trait Container: Clone + Send + Sync + 'static {
@@ -240,7 +255,7 @@ fn call_during_child_cascade<C: Container>(initial: ConstructionStatus, op: Op) 
 
     assert_eq!(
         attempt.lock().unwrap().take(),
-        Some(Err(VmxError::Disposed)),
+        Some(op.refused()),
         "{op:?} from {initial:?} during the child cascade"
     );
     assert_eq!(hook_runs.load(Ordering::SeqCst), hooks_before, "no hook");
@@ -481,7 +496,7 @@ fn call_during_member_cascade(background: bool, initial: ConstructionStatus, op:
 
     assert_eq!(
         attempt.lock().unwrap().take(),
-        Some(Err(VmxError::Disposed)),
+        Some(op.refused()),
         "{op:?} from {initial:?} during the member cascade (background: {background})"
     );
     assert_eq!(

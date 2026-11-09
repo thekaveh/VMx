@@ -1,12 +1,13 @@
 //! Public-API tests for `ChildTransitions` and `ComponentVm::own_member`
-//! (spec/02 §6.1 and §7.1, ADR-0162), written as a consumer crate would.
+//! (spec/02 §6.1 and §7.1, ADR-0162, ADR-0203), written as a consumer crate
+//! would.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use vmx::{
-    ComponentVm, ConstructionStatus, GroupVm, LifecycleSettleCallback, ManualDispatcher, Message,
-    MessageHub, ParentHandle, Subscription, VmNode, VmxError, VmxResult,
+    Command, ComponentVm, ConstructionStatus, GroupVm, LifecycleSettleCallback, ManualDispatcher,
+    Message, MessageHub, ParentHandle, Subscription, VmNode, VmxError, VmxResult,
 };
 
 type Member = ComponentVm<i32, ManualDispatcher>;
@@ -36,7 +37,8 @@ fn record(hub: &MessageHub) -> (Log, Subscription) {
 }
 
 /// A consumer view-model type: it composes a `ComponentVm`, owns two members,
-/// and forwards `VmNode` so a container can hold it.
+/// gives the component its member walks, and forwards `VmNode` so a container
+/// can hold it.
 #[derive(Clone)]
 struct Editor {
     component: Core,
@@ -59,21 +61,21 @@ impl Editor {
         };
         editor.component.own_member(&editor.header).unwrap();
         editor.component.own_member(&editor.body).unwrap();
+        let (header, body) = (editor.header.clone(), editor.body.clone());
+        editor.component.on_construct_children(move |walk| {
+            walk.transition(&header)?;
+            walk.transition(&body)
+        });
+        let (header, body) = (editor.header.clone(), editor.body.clone());
+        editor.component.on_destruct_children(move |walk| {
+            walk.transition(&body)?;
+            walk.transition(&header)
+        });
         editor
     }
 
     fn reconstruct(&self) -> VmxResult<()> {
-        let (header, body) = (self.header.clone(), self.body.clone());
-        self.component.reconstruct_with_children(
-            |walk| {
-                walk.transition(&self.body)?;
-                walk.transition(&self.header)
-            },
-            move |walk| {
-                walk.transition(&header)?;
-                walk.transition(&body)
-            },
-        )
+        self.component.reconstruct()
     }
 }
 
@@ -83,17 +85,11 @@ impl VmNode for Editor {
     }
 
     fn construct(&self) -> VmxResult<()> {
-        self.component.construct_with_children(|walk| {
-            walk.transition(&self.header)?;
-            walk.transition(&self.body)
-        })
+        self.component.construct()
     }
 
     fn destruct(&self) -> VmxResult<()> {
-        self.component.destruct_with_children(|walk| {
-            walk.transition(&self.body)?;
-            walk.transition(&self.header)
-        })
+        self.component.destruct()
     }
 
     fn dispose(&self) -> VmxResult<()> {
@@ -162,7 +158,7 @@ fn consumer_type_inside_a_group_walks_and_disposes_its_members() {
 }
 
 #[test]
-fn reconstruct_with_children_waits_for_a_background_destruct() {
+fn reconstruct_with_stored_walks_waits_for_a_background_destruct() {
     let hub = MessageHub::new();
     let dispatcher = ManualDispatcher::new();
     let editor = Editor::new(&hub, &dispatcher, true);
@@ -225,7 +221,13 @@ fn reconstruct_runs_the_hooks_and_admits_like_reconstruct() {
     );
     assert_eq!(editor.header.status(), ConstructionStatus::Constructed);
     editor.component.dispose().unwrap();
-    assert_eq!(editor.reconstruct(), Err(VmxError::Disposed));
+    assert_eq!(
+        editor.reconstruct(),
+        Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Disposed,
+            operation: "reconstruct",
+        })
+    );
 }
 
 #[test]
@@ -277,15 +279,17 @@ fn walk_joins_a_child_already_destructing() {
         .build()
         .unwrap();
     let parent = Core::with_services("parent", hub.clone(), dispatcher.clone());
+    let walked = child.clone();
     parent
-        .construct_with_children(|walk| walk.transition(&child))
+        .construct_with_children(move |walk| walk.transition(&walked))
         .unwrap();
     dispatcher.drain();
     child.destruct().unwrap();
     assert_eq!(child.status(), ConstructionStatus::Destructing);
 
+    let walked = child.clone();
     parent
-        .destruct_with_children(|walk| walk.transition(&child))
+        .destruct_with_children(move |walk| walk.transition(&walked))
         .unwrap();
     assert_eq!(parent.status(), ConstructionStatus::Destructing);
     dispatcher.drain();
@@ -315,19 +319,20 @@ fn walk_skips_children_at_target_and_does_not_run_for_a_constructed_parent() {
     let parent = Core::with_services("parent", hub, dispatcher);
 
     parent
-        .construct_with_children(|walk| walk.transition(&child))
+        .construct_with_children(move |walk| walk.transition(&child))
         .unwrap();
     assert_eq!(constructs.load(Ordering::SeqCst), 1);
     assert_eq!(parent.status(), ConstructionStatus::Constructed);
 
-    let mut ran = false;
+    let ran = Arc::new(AtomicBool::new(false));
+    let walk_ran = Arc::clone(&ran);
     parent
-        .construct_with_children(|_| {
-            ran = true;
+        .construct_with_children(move |_| {
+            walk_ran.store(true, Ordering::SeqCst);
             Ok(())
         })
         .unwrap();
-    assert!(!ran);
+    assert!(!ran.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -344,10 +349,11 @@ fn a_swallowed_step_failure_still_fails_the_walk_and_starts_no_later_child() {
     let later = member(&hub, &dispatcher, "later", false);
     let parent = Core::with_services("parent", hub, dispatcher);
 
-    let result = parent.construct_with_children(|walk| {
+    let walked = later.clone();
+    let result = parent.construct_with_children(move |walk| {
         let _ = walk.transition(&bad);
         assert_eq!(
-            walk.transition(&later),
+            walk.transition(&walked),
             Err(VmxError::Other("bad".to_string()))
         );
         Ok(())
@@ -591,34 +597,123 @@ fn a_dispose_from_a_member_hook_on_another_thread_does_not_deadlock() {
     assert_eq!(member.status(), ConstructionStatus::Disposed);
 }
 
+/// A walk of a background component runs on the background dispatcher, and
+/// the component settles once the walk's members settle (spec/11 §4,
+/// ADR-0203).
 #[test]
-fn a_background_component_rejects_the_standalone_walks_but_reconstructs() {
+fn a_background_component_walks_its_members_on_the_background_dispatcher() {
     let hub = MessageHub::new();
     let dispatcher = ManualDispatcher::new();
     let child = member(&hub, &dispatcher, "child", false);
     let parent = member(&hub, &dispatcher, "parent", true);
-    let mut ran = false;
 
-    let result = parent.construct_with_children(|_| {
-        ran = true;
+    let walked = child.clone();
+    assert_eq!(
+        parent.construct_with_children(move |walk| walk.transition(&walked)),
         Ok(())
-    });
-    assert!(matches!(result, Err(VmxError::InvalidArgument(_))));
-    assert!(matches!(
-        parent.destruct_with_children(|walk| walk.transition(&child)),
-        Err(VmxError::InvalidArgument(_))
-    ));
-    assert!(!ran);
-    assert_eq!(parent.status(), ConstructionStatus::Destructed);
-    assert_eq!(dispatcher.queued_len(), 0);
-
-    parent.construct().unwrap();
+    );
+    assert_eq!(parent.status(), ConstructionStatus::Constructing);
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
     dispatcher.drain();
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
     assert_eq!(parent.status(), ConstructionStatus::Constructed);
+
+    let walked = child.clone();
+    assert_eq!(
+        parent.destruct_with_children(move |walk| walk.transition(&walked)),
+        Ok(())
+    );
+    assert_eq!(parent.status(), ConstructionStatus::Destructing);
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    dispatcher.drain();
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    assert_eq!(parent.status(), ConstructionStatus::Destructed);
+}
+
+/// A background parent waits for a background member before it publishes
+/// its terminal status, and a failing step rolls it back.
+#[test]
+fn a_background_walk_waits_for_a_background_member_and_rolls_back_on_failure() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = member(&hub, &dispatcher, "child", true);
+    let parent = member(&hub, &dispatcher, "parent", true);
+    let (log, _subscription) = record(&hub);
+
     let walked = child.clone();
     parent
-        .reconstruct_with_children(|_| Ok(()), move |walk| walk.transition(&walked))
+        .construct_with_children(move |walk| walk.transition(&walked))
         .unwrap();
-    assert_eq!(parent.status(), ConstructionStatus::Constructed);
-    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    dispatcher.drain();
+    use ConstructionStatus::{Constructed, Constructing, Destructed};
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec![
+            (parent.id(), Constructing),
+            (child.id(), Constructing),
+            (child.id(), Constructed),
+            (parent.id(), Constructed),
+        ]
+    );
+
+    let (errors_send, errors) = mpsc::channel();
+    let _errors = parent.background_errors().subscribe(move |error| {
+        errors_send.send(error).unwrap();
+    });
+    parent.destruct().unwrap();
+    dispatcher.drain();
+    parent
+        .construct_with_children(|walk| walk.then(|| Err(VmxError::Other("after".to_string()))))
+        .unwrap();
+    dispatcher.drain();
+    assert_eq!(parent.status(), Destructed);
+    assert_eq!(errors.try_recv(), Ok(VmxError::Other("after".to_string())));
+}
+
+/// `reconstruct()` and the reconstruct command run the stored walks, also for
+/// a background component, whose reconstruct stays synchronous (spec/11 §4,
+/// ADR-0203).
+#[test]
+fn reconstruct_and_its_command_run_the_stored_walks() {
+    for background in [false, true] {
+        let hub = MessageHub::new();
+        let dispatcher = ManualDispatcher::new();
+        let child = member(&hub, &dispatcher, "child", false);
+        let parent = member(&hub, &dispatcher, "parent", background);
+        let walked = child.clone();
+        parent.on_construct_children(move |walk| walk.transition(&walked));
+        let walked = child.clone();
+        parent.on_destruct_children(move |walk| walk.transition(&walked));
+
+        parent.construct().unwrap();
+        dispatcher.drain();
+        assert_eq!(child.status(), ConstructionStatus::Constructed);
+        assert_eq!(parent.status(), ConstructionStatus::Constructed);
+
+        use ConstructionStatus::{Constructed, Constructing, Destructed, Destructing};
+        let expected = vec![
+            (parent.id(), Destructing),
+            (child.id(), Destructing),
+            (child.id(), Destructed),
+            (parent.id(), Destructed),
+            (parent.id(), Constructing),
+            (child.id(), Constructing),
+            (child.id(), Constructed),
+            (parent.id(), Constructed),
+        ];
+        let (log, subscription) = record(&hub);
+        parent.reconstruct().unwrap();
+        assert_eq!(*log.lock().unwrap(), expected, "background: {background}");
+        subscription.dispose();
+
+        let (log, _subscription) = record(&hub);
+        parent.reconstruct_command().execute();
+        assert_eq!(*log.lock().unwrap(), expected, "background: {background}");
+        assert_eq!(dispatcher.queued_len(), 0, "background: {background}");
+
+        parent.destruct().unwrap();
+        dispatcher.drain();
+        assert_eq!(child.status(), ConstructionStatus::Destructed);
+        assert_eq!(parent.status(), ConstructionStatus::Destructed);
+    }
 }

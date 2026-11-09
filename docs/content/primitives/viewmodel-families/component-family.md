@@ -238,13 +238,17 @@ class PanelVM extends ComponentVMBase {
 | Python     | `self._complete_lifecycle_hook_after(self._transition_children(members, construct=…))` | `self._own_member(member)` |
 | TypeScript | `this._transitionChildren(members, construct, after)`                                  | `this.ownMember(member)`   |
 | Swift      | `try _transitionChildren(members, construct: …, after: …)`                             | `ownMember(member)`        |
-| Rust       | `vm.construct_with_children(\|walk\| walk.transition(&member))`                        | `vm.own_member(&member)`   |
+| Rust       | `vm.on_construct_children(move \|walk\| walk.transition(&member))`                     | `vm.own_member(&member)`   |
 
-Rust has no subclassing. A Rust view-model type wraps a `ComponentVm` and calls
-`construct_with_children`, `destruct_with_children` and
-`reconstruct_with_children`. The closure receives a `ChildTransitions` handle:
-`transition(&member)` adds the next member and `then(after)` adds the `after`
-step.
+Rust has no subclassing. A Rust view-model type wraps a `ComponentVm` and gives
+it walk closures with `on_construct_children` and `on_destruct_children`. Every
+construct, destruct, reconstruct and reconstruct command then runs the walk
+after the hook, on the background dispatcher for a background construct or
+destruct. `construct_with_children`, `destruct_with_children` and
+`reconstruct_with_children` run a walk for one call instead. The closure
+receives a `ChildTransitions` handle: `transition(&member)` adds the next member
+and `then(after)` adds the `after` step. A walk captures clones of the members,
+never the component (ADR-0203).
 
 Use a container instead when the children are a collection:
 

@@ -61,6 +61,19 @@ project adheres to [Semantic Versioning](https://semver.org/).
   component transient until it settles, and a failing member or callback rolls
   the component back. The handle borrows the transition, so the compiler
   rejects a use outside the closure.
+- `ComponentVm::on_construct_children` and `on_destruct_children` store a
+  member walk (#1288, ADR-0203). Every `construct()`, `destruct()`,
+  `reconstruct()` and `reconstruct_command()` runs the stored walk after the
+  hook, so a consumer type no longer needs its own reconstruct method or
+  command. Clones share the walks. A walk captures the members, never the
+  component.
+- `HierarchicalVm`, `ModeledCompositeVm` and `ForwardingCompositeVm` have
+  `on_construct`, `on_destruct` and `on_dispose` methods with the `ComponentVm`
+  closure signature (#1250, ADR-0203). Each replaces the hook of the wrapped
+  component or composite. A failing construct hook rolls the node back as it
+  rolls a `ComponentVm` back, and an eager `HierarchicalVm` then constructs no
+  child. The modeled composite's hooks also run in both phases of
+  `reconstruct()`.
 - `ComponentVm::own_member` registers a member view-model. `dispose()` now
   disposes the registered members in registration order before the component
   publishes `Disposed`, keeps the first failure, and returns it after the
@@ -70,15 +83,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `dispose()` of the component, re-entrant or from another thread, returns
   `Ok(())` at once without waiting, and the first call finishes the work. A
   component with no members disposes as before (#661, ADR-0162, `LIFE-018`).
-- The walk methods have two limits (#661, ADR-0162).
-  `construct_with_children` and `destruct_with_children` return
-  `VmxError::InvalidArgument` for a component built with `background(true)`
-  and start no transition, because the walk cannot move to the background
-  dispatcher. Members built with `background(true)` still run their hooks in
-  the background. `reconstruct_with_children` runs on the calling thread for
-  every component, as `reconstruct()` does. `reconstruct()` and
-  `reconstruct_command()` run only the component's hooks and never a walk, so
-  a consumer type reconstructs through `reconstruct_with_children`.
+- A walk runs where the hook runs (#1288, ADR-0203). For a component built
+  with `background(true)`, the walk of a construct or destruct runs on the
+  background dispatcher. The call returns with the component transient, and
+  the component settles once the walk and its members settle; a failure
+  reaches `background_errors()`. A reconstruct runs both walks on the calling
+  thread for every component, as `reconstruct()` runs its hooks. The walk
+  closure of `construct_with_children` and `destruct_with_children` is
+  therefore `Send + 'static`, and those methods run it in place of the stored
+  walk. They no longer return `VmxError::InvalidArgument` for a background
+  component.
 - `NotificationVm::dispose()` and `ConfirmationVm::dispose()` (#1067,
   ADR-0178, `DISP-004`). Disposal disposes the dismiss, approve and reject
   commands, so a kept command clone reports `can_execute()` false and no
@@ -90,6 +104,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Breaking: every illegal `construct`, `destruct` or `reconstruct` returns
+  `VmxError::InvalidLifecycleTransition { from, operation }`, whose message
+  names the state and the operation (#1249, ADR-0203, `LIFE-005`, `LIFE-006`,
+  `LIFE-008`). A call from `Disposed` or during the inline dispose cascade
+  returned `VmxError::Disposed`; it now reports `from: Disposed`. A call
+  during another transition returned `VmxError::ConcurrentOperation`; it now
+  reports the transient status. `VmxError::ConcurrentOperation` is removed.
+  `VmxError::Disposed` stays for non-lifecycle operations on a disposed view
+  model or a container whose disposal is pending.
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default

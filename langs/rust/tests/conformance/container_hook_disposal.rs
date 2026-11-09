@@ -495,7 +495,13 @@ fn no_container_hook_is_admitted_during_its_child_cascade() {
     assert_eq!(composite.dispose(), Ok(()));
     slot.lock().unwrap().take();
 
-    assert_eq!(*attempt.lock().unwrap(), Some(Err(VmxError::Disposed)));
+    assert_eq!(
+        *attempt.lock().unwrap(),
+        Some(Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Disposed,
+            operation: "construct",
+        }))
+    );
     assert_eq!(hook_runs.load(Ordering::SeqCst), 0);
     assert_eq!(
         statuses_of(&recorder, ConstructionStatus::Constructing),
@@ -526,14 +532,17 @@ fn a_disposed_component_walk_skips_later_members_and_then() {
     });
     let then_runs = Arc::new(AtomicUsize::new(0));
 
-    let result = parent.construct_with_children(|walk| {
-        walk.transition(&first)?;
-        walk.transition(&second)?;
+    let result = parent.construct_with_children({
         let then_runs = Arc::clone(&then_runs);
-        walk.then(move || {
-            then_runs.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        })
+        move |walk| {
+            walk.transition(&first)?;
+            walk.transition(&second)?;
+            let then_runs = Arc::clone(&then_runs);
+            walk.then(move || {
+                then_runs.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+        }
     });
 
     assert_eq!(result, Ok(()));
