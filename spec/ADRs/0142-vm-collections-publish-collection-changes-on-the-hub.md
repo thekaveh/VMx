@@ -1,6 +1,6 @@
 # ADR 0142 — VM collections publish their collection changes on the message hub
 
-- **Status:** Accepted
+- **Status:** Accepted (clarified by ADR-0190)
 - **Date:** 2026-10-12
 - **Spec version:** 3.26.0
 - **Amends:** [ADR-0024](0024-hub-aware-observable-collection.md) §2 option 2,

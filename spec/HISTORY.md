@@ -767,6 +767,19 @@ library IDs plus 5 scenario IDs.
 
 See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
 
+v3.30.0 also defines structural calls on a disposed `HierarchicalVM` node. From
+the moment a node is `Disposed`, `AddChild`, `RemoveChild`, `ReparentChild`,
+`InvalidateChildren`, `InvalidateSubtree`, and `AttachMany` on it refuse, also
+where the call would do nothing. A transfer out of a disposed parent refuses
+too. `AttachMany` rejects a candidate under a disposed parent, and
+`InvalidateSubtree` skips a disposed descendant (`HIER-041`). A `CompositeVM`
+or `GroupVM` also sends no `CollectionChangedMessage` once its disposal is
+requested or deferred. A local subscriber or `OnCurrentChanged` callback that
+disposes the container therefore suppresses the hub message of that change
+(`COMP-049`).
+
+See ADR-0190, chapter 01 §1.4, chapters 06 and 07, and chapter 18 §7.1.
+
 v3.30.0 also sets three command rules. The fire-and-forget `Execute()` of
 `ConfirmationDecoratorCommand` never invokes the inner command inside its own
 call, also when `confirm()` is already complete (`CMDD-018`). A fire-and-forget
@@ -798,4 +811,5 @@ container's `Name` in every flavor (`COMP-042`, `GRP-012`).
 
 See ADR-0194, chapter 03 §1, and chapter 21 §2.4.
 See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
-ADR-0199, ADR-0200, ADR-0202, ADR-0204 and the affected behavior chapters.
+ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204 and the affected behavior
+chapters.

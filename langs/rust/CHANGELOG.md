@@ -361,6 +361,20 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   in C# and Python. Before, a composite that added and selected the removed
   child in that gap, from an `on_current_changed` subscriber or another
   thread, found the child's `is_current()` reset to `false`.
+- A disposed `HierarchicalVm` node now refuses `add_child`, `remove_child`,
+  `reparent_child`, `invalidate_children`, `invalidate_subtree` and
+  `attach_many`, also where the call would do nothing (ADR-0190, spec/18 §7.1,
+  #1318). A transfer out of a disposed parent refuses too. A refused call
+  changes nothing and publishes nothing. `attach_many` rejects a candidate
+  under a disposed parent, and `invalidate_subtree` skips a disposed
+  descendant. A refused call returns `VmxError::Disposed`; `attach_many`
+  rejects every item and the invalidation methods return without a change.
+- A `CompositeVm` or `GroupVm` now sends no `CollectionChangedMessage` once its
+  disposal is requested, also when the disposal is deferred (ADR-0190, spec/01
+  §1.4, #1351). A local subscriber or `on_current_changed` callback that
+  disposes the container now suppresses the hub message of that change. In a
+  transfer whose old container disposes itself, the hub receives only the new
+  container's `Add`. The `Count` message follows the same rule.
 - A current `AsyncResourceVm` loader that ends with its own cancellation now
   restores the saved stable state, as `cancel` does, instead of installing
   `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The cancellation can come

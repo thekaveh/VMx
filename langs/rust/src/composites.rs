@@ -1636,6 +1636,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     let deferred = self.clone();
                     self.membership_transaction_control
                         .defer_dispose(move || deferred.dispose());
+                    // A disposing container sends no hub message (ADR-0190).
+                    self.items.close_hub_publication();
                     return Ok(());
                 }
                 MembershipDisposeDisposition::Foreign => {
@@ -1646,6 +1648,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                         .wait_until_inactive_or_defer(move || deferred.dispose())
                         .is_none()
                     {
+                        self.items.close_hub_publication();
                         return Ok(());
                     }
                     continue;
@@ -1659,6 +1662,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                         .defer_while_publishing(move || deferred.dispose())
                         .is_none()
                     {
+                        self.items.close_hub_publication();
                         return Ok(());
                     }
                     break if self.dispose_requested.swap(true, Ordering::AcqRel) {

@@ -2296,6 +2296,36 @@ disposed
 the children in the same order as a composite built without the option
 **And** the modeled composite builder and the options form give the same order
 
+### COMP-049 — A disposal requested during a change suppresses its hub message
+
+**Given** composites `old` and `new` sharing hub `H`, a recorder of
+`CollectionChangedMessage` on `H`, and child `x` that is current in `old`
+**And** `old`'s `OnCurrentChanged` callback disposes `old` when it receives
+null
+**When** `new.Add(x)` succeeds
+**Then** `H` receives only `new`'s `Add(x)`, and `old` is `Disposed` after the
+call
+**And** `old`'s local `Remove(x)` event is still delivered
+
+**Given** a composite `p` whose local collection-change subscriber disposes `p`
+**When** `p.Add(c)` commits
+**Then** the local `Add(c)` event is delivered, `H` receives no message from
+`p`, and `p` is `Disposed` after the call
+
+**Given** a composite `p` with two children whose local subscriber disposes `p`
+**When** `p.Move(0, 1)` commits
+**Then** the local `Move` event is delivered, `H` receives no message from `p`,
+and `p` is `Disposed` after the call
+
+**And** a `GroupVM` gives the same results for the `Add` and `Move` cases
+
+In Rust, the local subscriber is
+`ObservableMembershipSource::subscribe_membership`, and `H` also receives no
+`Count` message from the disposed container.
+
+> Spec: `01-concepts.md §1.4`, `06-composite-vm.md §4/§4.2/§4.3`,
+> `07-group-vm.md §1`, ADR-0190.
+
 ### COMP-050 — Disposing the current child clears `Current`
 
 **Given** a `CompositeVM<VM>` `p` in `Constructed` with children `a` and `b`
@@ -3778,6 +3808,34 @@ own children, a hub subscriber, and a `TreeSelection` on the root
 **And** `Current` is null and `CanSelect` is false for every node
 **And** later `Select`, `Clear` and tree changes do nothing and do not raise
 **And** a second `Dispose` does nothing
+
+### HIER-041 — A disposed node refuses structural calls
+
+**Given** a constructed root `r` with children `a` and `b`, a child `aa` of
+`a`, every child list materialized, a detached node `d`, and a recorder of
+`TreeStructureChangedMessage` and `PropertyChangedMessage` on the hub
+**When** `a` is disposed, and then `a.AddChild(d)`, `a.RemoveChild(aa)`,
+`a.ReparentChild(d)`, `a.AddChild(aa)`, `a.RemoveChild(d)`,
+`a.InvalidateChildren()`, `a.InvalidateSubtree()` and `a.AttachMany([d])` are
+called
+**Then** each call refuses on the flavor's channel of chapter 18 §7.1, also the
+calls that would do nothing
+**And** `a.Children` is `[aa]`, `aa.Parent` is `a`, `d.Parent` is null, and the
+recorder holds no message after the dispose
+**When** `b.AddChild(aa)` and `b.ReparentChild(aa)` are called
+**Then** each call refuses, `aa` stays in `a`, and `b.Children` is unchanged
+**When** `r.AttachMany` receives `d` with `a`'s key as its parent key
+**Then** `d` gets an `AttachmentFailed` rejection, is not an orphan, and is not
+parked
+**When** `r.InvalidateSubtree()` is called
+**Then** `aa` and `r` drop their caches, `a` still holds `[aa]`, and the
+recorder holds no `Children` change from `a`
+
+**Given** a fresh tree whose root is disposed and whose child `c` is live
+**When** `c.AttachMany` receives an item with a missing parent key under `park`
+**Then** the call refuses and the root's parked count stays zero
+
+> Spec: `18-hierarchical-vm.md §7.1`, ADR-0190.
 
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 

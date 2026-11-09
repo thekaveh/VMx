@@ -50,7 +50,9 @@ mod conformance {
     mod group_vm;
     mod hierarchical;
     mod hierarchical_batch;
+    mod hierarchical_disposed_node;
     mod hub_collection_changes;
+    mod hub_disposal_during_publication;
     // Every case here observes the wait-for graph through a test seam.
     #[cfg(feature = "test-seams")]
     mod hub_membership_wait_cycle;

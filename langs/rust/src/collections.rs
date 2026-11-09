@@ -917,6 +917,7 @@ pub struct ObservableList<T: Clone + Send + 'static> {
     batch_dirty: Arc<Mutex<bool>>,
     batch_count_at_start: Arc<Mutex<usize>>,
     publication_closed: Arc<AtomicBool>,
+    hub_publication_closed: Arc<AtomicBool>,
 }
 
 impl<T: Clone + Send + 'static> ObservableList<T> {
@@ -943,6 +944,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             batch_dirty: Arc::new(Mutex::new(false)),
             batch_count_at_start: Arc::new(Mutex::new(0)),
             publication_closed: Arc::new(AtomicBool::new(false)),
+            hub_publication_closed: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -951,6 +953,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     /// nothing to the hub.
     pub(crate) fn close_publication(&self) {
         self.publication_closed.store(true, Ordering::Release);
+    }
+
+    /// Stops hub publication for an owning container whose disposal is
+    /// requested but deferred (ADR-0190). Local subscribers still receive
+    /// each change until the disposal closes all publication.
+    pub(crate) fn close_hub_publication(&self) {
+        self.hub_publication_closed.store(true, Ordering::Release);
     }
 
     /// Returns the local collection-change stream. It receives each
@@ -1192,6 +1201,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             new_index,
         });
         self.local.send(message.clone());
+        // A local subscriber may request the owner's disposal; the hub then
+        // receives nothing for this change (spec/01 §1.4, ADR-0190).
+        if self.publication_closed.load(Ordering::Acquire)
+            || self.hub_publication_closed.load(Ordering::Acquire)
+        {
+            return;
+        }
         self.hub.send(message);
         if count_changed {
             self.hub

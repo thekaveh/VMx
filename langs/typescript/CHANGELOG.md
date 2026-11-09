@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COMP-049` conformance tests (ADR-0190, #1351). A container whose disposal is
+  requested during a change sends no hub message for it. TypeScript already
+  behaved this way.
 - `markSchedulerCancelled(scheduler)` (ADR-0200, #1481). A custom scheduler
   that cancels its queued work calls it before it unsubscribes, so VMx runs no
   hook and publishes no status for that work.
@@ -152,6 +155,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `HierarchicalVMBuilder`. `@thekaveh/vmx` 4.0 requires them (ADR-0009, #665).
 
 ### Fixed
+
+- A disposed `HierarchicalVM` node now refuses `addChild`, `removeChild`,
+  `reparentChild`, `invalidateChildren`, `invalidateSubtree` and
+  `attachMany`, also where the call would do nothing (ADR-0190, spec/18 §7.1,
+  #1318). A transfer out of a disposed parent refuses too. A refused call
+  changes nothing and publishes nothing. `attachMany` rejects a candidate
+  under a disposed parent, and `invalidateSubtree` skips a disposed
+  descendant. A refused call throws `Error`.
 
 - A current `AsyncResourceVM` loader that ends with its own cancellation now
   restores the saved stable state, as `cancel()` does, instead of installing

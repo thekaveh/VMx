@@ -326,14 +326,26 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Adds or transfers `child` beneath this node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::Disposed`] when this node or the child's current
+    /// parent is disposed, also when the call would do nothing (spec/18 §7.1).
     pub fn add_child(&self, child: Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
+        self.reject_if_disposed()?;
         self.attach_child(&child, false)
     }
 
     /// Removes `child` from this node without disposing it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::Disposed`] when this node is disposed, also when
+    /// `child` is not a member (spec/18 §7.1).
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
+        self.reject_if_disposed()?;
         self.try_children()?;
         let removed = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
@@ -365,12 +377,23 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Transfers `child` from its current parent beneath this node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::Disposed`] when this node or the child's current
+    /// parent is disposed (spec/18 §7.1).
     pub fn reparent_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
+        self.reject_if_disposed()?;
         self.attach_child(child, true)
     }
 
     fn attach_child(&self, child: &Self, explicit_reparent: bool) -> VmxResult<()> {
+        // A disposed parent's child list is frozen, so a transfer out of it
+        // refuses before the receiver materializes (spec/18 §7.1).
+        if let Some(parent) = child.parent() {
+            parent.reject_if_disposed()?;
+        }
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
         let (reparented, index) = loop {
@@ -380,8 +403,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 if lock(&self.inner.children).is_none() {
                     None
                 } else {
-                    self.ensure_not_reparenting_cycle_unlocked(child)?;
                     let old_parent = child.parent_unlocked();
+                    // Check again: the parent can change during materialization.
+                    if let Some(parent) = &old_parent {
+                        parent.reject_if_disposed()?;
+                    }
+                    self.ensure_not_reparenting_cycle_unlocked(child)?;
                     if old_parent.as_ref() == Some(self) {
                         return Ok(());
                     }
@@ -428,6 +455,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Attaches an out-of-order batch by stable item and parent keys.
+    ///
+    /// When this node or its structural root is disposed, every item is
+    /// returned as an [`BatchAttachRejectionReason::AttachmentFailed`]
+    /// rejection and nothing is parked (spec/18 §7.1).
     pub fn attach_many<K, FKey, FParent>(
         &self,
         items: Vec<Self>,
@@ -440,7 +471,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         FKey: Fn(&Self) -> VmxResult<K>,
         FParent: Fn(&Self) -> VmxResult<Option<K>>,
     {
-        if let Err(error) = self.reject_structural_reentry() {
+        let refused = self.reject_structural_reentry().and_then(|()| {
+            self.reject_if_disposed()?;
+            self.tree_root().reject_if_disposed()
+        });
+        if let Err(error) = refused {
             return BatchAttachResult {
                 added: Vec::new(),
                 duplicates: Vec::new(),
@@ -738,8 +773,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Detaches materialized children so the factory runs on the next read.
+    ///
+    /// A disposed node returns without a change (spec/18 §7.1).
     pub fn invalidate_children(&self) {
-        if self.reject_structural_reentry().is_err() {
+        if self.reject_structural_reentry().is_err() || self.reject_if_disposed().is_err() {
             return;
         }
         let discarded = {
@@ -770,14 +807,25 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Invalidates this node and every currently materialized descendant.
+    ///
+    /// A disposed node returns without a change. A disposed descendant keeps
+    /// its cache, and its materialized children are still invalidated
+    /// (spec/18 §7.1).
     pub fn invalidate_subtree(&self) {
+        if self.reject_structural_reentry().is_err() || self.reject_if_disposed().is_err() {
+            return;
+        }
+        self.invalidate_subtree_from_live_ancestor();
+    }
+
+    fn invalidate_subtree_from_live_ancestor(&self) {
         if self.reject_structural_reentry().is_err() {
             return;
         }
         let materialized_children = lock(&self.inner.children).clone();
         if let Some(children) = materialized_children {
             for child in children {
-                child.invalidate_subtree();
+                child.invalidate_subtree_from_live_ancestor();
             }
             self.invalidate_children();
         }
@@ -1016,6 +1064,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         }
         drop(state);
         ready.notify_all();
+    }
+
+    /// Refuses a structural call on a disposed node (spec/18 §7.1).
+    fn reject_if_disposed(&self) -> VmxResult<()> {
+        if self.status() == ConstructionStatus::Disposed {
+            return Err(VmxError::Disposed);
+        }
+        Ok(())
     }
 
     fn reject_structural_reentry(&self) -> VmxResult<()> {
