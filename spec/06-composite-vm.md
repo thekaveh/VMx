@@ -288,10 +288,12 @@ before admission failed, compensation destructs it back to its original state.
 When that child's construct is still in flight at the rollback (a background
 child), compensation does not wait. When the child's construct settles at
 `Constructed` and the child has no parent, VMx calls the child's
-`destruct()`. The failed operation does not report a failure of that call. A
-background child reports a destruct hook failure through its own
-background-failure path (chapter 02 §2.5). A child that settles anywhere
-else, or that has a parent by then, is left alone (ADR-0218, `COMP-054`).
+`destruct()`. Neither the failed operation nor the container reports a
+failure of that call. The failure goes where a failed fire-and-forget
+background hook of that child goes (chapter 02 §2.5). In Rust that is the
+child's `background_errors()` stream. A child that settles anywhere else, or
+that has a parent by then, is left alone (ADR-0218, `COMP-054`). The rollback
+clears the child's parent before it compensates the child.
 Add, insert, replacement, and factory or bulk population MUST recheck destination
 viability after successful construction hooks; destination disposal at that
 point rejects admission and performs the same exact rollback. Replacement

@@ -135,11 +135,15 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Changed
 
-- When a failed container change also fails its lifecycle compensation, the
-  reported error now carries the original failure and the first compensation
-  failure (ADR-0218, spec/06 §4.2, #1305, `COMP-040`). Swift returns
+- **Breaking:** when a failed container change also fails its lifecycle
+  compensation, the reported error now carries the original failure and the
+  first compensation failure (ADR-0218, spec/06 §4.2, #1305, `COMP-040`).
+  Swift returns
   `ContainerOwnershipError.attachmentFailed(ContainerRollbackError)`, with
-  `originalError` and `compensationError`.
+  `originalError` and `compensationError`. Before, the payload was the
+  compensation error. A caller that casts the `attachmentFailed` payload to
+  its own error type must now unwrap
+  `ContainerRollbackError.compensationError` or `originalError`.
 - The construct walk of a composite or group now counts members only
   (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
   joins a child, and again after the child settles. A child that a removal or

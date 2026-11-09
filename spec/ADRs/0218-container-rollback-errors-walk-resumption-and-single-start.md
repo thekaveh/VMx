@@ -117,8 +117,10 @@ simplest, most common-sense rule wins.
    auto-constructs, start a child only when no transition of that child is in
    flight. Each checks this together with its start call, so a start that
    another thread makes between a status read and the call is not repeated.
-   - A walk that finds a construct or destruct of the child in flight joins
-     it, also one that started after the walk read the status.
+   - A walk that finds a transition of the child in flight in the walk's
+     own direction joins it: a construct for a construct walk, a destruct
+     for a destruct walk. This includes one that started after the walk
+     read the status.
    - An add that finds a construct of the child in flight does not start it
      again and does not wait for it. The walk joins that construct.
    - A walk that joins a child whose `reconstruct()` is in its destruct phase
@@ -128,11 +130,15 @@ simplest, most common-sense rule wins.
    auto-started a previously `Destructed` child and that child's construct is
    still in flight at the rollback, compensation does not wait. When the
    child's construct settles at `Constructed` and the child has no parent,
-   VMx calls the child's `destruct()`. The failed operation does not report a
-   failure of that later call. A background child reports a destruct hook
-   failure through its own background-failure path (chapter 02 §2.5). A
+   VMx calls the child's `destruct()`. The failed operation and the
+   container do not report a failure of that later call. The failure goes
+   where a failed fire-and-forget background hook of that child goes
+   (chapter 02 §2.5). In TypeScript that is `reportUnhandled`. In Rust it is
+   the child's `background_errors()` stream. A
    child that settles anywhere else, or that has a parent by then, is left
-   alone.
+   alone. The rollback clears the child's parent before it compensates the
+   child, so a child that settles during the compensation call has no
+   parent.
 
 ### 2.3. Choices made under the owner's delegation
 
@@ -180,9 +186,9 @@ simplest, most common-sense rule wins.
 
 The implementation PR confirms the exact sites.
 
-- **C#.** Rules 1 to 3: no library change. Rule 4: the add, insert,
-  replacement and population paths of `CompositeVMBase` and `GroupVMBase`
-  mark the start record done after `EndMembershipTransaction`, not in
+- **C#.** Rules 1 to 3: no library change. Rule 4: the add, insert and
+  replacement paths of `CompositeVMBase` and `GroupVMBase` mark the start
+  record done after `EndMembershipTransaction`, not in
   `ContainerMembership.AutoConstructAttached`. Rule 5: `OnConstruct` of both
   bases skips `PopulateChildren` once disposal is requested. Rule 6:
   `ConstructOrJoinAsync`, `DestructOrJoinAsync` and the add's start call join

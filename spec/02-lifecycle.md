@@ -329,8 +329,9 @@ respect to other lifecycle operations on the same VM.
   container rolls back. `LIFE-022` covers this rule.
 - A walk starts a child only when no transition of the child is in flight. It
   checks this together with its start call (ADR-0218). A walk that finds a
-  construct or destruct of the child in flight joins it, also one that
-  another thread started after the walk read the status. A child whose
+  transition of the child in flight in the walk's own direction joins it: a
+  construct for a construct walk, a destruct for a destruct walk. This
+  includes one that another thread started after the walk read the status. A child whose
   `reconstruct()` is in its destruct phase settles at `Constructed`, so a
   container `destruct()` that joins it fails and rolls back. Rust container
   destruct walks do not join an in-flight destruct yet; the Rust parity

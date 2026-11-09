@@ -639,7 +639,9 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 - A failed add, insert, replacement or population that started a background
   child now returns that child to `Destructed` once its construct settles
   `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372, `COMP-054`,
-  `GRP-017`). Before, the child reached `Constructed` with no parent.
+  `GRP-017`). Before, the child reached `Constructed` with no parent. A
+  failure of that later `destruct()` goes to the child's own
+  `background_errors()` stream, not to the container's.
 
 - `NotificationHub::dispose()` sends no final empty snapshot (ADR-0197,
   #1476). It sends no value on `pending_stream()` and no `pending` message on
