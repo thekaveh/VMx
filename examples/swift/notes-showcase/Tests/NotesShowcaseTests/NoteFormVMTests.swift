@@ -121,8 +121,9 @@ private actor WriteFirstRepository: NoteRepository {
     var heldCount: Int { held.count }
 
     func release(_ index: Int) {
-        held[index]?.resume()
+        let continuation = held[index]
         held[index] = nil
+        continuation?.resume()
     }
 
     func saveNote(_ note: NoteModel) async throws {
