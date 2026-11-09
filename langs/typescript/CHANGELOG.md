@@ -109,7 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   #1318). A transfer out of a disposed parent refuses too. A refused call
   changes nothing and publishes nothing. `attachMany` rejects a candidate
   under a disposed parent, and `invalidateSubtree` skips a disposed
-  descendant. It throws `Error`.
+  descendant. A refused call throws `Error`.
 - A `FormVM` call nested in a preparation callback or an `errorsChanged`
   observer of `setModel` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,

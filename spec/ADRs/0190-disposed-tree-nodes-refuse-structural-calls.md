@@ -182,8 +182,9 @@ The catalog grows from 451 to 453 library IDs (458 in total).
 ## 5. Consequences
 
 - Chapter 18 gains §7.1, and §6 refers to it for batches.
-- Chapter 01 §1.4 replaces "a disposed container publishes nothing" with the
-  rule of §2.2. Chapter 06 §4, §4.2 and §4.3 and chapter 07 §1 refer to it.
+- Chapter 01 §1.4 keeps "a disposed container publishes nothing" and adds the
+  rule of §2.2 after it. Chapter 06 §4, §4.2 and §4.3 and chapter 07 §1 refer
+  to it.
 - `COMP-045` keeps its text: a disposed container still publishes nothing.
 - The disposal contract describes both rules.
 - A hub observer no longer sees a `Remove` from a container that disposes

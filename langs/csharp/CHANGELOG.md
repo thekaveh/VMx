@@ -14,7 +14,7 @@ All notable changes to the C# flavor are documented here. The format is based on
   §7.1, #1318). A transfer out of a disposed parent refuses too. A refused
   call changes nothing and publishes nothing. `AttachMany` rejects a candidate
   under a disposed parent, and `InvalidateSubtree` skips a disposed
-  descendant. It throws `ObjectDisposedException`.
+  descendant. A refused call throws `ObjectDisposedException`.
 - Fixed: a `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage`
   once its disposal is requested, also when the disposal is deferred
   (ADR-0190, spec/01 §1.4, #1351). A local subscriber or `OnCurrentChanged`

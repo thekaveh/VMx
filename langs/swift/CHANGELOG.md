@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `HierarchyError.disposed` (ADR-0190, #1318).
+- `HierarchyError.disposed` (ADR-0190, #1318). An exhaustive `switch` over
+  `HierarchyError` must now handle `.disposed`.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -79,8 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   #1318). A transfer out of a disposed parent refuses too. A refused call
   changes nothing and publishes nothing. `attachMany` rejects a candidate
   under a disposed parent, and `invalidateSubtree` skips a disposed
-  descendant. It reports `HierarchyError.disposed`; `attachMany` rejects
-  every item and the invalidation methods return without a change.
+  descendant. A refused call reports `HierarchyError.disposed`;
+  `attachMany` rejects every item and the invalidation methods return without
+  a change.
 - A `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage` once
   its disposal is requested, also when the disposal is deferred (ADR-0190,
   spec/01 §1.4, #1351). A local subscriber or `onCurrentChanged` callback

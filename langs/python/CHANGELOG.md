@@ -75,7 +75,7 @@ below for them.
   §7.1, #1318). A transfer out of a disposed parent refuses too. A refused
   call changes nothing and publishes nothing. `attach_many` rejects a
   candidate under a disposed parent, and `invalidate_subtree` skips a disposed
-  descendant. It raises `RuntimeError`.
+  descendant. A refused call raises `RuntimeError`.
 - A `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage` once its
   disposal is requested, also when the disposal is deferred (ADR-0190, spec/01
   §1.4, #1351). A local subscriber or `on_current_changed` callback that
