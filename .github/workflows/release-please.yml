@@ -91,6 +91,8 @@ jobs:
           ref: ${{ steps.release-pr.outputs.head }}
           path: release-pr
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+      # The script also rewrites Release Please's `*` bullets and blank-line
+      # runs, so the release PR passes the conformance mdformat step (#1391).
       - name: Restore the canonical Unreleased changelog section
         if: steps.release-pr.outputs.found == 'true'
         env:
@@ -100,7 +102,7 @@ jobs:
           python3 tools/ensure-release-changelog-unreleased.py \
             release-pr/langs/python/CHANGELOG.md
           if git -C release-pr diff --quiet -- langs/python/CHANGELOG.md; then
-            echo "The Python changelog already has its canonical Unreleased section."
+            echo "The Python changelog already has its canonical Unreleased section and format."
             exit 0
           fi
           git -C release-pr config user.name "github-actions[bot]"

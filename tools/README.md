@@ -101,7 +101,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `compare-coverage-runs.py` — Compares llvm-cov exports of repeated runs and lists where their coverage differs.
 - `coverage-floors.json` — Recorded Rust and Swift coverage floors read by `check-coverage-floor.py`.
 - `create-starter.py` — Generates an application starter from `starters/<channel>/` outside the checkout, installs the exact public package and runs its smoke test (channels: `typescript-node`, `python-console`, `swift-package`, `react-vite`). Each template directory has a file allowlist, so any stray file fails generation, including `__pycache__`, `.mypy_cache`, `node_modules` and `.build`. Remove ignored files with `git clean -fdX starters/` (list them first with `-n`). Run the Python channel with an interpreter outside the checkout, not `langs/python/.venv`.
-- `ensure-release-changelog-unreleased.py` — Restores the canonical Unreleased section after Release Please runs.
+- `ensure-release-changelog-unreleased.py` — Restores the canonical Unreleased section after Release Please runs, and rewrites Release Please's `*` bullets and blank-line runs into the mdformat-clean form.
 - `extract-release-notes.awk` — Extracts one changelog section for a flavor's GitHub Release (Python, TypeScript, React, Rust, Swift).
 - `render-csharp-release-notes.py` — Renders C# GitHub Release notes from a selected-package manifest.
 - `smoke-npm-consumer.py` — Installs and verifies `@thekaveh/vmx` from a local tarball or the public npm registry.
