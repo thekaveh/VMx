@@ -714,12 +714,12 @@ def test_reassigning_the_current_child_after_disposed_is_a_no_op(async_selection
 
 
 @pytest.mark.parametrize("path", ["deselect-not-current", "select-non-member"])
-def test_child_paths_that_change_nothing_are_refused_inside_the_owner_transaction(
+def test_child_paths_are_silent_inside_the_owner_transaction(
     path: str,
 ) -> None:
-    # Every selection call fails on the thread that owns an uncommitted
-    # transaction, also one that would change nothing (spec/06 §4.3 rule 4),
-    # as the C# child paths do through DeselectComponent and SelectComponent.
+    # A child path refused on the thread that owns an uncommitted transaction
+    # (spec/06 §4.3 rule 4) changes nothing and raises nothing (spec/05 §6,
+    # ADR-0188, #1424).
     hub: MessageHub[object] = MessageHub()
     dispatcher = _immediate()
     keep = _child(hub, dispatcher, "keep")
@@ -742,9 +742,7 @@ def test_child_paths_that_change_nothing_are_refused_inside_the_owner_transactio
 
     root.vm.add(late)
 
-    assert len(hook_errors) == 1
-    assert isinstance(hook_errors[0], RuntimeError)
-    assert "already in progress" in str(hook_errors[0])
+    assert hook_errors == []
     assert root.vm.current is None
     assert root.changes == []
 

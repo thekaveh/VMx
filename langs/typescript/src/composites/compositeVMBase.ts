@@ -122,23 +122,39 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     return this._parent;
   }
 
+  /**
+   * The child `select()` path. Every refusal changes nothing and raises
+   * nothing (spec/05 §6, spec/06 §3.1, ADR-0188). An asynchronous delivery
+   * checks Constructed again (#1229).
+   */
   selectChild(vm: ComponentVMBase): void {
     for (const child of this._children) {
       if (child === vm) {
-        // A member that is not Constructed is refused as silently as a
-        // non-member (spec/05 §6, spec/06 §3.1, #1229). Inside its own
-        // uncommitted transaction the caller still gets rule 4's error, and
-        // an asynchronous delivery checks Constructed again.
-        if (child.status !== ConstructionStatus.Constructed && !this.#uncommitted) return;
-        this._setCurrent(child, this.#asyncSelection, true);
+        if (child.status !== ConstructionStatus.Constructed) return;
+        this._setCurrent(child, this.#asyncSelection, true, true);
         return;
       }
     }
   }
 
+  /** The child `deselect()` path; a refusal is silent too (ADR-0188). */
   deselectChild(vm: ComponentVMBase): void {
     if (this.#current === vm) {
-      this._setCurrent(null, this.#asyncSelection);
+      this._setCurrent(null, this.#asyncSelection, false, true);
+    }
+  }
+
+  /**
+   * Rule 9, the dispose clear (spec/06 §4.3, ADR-0189): a child that
+   * published Disposed from its own `dispose()` stops being current. It
+   * clears only while that child is still current, and it does not run
+   * during this composite's own disposal.
+   */
+  childDisposed(vm: ComponentVMBase): void {
+    if (this.#disposePending() || this.status === ConstructionStatus.Disposed) return;
+    const current = this.#current;
+    if (current !== null && current._ownershipIdentity === vm._ownershipIdentity) {
+      this.#commitCurrent(null);
     }
   }
 
@@ -219,7 +235,9 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   // ── Selection methods ─────────────────────────────────────────────────────
 
   selectComponent(vm: VM): void {
-    if (!this.canSelectComponent(vm)) {
+    // A call that only rule 8 (Destructing) refuses is silent in _setCurrent
+    // (spec/06 §3.1, ADR-0188).
+    if (!this.#admitsSelectComponent(vm)) {
       throw new Error(
         `Cannot select '${vm.name}': canSelectComponent returned false.`,
       );
@@ -238,16 +256,21 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   /**
-   * True only if {@link selectComponent} would succeed now: `vm` is an
+   * True only if {@link selectComponent} would select `vm` now: `vm` is an
    * admitted, constructed member, no disposal of this composite is pending,
-   * and no membership transaction of this composite is uncommitted (spec/06
-   * §3.1, ADR-0173).
+   * this composite is not Destructing, and no membership transaction of this
+   * composite is uncommitted (spec/06 §3.1, ADR-0173, ADR-0188).
    */
   canSelectComponent(vm: VM): boolean {
+    return this.#admitsSelectComponent(vm) && this.status !== ConstructionStatus.Destructing;
+  }
+
+  /** Every `canSelectComponent` check except rule 8 (Destructing). */
+  #admitsSelectComponent(vm: VM): boolean {
     return (
       !this.#uncommitted &&
       !this.#disposePending() &&
-      this.#isAdmittedMember(vm) &&
+      this.#isSelectableMember(vm) &&
       vm.status === ConstructionStatus.Constructed
     );
   }
@@ -750,8 +773,16 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.#uncommitted = false;
   }
 
-  #isAdmittedMember(vm: VM): boolean {
-    return this._children.includes(vm) && !this.#unadmitted.has(vm);
+  /**
+   * Rule 2: an admitted member that is not Disposed (spec/06 §4.3, ADR-0189).
+   * A Disposed child stays a member but is never selectable.
+   */
+  #isSelectableMember(vm: VM): boolean {
+    return (
+      vm.status !== ConstructionStatus.Disposed &&
+      this._children.includes(vm) &&
+      !this.#unadmitted.has(vm)
+    );
   }
 
   /** A child population left pending is joined by the child walk, never restarted. */
@@ -859,11 +890,36 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
    * delivery validates again and drops silently when no longer valid.
    * `requireConstructed` (`selectComponent` and `selectChild`) makes the
    * delivery also drop a child that is no longer Constructed (#1220, #1229).
+   * `silent` (the child paths) drops a refusal instead of raising it
+   * (ADR-0188). Rule 8 (Destructing) is always silent.
    */
-  protected _setCurrent(value: VM | null, asyncSel: boolean, requireConstructed = false): void {
+  protected _setCurrent(
+    value: VM | null,
+    asyncSel: boolean,
+    requireConstructed = false,
+    silent = false,
+  ): void {
+    const refusal = this.#selectionRefusal(value);
+    if (refusal !== null) {
+      if (silent) return;
+      throw refusal;
+    }
+    // Rule 8: a non-null selection while Destructing changes nothing and
+    // raises nothing, so destruct() ends with Current null (ADR-0188).
+    if (value !== null && this.status === ConstructionStatus.Destructing) return;
+    if (asyncSel) {
+      const captured = value;
+      this._scheduleForeground(() => this.#deliverSelection(captured, requireConstructed));
+    } else {
+      this.#commitCurrent(value);
+    }
+  }
+
+  /** The raising refusals of rules 2, 3 and 4, or null when none applies. */
+  #selectionRefusal(value: VM | null): Error | null {
     // Rule 4: the caller owns an uncommitted transaction of this composite.
     if (this.#uncommitted) {
-      throw new Error("Container membership transaction is already in progress");
+      return new Error("Container membership transaction is already in progress");
     }
     // Rule 3 for a non-null value; after Disposed every call keeps its
     // documented refusal (chapter 01 §4).
@@ -871,20 +927,16 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this.status === ConstructionStatus.Disposed ||
       (value !== null && this.#disposePending())
     ) {
-      throw new Error("Cannot change the selection while the container is disposing");
+      return new Error("Cannot change the selection while the container is disposing");
     }
-    // Rule 2: an attached but unadmitted child is not a member.
-    if (value !== null && !this.#isAdmittedMember(value)) {
-      throw new Error(
+    // Rule 2: an attached but unadmitted child, or a Disposed child, is not a
+    // member for selection.
+    if (value !== null && !this.#isSelectableMember(value)) {
+      return new Error(
         `Cannot set current to '${value.name}': it is not a member of this composite.`,
       );
     }
-    if (asyncSel) {
-      const captured = value;
-      this._scheduleForeground(() => this.#deliverSelection(captured, requireConstructed));
-    } else {
-      this.#commitCurrent(value);
-    }
+    return null;
   }
 
   /**
@@ -894,7 +946,9 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
    */
   #deliverSelection(value: VM | null, requireConstructed: boolean): void {
     if (this.#uncommitted || this.status === ConstructionStatus.Disposed) return;
-    if (value !== null && (this.#disposePending() || !this.#isAdmittedMember(value))) return;
+    if (value !== null && (this.#disposePending() || !this.#isSelectableMember(value))) return;
+    // Rule 8: a delivery while Destructing is dropped (ADR-0188).
+    if (value !== null && this.status === ConstructionStatus.Destructing) return;
     if (value !== null && requireConstructed && value.status !== ConstructionStatus.Constructed) {
       return;
     }
@@ -905,10 +959,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
    * The construct walk's non-raising validated assignment (spec/06 §3.2,
    * ADR-0165, ADR-0173): a silent no-op while disposal is pending, inside an
    * uncommitted transaction of this composite, or for a value that is not an
-   * admitted member.
+   * admitted member or is Disposed (ADR-0189).
    */
   #applySelectorResult(value: VM): void {
-    if (this.#uncommitted || this.#disposePending() || !this.#isAdmittedMember(value)) return;
+    if (this.#uncommitted || this.#disposePending() || !this.#isSelectableMember(value)) return;
     this.#commitCurrent(value);
   }
 
