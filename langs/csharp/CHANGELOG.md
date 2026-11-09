@@ -14,6 +14,35 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [3.30.0] — unreleased source version
 
+- Fixed: an add now ends its start attempt after it ends its membership
+  transaction (ADR-0218, spec/06 §5.1, #1371). A container that a late add
+  resumes publishes `Constructed` outside that add's transaction, so a
+  `Constructed` subscriber can add a child.
+
+- Fixed: a container whose construct hook a foreign `dispose()` superseded no
+  longer calls its children factory, and its `construct()` returns without an
+  error (ADR-0218, spec/02 §2.4, #1369). An `add()` during disposal still
+  fails.
+
+- Fixed: a walk or an auto-construct add no longer fails when another thread
+  starts the same child between its status check and its start call
+  (ADR-0218, spec/02 §6, spec/06 §5.1, #1370, #1375). The walk joins that
+  transition, and the add leaves it to the walk. This covers construct and
+  destruct.
+
+- Fixed: a failed add, insert, replacement or population that started a
+  background child now returns that child to `Destructed` once its construct
+  settles `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372,
+  `COMP-054`, `GRP-017`). Before, the child reached `Constructed` with no
+  parent.
+
+- Added: `COMP-053` conformance tests (ADR-0218, #1312). The selector receives
+  the live membership. This flavor already behaved this way.
+
+- Added: `COMP-040` tests now assert that the rollback error carries the
+  original and the first compensation failure (ADR-0218, #1305). This flavor
+  already behaved this way.
+
 - Changed: the construct walk of a composite or group now counts members only
   (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
   joins a child, and again after the child settles. A child that a removal or

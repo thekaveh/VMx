@@ -351,17 +351,27 @@ public sealed class SelectionWithoutTransactionTests
             () =>
             {
                 dispatcher.RunAll(); // late's hook runs here, on a non-owner thread
-                return root.Vm.Status != ConstructionStatus.Constructing && !root.Vm.HasInFlightLifecycleForTesting;
+                return late.Status == ConstructionStatus.Constructed;
             },
             HangGuard).Should().BeTrue();
 
         hookError.Should().BeNull();
+        // The walk waits for the late add's start attempt, which ends only
+        // with its transaction (ADR-0218 rule 4).
+        root.Vm.Status.Should().Be(ConstructionStatus.Constructing);
+        add.Finish();
+        SpinWait.SpinUntil(
+            () =>
+            {
+                dispatcher.RunAll();
+                return root.Vm.Status != ConstructionStatus.Constructing && !root.Vm.HasInFlightLifecycleForTesting;
+            },
+            HangGuard).Should().BeTrue();
         root.Vm.Status.Should().Be(ConstructionStatus.Constructed);
         root.Vm.Current.Should().BeSameAs(first);
         first.IsCurrent.Should().BeTrue();
         root.Changes.Should().Equal("first");
         late.Status.Should().Be(ConstructionStatus.Constructed);
-        add.Finish();
     }
 
     // ── #1146: the caller's own uncommitted transaction ─────────────────────

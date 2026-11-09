@@ -98,6 +98,14 @@ internal interface IComponentVMInternals
     Task ConstructOrJoinAsync();
     Task JoinConstructAsync();
     Task? TryJoinDestructAsync();
+
+    /// <summary>
+    /// Under the lifecycle gate: a construct is in flight (or its Constructed
+    /// state awaits publication), or the VM is Constructed. An add that lost
+    /// the start of its child to the walk leaves the child alone then
+    /// (ADR-0218 rule 6).
+    /// </summary>
+    bool ConstructInFlightOrConstructed();
 }
 
 /// <summary>
@@ -141,10 +149,26 @@ internal static class ComponentVMExtensions
 
     // Joins a destruct already in flight (#754); otherwise destructs through
     // the VM's own DestructAsync, so a forwarding decorator's override still
-    // runs (spec/09). A custom IComponentVM exposes no join: its DestructAsync
-    // rejects a destruct already in flight.
+    // runs (spec/09). A destruct that another thread starts between the join
+    // check and that call is joined too (ADR-0218 rule 6, #1375). A custom
+    // IComponentVM exposes no join: its DestructAsync rejects a destruct
+    // already in flight.
     internal static Task DestructOrJoinAsync(this IComponentVM vm)
-        => (vm as IComponentVMInternals)?.TryJoinDestructAsync() ?? vm.DestructAsync();
+    {
+        var internals = vm as IComponentVMInternals;
+        if (internals?.TryJoinDestructAsync() is { } joined) return joined;
+        (vm as ComponentVMBase)?.DestructOrJoinProbeForTesting?.Invoke();
+        try
+        {
+            return vm.DestructAsync();
+        }
+        catch (StatusTransitionException) when (internals is not null)
+        {
+            if (internals.TryJoinDestructAsync() is { } started) return started;
+            if (vm.Status == ConstructionStatus.Destructed) return Task.CompletedTask;
+            throw;
+        }
+    }
 }
 
 /// <summary>Shared identity validation and old-parent staging for container mutations.</summary>
@@ -1343,7 +1367,34 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 return RegisterLifecycleWaiter().Task;
         }
 
-        return ConstructAsync();
+        ConstructOrJoinProbeForTesting?.Invoke();
+        try
+        {
+            return ConstructAsync();
+        }
+        catch (StatusTransitionException)
+        {
+            // Another thread, such as an auto-construct add, started this
+            // construct after the check above: join it (ADR-0218 rule 6).
+            lock (_gate)
+            {
+                if (_status == ConstructionStatus.Constructed && !_constructPublicationPending)
+                    return Task.CompletedTask;
+                if ((_status == ConstructionStatus.Constructing && _inFlight) || _constructPublicationPending)
+                    return RegisterLifecycleWaiter().Task;
+            }
+            throw;
+        }
+    }
+
+    bool IComponentVMInternals.ConstructInFlightOrConstructed()
+    {
+        lock (_gate)
+        {
+            return _status == ConstructionStatus.Constructed ||
+                (_status == ConstructionStatus.Constructing && _inFlight) ||
+                _constructPublicationPending;
+        }
     }
 
     // ── Lifecycle: Destruct ─────────────────────────────────────────────────
@@ -2371,6 +2422,20 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// test can start a disposal in that window (#1167).
     /// </summary>
     internal Action? AfterHookLeaseReleasedForTesting { get; set; }
+
+    /// <summary>
+    /// Test-only: runs in a container walk's construct of this child after
+    /// its join check found no construct in flight and before it starts one,
+    /// so a test can start the child on another thread in that window (#1370).
+    /// </summary>
+    internal Action? ConstructOrJoinProbeForTesting { get; set; }
+
+    /// <summary>
+    /// Test-only: runs in a container walk's destruct of this child after its
+    /// join check found no destruct in flight and before it starts one, so a
+    /// test can start the child's destruct in that window (#1375).
+    /// </summary>
+    internal Action? DestructOrJoinProbeForTesting { get; set; }
 
     /// <summary>
     /// Test-only: runs on a thread whose wait for one of this VM's lifecycle
