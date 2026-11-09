@@ -5,8 +5,9 @@ only after it releases the gate, so the container's construct walk can pull
 the child first. An add that will start its child while the container is
 Constructing registers a start record as it attaches the child, and marks it
 done right after its construct attempt. The walk never starts a late child: it
-waits for that attempt, then joins the child, so a child whose own
-construction failed rolls the container back. A late child without a record
+waits for that attempt, then joins the child if it is still a member
+(ADR-0186). A failed add marks its record done only after its undo detached
+the child, so the walk then skips it. A late child without a record
 was not started by an add, so the walk skips it. Each construct walk owns a
 scope of records, so a stale walk (abandoned, failed, or no longer current)
 never takes or clears another walk's records, and a scope's records go with it.
@@ -29,6 +30,9 @@ class _LateChildStage(Enum):
     """An add attached the child with a start record and has not started it."""
     WALK_WAITING_ON_ADD = "walk_waiting_on_add"
     """The walk waits for an add to finish its start attempt."""
+    SEALING = "sealing"
+    """The walk's commit step starts, before it takes the membership gate
+    (the probe's child is the container)."""
     WALK_ENDED = "walk_ended"
     """A construct walk ended its scope (the probe's child is the container)."""
 
@@ -62,9 +66,15 @@ class _StartRecord:
 class _LateWalk:
     """One construct walk's scope of start records."""
 
-    def __init__(self, owner: _LateChildStarts, container: object) -> None:
+    def __init__(
+        self,
+        owner: _LateChildStarts,
+        container: object,
+        is_member: Callable[[object], bool] | None,
+    ) -> None:
         self._owner = owner
         self._container = container
+        self._is_member = is_member
         self._records: dict[int, tuple[object, _StartRecord]] = {}
         # The records this walk took; only the sequential walk reads it.
         self._taken: dict[int, _StartRecord] = {}
@@ -127,6 +137,10 @@ class _LateWalk:
 
         def join_after_attempt(_: Future[None]) -> None:
             try:
+                # A child that left the container is not joined (ADR-0186).
+                if self._is_member is not None and not self._is_member(child):
+                    joined.set_result(None)
+                    return
                 pending = _join_now(child)
             except BaseException as error:
                 joined.set_exception(error)
@@ -155,9 +169,15 @@ class _LateChildStarts:
         # Test-only seam: runs at each stage. Production code never sets it.
         self.probe_for_testing: Callable[[object, _LateChildStage], None] | None = None
 
-    def begin_walk(self, container: object) -> _LateWalk:
-        """Start a construct walk's scope, before its initial snapshot."""
-        walk = _LateWalk(self, container)
+    def begin_walk(
+        self, container: object, is_member: Callable[[object], bool] | None = None
+    ) -> _LateWalk:
+        """Start a construct walk's scope, before its initial snapshot.
+
+        *is_member* reads the container's membership; the walk joins a late
+        child only while it is a member (ADR-0186).
+        """
+        walk = _LateWalk(self, container, is_member)
         with self._lock:
             self._current = walk
         return walk

@@ -462,6 +462,11 @@ class _ComponentVMBase(ABC):
         # success nor its rollback status (#755). A commit after a hook is
         # dropped the same way (#1167).
         self._child_transition_abandoned: bool = False
+        # Set under the lifecycle lock when a raising hook abandons its child
+        # walk, before the walk is cancelled. The walk's commit step reads it
+        # under the same lock, so an abandoned walk never writes Constructed
+        # (ADR-0186, #1374). Each admitted hook clears it.
+        self._child_walk_cancelled: bool = False
         # The deferred completion this VM waits for, so disposal can abandon it.
         self._pending_deferred_future: Future[None] | None = None
 
@@ -1299,6 +1304,7 @@ class _ComponentVMBase(ABC):
             WAITS.acquire(lease, lease.owner_thread)
             # Each hook starts with a fresh deferral slot.
             self._deferred_lifecycle_future = None
+            self._child_walk_cancelled = False
         try:
             with _lifecycle_hook_scope(self):
                 hook()
@@ -1308,7 +1314,11 @@ class _ComponentVMBase(ABC):
             # VM created is cancelled: it takes no further step, but an
             # ``after`` that has already started runs to its end (#745).
             # A future the subclass supplied is only dropped, not cancelled,
-            # because its owner may still resolve it.
+            # because its owner may still resolve it. The flag is set under
+            # the lifecycle lock first, so a walk already at its commit step
+            # writes no Constructed (ADR-0186, #1374).
+            with self._lifecycle_lock:
+                self._child_walk_cancelled = True
             abandoned = self._take_deferred_lifecycle_future()
             if abandoned is not None and abandoned in _CHILD_WALK_FUTURES:
                 abandoned.cancel()
@@ -1459,6 +1469,7 @@ class _ComponentVMBase(ABC):
         joined: Iterable[object] = (),
         join: Callable[[object], Future[None] | None] | None = None,
         seal: Callable[[], ComponentVMProto | None] | None = None,
+        is_member: Callable[[object], bool] | None = None,
     ) -> Future[None]:
         """Internal: the containers' variant of :meth:`_transition_children`.
 
@@ -1475,6 +1486,11 @@ class _ComponentVMBase(ABC):
         commit step ``seal`` returns a child added after the walk's last scan,
         which the walk then joins, or commits the Constructed state and returns
         ``None`` (spec/06 §5.1).
+
+        With ``is_member``, the walk counts members only (ADR-0186). It skips
+        a child that is no longer a member before it starts or joins it, and
+        it ignores the result of a child that left the container while the
+        walk waited on it.
         """
         if not _lifecycle_hook_is_running():
             raise RuntimeError(
@@ -1558,6 +1574,8 @@ class _ComponentVMBase(ABC):
                 if stopped():
                     return
                 try:
+                    if is_member is not None and not is_member(child):
+                        continue
                     child_joined = is_joined(child)
                     joining = join(child) if child_joined and join is not None else None
                     if joining is not None:
@@ -1594,7 +1612,15 @@ class _ComponentVMBase(ABC):
                                 f"child '{current.name}' did not reach {expected.name}"
                             )
                     except BaseException as error:
-                        fail(error)
+                        failure: BaseException = error
+                        try:
+                            # A child that left the container while the walk
+                            # waited on it does not fail the walk (ADR-0186).
+                            if is_member is not None and not is_member(current):
+                                return True
+                        except BaseException as member_error:
+                            failure = member_error
+                        fail(failure)
                         return False
                     return True
 
@@ -1782,11 +1808,13 @@ class _ComponentVMBase(ABC):
         """
         with self._lifecycle_lock:
             # Once disposal started, the commit is dropped (spec/02 §7.2), so
-            # the state is not flipped either.
+            # the state is not flipped either. A walk that its raising hook
+            # abandoned commits nothing (ADR-0186, #1374).
             if (
                 self._status is ConstructionStatus.CONSTRUCTING
                 and self._in_flight
                 and not self._child_transition_abandoned
+                and not self._child_walk_cancelled
             ):
                 self._status = ConstructionStatus.CONSTRUCTED
                 self._construct_publication_pending = True

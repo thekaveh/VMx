@@ -386,3 +386,88 @@ def test_walk_holds_each_visited_child_until_it_ends() -> None:
     _settle(harness)
 
     assert alive == [True], "the walk keeps a visited child alive while it runs"
+
+
+@pytest.mark.parametrize("kind", ["composite", "group"])
+@pytest.mark.parametrize("other_thread", [True, False])
+def test_add_in_the_commit_window_follows_add_after_constructed(
+    kind: str, other_thread: bool
+) -> None:
+    """An add between the commit step and the publication reads CONSTRUCTED (ADR-0186, #1374)."""
+    harness = _create(kind)
+    seen: list[ConstructionStatus] = []
+
+    _in_commit_window(harness, lambda: seen.append(_add_late(harness, other_thread=other_thread)))
+
+    assert seen == [S.CONSTRUCTED], "the add reads the committed CONSTRUCTED"
+    assert harness.late_when_root_constructed is S.CONSTRUCTING, (
+        "the walk does not join the child; the root publishes without waiting for it"
+    )
+    assert harness.statuses.count("root:CONSTRUCTED") == 1
+    assert harness.late is not None and harness.late.status is S.CONSTRUCTED
+    assert harness.late_runs == 1
+
+
+@pytest.mark.parametrize("kind", ["composite", "group"])
+def test_a_walk_its_raising_hook_abandoned_never_commits_constructed(kind: str) -> None:
+    """The commit step checks for an abandoned walk under the status lock (ADR-0186, #1374).
+
+    The container's construct hook starts the walk, defers its completion,
+    then raises. The raise cancels the walk while the walk is at its commit
+    step on another thread. The commit step must not write CONSTRUCTED.
+    """
+    harness = _create(kind)
+    root = harness.root
+    started = threading.Event()
+    raise_now = threading.Event()
+    cancelled = threading.Event()
+    sealed = threading.Event()
+    after_seal: list[ConstructionStatus] = []
+    errors: list[BaseException] = []
+    start_walk = root._on_construct
+
+    def raising_hook() -> None:
+        start_walk()  # starts the walk and defers the hook's completion
+        started.set()
+        assert raise_now.wait(HANG_GUARD), "the walk reaches its commit step"
+        raise RuntimeError("hook raised after deferring")
+
+    root._on_construct = raising_hook
+
+    def probe(_child: object, stage: _LateChildStage) -> None:
+        if stage is _LateChildStage.SEALING:
+            # The walk is at its commit step on this thread; the hook now raises.
+            raise_now.set()
+            assert cancelled.wait(HANG_GUARD), "the raising hook cancels the walk"
+        elif stage is _LateChildStage.WALK_ENDED and not cancelled.is_set():
+            # The hook's thread cancels the walk; hold it until the commit step ran.
+            cancelled.set()
+            sealed.wait(3 * HANG_GUARD)
+
+    root._late_starts.probe_for_testing = probe
+
+    def construct() -> None:
+        try:
+            root.construct()
+        except BaseException as error:
+            errors.append(error)
+
+    hook_thread = threading.Thread(target=construct, daemon=True)
+    hook_thread.start()
+    try:
+        assert started.wait(HANG_GUARD), "the hook starts the walk"
+        harness.bg.run_all()  # the anchor's hook; its CONSTRUCTED goes to the foreground
+        harness.fg.run_all()  # the walk resumes here and runs its commit step
+        assert raise_now.is_set(), "the walk reached its commit step"
+        after_seal.append(root.status)
+    finally:
+        sealed.set()
+        raise_now.set()
+        hook_thread.join(HANG_GUARD)
+    assert not hook_thread.is_alive()
+    harness.fg.run_all()
+
+    assert [str(error) for error in errors] == ["hook raised after deferring"]
+    assert after_seal == [S.CONSTRUCTING], "the abandoned walk did not commit CONSTRUCTED"
+    assert root.status is S.DESTRUCTED
+    assert "root:CONSTRUCTED" not in harness.statuses
