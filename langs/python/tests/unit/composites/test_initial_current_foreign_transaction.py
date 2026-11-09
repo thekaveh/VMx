@@ -4,9 +4,9 @@ holds the composite's membership transaction (spec/06 §3.2, #1064).
 The assignment is non-raising and never waits for the foreign transaction, so
 the composite reaches Constructed with the selected child current. It selects
 only committed members: a child that an in-flight add attached but has not
-admitted is not contained yet. Mirrors the C# InitialCurrentForeignTransactionTests,
-except the owner-thread case: in C# the walk resumes on a pool thread, never
-inside the add's own completion callback.
+admitted is not contained yet. A walk that waits on a late add's start
+attempt resumes only after that add ended its transaction (ADR-0218). Mirrors
+the C# InitialCurrentForeignTransactionTests.
 """
 
 from __future__ import annotations
@@ -130,9 +130,12 @@ def _start(action: Any, errors: list[BaseException]) -> threading.Thread:
 
 
 @pytest.mark.parametrize("owner_waits_for_walk", [False, True])
-def test_selector_assigns_while_another_thread_holds_the_add_transaction(
+def test_walk_selects_after_the_late_add_ends_its_transaction(
     owner_waits_for_walk: bool,
 ) -> None:
+    # The walk waits on the late add's start attempt. The add ends that
+    # attempt only after it ends its transaction, so the walk selects and
+    # publishes Constructed after the owner's handler returns (ADR-0218).
     bg, dispatcher, hub = _services()
     first = _child(hub, dispatcher, "first", background=True)
     late = _child(hub, dispatcher, "late", background=True)
@@ -148,7 +151,8 @@ def test_selector_assigns_while_another_thread_holds_the_add_transaction(
         in_handler.set()
         # The transaction owner holds its committed add transaction here.
         if owner_waits_for_walk:
-            owner_saw_constructed.append(wait_event(root.constructed))
+            # A negative window: the walk cannot finish inside this add.
+            owner_saw_constructed.append(root.constructed.wait(0.05))
         else:
             wait_event(release, 2 * HANG_GUARD)
 
@@ -158,15 +162,18 @@ def test_selector_assigns_while_another_thread_holds_the_add_transaction(
     worker = _start(lambda: root.vm.add(late), errors)
     assert wait_event(in_handler)
 
-    bg.run_all()  # the walk resumes on this thread and assigns the selector result
-    assert root.vm.status is S.CONSTRUCTED
+    bg.run_all()  # first settles; the walk then waits on the late add
+    if not owner_waits_for_walk:
+        assert root.vm.status is S.CONSTRUCTING
     release.set()
     join_thread(worker, 3 * HANG_GUARD)
     assert not worker.is_alive()
+    bg.run_all()
+    assert root.vm.status is S.CONSTRUCTED
 
     assert errors == []
     if owner_waits_for_walk:
-        assert owner_saw_constructed == [True]
+        assert owner_saw_constructed == [False]
     assert root.vm.current is first
     assert first.is_current
     assert root.changes == ["first"]
@@ -245,15 +252,19 @@ def test_dispose_from_the_selector_publication_defers_to_the_lease(foreign_owner
     # A dispose from the selection's own callback defers until the publication
     # ends; it must not wait for another thread's transaction (spec/06 §3.2).
     bg, dispatcher, hub = _services()
+    extra = _child(hub, dispatcher, "extra")
     first = _child(hub, dispatcher, "first", background=True)
-    late = _child(hub, dispatcher, "late", background=True)
     seen: list[S] = []
 
     def dispose_root(_value: ComponentVM | None) -> None:
         root.vm.dispose()
         seen.append(root.vm.status)
 
-    root = _Root([first], hub, dispatcher, on_current=dispose_root)
+    # The foreign owner removes ``extra``: the walk does not wait on a remove,
+    # so it selects while the owner holds the remove transaction.
+    root = _Root(
+        [extra, first] if foreign_owner else [first], hub, dispatcher, on_current=dispose_root
+    )
     main = threading.get_ident()
     in_handler = threading.Event()
     owner_saw_constructed: list[bool] = []
@@ -267,7 +278,7 @@ def test_dispose_from_the_selector_publication_defers_to_the_lease(foreign_owner
     root.vm.on_collection_changed.subscribe(on_changed)
     root.vm.construct()
     errors: list[BaseException] = []
-    worker = _start(lambda: root.vm.add(late), errors) if foreign_owner else None
+    worker = _start(lambda: root.vm.remove(extra), errors) if foreign_owner else None
     if worker is not None:
         assert wait_event(in_handler)
 
@@ -485,14 +496,15 @@ def test_selector_result_whose_add_is_not_admitted_is_not_selected(operation: st
 
 
 @pytest.mark.parametrize("pick_late", [True, False])
-def test_walk_resumed_inside_the_owner_uncommitted_add_assigns_nothing(
+def test_walk_resumed_by_the_owner_add_selects_after_the_add_commits(
     pick_late: bool,
 ) -> None:
-    # The walk waits for the add's start attempt, then resumes in the add's
-    # completion callback on the owner thread, before the add admits the child.
-    # That thread owns the add's uncommitted transaction, so the walk's
-    # assignment is a silent no-op there even for the admitted child
-    # (spec/06 §4.3 rule 4, ADR-0173).
+    # The walk waits for the add's start attempt. The add ends the attempt
+    # only after it committed and ended its transaction, so the walk resumes
+    # on the owner thread after that. The late child is then a committed
+    # member, and the selector's pick is assigned (ADR-0218). Before, the
+    # walk resumed inside the uncommitted add, and the assignment was a
+    # silent no-op (spec/06 §4.3 rule 4, ADR-0173).
     bg, dispatcher, hub = _services()
     first = _child(hub, dispatcher, "first", background=True)
     late = _child(hub, dispatcher, "late")
@@ -540,8 +552,9 @@ def test_walk_resumed_inside_the_owner_uncommitted_add_assigns_nothing(
     assert selector_threads == ["owner"]
     assert root.status is S.CONSTRUCTED
     assert any(child is late for child in root.snapshot())
-    assert root.current is None
-    assert not first.is_current
+    assert root.current is (late if pick_late else first)
+    assert late.is_current is pick_late
+    assert first.is_current is not pick_late
 
 
 @pytest.mark.parametrize(

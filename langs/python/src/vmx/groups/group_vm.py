@@ -30,12 +30,13 @@ from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
     attach_late_start_locked,
     auto_construct_attached,
+    compensate_auto_construct,
     construct_walk,
     deliver_collection_changed,
     emit_collection_changed,
     enter_batch,
     exit_batch,
-    finish_failed_add_start,
+    finish_add_start,
     is_member,
     join_if_pending,
     maybe_auto_construct,
@@ -228,15 +229,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     old._set_parent(parent)
                     value._set_parent(None)
                 self._late_starts.remove(value, record)
-            finish_failed_add_start(record)
-            if (
-                original_status is ConstructionStatus.DESTRUCTED
-                and value.status is ConstructionStatus.CONSTRUCTED
-            ):
-                try:
-                    value.destruct()
-                except BaseException as error:
-                    compensation_error = error
+            compensation_error = compensate_auto_construct(value, original_status)
             if transfer is not None:
                 transfer.rollback()
             if compensation_error is not None:
@@ -266,7 +259,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             )
             succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=succeeded)
+            try:
+                self._end_membership_transaction(propagate_dispose_failure=succeeded)
+            finally:
+                # After the transaction ends (ADR-0218).
+                finish_add_start(record)
 
     def __delitem__(self, index: int) -> None:
         self.remove_at(index)
@@ -317,15 +314,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     self._children.remove(item)
                     item._set_parent(None)
                 self._late_starts.remove(item, record)
-            finish_failed_add_start(record)
-            if (
-                original_status is ConstructionStatus.DESTRUCTED
-                and item.status is ConstructionStatus.CONSTRUCTED
-            ):
-                try:
-                    item.destruct()
-                except BaseException as error:
-                    compensation_error = error
+            compensation_error = compensate_auto_construct(item, original_status)
             if transfer is not None:
                 transfer.rollback()
             if compensation_error is not None:
@@ -349,7 +338,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             )
             succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=succeeded)
+            try:
+                self._end_membership_transaction(propagate_dispose_failure=succeeded)
+            finally:
+                # After the transaction ends (ADR-0218).
+                finish_add_start(record)
 
     def add(self, item: VM) -> None:
         """Append *item* to the end of the children list."""
@@ -382,15 +375,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     self._children.remove(item)
                     item._set_parent(None)
                 self._late_starts.remove(item, record)
-            finish_failed_add_start(record)
-            if (
-                original_status is ConstructionStatus.DESTRUCTED
-                and item.status is ConstructionStatus.CONSTRUCTED
-            ):
-                try:
-                    item.destruct()
-                except BaseException as error:
-                    compensation_error = error
+            compensation_error = compensate_auto_construct(item, original_status)
             if transfer is not None:
                 transfer.rollback()
             if compensation_error is not None:
@@ -414,7 +399,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             )
             succeeded = True
         finally:
-            self._end_membership_transaction(propagate_dispose_failure=succeeded)
+            try:
+                self._end_membership_transaction(propagate_dispose_failure=succeeded)
+            finally:
+                # After the transaction ends (ADR-0218).
+                finish_add_start(record)
 
     # Alias: append mirrors Python list convention.
     append = add
@@ -540,6 +529,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         # Invoke the builder's on_construct callback first.
         if self._on_construct_cb is not None:
             self._on_construct_cb()
+        if not self._populated and self._population_superseded():
+            return
         # Children whose construct population started are joined, not restarted.
         joined: list[VM] = []
         self._population_joined = joined
@@ -597,6 +588,18 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         # foreign dispose cleans no child while this container's hook runs. No
         # lock is held here, so the hook can finish while this call waits.
         self._dispose_with_children(snapshot)
+
+    def _population_superseded(self) -> bool:
+        """Whether a dispose() superseded the construct hook before population.
+
+        Factory population is a post-hook container action. A superseded hook
+        calls no children factory and attaches nothing, and construct()
+        returns without an error (spec/02 §2.4, LIFE-015, ADR-0218).
+        """
+        with self._membership_gate:
+            if self._dispose_requested:
+                return True
+        return self._is_disposed()
 
     def _require_child_admission(self) -> None:
         if self._dispose_requested or self._dispose_deferred:
@@ -728,15 +731,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 with self._membership_gate:
                     if any(candidate is child for candidate in self._children):
                         self._children.remove(child)
-                if (
-                    original_status is ConstructionStatus.DESTRUCTED
-                    and child.status is ConstructionStatus.CONSTRUCTED
-                ):
-                    try:
-                        child.destruct()
-                    except BaseException as error:
-                        if compensation_error is None:
-                            compensation_error = error
+                error = compensate_auto_construct(child, original_status)
+                if compensation_error is None:
+                    compensation_error = error
                 if child._parent is parent:
                     child._set_parent(None)
             for staged_transfer in reversed(transfers):
