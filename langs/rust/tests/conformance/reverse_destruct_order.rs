@@ -266,3 +266,105 @@ fn composite_reverse_destruct_order_command_options_modeled_and_default() {
         &["a", "b", "c"],
     );
 }
+
+/// #1287 — the public raw constructor `with_destruct_order` sets the destruct
+/// order of a composite and a group without a children factory; `new` and
+/// `with_services` keep insertion order
+#[test]
+fn raw_constructors_set_the_destruct_order() {
+    let hub = MessageHub::new();
+    let composite = CompositeVm::<Child>::with_destruct_order(
+        "composite",
+        hub.clone(),
+        NullDispatcher::new(),
+        ChildOrder::Reverse,
+    );
+    for child in children(&hub) {
+        composite.add(child).unwrap();
+    }
+    let reconstructed = composite.clone();
+    assert_walk_orders(
+        &hub,
+        &composite,
+        "composite",
+        move || reconstructed.reconstruct().unwrap(),
+        &["c", "b", "a"],
+    );
+
+    let hub = MessageHub::new();
+    let group = GroupVm::<Child>::with_destruct_order(
+        "group",
+        hub.clone(),
+        NullDispatcher::new(),
+        ChildOrder::Reverse,
+    );
+    for child in children(&hub) {
+        group.add(child).unwrap();
+    }
+    let reconstructed = group.clone();
+    assert_walk_orders(
+        &hub,
+        &group,
+        "group",
+        move || reconstructed.reconstruct().unwrap(),
+        &["c", "b", "a"],
+    );
+
+    let hub = MessageHub::new();
+    let composite =
+        CompositeVm::<Child>::with_services("composite", hub.clone(), NullDispatcher::new());
+    for child in children(&hub) {
+        composite.add(child).unwrap();
+    }
+    let reconstructed = composite.clone();
+    assert_walk_orders(
+        &hub,
+        &composite,
+        "composite",
+        move || reconstructed.reconstruct().unwrap(),
+        &["a", "b", "c"],
+    );
+
+    let hub = MessageHub::new();
+    let group = GroupVm::<Child>::with_services("group", hub.clone(), NullDispatcher::new());
+    for child in children(&hub) {
+        group.add(child).unwrap();
+    }
+    let reconstructed = group.clone();
+    assert_walk_orders(
+        &hub,
+        &group,
+        "group",
+        move || reconstructed.reconstruct().unwrap(),
+        &["a", "b", "c"],
+    );
+
+    // `new` uses a fresh hub, so its insertion order is checked through the
+    // hub it owns.
+    let composite = CompositeVm::<Child>::new("composite");
+    let hub = composite.hub();
+    for child in children(&hub) {
+        composite.add(child).unwrap();
+    }
+    let reconstructed = composite.clone();
+    assert_walk_orders(
+        &hub,
+        &composite,
+        "composite",
+        move || reconstructed.reconstruct().unwrap(),
+        &["a", "b", "c"],
+    );
+    let group = GroupVm::<Child>::new("group");
+    let hub = group.hub();
+    for child in children(&hub) {
+        group.add(child).unwrap();
+    }
+    let reconstructed = group.clone();
+    assert_walk_orders(
+        &hub,
+        &group,
+        "group",
+        move || reconstructed.reconstruct().unwrap(),
+        &["a", "b", "c"],
+    );
+}
