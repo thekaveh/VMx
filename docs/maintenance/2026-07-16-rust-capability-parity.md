@@ -1,8 +1,9 @@
 # 12. Rust Parity Status
 
-Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
-after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7. §12.9
-is now resolved.
+Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Items found after
+closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7. §12.7, §12.8,
+§12.11 and §12.12 are open items, §12.10 is a recorded difference, and §12.9
+is resolved.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -240,7 +241,9 @@ optional async `confirm_update` and `confirm_delete` gates and an optional
 `current_changed` trigger. A supplied gate wraps that command in a
 `ConfirmationDecoratorCommand`, and the trigger also refreshes a gated
 command. The synchronous `with_confirm_delete` is removed, and the Update and
-Delete accessors return `Arc<dyn Command>`. Evidence: the `COMP-024`
+Delete accessors return `Arc<dyn Command>`. `update_confirmation()` and
+`delete_confirmation()` return a gated command with its concrete type, and
+`dispose()` disposes every command the helper built. Evidence: the `COMP-024`
 conformance test and the `modeled_crud` unit tests.
 
 Selection follows the shared rules of spec/06 §4.3 (ADR-0173). `set_current`,
@@ -312,8 +315,9 @@ observable behavior covered by this review.
 
 The ADR-0120 sender representation in §12.2.1 remains the sole intentional
 flavor-specific shape in this ledger. The §12.5 editorial note applies to all
-five flavors and is not a parity backlog. §12.7 to §12.12 record the open items and differences found
-after closure. Future differences still require
+five flavors and is not a parity backlog. §12.7 to §12.12 record the items found after
+closure: §12.7, §12.8, §12.11 and §12.12 are open, §12.10 is a recorded
+difference, and §12.9 is resolved. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
