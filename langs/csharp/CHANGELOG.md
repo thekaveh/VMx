@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: A null child from code that suppresses the nullable warning no longer
+  causes a `NullReferenceException` in the composite selection calls (#1467).
+  `CanSelectComponent(null)` returns false, `SelectComponent(null)` throws its
+  predicate `InvalidOperationException`, and `DeselectComponent(null)` throws
+  the "not the current selection" `InvalidOperationException` when a child is
+  current and does nothing otherwise.
 - Added: `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
 - Fixed: Disposing the current child of a composite now clears the

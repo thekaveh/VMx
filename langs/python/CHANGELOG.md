@@ -6,6 +6,13 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+### Fixed
+
+- `can_select_component(None)` and `select_component(None)` no longer raise
+  `AttributeError` (#1467). The predicate returns `False`, and
+  `select_component` raises its predicate `ValueError`. A `None` value is never
+  a child.
+
 ## [3.30.0] — 2026-11-07
 
 First PyPI release since 3.23.0. The 3.23.1 tag never reached PyPI, and 3.23.2
