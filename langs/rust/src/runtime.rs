@@ -2582,11 +2582,12 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     /// VM. The default returns `false`. A container then falls back to its
     /// own message hub (spec/11 §4, ADR-0205): when it started the node and,
     /// by the time the start call returned, the hub delivered or queued the
-    /// node's Constructing/Destructing status, it waits for the node's next
-    /// status on that hub and rolls back when the node settles anywhere
-    /// else. Otherwise (the node publishes on another hub, or the container
-    /// joined a node already in flight) it accepts the node while it is
-    /// still Constructing/Destructing instead of waiting for it.
+    /// node's Constructing/Destructing status, it waits on that hub for a
+    /// status of the node that arrives once the node is no longer in flight,
+    /// and rolls back when the node settles anywhere else. Otherwise (the
+    /// node publishes on another hub, or the container joined a node
+    /// already in flight) it accepts the node while it is still
+    /// Constructing/Destructing instead of waiting for it.
     fn when_lifecycle_settled(&self, _callback: LifecycleSettleCallback) -> bool {
         false
     }
@@ -2952,6 +2953,13 @@ struct ChildObserverState {
 /// transient status: the child then publishes on this hub, so its next
 /// status arrives here too, and the wait is bounded. The hub's completion
 /// also ends the wait.
+///
+/// The hub can still hold statuses of the child's earlier transitions,
+/// queued before the start call (a hub batch, a borrowed scope, or another
+/// thread's drain). A message cannot tell which transition it belongs to,
+/// so a non-transient status settles the wait only when the child itself
+/// is no longer at the transient status; otherwise it is an earlier
+/// transition's status and the observer ignores it.
 struct ChildObserver {
     hub: MessageHub,
     child_id: usize,
@@ -2961,7 +2969,11 @@ struct ChildObserver {
 }
 
 impl ChildObserver {
-    fn start(hub: MessageHub, child_id: usize, transient: ConstructionStatus) -> Self {
+    fn start<N: VmNode>(hub: MessageHub, child: &N, transient: ConstructionStatus) -> Self {
+        let child_id = child.id();
+        // The subscription ends when the awaited check runs or the settle is
+        // dropped, so this clone does not outlive the container's wait.
+        let probe = child.clone();
         let state = Arc::new(Mutex::new(ChildObserverState::default()));
         let on_message = Arc::clone(&state);
         let on_completion = Arc::clone(&state);
@@ -2975,9 +2987,12 @@ impl ChildObserver {
                 }
                 if change.status == transient {
                     lock(&on_message).seen = true;
-                } else {
+                } else if probe.status() != transient {
                     Self::settle(&on_message);
                 }
+                // Otherwise the child is still in flight: the message is a
+                // status of an earlier transition that the hub queued
+                // before this start call.
             },
             move || Self::settle(&on_completion),
         );
@@ -3010,8 +3025,8 @@ impl ChildObserver {
         }
     }
 
-    /// Registers `callback` to run when the hub delivers the child's next
-    /// status. Returns `false` (dropping `callback`) when the hub never
+    /// Registers `callback` to run when the hub delivers a status of the
+    /// child that finds it no longer at the transient status. Returns `false` (dropping `callback`) when the hub never
     /// delivered the transient status or already delivered the next one.
     fn arm(state: &Mutex<ChildObserverState>, callback: LifecycleSettleCallback) -> bool {
         let mut state = lock(state);
@@ -4598,7 +4613,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         };
         // Subscribed before the start call, so it sees the child's transient
         // status when the child publishes on this container's hub.
-        let observer = ChildObserver::start(self.hub(), child.id(), transient);
+        let observer = ChildObserver::start(self.hub(), child, transient);
         match operation {
             LifecycleOperation::Construct => child.construct()?,
             _ => child.destruct()?,

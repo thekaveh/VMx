@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-09
-- **Spec version:** 3.30.0 (amends chapter 02 §2, chapter 09 §2 and chapter 11
-  §4; `FWD-004`, `LIFE-014`)
+- **Spec version:** 3.30.0 (amends chapter 02 §2.2, chapter 09 §2 and chapter
+  11 §4; `FWD-004`, `LIFE-014`)
 
 ## 1. Context
 
@@ -60,8 +60,14 @@ keeps the cross-flavor rules.
   the starting thread (for example when a container starts its next child
   from the delivery of the previous child's status). Either way, the child
   publishes on the container's hub, so its next status arrives there too.
-- The container then waits for the child's next status on that hub. It
-  checks the child's status as for a forwarded settle. A child that settled
+- The container then waits on that hub for a status of the child that arrives
+  while the child is no longer at the transient status. It checks the child's
+  status as for a forwarded settle.
+- The hub can still hold statuses of the child's earlier transitions, queued
+  before the start call (in a batch, a borrowed scope or another thread's
+  drain). A message does not name its transition. So when a non-transient
+  status arrives while the child is still at the transient status, the
+  container treats it as an earlier transition's status and keeps waiting. A child that settled
   at another status rolls the container back, and the failure reaches the
   container's `background_errors()` stream.
 - Hub completion ends the wait, and the container checks the child's status.
@@ -85,7 +91,7 @@ These fixes follow existing rules and change no spec text:
 
 ## 3. Consequences
 
-- Chapter 09 §2 no longer lists the Rust `VmNode` gap. Chapter 02 §2 no
+- Chapter 09 §2 no longer lists the Rust `VmNode` gap. Chapter 02 §2.2 no
   longer lists `ForwardingCompositeVm` among the Rust types without hook
   methods.
 - Chapter 11 §4, the Rust flavor guide and the `when_lifecycle_settled`

@@ -108,6 +108,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   The conformance tests that call them run with `--all-features`. This is not
   a breaking change: the seams are hidden test-only API, and no published
   release exported them.
+- Breaking: a container whose started background child does not forward
+  `VmNode::when_lifecycle_settled` and publishes on the container's hub now
+  stays Constructing or Destructing until that child settles, and rolls back
+  when the child fails (#1274, ADR-0205). Before, it reached Constructed or
+  Destructed while the child was still in flight.
 - Breaking: `GroupVmOptions` and `CompositeVmOptions` have a new
   `destruct_order` field, so code that builds them with a struct literal must
   now set it (#662).
@@ -166,14 +171,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `VmNode::when_lifecycle_settled` fails (#1274, ADR-0205, spec/11 §4,
   `LIFE-014`). The container waits for such a child when it started the child
   and, by the time the start call returned, its own hub delivered or queued
-  the child's Constructing or Destructing status. A child that then settles at another status
-  rolls the container back, and the failure reaches the container's
-  `background_errors()` stream. Before, the container accepted the child in
-  flight: it stayed Constructed while the child ended Destructed. This is a
-  breaking behavior change: such a container now stays Constructing or
-  Destructing until the child settles. A child on another hub, or one joined
-  while already in flight, is still accepted in flight, so the container never
-  waits without limit.
+  the child's Constructing or Destructing status. A child that then settles
+  at another status rolls the container back, and the failure reaches the
+  container's `background_errors()` stream. A status of the child's earlier
+  transition that the hub still holds does not end the wait. Before, the
+  container accepted the child in flight: it stayed Constructed while the
+  child ended Destructed. This is a breaking behavior change (see Changed). A
+  child on another hub, or one joined while already in flight, is still
+  accepted in flight, so the container never waits without limit.
 - `AggregateVm1` to `AggregateVm6` now join a slot child that is already
   Constructing when `construct()` runs, as the composite and group walks do
   (#1273, spec/02 §6). Before, the aggregate called the child's `construct()`

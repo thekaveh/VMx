@@ -165,9 +165,9 @@ background children to settle (chapter 02 §6). In Rust, a container waits for a
 child node that forwards `VmNode::when_lifecycle_settled`. For a node that does
 not forward it, the container observes its own message hub (ADR-0205). When the
 container starts the node and, by the time the start call returns, the hub
-delivered or queued the node's transient status, the container waits for the
-node's next status on that hub, and a node that settles anywhere else rolls the
-container back. In every other case (the node publishes on another hub, or the
+delivered or queued the node's transient status, the container waits on that
+hub for a status of the node that arrives once the node is no longer in flight,
+and a node that settles anywhere else rolls the container back. In every other case (the node publishes on another hub, or the
 container joins a node already in flight), the container accepts the node while
 it is still in flight rather than wait without limit. C# alone ships
 first-class outcome tasks for awaiting a transition (`ConstructAsync` /

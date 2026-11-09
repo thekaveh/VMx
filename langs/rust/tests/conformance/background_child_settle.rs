@@ -485,6 +485,65 @@ fn failing_destruct_behind_non_forwarding_wrapper_rolls_composite_back() {
     assert!(matches!(errors.try_recv(), Ok(VmxError::Other(_))));
 }
 
+/// LIFE-014 — a status of the non-forwarding child that the hub queued
+/// before the container started it does not settle the container's wait.
+/// Here the child's earlier Destructing and Destructed are still queued
+/// inside the batch when the composite starts the child's construct
+/// (ADR-0205).
+#[test]
+fn stale_queued_status_does_not_settle_a_non_forwarding_wait() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = non_forwarding(background_child(&hub, &dispatcher, "stale"));
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+    let (errors, _subscription) = collect_errors(composite.background_errors());
+    child.construct().unwrap();
+    dispatcher.drain();
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+
+    hub.batch(|| {
+        child.destruct().unwrap();
+        dispatcher.drain();
+        composite.construct()
+    })
+    .unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    assert!(errors.try_recv().is_err());
+}
+
+/// LIFE-014 — the same as above with the child's whole earlier construct
+/// and destruct queued inside the batch, so a stale transient status and a
+/// stale terminal status both precede the container's start (ADR-0205).
+#[test]
+fn stale_queued_cycle_does_not_settle_a_non_forwarding_wait() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = non_forwarding(background_child(&hub, &dispatcher, "stale"));
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+    let (errors, _subscription) = collect_errors(composite.background_errors());
+
+    hub.batch(|| {
+        child.construct().unwrap();
+        dispatcher.drain();
+        child.destruct().unwrap();
+        dispatcher.drain();
+        composite.construct()
+    })
+    .unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    assert!(errors.try_recv().is_err());
+}
+
 /// LIFE-014 — a non-forwarding node that publishes on another hub is still
 /// accepted while in flight, so the container never waits without limit
 /// (ADR-0205).
