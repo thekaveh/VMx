@@ -114,7 +114,8 @@ string and a null value included, is rejected like an unknown preset in
 
 - C#, Python and TypeScript raise their idiomatic argument error:
   `ArgumentException` (`ArgumentNullException` for `null`), `ValueError` and
-  `Error`.
+  `Error`. C# `RelayCommand<string>` never runs its task for a `null`
+  parameter, so a `null` accent sent through the command does nothing.
 - Swift adds the public `applyAccentColor(_:) throws` member, which throws
   `ThemeError.invalidAccent`. `setAccentColor` discards the rejection, as
   `setThemeCommand` discards an unknown preset (ADR-0009).
