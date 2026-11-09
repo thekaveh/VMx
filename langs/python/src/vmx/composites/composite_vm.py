@@ -156,6 +156,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._membership_condition = Condition(self._membership_gate)
         self._current_selector: Callable[[Iterable[VM]], VM | None] | None = current_selector
         self._on_current_changed: Callable[[VM | None], None] | None = on_current_changed
+        # Test-only seam: runs at the entry of _detach_clearing_current, before
+        # the coordination lane (#1406). Production code never sets it.
+        self.detach_probe_for_testing: Callable[[VM], None] | None = None
 
     # ── ViewModelType ─────────────────────────────────────────────────────────
 
@@ -1319,6 +1322,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         publication runs after both locks are released, under the
         current-publication lease, as in :meth:`_apply_current_change`.
         """
+        probe = self.detach_probe_for_testing
+        if probe is not None:
+            probe(detached)
         with _current_change_coordinator:
             with self._membership_gate:
                 if detached._parent is self:

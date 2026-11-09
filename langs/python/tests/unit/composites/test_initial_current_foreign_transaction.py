@@ -562,8 +562,10 @@ def test_transaction_that_detached_the_current_child_keeps_the_selector_result(m
     )
     # Y's old parent: its removal callback runs after root admits Y and before
     # root clears the replaced child, so the walk can select inside that window.
-    # The case guards against reading Current before that callback; the clear's
-    # own check-and-clear is atomic under the gates and has no user code inside.
+    # The case guards against reading Current before that callback. The clear's
+    # own check-and-clear is atomic under the gates and has no user code inside;
+    # test_replacement_keeps_a_selection_that_commits_before_the_clear covers
+    # that check.
     source: CompositeVM[ComponentVM] = (
         CompositeVMBuilder[ComponentVM]()
         .name("source")
@@ -647,3 +649,51 @@ def test_transaction_that_detached_the_current_child_keeps_the_selector_result(m
     if mode == "replace-from-container":
         assert saw_selection == [True]  # selected after root admitted Y
         assert root.snapshot() == (first, y)
+
+
+def test_replacement_keeps_a_selection_that_commits_before_the_clear() -> None:
+    # #1406: an index replacement clears current only while the replaced child
+    # is still current, and it checks that inside its locked clear. The probe
+    # runs before the clear takes its locks. There another thread selects B,
+    # and that selection commits before the probe returns.
+    _bg, dispatcher, hub = _services()
+    a, b = _child(hub, dispatcher, "A"), _child(hub, dispatcher, "B")
+    replacement = _child(hub, dispatcher, "R")
+    changes: list[str | None] = []
+    root: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder[ComponentVM]()
+        .name("root")
+        .services(hub, dispatcher)
+        .children(lambda: [a, b])
+        .on_current_changed(lambda value: changes.append(None if value is None else value.name))
+        .build()
+    )
+    root.construct()
+    root.current = a
+    changes.clear()
+    errors: list[BaseException] = []
+    probed: list[ComponentVM] = []
+
+    def probe(detached: ComponentVM) -> None:
+        probed.append(detached)
+
+        def select_b() -> None:
+            root.current = b
+
+        selector = _start(select_b, errors)
+        join_thread(selector)
+        assert not selector.is_alive(), "the selection commits before the probe returns"
+        assert root.current is b
+
+    root.detach_probe_for_testing = probe
+
+    root[0] = replacement
+
+    root.detach_probe_for_testing = None
+    assert probed == [a]
+    assert errors == []
+    assert list(root.snapshot()) == [replacement, b]
+    assert root.current is b
+    assert b.is_current
+    assert not a.is_current
+    assert changes == ["B"]
