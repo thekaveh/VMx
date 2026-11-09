@@ -11,15 +11,18 @@
 //   - itemReplaced  — emits { key1, key2, newValue, oldValue } on replace
 //   - reset         — emits Void on clear
 //
-// `keys1` / `keys2` are live `ObservableList` views of the *distinct* Key1 /
-// Key2 values currently present, in first-appearance insertion order. A
-// distinct key is appended on first appearance and dropped from its view when
-// its LAST entry is removed (refcount-tracked — COL-013).
+// `keys1` / `keys2` are live, read-only `ReadOnlyObservableList` views of the
+// *distinct* Key1 / Key2 values currently present, in first-appearance
+// insertion order (COL-070, ADR-0193). A distinct key is appended on first
+// appearance and dropped from its view when its LAST entry is removed
+// (refcount-tracked — COL-013).
 //
 // Hub publication (COL-022): when a hub is injected, each mutation fires the
 // local granular event FIRST, then sends a `CollectionChangedMessage` carrying
 // a `DictionaryEntry` (both keys + value) so subscribers can recover the full
-// identity of the mutated entry. A nil hub is a structural no-op (no error).
+// identity of the mutated entry. Remove and Replace messages carry the entry's
+// position at commit (COL-068, ADR-0193). A nil hub is a structural no-op (no
+// error).
 //
 // Swift null-key divergence (for ADR-0060): the TS / C# / Python flavors guard
 // against null/undefined keys with a runtime precondition. In Swift the generic
@@ -83,10 +86,10 @@ public struct DictionaryEntry<TKey1, TKey2, TValue> {
 ///
 /// Storage is a composite-key map (`[CompositeKey: TValue]`) plus an
 /// insertion-order list of composite keys (`keyOrder`) so enumeration is
-/// stable and insertion-ordered (COL-014). `keys1` / `keys2` are live
-/// `ObservableList` views of the distinct key values, refcount-maintained so a
-/// distinct key drops from its view only when its last entry is removed
-/// (COL-013).
+/// stable and insertion-ordered (COL-014). `keys1` / `keys2` are live,
+/// read-only `ReadOnlyObservableList` views of the distinct key values,
+/// refcount-maintained so a distinct key drops from its view only when its last
+/// entry is removed (COL-013, COL-070).
 /// Error thrown by ``ObservableDictionary/add(_:_:_:)`` when a strict insert
 /// targets a key pair that already exists — parity with C#/Python/TS, which throw
 /// on a duplicate (`set(_:_:_:)` upserts instead).
@@ -125,9 +128,12 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
     /// Reference counts for distinct Key2 values (O(1) key-axis upkeep).
     private var key2Counts: [TKey2: Int] = [:]
 
-    /// Live distinct-key views.
+    /// Live distinct-key views. Only the dictionary changes them.
     private let keys1View = ObservableList<TKey1>()
     private let keys2View = ObservableList<TKey2>()
+    /// Read-only facades over the key views, returned by `keys1` / `keys2`.
+    private let keys1ReadOnly: ReadOnlyObservableList<TKey1>
+    private let keys2ReadOnly: ReadOnlyObservableList<TKey2>
     /// Changes on every add, remove, and clear, so an add can tell whether a
     /// key-view subscriber changed the entries during its notification.
     private var version = 0
@@ -154,6 +160,8 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
     ///   (no-publication) mode; mutations still fire local granular events.
     public init(hub: (any MessageHubProtocol)? = nil) {
         self.hub = hub
+        keys1ReadOnly = ReadOnlyObservableList(keys1View)
+        keys2ReadOnly = ReadOnlyObservableList(keys2View)
     }
 
     // MARK: - Public publishers
@@ -181,13 +189,13 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
 
     // MARK: - Key-axis views
 
-    /// Live observable view of distinct Key1 values, in first-appearance
-    /// insertion order.
-    public var keys1: ObservableList<TKey1> { keys1View }
+    /// Live, read-only observable view of distinct Key1 values, in
+    /// first-appearance insertion order (COL-070, ADR-0193).
+    public var keys1: ReadOnlyObservableList<TKey1> { keys1ReadOnly }
 
-    /// Live observable view of distinct Key2 values, in first-appearance
-    /// insertion order.
-    public var keys2: ObservableList<TKey2> { keys2View }
+    /// Live, read-only observable view of distinct Key2 values, in
+    /// first-appearance insertion order (COL-070, ADR-0193).
+    public var keys2: ReadOnlyObservableList<TKey2> { keys2ReadOnly }
 
     // MARK: - Size
 
@@ -219,6 +227,9 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
             // Existing pair → replace in place. Keys are unchanged, so the
             // key-axis views and order list are untouched.
             data[key] = value
+            // Capture the position at commit: a local subscriber may change
+            // the entries before the hub message (COL-068).
+            let index = keyOrder.firstIndex(of: key) ?? -1
             // 1. Local granular event first (COL-022 ordering).
             itemReplacedSubject.send(
                 DictionaryItemReplacedEvent(key1: key1, key2: key2,
@@ -229,7 +240,7 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
                     sender: self, senderName: typeName,
                     newItem: DictionaryEntry(key1: key1, key2: key2, value: value),
                     oldItem: DictionaryEntry(key1: key1, key2: key2, value: oldValue),
-                    index: -1))
+                    index: index))
         } else {
             internalAdd(key, key1: key1, key2: key2, value: value)
         }
@@ -258,8 +269,10 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
         guard let value = data[key] else { return false }
 
         data[key] = nil
-        if let idx = keyOrder.firstIndex(of: key) {
-            keyOrder.remove(at: idx)
+        // The position before the removal, captured at commit (COL-068).
+        let index = keyOrder.firstIndex(of: key) ?? -1
+        if index >= 0 {
+            keyOrder.remove(at: index)
         }
         version &+= 1
 
@@ -281,7 +294,7 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
             CollectionChangedMessage.forRemove(
                 sender: self, senderName: typeName,
                 item: DictionaryEntry(key1: key1, key2: key2, value: value),
-                index: -1))
+                index: index))
         return true
     }
 
