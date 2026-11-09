@@ -113,13 +113,14 @@ scanned for raw HTML. The path check maps a `github.com/thekaveh/VMx` or
 URL whose path is missing from the checked-out tree (`--repo-root`, by default
 the checker's repository), or not tracked by Git when that root is a Git work
 tree. It also rejects a path above the repository root and a
-`thekaveh/VMx.git/...` path, which GitHub does not serve. The release job runs on the tagged `main` commit, so the
-check matches what `main` serves; a pull request into `develop` can pass with a
-file that `main` gets only on promotion. Update the package READMEs when a
-package's purpose or documentation links change. A published README cannot
-change, but its links follow `main`: keep a redirect or stub at a moved page,
-or release the package again. The checker cannot show how nuget.org renders a
-README; inspect the upload preview before the first publication.
+`thekaveh/VMx.git/...` path, which GitHub does not serve. The release job runs
+on the tagged `main` commit, so the check matches what `main` serves; a pull
+request into `develop` can pass with a file that `main` gets only on promotion.
+Update the package READMEs when a package's purpose or documentation links
+change. A published README cannot change, but its links follow `main`: keep a
+redirect or stub at a moved page, or release the package again. The checker
+cannot show how nuget.org renders a README; inspect the upload preview before
+the first publication.
 
 The protected job downloads that immutable artifact, validates `NUGET_USER`,
 exchanges OIDC, and pushes without `--skip-duplicate`. An existing version is
