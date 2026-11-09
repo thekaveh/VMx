@@ -23,7 +23,15 @@ def _deliver_each(
     observers: Sequence[abc.ObserverBase[T]],
     deliver: Callable[[abc.ObserverBase[T]], None],
 ) -> None:
-    """Deliver to each observer in turn, then re-raise the first failure."""
+    """Deliver to each observer in turn, then re-raise the first failure.
+
+    This is the call-fed route (spec/03 §3.6 rule 5). It catches
+    ``BaseException``, as ADR-0171 and ``_run_disposal_steps`` do, because it
+    re-raises the failure: a ``KeyboardInterrupt`` still reaches the caller,
+    after the later observers have run. ``isolated()`` catches only
+    ``Exception``, because it logs and drops the failure, and it must not drop
+    a control-flow exception.
+    """
     first_error: BaseException | None = None
     for observer in observers:
         try:

@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 from reactivex import operators as ops
+from reactivex.internal.exceptions import DisposedException
 from reactivex.subject import BehaviorSubject, Subject
 
 from vmx._subscriber_failures import FanOutSubject
@@ -206,6 +207,9 @@ def test_container_dispose_completes_every_observer(kind: str) -> None:
         container.dispose()
 
     assert completed == ["b"]
+    # The failing observer does not skip the subject dispose (#1072).
+    with pytest.raises(DisposedException):
+        container.on_collection_changed.subscribe(on_completed=lambda: None)
 
 
 # ---------------------------------------------------------------------------
