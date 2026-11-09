@@ -720,7 +720,7 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let settled = names.expectation(forCount: 2, "Loading then Idle published")
 
         vm.loadCommand.execute()
-        await fulfillment(of: [settled], timeout: signalTimeout)
+        await fulfillment(of: [settled], timeout: hangGuard)
         // Let the command body settle before checking the error channel.
         try? await Task.sleep(nanoseconds: 20_000_000)
 
@@ -801,9 +801,9 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         ])
         let vm = makeAsyncResourceVM(loader: queue.load)
         let older = Task { await vm.load() }
-        await fulfillment(of: [first.parked], timeout: signalTimeout)
+        await fulfillment(of: [first.parked], timeout: hangGuard)
         let newer = Task { await vm.reload() }
-        await fulfillment(of: [second.parked], timeout: signalTimeout)
+        await fulfillment(of: [second.parked], timeout: hangGuard)
         let notifications = LockedCount()
         let cancellables = [vm.propertyChanged.sink { _ in notifications.increment() }]
             + [vm.loadCommand.canExecuteChanged, vm.reloadCommand.canExecuteChanged,
@@ -815,7 +815,7 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
 
         first.resolve(1)
         await older.value
-        await fulfillment(of: [olderFinished], timeout: signalTimeout)
+        await fulfillment(of: [olderFinished], timeout: hangGuard)
         // Let the stale completion settle before checking that it was inert.
         try? await Task.sleep(nanoseconds: 20_000_000)
 
