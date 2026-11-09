@@ -104,6 +104,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   The node keeps no children cache, and a later walk retries the factory.
   `children` and `is_leaf` still panic on such output. Migration: handle or
   propagate the `VmxResult` at each call site (#1413).
+
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default
@@ -111,6 +112,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   The conformance tests that call them run with `--all-features`. This is not
   a breaking change: the seams are hidden test-only API, and no published
   release exported them.
+
 - Breaking: `GroupVmOptions` and `CompositeVmOptions` have a new
   `destruct_order` field, so code that builds them with a struct literal must
   now set it (#662).
