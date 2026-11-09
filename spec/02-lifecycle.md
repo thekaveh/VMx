@@ -305,7 +305,9 @@ respect to other lifecycle operations on the same VM.
   child as a member until a consumer removes it. An `AggregateVM` that holds a
   `Disposed` slot leaves `Constructed` through `destruct()` or `reconstruct()`.
   Its next construct replaces the slot from the slot factory (chapter 08 §2).
-  `LIFE-022` covers this rule.
+  A child in its inline dispose cascade (§7.2) is not `Disposed` yet. A walk
+  call on that child fails with the `Disposed` error (`LIFE-021`), and the
+  container rolls back. `LIFE-022` covers this rule.
 - The order in which children are constructed/destructed is unspecified,
   except as the next item says. Implementations MAY drive them sequentially or
   concurrently. The reference implementations drive aggregates and the Rust

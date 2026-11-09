@@ -20,7 +20,7 @@ child stays a member. Two defects follow.
   true. `can_select_component` refuses the same child. In Python and TypeScript,
   `a.IsCurrent` stays true even after `Current = null`. Invariant 3 makes a
   selection change on a `Disposed` VM a silent no-op.
-  C#, Swift and Python skip the flag change in the same way. Rust commits
+  C# and Swift skip the flag change in the same way. Rust commits
   the flag with no disposed check. `TreeSelection` already clears its
   selection when the current node is disposed (`HIER-038`) and refuses a
   disposed node (`HIER-034`).
@@ -48,7 +48,9 @@ same rule, and the simplest rule wins.
    `AggregateVM1` to `AggregateVM6`, the joined children of factory
    population, and the child-transition helper of chapter 02 §6.1. A
    container `construct()` or `destruct()` completes when every child that is
-   not `Disposed` reaches the target status.
+   not `Disposed` reaches the target status. A child in its inline dispose
+   cascade is not `Disposed` yet. A walk call on that child fails under
+   `LIFE-021`, and the container rolls back.
 1. **Membership stays.** A composite or group keeps a `Disposed` child as a
    member until a consumer removes it. A disposed child does not remove
    itself.
@@ -115,7 +117,8 @@ The implementation PR confirms the exact sites.
 - **Python.** `_transition_children` and the joined-child settle skip a
   `DISPOSED` child. `_commit_is_current(False)` sets the flag on a disposed
   VM and returns `False`. `_dispose_at_hook_boundary` calls the parent's
-  dispose clear after the `DISPOSED` publication.
+  dispose clear after the `DISPOSED` publication. The clear checks the
+  composite's own disposal again at its commit.
   `_selection_refusal_locked` treats a disposed value as a non-member.
 - **TypeScript.** `#walkChildren` skips a `Disposed` child, and its wait
   settles successfully for one. `_commitIsCurrent(false)` sets the flag on a
@@ -123,7 +126,12 @@ The implementation PR confirms the exact sites.
   clear after `_setStatus(Disposed)`. `#isAdmittedMember` callers refuse a
   disposed value.
 - **Swift.** `_transitionChildren` and the container walks skip a
-  `.disposed` child. `_commitIsCurrent(false)` sets the flag once disposal is
+  `.disposed` child. Swift commits a disposal under `lifecycleLock`, but it
+  can apply the queued `.disposed` status later, while another thread drains
+  the child's lifecycle publications. The walk therefore also skips a child
+  whose disposal is committed. During the inline dispose cascade neither
+  condition holds, so Swift does not skip the child, as the other flavors do
+  not. `_commitIsCurrent(false)` sets the flag once disposal is
   requested and returns `false`. A new internal `ChildDisposalObserver`
   protocol carries the dispose clear. Only `CompositeVM` adopts it, so the
   public `ParentVM` protocol does not change. `isAdmittedMemberLocked`

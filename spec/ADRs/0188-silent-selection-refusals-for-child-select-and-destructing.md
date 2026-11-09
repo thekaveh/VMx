@@ -46,8 +46,11 @@ same rule, and the simplest rule wins.
    child can be a non-member, a member that is not `Constructed`, or, for
    `deselect()`, a child that is not current. The composite can have a
    pending disposal. The caller can be inside its own uncommitted membership
-   transaction (§4.3 rule 4). A check can also fail at the commit. `can_select()` and `can_deselect()` tell a caller in
-   advance.
+   transaction (§4.3 rule 4). A check can also fail at the commit.
+   `can_select()` and `can_deselect()` check only `Parent`, `Parent.Current`
+   and `Status`, so they do not predict every refusal.
+   `parent.can_select_component(this)` tells a caller in advance whether the
+   parent refuses `select()`.
 1. **A selection while `Destructing` is silent.** While the composite is
    `Destructing`, a non-null selection that §4.3 rules 2, 3 and 4 admit
    changes nothing and raises nothing. The rule covers the setter,
