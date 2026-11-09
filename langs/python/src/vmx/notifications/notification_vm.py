@@ -191,13 +191,6 @@ class NotificationVM:
 
     # ── Public methods ────────────────────────────────────────────────────────
 
-    def notify_external_resolve(self) -> None:
-        """Notify the VM that the hub has resolved the notification externally.
-
-        Sets :attr:`is_resolved` and cancels the timer.
-        """
-        self._notify_external_resolve()
-
     def dispose(self) -> None:
         """Cancel the timer, pending subscription, and command (idempotent).
 

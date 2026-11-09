@@ -122,7 +122,7 @@ async def test_external_resolve_after_dispose_is_inert() -> None:
     vm.property_changed.subscribe(on_next=changed.append)
     vm.dispose()
 
-    vm.notify_external_resolve()
+    vm._notify_external_resolve()
 
     assert vm.is_resolved is False
     assert changed == []

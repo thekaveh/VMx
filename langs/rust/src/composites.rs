@@ -1978,11 +1978,6 @@ impl<T: TreeNode, D: Dispatcher> TreeNode for CompositeVm<T, D> {
 }
 
 impl<T: TreeNode, D: Dispatcher> CompositeVm<T, D> {
-    /// Returns children as tree nodes.
-    pub fn child_nodes(&self) -> Vec<T> {
-        self.items()
-    }
-
     /// Reports the composite's own expansion flag.
     ///
     /// [`walk_expanded`](crate::walk_expanded) does not read this flag. It

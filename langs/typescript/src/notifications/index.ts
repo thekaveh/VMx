@@ -8,6 +8,5 @@ export { Notification } from "./notification.js";
 export type { INotificationHub } from "./notificationHub.js";
 export { NotificationHub } from "./notificationHub.js";
 export { NullNotificationHub } from "./nullNotificationHub.js";
-export { makeConfirm } from "./confirmHelper.js";
 export { NotificationVM } from "./notificationVm.js";
 export { ConfirmationVM } from "./confirmationVm.js";

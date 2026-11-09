@@ -11,9 +11,9 @@ import {
   NotificationType,
   NotificationVM,
   NullNotificationHub,
-  makeConfirm,
   type INotificationHub,
 } from "../../src/notifications/index.js";
+import { makeConfirm } from "../../src/notifications/confirmHelper.js";
 import { FakeScheduler } from "../unit/notifications/fakeScheduler.js";
 
 describe("NOTIF-001", () => {

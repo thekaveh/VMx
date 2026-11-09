@@ -85,7 +85,7 @@ public sealed class VMxOptions
     /// resolution time only when no context was captured (see the
     /// <c>AddVMx</c> remarks).
     /// </summary>
-    public Func<IServiceProvider, IDispatcher>? DispatcherFactory { get; set; }
+    internal Func<IServiceProvider, IDispatcher>? DispatcherFactory { get; set; }
 
     /// <summary>
     /// Configures a custom dispatcher factory.
