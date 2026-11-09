@@ -225,7 +225,7 @@ interface ICollectionChangedMessage<T> extends IMessage {
 }
 declare class CollectionChangedMessage<T> implements ICollectionChangedMessage<T> {
     readonly sender: object;
-    get senderName(): string;
+    readonly senderName: string;
     readonly action: CollectionMutationAction;
     readonly newItems: readonly T[];
     readonly oldItems: readonly T[];
@@ -233,11 +233,11 @@ declare class CollectionChangedMessage<T> implements ICollectionChangedMessage<T
     readonly oldIndex: number;
     readonly newIndex: number;
     private constructor();
-    static forAdd<T>(sender: object, item: T, index: number): CollectionChangedMessage<T>;
-    static forRemove<T>(sender: object, item: T, index: number): CollectionChangedMessage<T>;
-    static forReplace<T>(sender: object, newItem: T, oldItem: T, index: number): CollectionChangedMessage<T>;
-    static forMove<T>(sender: object, item: T, oldIndex: number, newIndex: number): CollectionChangedMessage<T>;
-    static forReset<T>(sender: object): CollectionChangedMessage<T>;
+    static forAdd<T>(sender: object, item: T, index: number, senderName?: string): CollectionChangedMessage<T>;
+    static forRemove<T>(sender: object, item: T, index: number, senderName?: string): CollectionChangedMessage<T>;
+    static forReplace<T>(sender: object, newItem: T, oldItem: T, index: number, senderName?: string): CollectionChangedMessage<T>;
+    static forMove<T>(sender: object, item: T, oldIndex: number, newIndex: number, senderName?: string): CollectionChangedMessage<T>;
+    static forReset<T>(sender: object, senderName?: string): CollectionChangedMessage<T>;
 }
 
 
@@ -287,6 +287,21 @@ declare class ObservableList<T> {
     replaceAll(items: Iterable<T>): void;
     clear(): void;
     withBatch(callback: () => void): void;
+}
+
+
+declare class ReadOnlyObservableList<T> implements Iterable<T> {
+    #private;
+    constructor(source: ObservableList<T>);
+    get itemAdded(): Observable<ItemAddedEvent<T>>;
+    get itemRemoved(): Observable<ItemRemovedEvent<T>>;
+    get itemReplaced(): Observable<ItemReplacedEvent<T>>;
+    get reset(): Observable<void>;
+    get propertyChanged(): Observable<string>;
+    get length(): number;
+    at(index: number): T | undefined;
+    toArray(): T[];
+    [Symbol.iterator](): IterableIterator<T>;
 }
 
 type Persister<TM> = (model: TM) => Promise<void>;
@@ -340,13 +355,13 @@ declare class FormVMBuilder<TM> {
     build(): FormVM<TM>;
 }
 
-export { CollectionChangedMessage as C, FormVM as F, type IDispatcher as I, ObservableList as O, PropertyChangedMessage as P, type ResetOnApproved as R, type Snapshotter as S, type CollectionMutationAction as a, FormVMBuilder as b, type FormVMOptions as c, type ICollectionChangedMessage as d, type ItemAddedEvent as e, type ItemRemovedEvent as f, type ItemReplacedEvent as g, type Persister as h, RxDispatcher as i };
+export { CollectionChangedMessage as C, FormVM as F, type IDispatcher as I, ObservableList as O, PropertyChangedMessage as P, ReadOnlyObservableList as R, type Snapshotter as S, type CollectionMutationAction as a, FormVMBuilder as b, type FormVMOptions as c, type ICollectionChangedMessage as d, type ItemAddedEvent as e, type ItemRemovedEvent as f, type ItemReplacedEvent as g, type Persister as h, type ResetOnApproved as i, RxDispatcher as j };
 
 // ==== index.d.ts ====
 import { I as IMessage, a as IMessageHub, b as ITransactionalMessageHub } from './messageHub.js';
 export { c as ITypedMessage, M as MessageHub, d as MessageHubOptions } from './messageHub.js';
-import { P as PropertyChangedMessage, C as CollectionChangedMessage, a as CollectionMutationAction, I as IDispatcher, O as ObservableList } from './formVm.js';
-export { F as FormVM, b as FormVMBuilder, c as FormVMOptions, d as ICollectionChangedMessage, e as ItemAddedEvent, f as ItemRemovedEvent, g as ItemReplacedEvent, h as Persister, R as ResetOnApproved, i as RxDispatcher, S as Snapshotter } from './formVm.js';
+import { P as PropertyChangedMessage, C as CollectionChangedMessage, a as CollectionMutationAction, I as IDispatcher, R as ReadOnlyObservableList } from './formVm.js';
+export { F as FormVM, b as FormVMBuilder, c as FormVMOptions, d as ICollectionChangedMessage, e as ItemAddedEvent, f as ItemRemovedEvent, g as ItemReplacedEvent, O as ObservableList, h as Persister, i as ResetOnApproved, j as RxDispatcher, S as Snapshotter } from './formVm.js';
 import { Observable, Subscription, SchedulerLike } from 'rxjs';
 import { I as ICommand, R as RelayCommand, a as IAsyncCommand } from './relayCommand.js';
 export { b as ICommandOf, c as RelayCommandBuilder, d as RelayCommandOf, e as RelayCommandOfBuilder } from './relayCommand.js';
@@ -731,8 +746,8 @@ declare class ObservableDictionary<TKey1, TKey2, TValue> {
     get itemRemoved(): Observable<DictionaryItemRemovedEvent<TKey1, TKey2, TValue>>;
     get itemReplaced(): Observable<DictionaryItemReplacedEvent<TKey1, TKey2, TValue>>;
     get reset(): Observable<void>;
-    get keys1(): ObservableList<TKey1>;
-    get keys2(): ObservableList<TKey2>;
+    get keys1(): ReadOnlyObservableList<TKey1>;
+    get keys2(): ReadOnlyObservableList<TKey2>;
     get size(): number;
     set(key1: TKey1, key2: TKey2, value: TValue): void;
     add(key1: TKey1, key2: TKey2, value: TValue): void;
@@ -1984,7 +1999,7 @@ interface IFilterable<T> {
     canFilter(): boolean;
 }
 
-export { type AggregateChange, AggregateChangeReason, AggregateChangeStream, type AggregateObserveOptions, AggregateVM1, AggregateVM1Builder, AggregateVM2, AggregateVM2Builder, AggregateVM3, AggregateVM3Builder, AggregateVM4, AggregateVM4Builder, AggregateVM5, AggregateVM5Builder, AggregateVM6, AggregateVM6Builder, AsyncRelayCommand, AsyncRelayCommandBuilder, AsyncResourceRetention, type AsyncResourceState, AsyncResourceStatus, AsyncResourceVM, type AsyncResourceVMOptions, type BatchAttachOptions, type BatchAttachRejection, BatchAttachRejectionReason, type BatchAttachResult, BatchUpdateHandle, BuilderValidationError, CAPABILITIES, type CapabilityName, type ChildOrder, type CollectionChangedAction, type CollectionChangedEvent, CollectionChangedMessage, CollectionMutationAction, ComponentVM, ComponentVMBase, ComponentVMBuilder, ComponentVMOf, ComponentVMOfBuilder, type ComponentVMOfOptions, type ComponentVMOptions, CompositeCommand, CompositeVM, CompositeVMBase, CompositeVMBuilder, CompositeVMOf, CompositeVMOfBuilder, type CompositeVMOptions, type ConfirmDelegate, ConfirmationDecoratorCommand, ConstructionStatus, ConstructionStatusChangedMessage, DecoratorCommand, type DecoratorCommandOptions, type DerivedFromSourcesOptions, DerivedProperty, type DictionaryEntry, type DictionaryItemAddedEvent, type DictionaryItemRemovedEvent, type DictionaryItemReplacedEvent, DiscriminatorVM, type DisposableResource, ExpandableState, type FileFilter, type FilteredCompositeOptions, FilteredCompositeVM, FilteredCursorPolicy, FormRevertedMessage, ForwardingComponentVM, ForwardingCompositeVM, GroupVM, GroupVMBuilder, type GroupVMOptions, HierarchicalVM, HierarchicalVMBuilder, type HierarchicalVMConstructionContext, type HierarchicalVMOptions, type IApprovable, IAsyncCommand, type IBatchable, type ICancelable, type IClosable, type ICollapsible, ICommand, type IComponentVM, type IComponentVMOf, type IConstructable, type ICurrentDeletable, type ICurrentUpdatable, type IDeletable, type IDeselectable, type IDestructable, type IDialogService, IDispatcher, type IExpandable, type IExpansionTogglable, type IFilterable, type ILocalizer, type IManagable, IMessage, IMessageHub, type IModalDialogService, type INewCreatable, type IPageable, type IParentVM, type IReconstructable, type ISavable, type ISearchable, type ISelectable, type ISelectableVmCollection, type ISelectionTogglable, ITransactionalMessageHub, type IUpdatable, type IVmCollection, KeyedServicedObservableCollection, type KeyedServicedObservableCollectionOptions, MissingParentPolicy, ModalVM, ModeledCrudCommands, type ModeledCrudCommandsOptions, type NotificationSeverity, NullDialogService, NullDispatcher, NullLocalizer, NullMessageHub, ObservableDictionary, ObservableList, type ObservableMembershipSource, type OwnedResource, PagedComposition, type PagedCompositionSource, PropertyChangedMessage, ReadonlyComponentVMOf, ReadonlyComponentVMOfBuilder, RelayCommand, type ScoredFilteredCompositeOptions, ScoredFilteredCompositeVM, SearchableState, type SearchableStateOptions, ServicedObservableCollection, StatusTransitionError, type SubscribeValueOptions, type TokenPage, TokenPagedComposition, type TokenPagedCompositionOptions, TreeSelection, type TreeStructureChange, TreeStructureChangedMessage, type UnsubscribableResource, ViewModelType, __minSpecVersion__, __version__, confirm, confirmWithDialogService, declareCapabilities, finalState, find, fromFive, fromFour, fromMany, fromOne, fromSources, fromThree, fromTwo, hasCapability, isCollectionChanged, isConstructionStatusChanged, isLegal, isPropertyChanged, isTreeStructureChanged, makeCollectionChangedEvent, markSchedulerCancelled, precedeWith, propertyValueChangedMessagesFor, requireTransition, subscribeValue, succeedWith, walk, walkExpanded, whenPropertyChanged, wrapWith };
+export { type AggregateChange, AggregateChangeReason, AggregateChangeStream, type AggregateObserveOptions, AggregateVM1, AggregateVM1Builder, AggregateVM2, AggregateVM2Builder, AggregateVM3, AggregateVM3Builder, AggregateVM4, AggregateVM4Builder, AggregateVM5, AggregateVM5Builder, AggregateVM6, AggregateVM6Builder, AsyncRelayCommand, AsyncRelayCommandBuilder, AsyncResourceRetention, type AsyncResourceState, AsyncResourceStatus, AsyncResourceVM, type AsyncResourceVMOptions, type BatchAttachOptions, type BatchAttachRejection, BatchAttachRejectionReason, type BatchAttachResult, BatchUpdateHandle, BuilderValidationError, CAPABILITIES, type CapabilityName, type ChildOrder, type CollectionChangedAction, type CollectionChangedEvent, CollectionChangedMessage, CollectionMutationAction, ComponentVM, ComponentVMBase, ComponentVMBuilder, ComponentVMOf, ComponentVMOfBuilder, type ComponentVMOfOptions, type ComponentVMOptions, CompositeCommand, CompositeVM, CompositeVMBase, CompositeVMBuilder, CompositeVMOf, CompositeVMOfBuilder, type CompositeVMOptions, type ConfirmDelegate, ConfirmationDecoratorCommand, ConstructionStatus, ConstructionStatusChangedMessage, DecoratorCommand, type DecoratorCommandOptions, type DerivedFromSourcesOptions, DerivedProperty, type DictionaryEntry, type DictionaryItemAddedEvent, type DictionaryItemRemovedEvent, type DictionaryItemReplacedEvent, DiscriminatorVM, type DisposableResource, ExpandableState, type FileFilter, type FilteredCompositeOptions, FilteredCompositeVM, FilteredCursorPolicy, FormRevertedMessage, ForwardingComponentVM, ForwardingCompositeVM, GroupVM, GroupVMBuilder, type GroupVMOptions, HierarchicalVM, HierarchicalVMBuilder, type HierarchicalVMConstructionContext, type HierarchicalVMOptions, type IApprovable, IAsyncCommand, type IBatchable, type ICancelable, type IClosable, type ICollapsible, ICommand, type IComponentVM, type IComponentVMOf, type IConstructable, type ICurrentDeletable, type ICurrentUpdatable, type IDeletable, type IDeselectable, type IDestructable, type IDialogService, IDispatcher, type IExpandable, type IExpansionTogglable, type IFilterable, type ILocalizer, type IManagable, IMessage, IMessageHub, type IModalDialogService, type INewCreatable, type IPageable, type IParentVM, type IReconstructable, type ISavable, type ISearchable, type ISelectable, type ISelectableVmCollection, type ISelectionTogglable, ITransactionalMessageHub, type IUpdatable, type IVmCollection, KeyedServicedObservableCollection, type KeyedServicedObservableCollectionOptions, MissingParentPolicy, ModalVM, ModeledCrudCommands, type ModeledCrudCommandsOptions, type NotificationSeverity, NullDialogService, NullDispatcher, NullLocalizer, NullMessageHub, ObservableDictionary, type ObservableMembershipSource, type OwnedResource, PagedComposition, type PagedCompositionSource, PropertyChangedMessage, ReadOnlyObservableList, ReadonlyComponentVMOf, ReadonlyComponentVMOfBuilder, RelayCommand, type ScoredFilteredCompositeOptions, ScoredFilteredCompositeVM, SearchableState, type SearchableStateOptions, ServicedObservableCollection, StatusTransitionError, type SubscribeValueOptions, type TokenPage, TokenPagedComposition, type TokenPagedCompositionOptions, TreeSelection, type TreeStructureChange, TreeStructureChangedMessage, type UnsubscribableResource, ViewModelType, __minSpecVersion__, __version__, confirm, confirmWithDialogService, declareCapabilities, finalState, find, fromFive, fromFour, fromMany, fromOne, fromSources, fromThree, fromTwo, hasCapability, isCollectionChanged, isConstructionStatusChanged, isLegal, isPropertyChanged, isTreeStructureChanged, makeCollectionChangedEvent, markSchedulerCancelled, precedeWith, propertyValueChangedMessagesFor, requireTransition, subscribeValue, succeedWith, walk, walkExpanded, whenPropertyChanged, wrapWith };
 
 // ==== messageHub.d.ts ====
 import { Observable } from 'rxjs';
@@ -2084,6 +2099,7 @@ declare class NotificationVM {
 
 
 declare class ConfirmationVM extends NotificationVM {
+    #private;
     readonly approveCommand: RelayCommand;
     readonly rejectCommand: RelayCommand;
     constructor(notification: Notification, hub: INotificationHub, scheduler: SchedulerLike, lifespanMs?: number, tickIntervalMs?: number);
@@ -2156,7 +2172,7 @@ export { type ICommand as I, RelayCommand as R, type IAsyncCommand as a, type IC
 // ==== testing.d.ts ====
 import { Observable, SchedulerLike } from 'rxjs';
 import { b as ITransactionalMessageHub, d as MessageHubOptions, I as IMessage, a as IMessageHub } from './messageHub.js';
-import { I as IDispatcher, a as CollectionMutationAction, C as CollectionChangedMessage, P as PropertyChangedMessage, O as ObservableList, F as FormVM, c as FormVMOptions } from './formVm.js';
+import { I as IDispatcher, a as CollectionMutationAction, C as CollectionChangedMessage, P as PropertyChangedMessage, O as ObservableList, R as ReadOnlyObservableList, F as FormVM, c as FormVMOptions } from './formVm.js';
 import { a as IAsyncCommand, I as ICommand, b as ICommandOf } from './relayCommand.js';
 
 declare class RecordingMessageHub implements ITransactionalMessageHub {
@@ -2222,12 +2238,12 @@ interface ObservableListChange<T> {
 }
 declare class ObservableListRecorder<T> {
     #private;
-    constructor(list: ObservableList<T>);
+    constructor(list: ObservableList<T> | ReadOnlyObservableList<T>);
     get records(): readonly ObservableListChange<T>[];
     clear(): void;
     dispose(): void;
 }
-declare function recordObservableList<T>(list: ObservableList<T>): ObservableListRecorder<T>;
+declare function recordObservableList<T>(list: ObservableList<T> | ReadOnlyObservableList<T>): ObservableListRecorder<T>;
 
 interface CommandDoubleOptions {
     readonly canExecute?: boolean;

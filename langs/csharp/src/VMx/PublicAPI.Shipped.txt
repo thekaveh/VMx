@@ -236,8 +236,6 @@ VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.GetEnumerator() -> Sy
 VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.ItemAdded -> System.EventHandler<VMx.Collections.DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>!>?
 VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.ItemRemoved -> System.EventHandler<VMx.Collections.DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>!>?
 VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.ItemReplaced -> System.EventHandler<VMx.Collections.DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>!>?
-VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Keys1.get -> VMx.Collections.ObservableList<TKey1>!
-VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Keys2.get -> VMx.Collections.ObservableList<TKey2>!
 VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.ObservableDictionary(VMx.Services.IMessageHub? hub = null) -> void
 VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Remove(TKey1 key1, TKey2 key2) -> bool
 VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Reset -> System.EventHandler?
