@@ -61,11 +61,20 @@ export UV_PYTHON=3.12
 uv python install "$UV_PYTHON"
 uv sync --locked --all-extras
 uv run python ../../tools/check-python-interpreter.py --venv .venv
-uv run pytest
+uv run python -m pytest
 uv run ruff check
 uv run ruff format --check
 uv run mypy --strict src/vmx
 ```
+
+Each new git worktree has its own `langs/python/.venv`, so run
+`uv sync --locked --all-extras` once in every new worktree before the first
+test. `pytest` is only in the `test` extra, and the `tools/tests` parser pin
+`markdown-it-py` is only in the `tools` extra. Always run
+`uv run python -m pytest`, never a bare `pytest` command through `uv run`.
+Before the sync, a bare `pytest` command falls back to the next `pytest` on
+`PATH`, and that `pytest` can import `vmx` from another checkout.
+`python -m pytest` stops with `No module named pytest` instead.
 
 Choose any supported Python 3.10–3.14 version with `UV_PYTHON`; in PowerShell,
 use `$env:UV_PYTHON = "3.12"`. Installing an interpreter alone does not select
@@ -117,9 +126,17 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-features
 cargo test --locked                        # default features: test seams compiled out
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
-cargo package --locked
+CARGO_TARGET_DIR=target/package-verify cargo package --locked  # own target dir, see below
 python3 ../../tools/check-rust-package.py  # crate holds exactly the tracked files
 ```
+
+`cargo package` verifies the crate by building the packaged copy in the target
+directory's `package/` folder. In a shared target directory, that build leaves
+a stale `vmx-rs` library. Later integration-test builds there, such as
+`cargo test --test conformance`, link it and ignore edits to `src/`. The gate
+therefore runs `cargo package` in its own `CARGO_TARGET_DIR`. If a target
+directory has already run `cargo package`, run `cargo clean -p vmx-rs` in it
+once.
 
 Rust's minimum supported toolchain is 1.88. The `rust` workflow runs every
 gate in this block on 1.88.0. On stable it runs the format check, the
@@ -142,7 +159,8 @@ uv run --project langs/python python tools/check-conformance-coverage.py \
 
 # Executed conformance evidence for one flavor, from its runner's own report.
 # Each flavor workflow runs this after its tests; for example, Python:
-(cd langs/python && uv run pytest --junitxml=conformance-results.xml \
+(cd langs/python && uv sync --locked --all-extras && \
+    uv run python -m pytest --junitxml=conformance-results.xml \
     -o junit_family=xunit1)
 python3 tools/check-conformance-execution.py --flavor python \
     --report langs/python/conformance-results.xml
@@ -253,7 +271,9 @@ Configure each environment as follows:
 
 **Trusted publisher.** Registry channels authenticate through GitHub OIDC; the
 publish job has `id-token: write`. A registry that requires an existing package
-needs a one-time bootstrap credential first; the flavor runbook describes it.
+needs a one-time bootstrap credential first. The flavor runbook describes the
+procedure, or links the revision that still contains it when a completed
+bootstrap was removed from the runbook.
 Register the trusted publisher with these exact fields:
 
 | Field             | Value                              |

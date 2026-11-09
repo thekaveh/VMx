@@ -35,7 +35,8 @@ documentation updates. This runbook adds only the Python steps.
 ### 1.1 PyPI Trusted Publisher
 
 The PyPI trusted publisher is configured; the pending-publisher bootstrap is
-in git history. It uses the shared trusted-publisher fields with environment
+in git history at [commit `e8f065f6`, §1.1](https://github.com/thekaveh/VMx/blob/e8f065f66f1154774e0e61a0ceb8b728352c1cf5/langs/python/RELEASING.md#L31-L36).
+It uses the shared trusted-publisher fields with environment
 `pypi-python`. The PEP 740 provenance of `vmx` 3.23.0 names `thekaveh/VMx`,
 workflow `release.yml`, and environment `pypi-python`.
 

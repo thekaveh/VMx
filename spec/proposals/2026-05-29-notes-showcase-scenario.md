@@ -6,9 +6,10 @@
 **Branch:** `examples-notes-showcase` off `main` (merged)
 **Sister artefacts:** [`examples/notes-showcase-parity.md`](../../examples/notes-showcase-parity.md)
 is the maintained 19-feature × 4-flavor parity matrix; [ADR-0034](../ADRs/0034-aggregate-vm6.md)
-shipped the `AggregateVM6` extension. The four framework screenshots remain an
-explicit capture backlog in [`assets/notes-showcase/README.md`](../../assets/notes-showcase/README.md);
-they are not shipped artefacts.
+shipped the `AggregateVM6` extension. The planned framework screenshots were
+never captured, and their placeholder directory was removed
+([#1338](https://github.com/thekaveh/VMx/issues/1338)). The parity matrix's
+VM-layer diagrams are the visual companion.
 
 ## 1. Executive summary
 
@@ -80,8 +81,8 @@ exercised by the example.
   spec extension (Phase 2.s), not by the example apps themselves.
   Conformance is at 220 IDs after this branch lands.
 - N3. Pixel-perfect visual parity or visual regression tests. Four framework
-  screenshots are planned as manual references; their capture status is tracked
-  in `assets/notes-showcase/README.md`.
+  screenshots were planned as manual references but were never captured; their
+  placeholder directory was removed.
 - N4. End-to-end simulated-user tests (Playwright / FlaUI / pyautogui). Headless
   smoke per framework (§9.3) is the substitute.
 - N5. Multiple frameworks per language *in this PR* — see §4.2 for the
@@ -715,7 +716,7 @@ assert each flavor's test suite contains the 10 VM test files from §9.1.
 | 4   | Adapters per framework                        | 3a/3b/3c     | **4a ‖ 4b ‖ 4c**    | The 5 bridge files per §7.3 each. Adapter unit tests where applicable.                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | 5   | UI per framework                              | 4a / 4b / 4c | **5a ‖ 5b ‖ 5c**    | Views per §8. Headless smoke (§9.3) green. Manual run verified once on macOS.                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 6   | Pure-VM contract checks                       | 5a/5b/5c     | partly parallel     | The three §9.2 scripts + the cross-layer import check. All three apps pass.                                                                                                                                                                                                                                                                                                                                                                                                             |
-| 7   | Polish + parity artefacts                     | 6            | parallel internally | `examples/notes-showcase-parity.md`, three screenshots in `assets/notes-showcase/`, README updates, root README §4.3, scenario-doc cross-links.                                                                                                                                                                                                                                                                                                                                         |
+| 7   | Polish + parity artefacts                     | 6            | parallel internally | `examples/notes-showcase-parity.md`, README updates, root README §4.3, scenario-doc cross-links.                                                                                                                                                                                                                                                                                                                                                                                        |
 | 8   | CI wiring                                     | 6, 7         | —                   | Extend the three lang workflows; add `examples-contract-checks` job; verify on a draft PR.                                                                                                                                                                                                                                                                                                                                                                                              |
 | 9   | Multi-agent audit (clean-pass gate)           | 8            | 4–6 parallel agents | Repeated parallel audits (Critical / Important / Minor) until **10 consecutive zero-finding passes**; spot-checks between runs reset the counter on any miss. Phase-2 spec/library work and phase 3+ example work are audited together since they ship in one PR.                                                                                                                                                                                                                       |
 | 10  | Merge to `main`                               | 9 (clean)    | —                   | PR-merge to `main`; close worktree. Spec v2.2.0 + three flavor v2.2.0 packages + three flagship example apps all land in one merge.                                                                                                                                                                                                                                                                                                                                                     |

@@ -1,8 +1,12 @@
 """Test config for tools/. Adjusts sys.path so the script under test is importable."""
 
 import importlib.util
+import re
 import sys
+from importlib import metadata
 from pathlib import Path
+
+import pytest
 
 # Add tools/ to sys.path so we can import check_conformance_coverage as a module.
 TOOLS_DIR = Path(__file__).resolve().parents[1]
@@ -11,6 +15,36 @@ if str(TOOLS_DIR) not in sys.path:
 # The repository root makes scripts.docs.snippets (standard library only) importable.
 if str(TOOLS_DIR.parent) not in sys.path:
     sys.path.insert(1, str(TOOLS_DIR.parent))
+
+PYTHON_PROJECT = TOOLS_DIR.parent / "langs" / "python" / "pyproject.toml"
+
+
+def _require_pinned_markdown_it() -> None:
+    """Stop the run when markdown-it-py differs from the `tools` extra pin.
+
+    The release gate parses CHANGELOG blocks with the CommonMark HTML-block tag
+    list of the pinned parser. Another version gives assertion diffs that do not
+    name the cause, for example when an outside `pytest` on PATH runs instead of
+    the one in `langs/python/.venv`.
+    """
+    match = re.search(r'"markdown-it-py==([^"]+)"', PYTHON_PROJECT.read_text(encoding="utf-8"))
+    if match is None:
+        raise pytest.UsageError(f"{PYTHON_PROJECT} does not pin markdown-it-py")
+    pinned = match.group(1)
+    try:
+        installed: str | None = metadata.version("markdown-it-py")
+    except metadata.PackageNotFoundError:
+        installed = None
+    if installed != pinned:
+        raise pytest.UsageError(
+            f"tools/tests needs markdown-it-py {pinned} (the `tools` extra pin), "
+            f"but {sys.executable} has {installed or 'no markdown-it-py'}. Run "
+            "`uv sync --locked --all-extras` in langs/python, then run "
+            "`uv --project langs/python run python -m pytest tools/tests/`."
+        )
+
+
+_require_pinned_markdown_it()
 
 
 # The script's filename uses a hyphen, so `import check_conformance_coverage` would

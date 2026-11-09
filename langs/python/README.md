@@ -224,18 +224,19 @@ example apps. See [`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blo
 [`tests/conformance/README.md`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/conformance/README.md)
 documents the test-layout conventions.
 
-Run the suite:
+Run the suite from this directory:
 
 ```bash
-uv run pytest
+uv sync --locked --all-extras
+uv run python -m pytest
 ```
 
 ## 7. Development
 
 ```bash
-# From this directory
-uv sync --all-extras
-uv run pytest
+# From this directory; run the sync once in every new git worktree
+uv sync --locked --all-extras
+uv run python -m pytest
 uv run ruff check
 uv run ruff format --check
 uv run mypy --strict src/vmx
