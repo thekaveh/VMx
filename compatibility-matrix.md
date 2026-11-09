@@ -6,7 +6,7 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.30.x | 3.30.0[^current] <!-- x-release-please-version --> | 3.30.0[^current] | 3.31.0[^current] | 4.0.0[^current] | 0.36.0[^rust] |
+| 3.30.x | 3.30.0[^current] <!-- x-release-please-version --> | 3.30.0[^current] | 3.31.0[^current] | 4.0.0[^current] | 0.37.0[^rust] |
 | 3.29.x | —[^source-3-29] | —[^source-3-29] | 3.30.0[^typescript-3-30] | —[^source-3-29] | 0.35.0[^source-3-29] |
 | 3.28.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.34.0[^source-3-24-28] |
 | 3.27.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.33.0[^source-3-24-28] |
@@ -72,7 +72,7 @@ tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.2
 point to the same verified `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
-is at source version 0.36.0, declares `MIN_SPEC_VERSION = "3.30.0"`, and carries
+is at source version 0.37.0, declares `MIN_SPEC_VERSION = "3.30.0"`, and carries
 behavioral tests for every library conformance ID. The parity ledger
 `docs/maintenance/2026-07-16-rust-capability-parity.md` records its member
 evidence, the recorded difference in §12.7 and the open item in §12.13. Rust is not published to crates.io.

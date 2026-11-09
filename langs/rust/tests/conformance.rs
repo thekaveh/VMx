@@ -29,6 +29,7 @@ mod conformance {
     mod container_members;
     mod cross_thread_membership;
     mod current_selector_live_membership;
+    mod delayed_task;
     mod derived_properties;
     mod dialogs;
     mod dictionary_duplicate_add;

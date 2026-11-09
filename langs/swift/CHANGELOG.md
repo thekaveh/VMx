@@ -17,6 +17,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `DelayedTask`: a disposable helper that holds at most one delayed action on
+  an injected scheduler. `schedule(after:_:)` replaces a pending action and
+  restarts its delay, `cancel()` stops it, `isPending` reports it, and
+  `dispose()` cancels it (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+  It accepts any Combine `Scheduler`, such as `DispatchQueue.main` or
+  `VirtualTimeScheduler`. Releasing the task also cancels its pending action.
 - Catchable `Result` forms for three operations that trap on invalid input
   (ADR-0217, #1349). `FilteredCompositeVM.setCurrentResult(_:)` returns a
   `CompositeMembershipError` failure for an item that is not visible and

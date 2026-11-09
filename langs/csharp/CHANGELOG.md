@@ -14,6 +14,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [3.30.0] — unreleased source version
 
+- Added: `DelayedTask`: a disposable helper that holds at most one delayed
+  action on an injected scheduler. `Schedule` replaces a pending action and
+  restarts its delay, `Cancel` stops it, `IsPending` reports it, and disposal
+  cancels it (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+
 - Fixed: an add now ends its start attempt after it ends its membership
   transaction (ADR-0218, spec/06 §5.1, #1371). A container that a late add
   resumes publishes `Constructed` outside that add's transaction, so a

@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `DelayedTask`: a disposable helper that holds at most one delayed action on an
+  injected scheduler. `schedule` replaces a pending action and restarts its
+  delay, `cancel` stops it, `isPending` reports it, and disposal cancels it
+  (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
 - `COMP-053` conformance tests (ADR-0218, #1312). The selector receives the
   live membership. This flavor already behaved this way.
 - `COMP-040` tests now assert that the rollback error carries the original and

@@ -191,7 +191,16 @@ double-resolve.
 
 Scheduler is injected at construction. Production code passes the default
 system scheduler; tests pass a `TestScheduler` / fake clock for deterministic
-time advancement.
+time advancement. Chapter 11 §6.1 lists the scheduler and the virtual-time test
+scheduler of each flavor. The VM reads the elapsed time from the scheduler's
+`now` and arms its lifespan timer on that scheduler. Rust takes the scheduler
+in `with_scheduler`, and its `new` and `with_hub` conveniences use
+`SystemScheduler`. A Rust test advances a `VirtualTimeScheduler` (ADR-0219).
+
+A VM released without `Dispose()` can still auto-dismiss in C#, Python and
+TypeScript, because the scheduler holds its timer. In Swift and Rust the timer
+holds the VM weakly. Releasing every reference cancels auto-dismiss, and the
+notification stays pending. Dispose a VM that leaves the visible list.
 
 Resolution and disposal stop the clock (ADR-0197). The VM stops it at the first
 of these steps: its own resolution, an observed hub resolution, or its
@@ -306,7 +315,8 @@ that owns the list can expose it as a property.
 
 Rust exposes the stream as `pending_stream()` and the current list as
 `pending()`; the other flavors expose `Pending` as an observable. Rust builds a
-`NotificationVm` with `with_hub(notification, hub, lifespan_ms)` (no scheduler).
+`NotificationVm` with `with_scheduler(notification, hub, scheduler, lifespan_ms)`, or with `with_hub(notification, hub, lifespan_ms)`, which uses
+`SystemScheduler` (chapter 11 §6.1).
 Rust `NotificationVm` and `ConfirmationVm` have `dispose()`, as in the other
 flavors (ADR-0178). Call it when the entry leaves the list. Dropping the entry
 does not make a kept command inert: a kept command still resolves the hub until

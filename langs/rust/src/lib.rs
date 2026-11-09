@@ -169,6 +169,11 @@ pub use groups::{GroupVm, GroupVmBuilder, GroupVmOptions};
 mod paged_composition;
 pub use paged_composition::PagedComposition;
 
+mod scheduler;
+pub use scheduler::{
+    DelayedTask, ScheduledAction, Scheduler, SystemScheduler, VirtualTimeScheduler,
+};
+
 mod searchable_state;
 pub use searchable_state::SearchableState;
 

@@ -83,7 +83,7 @@ library surface is:
 === "Rust"
 
     ```rust
-    let vm = ConfirmationVm::with_hub(notification, hub);
+    let vm = ConfirmationVm::with_scheduler(notification, hub, scheduler, 300_000);
     vm.reject_command().execute();
     vm.dispose();
     ```

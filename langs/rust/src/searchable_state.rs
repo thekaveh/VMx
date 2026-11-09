@@ -1,19 +1,36 @@
 //! Pull-based filtering state with change notifications.
 //!
-//! Spec: `spec/06-composite-vm.md` §Search / filter; ADR-0014.
+//! Spec: `spec/06-composite-vm.md` §Search / filter; ADR-0014, ADR-0219.
+
+use std::time::Duration;
 
 use super::{
-    lock, Arc, AtomicBool, Message, MessageHub, Mutex, Ordering, Searchable, Subscription,
+    lock, Arc, AtomicBool, DelayedTask, Message, MessageHub, Mutex, Ordering, Scheduler,
+    Searchable, Subscription, SystemScheduler,
 };
 
 type ItemsProvider<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 type SearchPredicate<T> = Arc<dyn Fn(&T, &str) -> bool + Send + Sync>;
 
+/// The default term debounce (spec/06 §8).
+const DEFAULT_DEBOUNCE: Duration = Duration::from_secs(1);
+
+fn filtered_message() -> Message {
+    Message::Custom {
+        sender_id: 0,
+        sender_name: "SearchableState".to_string(),
+        name: "filtered".to_string(),
+    }
+}
+
 /// A search term and predicate projected over a snapshot or live item source.
 ///
-/// Live providers are pulled whenever filtered state is requested. When a
-/// source-change hub is supplied, its messages announce that the projection
-/// may have changed without eagerly retaining a second collection.
+/// Live providers are pulled whenever filtered state is requested. A
+/// `filtered` message on [`filtered_changed`](Self::filtered_changed) tells a
+/// consumer to pull [`filtered`](Self::filtered) again. A term change sends
+/// it after the term debounce, 1 second by default, on the scheduler's
+/// thread. [`search`](Self::search) and a source-change message send it at
+/// once (spec/06 §8, ADR-0219).
 #[derive(Clone)]
 pub struct SearchableState<T: Clone + Send + Sync + 'static> {
     source: ItemsProvider<T>,
@@ -22,6 +39,8 @@ pub struct SearchableState<T: Clone + Send + Sync + 'static> {
     filtered_changed: MessageHub,
     source_changes_subscription: Arc<Mutex<Option<Subscription>>>,
     disposed: Arc<AtomicBool>,
+    debounce: Duration,
+    term_delivery: DelayedTask,
 }
 
 impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
@@ -83,6 +102,8 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
             filtered_changed: MessageHub::new(),
             source_changes_subscription: Arc::new(Mutex::new(None)),
             disposed: Arc::new(AtomicBool::new(false)),
+            debounce: DEFAULT_DEBOUNCE,
+            term_delivery: DelayedTask::new(SystemScheduler),
         };
         if let Some(source_changes) = source_changes {
             let filtered_changed = state.filtered_changed.clone();
@@ -91,11 +112,7 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
                 if disposed.load(Ordering::Acquire) {
                     return;
                 }
-                filtered_changed.send(Message::Custom {
-                    sender_id: 0,
-                    sender_name: "SearchableState".to_string(),
-                    name: "filtered".to_string(),
-                });
+                filtered_changed.send(filtered_message());
             });
             *lock(&state.source_changes_subscription) = Some(subscription);
 
@@ -106,6 +123,28 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
         state
     }
 
+    /// Sets the term debounce. The default is 1 second.
+    ///
+    /// A zero debounce sends the `filtered` message before
+    /// [`set_search_term`](Self::set_search_term) returns. Call this before
+    /// first use.
+    pub fn with_debounce(mut self, debounce: Duration) -> Self {
+        self.debounce = debounce;
+        self
+    }
+
+    /// Sets the scheduler that runs the term debounce. The default is
+    /// [`SystemScheduler`]; a test passes a
+    /// [`VirtualTimeScheduler`](crate::VirtualTimeScheduler).
+    ///
+    /// Call this before first use: it cancels a pending term delivery, and a
+    /// clone made before this call keeps the previous scheduler.
+    pub fn with_scheduler(mut self, scheduler: impl Scheduler) -> Self {
+        self.term_delivery.cancel();
+        self.term_delivery = DelayedTask::new(scheduler);
+        self
+    }
+
     /// Returns the current search term.
     pub fn search_term(&self) -> String {
         if self.disposed.load(Ordering::Acquire) {
@@ -114,9 +153,12 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
         lock(&self.search_term).clone()
     }
 
-    /// Changes the search term and announces a changed filtered projection.
+    /// Changes the search term and schedules one `filtered` message after the
+    /// debounce.
     ///
-    /// Equal assignments and assignments after disposal are inert.
+    /// A later change inside the window restarts the debounce. A zero
+    /// debounce sends the message before this call returns. Equal assignments
+    /// and assignments after disposal are inert.
     pub fn set_search_term(&self, term: impl Into<String>) {
         if self.disposed.load(Ordering::Acquire) {
             return;
@@ -131,28 +173,32 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
                 true
             }
         };
-        if changed {
-            self.filtered_changed.send(Message::Custom {
-                sender_id: 0,
-                sender_name: "SearchableState".to_string(),
-                name: "filtered".to_string(),
-            });
+        if !changed {
+            return;
         }
+        if self.debounce.is_zero() {
+            self.filtered_changed.send(filtered_message());
+            return;
+        }
+        let (filtered_changed, disposed) = (self.filtered_changed.clone(), self.disposed.clone());
+        self.term_delivery.schedule(self.debounce, move || {
+            if !disposed.load(Ordering::Acquire) {
+                filtered_changed.send(filtered_message());
+            }
+        });
     }
 
     /// Evaluates and returns the current filtered projection, and announces it
-    /// on [`SearchableState::filtered_changed`], as the pushed filtered output
-    /// of the other flavors does (SRCH-005).
+    /// at once on [`SearchableState::filtered_changed`], as the pushed filtered
+    /// output of the other flavors does (SRCH-005).
+    ///
+    /// A pending term delivery is not cancelled and still sends its message.
     pub fn search(&self) -> Vec<T> {
         if self.disposed.load(Ordering::Acquire) {
             return Vec::new();
         }
         let filtered = self.filtered();
-        self.filtered_changed.send(Message::Custom {
-            sender_id: 0,
-            sender_name: "SearchableState".to_string(),
-            name: "filtered".to_string(),
-        });
+        self.filtered_changed.send(filtered_message());
         filtered
     }
 
@@ -178,13 +224,15 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
         self.filtered_changed.clone()
     }
 
-    /// Stops source observation and disposes the filtered-change hub.
+    /// Stops source observation, cancels a pending term delivery and
+    /// disposes the filtered-change hub.
     ///
-    /// Disposal is idempotent.
+    /// Disposal is idempotent. It never disposes the scheduler.
     pub fn dispose(&self) {
         if self.disposed.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.term_delivery.dispose();
         lock(&self.source_changes_subscription).take();
         self.filtered_changed.dispose();
     }

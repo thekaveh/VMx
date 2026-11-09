@@ -148,6 +148,7 @@ from vmx import ComponentVM, ConstructionStatus, MessageHub, RelayCommand, RxDis
 | `NullMessageHub` / `NULL_MESSAGE_HUB`             | Null-object variant per ADR-0017                                                    |
 | `RxDispatcher`                                    | Foreground/background scheduler pair                                                |
 | `NullDispatcher` / `NULL_DISPATCHER`              | Null-object variant per ADR-0017                                                    |
+| `DelayedTask`                                     | One replaceable delayed action on an injected scheduler (spec/11 §6.3)              |
 | `ConstructionStatus`                              | 5-state lifecycle enum                                                              |
 | `StatusTransitionError`                           | Raised on illegal lifecycle operations                                              |
 | `BuilderValidationError`                          | Raised when a builder is missing required fields                                    |

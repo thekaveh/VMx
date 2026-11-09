@@ -14,6 +14,10 @@ below for them.
 
 ### Added
 
+- `DelayedTask`: a disposable helper that holds at most one delayed action on
+  an injected scheduler. `schedule` replaces a pending action and restarts its
+  delay, `cancel` stops it, `is_pending` reports it, and `dispose` cancels it
+  (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
 - `COMP-053` conformance tests (ADR-0218, #1312). The selector receives the
   live membership. This flavor already behaved this way.
 - `COMP-040` tests now assert that the rollback error carries the original and
