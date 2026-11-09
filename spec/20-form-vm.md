@@ -319,8 +319,8 @@ option is absent, existing approval semantics remain unchanged.
 1. install the candidate as the live `Model` together with its prepared error
    map;
 1. emit `ErrorsChanged` only for an effective error-map change;
-1. invalidate `ApproveCommand` when the existing strict/validity rules require
-   it; and
+1. raise `ApproveCommand.CanExecuteChanged` once when the update changed
+   `IsValid`, or `IsDirty` in strict mode, as defined below; and
 1. publish exactly one model `PropertyChangedMessage` on the configured hub.
 
 The property name follows the flavor idiom: `"Model"` in C# and `"model"` in
@@ -333,6 +333,18 @@ form state. If that subscriber re-enters `SetModel` with another unequal value,
 the nested call completes its own state work and publishes once; the outer call
 performs no state work after its send returns. One message is published for each
 accepted unequal assignment.
+
+**Approve-command notification for updates (spec v3.30, ADR-0196).** An
+accepted unequal `SetModel`, a deny, and a Rust validator registration's
+revalidation each raise `ApproveCommand.CanExecuteChanged` exactly once when
+the update changes `IsValid`. In strict mode they also raise it exactly once
+when the update changes `IsDirty`. An update that changes both raises it once.
+An update that changes neither raises nothing. The rule compares these two
+inputs, not the computed `CanExecute` result. An update can therefore raise
+the event while `CanExecute` stays `false`. An approval in flight (§5.3) does
+not suppress the event, and the event adds to the admission and settlement
+events. A consumer re-reads `CanExecute` when it receives the event (chapter
+04 §4).
 
 A `SetModel` nested in a preparation callback or an `ErrorsChanged` observer of
 another update commits at once, but its steps 8 to 10 wait for the outermost
@@ -906,7 +918,8 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   approval is admitted, so snapshots advance in admission order (§5.3).
 - `FORM-032` — `ApproveCommand.CanExecute` is `false` while an approval is in
   flight; `CanExecuteChanged` fires once on admission and exactly once on
-  settlement after success, persister failure, and reset failure (§5.3).
+  settlement after success, persister failure, and reset failure (§5.3). An
+  update during the approval raises its own event under `FORM-043`.
 - `FORM-033` — Settlement clears the in-flight mark before publishing, so an
   approval started from an `OnApproved` or `ApproveErrors` observer or after
   the awaited call completes is admitted and captures the settled model; a
@@ -952,6 +965,11 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   `Dispose()` never calls the persister, and the queued notifications of nested
   calls are dropped after disposal. A `Dispose()` before a scheduled
   command-path persister starts prevents the call (§5.4, §10).
+- `FORM-043` — An update raises `ApproveCommand.CanExecuteChanged` exactly once
+  when it changes `IsValid`, or `IsDirty` in strict mode, and otherwise not.
+  A strict-mode `SetModel` from a dirty, invalid model to a clean, valid model
+  raises it once, and a `SetModel` that makes the form invalid during an
+  approval raises it once (§5.2, ADR-0196).
 
 `DISP-004` adds the cross-cutting assertion that repeated disposal completes
 owned form channels and commands at most once while preserving `FORM-014`.

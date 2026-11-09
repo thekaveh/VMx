@@ -706,3 +706,20 @@ before a persister starts prevents the persister call (`FORM-041`,
 `FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
 
 See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also sets three command rules. The fire-and-forget `Execute()` of
+`ConfirmationDecoratorCommand` never invokes the inner command inside its own
+call, also when `confirm()` is already complete (`CMDD-018`). A fire-and-forget
+`AsyncRelayCommand` fault reaches `errors` after the completion
+`CanExecuteChanged` (`CMD-020`). VMx does not marshal the work that follows an
+awaited step, so it runs where that step completes. See ADR-0195, chapter 04
+§8.3.1 and §10.4, and chapter 11 §3.1.
+
+v3.30.0 also defines two command-enablement notifications. A `FormVM` update
+raises `ApproveCommand.CanExecuteChanged` exactly once when it changes
+`IsValid`, or `IsDirty` in strict mode, also during an approval (`FORM-043`).
+From the start of `NotificationVM` or `ConfirmationVM` disposal, every command
+of the VM reports `CanExecute == false` (`NOTIF-018`). The catalog now contains
+455 library IDs plus 5 scenario IDs.
+
+See ADR-0196, chapter 20 §5.2, and chapter 16 §6.2.

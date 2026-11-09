@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.30.0** — implements `spec-v3.30.0` end-to-end. 451/451 library conformance IDs
+**v3.30.0** — implements `spec-v3.30.0` end-to-end. 455/455 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.1` and `VMx.Notifications` (opt-in
@@ -221,6 +221,18 @@ host as `(current, previous)` and returns an `IDisposable` that the host owns.
 VMx does not attach that handle to the observed VM's lifetime. See
 [C# imperative engine bridge](../../docs/content/flavors/csharp.md#724-imperative-engine-bridge).
 
+### 4.3 Threads after awaited work
+
+VMx awaits with `ConfigureAwait(false)` and does not marshal the work that
+follows. A command that `ConfirmationDecoratorCommand` confirms can therefore
+run on a thread-pool thread. This holds also when the caller and the
+confirmation use a UI `SynchronizationContext`. The completion
+`CanExecuteChanged` and `Errors` of an `AsyncRelayCommand`, and the
+`CollectionChanged` reset of a `TokenPagedComposition` load, can also run on a
+pool thread. Marshal UI work yourself, for example through
+`ObserveOn(dispatcher.Foreground)` or a dispatcher call in the inner command.
+See spec chapter 11 §3.1 and ADR-0195.
+
 ## 5. Companion packages
 
 `VMx.Extensions.DependencyInjection` adds:
@@ -241,7 +253,7 @@ VMx does not attach that handle to the observed VM's lifetime. See
 
 ## 6. Conformance
 
-Implements all 451 library conformance IDs; THEME scenario IDs live in the
+Implements all 455 library conformance IDs; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](../../spec/12-conformance.md).
 
 Run the suite:
