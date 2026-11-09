@@ -127,8 +127,7 @@ internal static class ContainerMembership
                 ref firstFailure,
                 (Container: container, Args: args),
                 static state => state.Container.Hub.Send(
-                    CollectionChangedMessage<VM>.From(state.Container, state.Args)
-                        with { SenderName = state.Container.Name }));
+                    CollectionChangedMessage<VM>.From(state.Container, state.Args) with { SenderName = state.Container.Name }));
         }
         firstFailure?.Throw();
     }
