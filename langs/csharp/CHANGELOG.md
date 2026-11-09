@@ -43,6 +43,10 @@ All notable changes to the C# flavor are documented here. The format is based on
   `CanExecuteChanged` once, as TypeScript and Swift do (#1459, spec/04 §8.4).
   Handlers of the inner command receive nothing.
 
+- Added: `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220,
+  ADR-0221, ADR-0222). They cover the #1367, #1430, #1352 and #1459 changes
+  above.
+
 - Changed: the construct walk of a composite or group now counts members only
   (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
   joins a child, and again after the child settles. A child that a removal or

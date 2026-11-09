@@ -15,6 +15,12 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
+  ADR-0222). `CMDD-019` covers the #1459 change below. Rust already met
+  `COL-072` and `FWD-006`: each subscriber runs inside `catch_unwind`, and the
+  forwarding decorators' `notify_property_changed` already called the wrapped
+  VM's helper.
+
 - `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
   tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
   #1311). A failing subscriber does not stop the delivery to the other

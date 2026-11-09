@@ -14,6 +14,9 @@ below for them.
 
 ### Added
 
+- `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
+  ADR-0222). They cover the #1367, #1430, #1352 and #1459 changes under
+  Changed and Fixed.
 - `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
   membership change during another open membership transaction fails at once
   and changes nothing. Python already behaved this way.
