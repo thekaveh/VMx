@@ -47,8 +47,9 @@ type SnapshotPhase =
 
 /**
  * The result of preparing a model update (§5.4): the next model and error map,
- * and the dirty and valid state before and after it. Every consumer callback
- * the update needs has already run, so committing it runs none.
+ * and the dirty and valid state before and after it. The dirty state is
+ * computed in strict mode only and is false otherwise (§5.2). Every consumer
+ * callback the update needs has already run, so committing it runs none.
  */
 interface PreparedUpdate<TM> {
   readonly model: TM;
@@ -67,6 +68,17 @@ type QueuedUpdate<TM> =
   | { readonly kind: "deny" };
 
 /**
+ * The persister start of a nested approval (§5.4, ADR-0180). `run` calls the
+ * persister. `release` frees the approval without calling it after a failed
+ * send (ADR-0216). `announced` is set once its admission notification is sent.
+ */
+interface ApprovalStart {
+  readonly run: () => void;
+  readonly release: () => void;
+  announced: boolean;
+}
+
+/**
  * The notifications of one or more updates or approval admissions, in the
  * order they are sent (§5.4, ADR-0180): every error map first, then the other
  * notifications, then the persister starts of nested approvals.
@@ -74,7 +86,7 @@ type QueuedUpdate<TM> =
 interface Notices {
   readonly errors: Array<() => void>;
   readonly afterScope: Array<() => void>;
-  readonly starts: Array<() => void>;
+  readonly starts: ApprovalStart[];
 }
 
 function noNotices(): Notices {
@@ -467,7 +479,9 @@ export interface FormVMOptions<TM> {
    * snapshot)`). Defaults to {@link deepEquals}, a structural deep-equal that
    * matches what the default `structuredClone` snapshotter clones (handles
    * Date/Map/Set/BigInt/circular refs). Supply your own to compare on a subset
-   * of fields or with reference semantics.
+   * of fields or with reference semantics. A `setModel` compares the candidate
+   * with the live model. Only a strict form's updates also compare with the
+   * snapshot (spec/20 §5.2, ADR-0216).
    */
   equals?: ModelEquals<TM>;
   /** Optional field validators keyed by idiomatic field/property name. */
@@ -753,7 +767,9 @@ export class FormVM<TM> {
    * an `errorsChanged` observer of one, is admitted at once. Its
    * `canExecuteChanged` and its persister call wait for the outermost update
    * (§5.4, ADR-0180). A `dispose()` before the persister starts prevents the
-   * call, and the returned promise then resolves (§10).
+   * call, and the returned promise then resolves (§10). When a send of that
+   * update's notifications fails, the approval is released without calling
+   * the persister, and the returned promise resolves (§5.4, ADR-0216).
    */
   async approveAsync(): Promise<void> {
     // A disposed form is a full no-op — the persister must not be invoked
@@ -772,18 +788,45 @@ export class FormVM<TM> {
       // §5.4: the outermost update sends the admission notification, then
       // calls the persister after the rest of its queue.
       await new Promise<void>((resolve, reject) => {
+        const start: ApprovalStart = {
+          run: () => {
+            void this.#runAdmitted(current).then(resolve, reject);
+          },
+          release: () => {
+            this.#releaseNestedApproval(start);
+            resolve();
+          },
+          announced: false,
+        };
         this.#takeNotices({
           errors: [],
-          afterScope: [() => this.#canExecuteTrigger.next()],
-          starts: [() => {
-            void this.#runAdmitted(current).then(resolve, reject);
+          afterScope: [() => {
+            start.announced = true;
+            this.#canExecuteTrigger.next();
           }],
+          starts: [start],
         });
       });
       return;
     }
     this.#raiseApproveCanExecuteChanged();
     await this.#runAdmitted(current);
+  }
+
+  /**
+   * Releases a nested approval whose persister has not started, after a
+   * failed send of the outermost update's queue (§5.4 rule 7, ADR-0216). The
+   * in-flight mark clears. The command is re-announced once when the
+   * admission was announced, and a failure of that send is discarded.
+   */
+  #releaseNestedApproval(start: ApprovalStart): void {
+    this.#approvalInFlight = false;
+    if (!start.announced || this.#disposed) return;
+    try {
+      this.#canExecuteTrigger.next();
+    } catch {
+      // Discarded: the failure that stopped the queue propagates instead.
+    }
   }
 
   /**
@@ -1055,42 +1098,60 @@ export class FormVM<TM> {
    * Sends a queue (§5.4): every error map, including those that updates made
    * from an errorsChanged observer add meanwhile, then the other
    * notifications, then the persister starts of nested approvals. A failing
-   * send does not stop the later ones. Returns the first failure.
+   * send stops the later sends, and each nested approval is released without
+   * calling its persister (rule 7, ADR-0216). Returns the failure.
    */
   #deliver(notices: Notices): { readonly error: unknown } | undefined {
     let failure: { readonly error: unknown } | undefined;
-    const run = (send: () => void): void => {
+    this.#deliveringErrors = true;
+    try {
+      for (let sent = 0; sent < notices.errors.length;) {
+        (notices.errors[sent] as () => void)();
+        sent += 1;
+        if (sent === notices.errors.length) {
+          appendNotices(notices, this.#scopedNotices);
+          this.#scopedNotices = noNotices();
+        }
+      }
+    } catch (error: unknown) {
+      failure = { error };
+    }
+    // After a failure, the queues of updates made from the failing observer
+    // join this one, so their nested approvals are released below.
+    appendNotices(notices, this.#scopedNotices);
+    this.#scopedNotices = noNotices();
+    this.#deliveringErrors = false;
+    if (failure === undefined) {
       try {
-        send();
+        for (const send of notices.afterScope) send();
+      } catch (error: unknown) {
+        failure = { error };
+      }
+    }
+    if (failure !== undefined) {
+      for (const start of notices.starts) start.release();
+      return failure;
+    }
+    for (const start of notices.starts) {
+      try {
+        start.run();
       } catch (error: unknown) {
         failure ??= { error };
       }
-    };
-    this.#deliveringErrors = true;
-    for (let sent = 0; sent < notices.errors.length;) {
-      run(notices.errors[sent] as () => void);
-      sent += 1;
-      if (sent === notices.errors.length) {
-        appendNotices(notices, this.#scopedNotices);
-        this.#scopedNotices = noNotices();
-      }
     }
-    this.#deliveringErrors = false;
-    for (const send of notices.afterScope) run(send);
-    for (const start of notices.starts) run(start);
     return failure;
   }
 
   /**
-   * Prepares an update to `model` (§5.4): runs the dirty comparisons and the
-   * validators without changing any form state. A throwing callback
-   * propagates with nothing prepared.
+   * Prepares an update to `model` (§5.4): runs the validators and, in strict
+   * mode only, the dirty comparisons (§5.2, ADR-0216), without changing any
+   * form state. A throwing callback propagates with nothing prepared.
    */
   #prepare(model: TM): PreparedUpdate<TM> {
-    const wasDirty = !this.#equals(this.#model, this.#snapshot);
+    const wasDirty = this.#strict && !this.#equals(this.#model, this.#snapshot);
     const wasValid = this.isValid;
     const errors = this.#validate(model);
-    const isDirty = !this.#equals(model, this.#snapshot);
+    const isDirty = this.#strict && !this.#equals(model, this.#snapshot);
     return { model, errors, wasDirty, wasValid, isDirty };
   }
 

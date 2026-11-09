@@ -167,6 +167,9 @@ public final class AggregateChangeStream<Item: AnyObject> {
     private var membershipSubscription: AnyCancellable?
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var observers: [UUID: AggregateOutputEndpoint<Item>] = [:]
+    /// Observer identities in subscription order (ADR-0192). Every delivery
+    /// reads its recipients from this list, never from hashed storage.
+    private var registrationOrder: [UUID] = []
     private var work: [Work] = []
     private var stagedEmissions: [(Entry, EmissionClassification)] = []
     private var structuralVersion: UInt64 = 0
@@ -272,8 +275,9 @@ public final class AggregateChangeStream<Item: AnyObject> {
             stagingLock.unlock()
             releasedWork = work
             work.removeAll()
-            let recipients = Array(observers.values)
+            let recipients = registrationOrder.compactMap { observers[$0] }
             observers.removeAll()
+            registrationOrder.removeAll()
             if !recipients.isEmpty { work.append(.completion(recipients)) }
             shouldProcess = startProcessingLocked()
         }
@@ -298,7 +302,9 @@ public final class AggregateChangeStream<Item: AnyObject> {
             return
         }
         let identifier = observer.identifier
-        observers[identifier] = observer
+        if observers.updateValue(observer, forKey: identifier) == nil {
+            registrationOrder.append(identifier)
+        }
         if emitInitial {
             work.append(.notification(
                 PendingChange(AggregateChange(reason: .initial)),
@@ -312,7 +318,9 @@ public final class AggregateChangeStream<Item: AnyObject> {
 
     fileprivate func unregister(_ identifier: UUID) {
         gate.lock()
-        observers.removeValue(forKey: identifier)
+        if observers.removeValue(forKey: identifier) != nil {
+            registrationOrder.removeAll { $0 == identifier }
+        }
         gate.unlock()
     }
 
@@ -361,7 +369,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
         gate.lock()
         if !completed, setupComplete, version > setupBoundaryVersion {
             let coalesced = batchDepth > 0
-            let recipients = Array(observers.keys)
+            let recipients = registrationOrder
             if coalesced { markBatchDirtyLocked(recipients) }
             work.append(.structural(
                 coalesced: coalesced,
@@ -391,7 +399,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
            entry.refcount > 0,
            entry.isActive {
             let coalesced = batchDepth > 0
-            let recipients = Array(observers.keys)
+            let recipients = registrationOrder
             if coalesced { markBatchDirtyLocked(recipients) }
             work.append(.item(
                 entry: entry,
@@ -658,7 +666,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
         if batchDepth > 0 { batchDepth -= 1 }
         if batchDepth == 0, batchDirty, !completed {
             batchDirty = false
-            let recipients = Array(batchRecipients)
+            let recipients = registrationOrder.filter(batchRecipients.contains)
             batchRecipients.removeAll()
             if !recipients.isEmpty {
                 work.append(.notification(

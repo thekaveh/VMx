@@ -58,10 +58,13 @@ NotificationSeverity:
   with the cancellation result. TypeScript ships no fallback helper; a caller
   checks for `IModalDialogService` itself.
 
-Open Rust gap: the Rust `DialogService` trait has no `present` method and Rust
-has no modal-capable service trait. Only `NullDialogService` has an inherent
-`present`, so a host dialog adapter cannot present a `ModalVm` through the
-trait.
+Rust puts `present` on the `DialogService` trait as a provided generic
+method with a `where Self: Sized` bound, as Python and Swift put it on the
+service. Its default dismisses the `ModalVm` with its cancellation result, and
+a host adapter overrides it. Existing implementations need no `present` of
+their own, and `dyn DialogService` stays usable for the other four methods.
+`present` cannot be called through `dyn DialogService`, so code that presents
+modals holds a concrete or generic service type (ADR-0210).
 
 All five methods are `async` (return an awaitable). Callers must `await` them.
 Rust maps these awaitables to the executor-neutral `AsyncValue<T>` facade. It

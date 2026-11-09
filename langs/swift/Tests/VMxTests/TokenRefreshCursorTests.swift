@@ -4,7 +4,7 @@
 // ADR-0136).
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -292,9 +292,9 @@ final class TokenRefreshCursorTests: XCTestCase {
         try await sut.loadMoreCommand.executeAsync()
 
         let refresh = Task { try await sut.refreshCommand.executeAsync() }
-        await fulfillment(of: [refreshStarted], timeout: 2.0)
+        await fulfillment(of: [refreshStarted], timeout: hangGuard)
         let load = Task { try await sut.loadMoreCommand.executeAsync() }
-        await fulfillment(of: [loadStarted], timeout: 2.0)
+        await fulfillment(of: [loadStarted], timeout: hangGuard)
         let trace = record(sut)
         gate.withLock { continuations[0] }.resume(returning: ([9], "stale"))
         try await refresh.value
@@ -350,7 +350,7 @@ final class TokenRefreshCursorTests: XCTestCase {
         let trace = record(sut)
 
         let refresh = Task { try await sut.refreshCommand.executeAsync() }
-        await fulfillment(of: [refreshStarted], timeout: 2.0)
+        await fulfillment(of: [refreshStarted], timeout: hangGuard)
         sut.dispose()
         gate.withLock { continuation }?.resume(returning: ([1, 2], "t2"))
         try await refresh.value

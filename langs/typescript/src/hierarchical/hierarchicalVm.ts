@@ -10,6 +10,7 @@
 import { BuilderValidationError } from "../builders/exceptions.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import { ViewModelType } from "../components/types.js";
+import { ConstructionStatus } from "../lifecycle/status.js";
 import { PropertyChangedMessage } from "../messages/propertyChanged.js";
 import {
   TreeStructureChangedMessage,
@@ -74,6 +75,11 @@ interface BatchAttachCandidate<TVM, TKey> {
   key: TKey;
   parentKey: TKey | null;
   retainIfMissing: boolean;
+  /**
+   * Keys and nodes of the candidate's materialized descendants, in pre-order
+   * (spec/18 §6, ADR-0212). They join the index when the candidate attaches.
+   */
+  subtree: Array<readonly [TKey, TVM]>;
 }
 
 /**
@@ -248,6 +254,7 @@ export abstract class HierarchicalVM<
     this.#rejectStructuralReentry();
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
+    this.#rejectIfDisposed();
     this.#attachChild(child, false);
   }
 
@@ -259,6 +266,7 @@ export abstract class HierarchicalVM<
     this.#rejectStructuralReentry();
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
+    this.#rejectIfDisposed();
     const list = this.#requireChildren();
     const index = list.indexOf(child);
     if (index < 0) return; // not a child — no-op
@@ -283,10 +291,14 @@ export abstract class HierarchicalVM<
     this.#rejectStructuralReentry();
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
+    this.#rejectIfDisposed();
     this.#attachChild(child, true);
   }
 
   #attachChild(child: TVM, explicitReparent: boolean): void {
+    // spec/18 §7.1: a disposed parent's child list is frozen, so a transfer
+    // out of it refuses before any other check.
+    if (child.#hierarchicalParent !== null) child.#hierarchicalParent.#rejectIfDisposed();
     if (child.#hierarchicalParent === this.#self) return;
 
     // HIER-018: reparenting this node or one of its ancestors under
@@ -351,7 +363,9 @@ export abstract class HierarchicalVM<
     options: BatchAttachOptions<TVM, TKey>,
   ): BatchAttachResult<TVM> {
     this.#rejectStructuralReentry();
+    this.#rejectIfDisposed();
     const root = this.#treeRoot();
+    root.#rejectIfDisposed();
     const incoming = Array.from(items);
     const parked = [...root.#parkedAttachItems];
     root.#parkedAttachItems = [];
@@ -382,6 +396,8 @@ export abstract class HierarchicalVM<
 
     const candidates: BatchAttachCandidate<TVM, TKey>[] = [];
     const candidateKeys = new Set<TKey>();
+    // The descendant claims of accepted candidates, by key (ADR-0212).
+    const descendantClaims = new Map<TKey, TVM>();
     const activeItems: Array<readonly [TVM, boolean]> = [
       ...parked.map((item) => [item, true] as const),
       ...incoming.map((item) => [item, false] as const),
@@ -409,6 +425,12 @@ export abstract class HierarchicalVM<
         rejections.push({ item, reason: BatchAttachRejectionReason.DuplicateExistingKey });
         continue;
       }
+      if (descendantClaims.get(key) === item) {
+        // The item is a descendant of an earlier candidate, so it is attached
+        // outside the indexed tree (spec/18 §6, ADR-0212).
+        rejections.push({ item, reason: BatchAttachRejectionReason.AlreadyAttached });
+        continue;
+      }
       if (candidateKeys.has(key)) {
         duplicates.push(item);
         rejections.push({ item, reason: BatchAttachRejectionReason.DuplicateBatchKey });
@@ -419,12 +441,52 @@ export abstract class HierarchicalVM<
         continue;
       }
 
-      candidateKeys.add(key);
+      // The candidate also claims every key of its materialized subtree
+      // (spec/18 §6, ADR-0212); the first claim of a key stays authoritative.
+      const subtree: Array<readonly [TKey, TVM]> = [];
+      const claimed = new Set<TKey>([key]);
+      let subtreeRejection: BatchAttachRejectionReason | null = null;
+      let subtreeError: unknown = undefined;
+      for (const descendant of item.#materializedSubtree().slice(1)) {
+        let descendantKey: TKey;
+        try {
+          descendantKey = options.keyOf(descendant);
+          this.#validateBatchKey(descendantKey);
+        } catch (error) {
+          subtreeRejection = BatchAttachRejectionReason.SelectorFailed;
+          subtreeError = error;
+          break;
+        }
+        if (existing.has(descendantKey)) {
+          subtreeRejection = BatchAttachRejectionReason.DuplicateExistingKey;
+          break;
+        }
+        if (candidateKeys.has(descendantKey) || claimed.has(descendantKey)) {
+          subtreeRejection = BatchAttachRejectionReason.DuplicateBatchKey;
+          break;
+        }
+        claimed.add(descendantKey);
+        subtree.push([descendantKey, descendant]);
+      }
+      if (subtreeRejection === BatchAttachRejectionReason.SelectorFailed) {
+        if (wasParked) root.#parkedAttachItems.push(item);
+        rejections.push(this.#rejection(item, subtreeRejection, subtreeError));
+        continue;
+      }
+      if (subtreeRejection !== null) {
+        duplicates.push(item);
+        rejections.push({ item, reason: subtreeRejection });
+        continue;
+      }
+
+      for (const claim of claimed) candidateKeys.add(claim);
+      for (const [subtreeKey, node] of subtree) descendantClaims.set(subtreeKey, node);
       candidates.push({
         item,
         key,
         parentKey,
         retainIfMissing: wasParked || policy === MissingParentPolicy.Park,
+        subtree,
       });
     }
 
@@ -452,6 +514,7 @@ export abstract class HierarchicalVM<
           continue;
         }
         existing.set(candidate.key, candidate.item);
+        for (const [subtreeKey, node] of candidate.subtree) existing.set(subtreeKey, node);
         added.push(candidate.item);
         progressed = true;
       }
@@ -459,7 +522,13 @@ export abstract class HierarchicalVM<
       if (!progressed) break;
     }
 
-    const unresolvedByKey = new Map(unresolved.map((candidate) => [candidate.key, candidate]));
+    // A subtree key maps to the candidate that claims it, so a parent key
+    // that names the candidate's own descendant is a cycle (ADR-0212).
+    const unresolvedByKey = new Map<TKey, BatchAttachCandidate<TVM, TKey>>();
+    for (const candidate of unresolved) {
+      unresolvedByKey.set(candidate.key, candidate);
+      for (const [subtreeKey] of candidate.subtree) unresolvedByKey.set(subtreeKey, candidate);
+    }
     for (const candidate of unresolved) {
       const isCycle = this.#batchParentChainCycles(candidate, unresolvedByKey);
       const reason = isCycle
@@ -482,6 +551,7 @@ export abstract class HierarchicalVM<
    */
   invalidateChildren(): void {
     this.#rejectStructuralReentry();
+    this.#rejectIfDisposed();
     if (this.#children === null) return;
     for (const child of this.#children) {
       if (child.#hierarchicalParent !== this.#self) continue;
@@ -502,11 +572,29 @@ export abstract class HierarchicalVM<
   /** Drops cached children for this node and all materialized descendants. */
   invalidateSubtree(): void {
     this.#rejectStructuralReentry();
+    this.#rejectIfDisposed();
     if (this.#children === null) return;
     for (const child of [...this.#children]) {
-      child.invalidateSubtree();
+      child.#invalidateDescendant();
     }
     this.invalidateChildren();
+  }
+
+  /**
+   * One step of {@link invalidateSubtree} below its receiver. A disposed
+   * descendant keeps its own cache, but its children are still visited
+   * (spec/18 §7.1).
+   */
+  #invalidateDescendant(): void {
+    if (this.status !== ConstructionStatus.Disposed) {
+      this.invalidateSubtree();
+      return;
+    }
+    this.#rejectStructuralReentry();
+    if (this.#children === null) return;
+    for (const child of [...this.#children]) {
+      child.#invalidateDescendant();
+    }
   }
 
   protected override _onDispose(): void {
@@ -570,6 +658,14 @@ export abstract class HierarchicalVM<
     this.#materializationReentered = true;
     throw new Error(
       "children factory re-entered a structural operation on its receiver",
+    );
+  }
+
+  /** spec/18 §7.1: a disposed node refuses structural calls (ADR-0190). */
+  #rejectIfDisposed(): void {
+    if (this.status !== ConstructionStatus.Disposed) return;
+    throw new Error(
+      `'${this.name}' is disposed; its child list no longer changes (spec/18 §7.1)`,
     );
   }
 

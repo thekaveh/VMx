@@ -4,24 +4,58 @@
  * Delegates every member — including collection surface, current, and selection
  * methods — to the wrapped composite by default.
  *
+ * The decorator is a `ComponentVMBase`, so it can join a `CompositeVM` or a
+ * `GroupVM`. It shares one ownership identity with the wrapped composite, and
+ * `own()` registers resources on the wrapped composite (ADR-0213).
+ *
  * See spec/09-forwarding.md §ForwardingCompositeVM.
  */
 import type { Observable, Subscription } from "rxjs";
 import type { ConstructionStatus } from "../lifecycle/status.js";
 import type { ViewModelType } from "../components/types.js";
-import type { ICommand } from "../commands/types.js";
+import type { RelayCommand } from "../commands/relayCommand.js";
 import type { CompositeVMBase } from "../composites/compositeVMBase.js";
-import type { ComponentVMBase } from "../components/componentVMBase.js";
+import { ComponentVMBase, type IOwningParentVM } from "../components/componentVMBase.js";
 import type { CollectionChangedEvent } from "../collections/collectionChangedEvent.js";
 import type { BatchUpdateHandle } from "../collections/batchUpdateHandle.js";
 import type { IMessageHub } from "../services/messageHub.js";
+import { NullDispatcher } from "../services/nullDispatcher.js";
+import { forwardingParentOf, setForwardingParent } from "./forwardingParents.js";
 
-export class ForwardingCompositeVM<VM extends ComponentVMBase> {
+export class ForwardingCompositeVM<VM extends ComponentVMBase> extends ComponentVMBase {
   protected readonly _wrapped: CompositeVMBase<VM>;
 
   constructor(wrapped: CompositeVMBase<VM>) {
+    super({
+      name: wrapped.name,
+      hint: wrapped.hint,
+      hub: wrapped.hub,
+      dispatcher: NullDispatcher.INSTANCE,
+    });
     this._wrapped = wrapped;
   }
+
+  /**
+   * The wrapped composite. Nested decorators, ownership, and the hub messages
+   * of this decorator all belong to it: every message the decorator causes is
+   * sent with the wrapped composite as its sender.
+   */
+  get wrappedBase(): ComponentVMBase { return this._wrapped; }
+
+  override get _ownershipIdentity(): ComponentVMBase {
+    return this._wrapped._ownershipIdentity;
+  }
+
+  override get _parent(): IOwningParentVM | null {
+    return forwardingParentOf(this, this._wrapped);
+  }
+  override set _parent(parent: IOwningParentVM | null) {
+    setForwardingParent(this, this._wrapped, parent);
+  }
+
+  override _setIsCurrent(value: boolean): void { this._wrapped._setIsCurrent(value); }
+  override _commitIsCurrent(value: boolean): boolean { return this._wrapped._commitIsCurrent(value); }
+  override _publishIsCurrent(): void { this._wrapped._publishIsCurrent(); }
 
   get name(): string { return this._wrapped.name; }
   get hint(): string { return this._wrapped.hint; }
@@ -31,11 +65,11 @@ export class ForwardingCompositeVM<VM extends ComponentVMBase> {
   get status(): ConstructionStatus { return this._wrapped.status; }
   get hub(): IMessageHub { return this._wrapped.hub; }
   get propertyChanged(): Observable<string> { return this._wrapped.propertyChanged; }
-  get selectCommand(): ICommand { return this._wrapped.selectCommand; }
-  get deselectCommand(): ICommand { return this._wrapped.deselectCommand; }
-  get selectNextCommand(): ICommand { return this._wrapped.selectNextCommand; }
-  get selectPreviousCommand(): ICommand { return this._wrapped.selectPreviousCommand; }
-  get reconstructCommand(): ICommand { return this._wrapped.reconstructCommand; }
+  get selectCommand(): RelayCommand { return this._wrapped.selectCommand; }
+  get deselectCommand(): RelayCommand { return this._wrapped.deselectCommand; }
+  get selectNextCommand(): RelayCommand { return this._wrapped.selectNextCommand; }
+  get selectPreviousCommand(): RelayCommand { return this._wrapped.selectPreviousCommand; }
+  get reconstructCommand(): RelayCommand { return this._wrapped.reconstructCommand; }
 
   canConstruct(): boolean { return this._wrapped.canConstruct(); }
   construct(): void { this._wrapped.construct(); }

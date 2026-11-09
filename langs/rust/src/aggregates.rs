@@ -8,7 +8,7 @@ use super::{
     ComponentCore, ConstructionStatus, Dispatcher, FirstFailure, HashSet, LifecycleOperation,
     MembershipDisposeDisposition, MembershipTransactionControl, MessageHub, Mutex, NullDispatcher,
     OnceLock, Ordering, OwnershipClaim, ParentHandle, ParentRegistration, PropertyChangedStream,
-    RelayCommand, ViewModelType, VmNode, VmxError, VmxResult,
+    RelayCommand, TreeNode, TreeNodeRef, ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -429,7 +429,7 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -511,7 +511,7 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
                     }
                     self.core.notify_property_changed("component_1");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -768,7 +768,7 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -881,9 +881,9 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
                     self.core.notify_property_changed("component_1");
                     self.core.notify_property_changed("component_2");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -1089,7 +1089,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -1234,11 +1234,11 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
                     self.core.notify_property_changed("component_2");
                     self.core.notify_property_changed("component_3");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next3, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -1409,7 +1409,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -1580,13 +1580,13 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
                     self.core.notify_property_changed("component_3");
                     self.core.notify_property_changed("component_4");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next3, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next4, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next4, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -1779,7 +1779,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -1973,15 +1973,15 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
                     self.core.notify_property_changed("component_4");
                     self.core.notify_property_changed("component_5");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next3, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next4, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next4, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next5, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next5, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -2191,7 +2191,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -2412,17 +2412,17 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
                     self.core.notify_property_changed("component_5");
                     self.core.notify_property_changed("component_6");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next3, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next4, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next4, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next5, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next5, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next6, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next6, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -2536,6 +2536,53 @@ impl_fixed_aggregate_vm_node!(AggregateVm3, T1, T2, T3);
 impl_fixed_aggregate_vm_node!(AggregateVm4, T1, T2, T3, T4);
 impl_fixed_aggregate_vm_node!(AggregateVm5, T1, T2, T3, T4, T5);
 impl_fixed_aggregate_vm_node!(AggregateVm6, T1, T2, T3, T4, T5, T6);
+
+/// Lists an aggregate's present components in `component_1`,
+/// `component_2`, … order for the tree walks (spec/13 §2).
+macro_rules! impl_fixed_aggregate_tree_node {
+    ($name:ident, $(($component:ident, $accessor:ident)),+) => {
+        impl<$($component: TreeNode,)+ D: Dispatcher> TreeNode for $name<$($component,)+ D> {
+            fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+                let mut children = Vec::new();
+                $(children.extend(self.$accessor().map(TreeNodeRef::new));)+
+                Ok(children)
+            }
+        }
+    };
+}
+
+impl_fixed_aggregate_tree_node!(AggregateVm1, (T1, component_1));
+impl_fixed_aggregate_tree_node!(AggregateVm2, (T1, component_1), (T2, component_2));
+impl_fixed_aggregate_tree_node!(
+    AggregateVm3,
+    (T1, component_1),
+    (T2, component_2),
+    (T3, component_3)
+);
+impl_fixed_aggregate_tree_node!(
+    AggregateVm4,
+    (T1, component_1),
+    (T2, component_2),
+    (T3, component_3),
+    (T4, component_4)
+);
+impl_fixed_aggregate_tree_node!(
+    AggregateVm5,
+    (T1, component_1),
+    (T2, component_2),
+    (T3, component_3),
+    (T4, component_4),
+    (T5, component_5)
+);
+impl_fixed_aggregate_tree_node!(
+    AggregateVm6,
+    (T1, component_1),
+    (T2, component_2),
+    (T3, component_3),
+    (T4, component_4),
+    (T5, component_5),
+    (T6, component_6)
+);
 
 macro_rules! define_aggregate_builder {
     ($builder:ident, $aggregate:ident, $(($component:ident, $factory:ident, $setter:ident)),+) => {
@@ -2756,7 +2803,7 @@ macro_rules! impl_fixed_aggregate_baseline {
             }
 
             /// Returns the aggregate hint.
-            pub fn hint(&self) -> Option<String> {
+            pub fn hint(&self) -> String {
                 self.core.hint()
             }
 

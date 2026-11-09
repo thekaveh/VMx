@@ -175,6 +175,13 @@ removes nothing and may insert following items. A splice that removes and
 inserts nothing is a true no-op; every effective insertion-only or bulk splice
 emits one Reset under §2.4.
 
+#### 2.3.6 Python reverse
+
+Python's unkeyed `reverse()` reverses the items atomically (ADR-0193). Lengths
+zero and one are no-ops. Reversing two or more items emits exactly one Reset and
+no granular messages, as the keyed collection does (§2.11). Observers never see
+an interim order. The other flavors have no unkeyed `reverse`.
+
 ### 2.4 `CollectionChangedMessage`
 
 A `CollectionChangedMessage` is emitted for each mutation. `CompositeVM` and
@@ -191,6 +198,14 @@ CollectionChangedMessage:
     OldIndex : int               # -1 when there is no old position
     NewIndex : int               # -1 when there is no new position
 ```
+
+Each message also carries a diagnostic sender name (chapter 03 §1). A
+`CompositeVM` or `GroupVM` message, including one from a subclass, carries the
+container's `Name` (ADR-0194). A plain collection or dictionary message carries
+a flavor-defined name, its type name in every flavor. C#, Python, and
+TypeScript store the name in the typed message as `SenderName` / `sender_name` /
+`senderName`; its default is the sender's runtime type name. Swift stores
+`senderName`, and Rust stores `sender_name`.
 
 Their action member's type is per-flavor idiom (ADR-0006): C# reuses the BCL
 `NotifyCollectionChangedAction`, Python uses action string literals, TypeScript
@@ -254,6 +269,11 @@ rules (chapter 03). The rule covers the local collection-change channel and the
 dictionary's granular events. It does not cover C# `PropertyChanged` handlers or
 subscribers of the dictionary's key views.
 
+A failing local subscriber also does not stop the delivery to the later local
+subscribers of the same channel. Each of them receives the change once, the
+failing subscriber stays attached, and the first failure is rethrown only after
+the hub send (chapter 03 §3.6, ADR-0191, `COL-069`).
+
 Publication happens **on the same thread as the mutation**. The collection does
 not marshal to any scheduler and does not observe any `IDispatcher`. Consumers
 wanting foreground delivery subscribe via `ObserveOn(dispatcher.Foreground)`
@@ -275,8 +295,8 @@ Consumers that need lifecycle-cascading VM ownership should use `CompositeVM` /
 
 ### 2.7 Conformance
 
-`COL-001` through `COL-004`, `COL-048` through `COL-055`, and `COL-066` in
-`12-conformance.md`.
+`COL-001` through `COL-004`, `COL-048` through `COL-055`, `COL-066`, and
+`COL-069` in `12-conformance.md`.
 
 ### 2.8 `KeyedServicedObservableCollection<TKey, TItem>` shape
 
@@ -526,8 +546,8 @@ caller-owned lifecycle rule in §2.6.
 `COL-056` through `COL-064` in `12-conformance.md` cover captured lookup,
 uniqueness and failure atomicity, upsert, keyed deletion, synchronization and
 explicit rekeying, whole-list replacement, move/clear/ownership, delivery and
-hub transactions, and reentrant consistency. `COL-066` covers a failing local
-subscriber.
+hub transactions, and reentrant consistency. `COL-066` and `COL-069` cover a
+failing local subscriber.
 
 ## 3. `ObservableList<T>`
 
@@ -567,10 +587,14 @@ Each mutation raises exactly one granular event:
 described by a single-item event (e.g., range insertion if a flavor provides
 one).
 
-Open Rust gap: Rust `ObservableList<T>` has no public `ItemAdded`,
-`ItemRemoved`, `ItemReplaced`, or `Reset` stream and no value `remove(item)`.
-Its constructor requires a `MessageHub`, and it publishes each mutation only as
-a hub `CollectionChangedMessage` and the `Count` property change.
+Rust names the streams `item_added()`, `item_removed()`, `item_replaced()`,
+and `reset()`. Each returns a typed `EventStream` whose payloads are
+`ItemAddedEvent { item, index }`, `ItemRemovedEvent { item, index }`, and
+`ItemReplacedEvent { new_item, old_item, index }`, and `()` for `Reset`. The
+local `Count` notification is on `property_changed()`. `ObservableList::new`
+takes no hub. `ObservableList::with_hub` also publishes each change to the hub
+as a `CollectionChangedMessage` and a `PropertyChangedMessage` for `Count`
+(ADR-0208).
 
 ### 3.3 `PropertyChanged("Count")`
 
@@ -670,8 +694,8 @@ two-key form). Each flavor implements it as a standalone class over a
 compound-key backing store — `ValueTuple` keys in C#, `tuple` keys in Python,
 an internal `CompositeKey` value in Swift, nested native `Map` instances in
 TypeScript (the entry type exposed to consumers remains `DictionaryEntry`), and
-an insertion-ordered `Vec` of `(K1, K2, V)` entries in Rust, where the two-key
-type is `ObservableMultiDictionary<K1, K2, V>`. Each
+an insertion-ordered `Vec` of `(K1, K2, V)` entries with a hash index in Rust,
+where the two-key type is `ObservableMultiDictionary<K1, K2, V>`. Each
 axis uses the host language's standard dictionary-key equality; in TypeScript
 that is `Map`'s SameValueZero primitive equality and reference identity for
 objects. There is no single-key base type. (Corrected in v2.5.0 via ADR-0038
@@ -689,8 +713,8 @@ ObservableDictionary<TKey1, TKey2, TValue>:
     Clear() : void
     Count : int
 
-    Keys1 : ObservableList<TKey1>    # distinct Key1 values, live view
-    Keys2 : ObservableList<TKey2>    # distinct Key2 values, live view
+    Keys1 : ReadOnlyObservableList<TKey1>    # distinct Key1 values, live read-only view
+    Keys2 : ReadOnlyObservableList<TKey2>    # distinct Key2 values, live read-only view
 
     CollectionChanged : event/Observable
 ```
@@ -707,8 +731,13 @@ duplicate.
 
 ### 4.2 Distinct-key observable views
 
-`Keys1` and `Keys2` are live `ObservableList<TKey>` views that stay in sync with
-mutations:
+`Keys1` and `Keys2` are live, read-only `ReadOnlyObservableList<TKey>` views
+that stay in sync with mutations (ADR-0193). A `ReadOnlyObservableList<T>` is a
+facade over the dictionary's backing `ObservableList<T>`. It has every read and
+subscribe member of `ObservableList<T>` (§3.1), including the C# platform
+events, and no mutator and no batch member. It does not expose the backing
+list: the C# `CollectionChanged` and `PropertyChanged` events carry the facade
+as sender. Only the dictionary changes a key view.
 
 - `Keys1` holds the set of distinct Key1 values currently present in the
   dictionary, in insertion order of their **first** appearance.
@@ -740,12 +769,16 @@ global order of nested and outer events is required. During a nested mutation,
 a view can still lack the change of the outer mutation. The outer change shows
 in that view when the outer mutation completes.
 
-Open Rust gap: Rust `ObservableMultiDictionary` requires a `MessageHub` at
-construction. `keys1()` and `keys2()` return `Vec` snapshots, not live
-`ObservableList` views. The type has no local collection-changed event, no
-indexer, and no `TryGetValue`; `get` returns `Option<V>`, and mutations are
-observable only through the hub. Each snapshot reads the current entries, so a
-hub subscriber reads both key snapshots in their updated state.
+Rust `ObservableMultiDictionary::new` takes no hub, and `with_hub` takes one.
+`keys1()` and `keys2()` return live `ReadOnlyObservableList` views. A view has
+the read and subscribe members of `ObservableList` and no mutator (ADR-0208).
+The local collection-changed event is `collection_changed()`. Rust has no
+indexer and no `TryGetValue`; `get` returns `Option<V>` (ADR-0009). One Rust
+thread at a time delivers a dictionary's changes. A mutation on another thread
+waits for that delivery and records the wait in the wait-for graph (chapter 03
+§4.1). When the wait would close a cycle, the mutation commits and queues its
+change for the delivering thread, which delivers the changes in commit order
+(ADR-0208).
 
 ### 4.3 No cascading insertion
 
@@ -777,8 +810,7 @@ If a hub is provided at construction time (following the same pattern as
 `ServicedObservableCollection<T>` §2.2), mutations publish a
 `CollectionChangedMessage` to the hub after the local `CollectionChanged` event.
 A failing local handler does not suppress the hub message (§2.5). Null-hub
-fallback applies. Open Rust gap: the Rust dictionary has no local
-event and requires a hub (§4.2).
+fallback applies.
 
 ### 4.7 Hub message element shape
 
@@ -800,10 +832,29 @@ For `Clear()`, the hub message uses action `Reset` with empty `NewItems` and
 `OldItems` arrays (no entry data is needed because the entire collection is
 cleared). This divergence between flavors is catalogued in ADR-0009.
 
+The hub message positions follow the §2.4 tables (ADR-0193). A position is the
+entry's index in enumeration order (§4.5):
+
+| Action  |     `index` |  `oldIndex` | `newIndex` | Rust `old_index`    | Rust `new_index`  |
+| ------- | ----------: | ----------: | ---------: | ------------------- | ----------------- |
+| Add     |   insertion |          -1 |  insertion | `None`              | `Some(insertion)` |
+| Remove  | pre-removal | pre-removal |         -1 | `Some(pre-removal)` | `None`            |
+| Replace |    replaced |    replaced |   replaced | `Some(replaced)`    | `Some(replaced)`  |
+| Reset   |          -1 |          -1 |         -1 | `None`              | `None`            |
+
+Remove reports the position that the entry had just before the removal. Add
+and Replace report the entry's position when the hub message is sent. A local
+subscriber can change the dictionary before the hub message. If it moves the
+entry, Add and Replace report the new position. If it removes the entry, they
+report -1. A value replacement does not move the entry, so its old and new
+positions are equal. The Rust single-key `ObservableDictionary<K, V>` follows
+the same table. It has no local event, so its positions are the commit
+positions.
+
 ### 4.8 Conformance
 
-`COL-010` through `COL-015`, `COL-022`, `COL-066`, `COL-067`, and `COL-071` in
-`12-conformance.md`.
+`COL-010` through `COL-015`, `COL-022`, `COL-066`, `COL-067`, `COL-068`,
+`COL-069`, `COL-070`, and `COL-071` in `12-conformance.md`.
 
 ## 5. Paging: `PagedComposition<TVM>`
 
@@ -817,7 +868,8 @@ PagedComposition<TVM>:
                                             # idiom: IEnumerable<TVM> (C#),
                                             # Iterable[TVM] or factory callable (Python),
                                             # PagedCompositionSource<TVM> (TS),
-                                            # [TVM] (Swift), Vec<T> (Rust)
+                                            # [TVM] (Swift), Vec<T> (Rust);
+                                            # Swift and Rust also take a CompositeVM
     implements IPageable                     # per 14-capabilities.md §2.10
 
     PageSize         : int     # mutable; 0 = all items on one page
@@ -854,9 +906,10 @@ stored copy.
 
 To change the Swift copy, call `setSource(_:)` (ADR-0060 §2.5). To change the
 Rust copy, call `set_source`, `push` or `remove_at`. These Rust calls change
-only the stored copy. Swift `init(sourceComposite:)` follows the composite
-through `collectionChanged`. Each emission replaces the stored copy with the
-current children of the composite.
+only the stored copy. Swift `init(sourceComposite:)` and Rust
+`PagedComposition::from_composite` follow the composite through its local
+collection-change stream. Each emission replaces the stored copy with the
+current children of the composite (ADR-0208).
 
 `PageCount` and `Items` always read the current source: the live source in C#,
 Python and TypeScript, and the stored copy in Swift and Rust. An observed source
@@ -933,9 +986,13 @@ Swift observes only a `CompositeVM` source, through `init(sourceComposite:)`.
 It does not observe `ObservableList` split streams. A caller updates a Swift
 array source through the call that §5.2 names.
 
-Open Rust gap: Rust `PagedComposition` takes the `Vec` by value and does not
-observe it. `COL-031` (observing a composite source) does not apply to Rust. A
-caller updates the stored copy through the calls that §5.2 names.
+Rust observes only a `CompositeVm` source, through
+`PagedComposition::from_composite`. A `Vec` source is a stored copy that a
+caller updates through the calls that §5.2 names. Rust publishes each paging
+change as a `PropertyChangedMessage` on the pager's hub, with the snake_case
+names `page_size`, `is_paging_enabled`, `page_count`, `current_page_index`,
+and `items`, in the Swift order. A call that changes nothing publishes nothing.
+`dispose` stops the source observation and the publication (ADR-0208).
 
 ### 5.6 Conformance
 
@@ -1020,6 +1077,8 @@ commands' `CanExecuteChanged`. A refresh that replaces the accumulator, and a
 load that appends items, publishes one `Reset` before that same sequence. A
 fetch or equality hook that fails leaves `Items`, `CurrentToken`, and `HasMore`
 unchanged, publishes nothing, and surfaces the failure through the command.
+These notifications run where the fetch completes. The composition does not
+marshal them to the caller's thread (chapter 11 §3.1, ADR-0195).
 
 Each load or refresh supersedes every operation started before it. An
 operation that completes after a later load or refresh started is stale: it
@@ -1092,11 +1151,12 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-067`, `COL-071`, `AGCH-001` through `AGCH-010`, and
-`AGCH-012` in `12-conformance.md`. Applicable ADRs:
-ADR-0024, ADR-0096, ADR-0097, and ADR-0171 (§2), ADR-0026 and ADR-0089 (§3),
-ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 and ADR-0202 (§6), and ADR-0085
-(shared Move semantics), ADR-0098 (§9), and ADR-0214 (§2.10, §4.1, §9.4).
+`COL-001` through `COL-067`, `COL-069`, `COL-071`, `AGCH-001` through
+`AGCH-011`, and `AGCH-012` in `12-conformance.md`. Applicable ADRs:
+ADR-0024, ADR-0096, ADR-0097, ADR-0171, and ADR-0191 (§2), ADR-0026 and
+ADR-0089 (§3), ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 and ADR-0202
+(§6), and ADR-0085 (shared Move semantics), ADR-0098 and ADR-0192 (§9), and
+ADR-0214 (§2.10, §4.1, §9.4).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public
 collection, paging, batch, aggregate, and projection helpers that expose
@@ -1308,7 +1368,15 @@ aggregate event, no failure of the aggregate, and no effect on other members.
 Subscriber failures follow the established host reactive primitive. They MUST
 NOT corrupt membership bookkeeping or detach unrelated item subscriptions
 beyond host-library behavior; message-hub subscriber isolation is not promised
-for this local stream.
+for this local stream. Chapter 03 §3.6 does not apply to it (ADR-0191).
+
+**Subscriber order (spec v3.30, ADR-0192).** The subscribers of one envelope
+receive it in subscription order: the order of their subscribe calls on the
+aggregate. The rule applies to item, structural, final `Batch` and completion
+delivery. A subscriber that cancels and subscribes again is a new
+subscription, last in the order. Each envelope reaches all of its recipients
+before the next envelope starts. The rule does not order the subscribers of the
+hub or of any other stream.
 
 ### 9.6 Explicit batching and hub composition
 
@@ -1323,7 +1391,8 @@ admission. Outermost exit offers the final `Batch` only to that union, after
 discarding subscriptions cancelled before delivery. A subscriber joining after
 all dirtying changes receives no historical `Batch`; if another change is
 admitted after it joins but before exit, it becomes eligible for that final
-envelope.
+envelope. The final `Batch` reaches that union in subscription order (§9.5),
+not in the order in which subscribers joined the union.
 
 If a body admits a change and then fails, outermost cleanup emits the one
 `Batch` and rethrows the original failure. Cleanup MUST NOT replace the body
@@ -1352,7 +1421,8 @@ controls only aggregate output.
 The aggregate owns only its structural and selected-item subscriptions.
 Explicit disposal is idempotent, detaches all of them, completes aggregate
 output where the host convention supports completion, and makes later source
-activity inert. It never constructs, destructs, disposes, reparents, removes,
+activity inert. Completion reaches the subscribers in subscription order
+(§9.5). It never constructs, destructs, disposes, reparents, removes,
 or otherwise manages a source item.
 
 A reconciliation that runs at the same time as disposal can hold a selected
@@ -1365,10 +1435,10 @@ Source lifetime therefore does not replace explicit aggregate disposal.
 
 ### 9.8 Conformance
 
-`AGCH-001` through `AGCH-010` in `12-conformance.md` cover atomic
+`AGCH-001` through `AGCH-011` in `12-conformance.md` cover atomic
 subscriber-local initial delivery, committed membership resynchronization,
 item provenance, zero-refcount and terminal-epoch silence, Reset, duplicate
 refcounts, nested exceptional batching, empty batches and Move stability,
 reentrant FIFO and stale epochs, transactional failure, disposal, ownership,
-and subscriber isolation. `AGCH-012` covers calls into the source, the
-selector, and subscriptions with no aggregate gate held.
+subscriber isolation, and subscriber order. `AGCH-012` covers calls into the
+source, the selector, and subscriptions with no aggregate gate held.

@@ -1,5 +1,6 @@
 """Contract tests for C# package and release workflows."""
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -82,7 +83,7 @@ def test_release_builds_and_validates_before_protected_authentication() -> None:
     assert "dotnet format langs/csharp/VMx.sln --verify-no-changes" in jobs
     assert "python3 tools/check-nuget-package.py" in jobs
     assert "python3 tools/smoke-nuget-consumer.py" in jobs
-    assert "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9" in jobs
+    assert re.search(r"actions/upload-artifact@[0-9a-f]{40}\b", jobs)
     assert jobs.index("csharp-build:") < jobs.index("csharp-publish:")
 
 
@@ -102,7 +103,7 @@ def test_release_uses_protected_nuget_oidc_without_long_lived_key() -> None:
 
     assert "environment:\n      name: nuget-csharp" in jobs
     assert "id-token: write" in jobs
-    assert "NuGet/login@8d196754b4036150537f80ac539e15c2f1028841" in jobs
+    assert re.search(r"NuGet/login@[0-9a-f]{40}\b", jobs)
     assert "user: ${{ secrets.NUGET_USER }}" in jobs
     assert "secrets.NUGET_API_KEY" not in jobs
     assert "--skip-duplicate" not in jobs

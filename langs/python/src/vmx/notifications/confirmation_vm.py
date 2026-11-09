@@ -28,6 +28,9 @@ class ConfirmationVM(NotificationVM):
     Unlike :class:`NotificationVM`, ``ConfirmationVM`` does **not** auto-resolve
     on lifespan expiry — timeout means "user did not decide".
 
+    Every owned command reports ``can_execute() == False`` from the start of
+    :meth:`dispose` (spec/16 §6.2, ADR-0196).
+
     Parameters
     ----------
     notification:
@@ -62,11 +65,13 @@ class ConfirmationVM(NotificationVM):
         self._approve_command = (
             RelayCommand.builder()
             .task(lambda: self._resolve_with(NotificationReaction.APPROVE))
+            .predicate(self._is_live)
             .build()
         )
         self._reject_command = (
             RelayCommand.builder()
             .task(lambda: self._resolve_with(NotificationReaction.REJECT))
+            .predicate(self._is_live)
             .build()
         )
 

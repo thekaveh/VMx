@@ -2,8 +2,11 @@
 
 import ast
 import json
+import os
 import re
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import create_starter as starter
@@ -206,6 +209,101 @@ def test_scan_lockfile_rejects_a_foreign_registry_and_old_lockfiles() -> None:
     assert starter.scan_lockfile({"lockfileVersion": 1, "dependencies": {}}, REGISTRY) == [
         "package-lock.json has no lockfile v2/v3 'packages' map"
     ]
+
+
+@pytest.mark.parametrize("registry", ["https://registry.npmjs.org", "https://registry.npmjs.org/"])
+def test_scan_lockfile_rejects_a_look_alike_registry_host(registry: str) -> None:
+    look_alike = "https://registry.npmjs.org.evil.example/rxjs/-/rxjs-7.8.2.tgz"
+    lock = _lock(**{**CLEAN, "node_modules/rxjs": {"version": "7.8.2", "resolved": look_alike}})
+
+    assert starter.scan_lockfile(lock, registry) == [
+        f"node_modules/rxjs: resolved from {look_alike!r}, not https://registry.npmjs.org/"
+    ]
+
+
+@pytest.mark.parametrize("registry", ["https://registry.npmjs.org", "https://registry.npmjs.org/"])
+def test_scan_lockfile_accepts_the_registry_with_or_without_a_trailing_slash(
+    registry: str,
+) -> None:
+    assert starter.scan_lockfile(_lock(**CLEAN), registry) == []
+
+
+def _fail_after_write_template(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Stub the tool lookup and fail the first step after the template is written."""
+    written: list[Path] = []
+    original = starter.write_template
+
+    def recording_write_template(*args: object, **kwargs: object) -> list[Path]:
+        written.append(args[2])  # type: ignore[arg-type]
+        return original(*args, **kwargs)  # type: ignore[arg-type]
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise starter.StarterError("npm install exited 1")
+
+    monkeypatch.setattr(starter, "_which", lambda name: name)
+    monkeypatch.setattr(starter, "write_template", recording_write_template)
+    monkeypatch.setattr(starter, "_finish_typescript_node", fail)
+    return written
+
+
+def test_failure_without_a_target_removes_the_temporary_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    created = tmp_path / "vmx-starter-temp"
+    monkeypatch.setattr(starter.tempfile, "mkdtemp", lambda prefix: str(created.mkdir() or created))
+    written = _fail_after_write_template(monkeypatch)
+
+    with pytest.raises(starter.StarterError, match="npm install exited 1"):
+        starter.create_starter("typescript-node", version="3.30.0")
+
+    assert written == [created.resolve()]
+    assert not created.exists()
+
+
+def test_failure_with_a_target_names_it_and_keeps_the_partial_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / "app"
+    written = _fail_after_write_template(monkeypatch)
+
+    assert starter.main(["--version", "3.30.0", "--target", str(target)]) == 1
+
+    error = capsys.readouterr().err
+    assert written == [target.resolve()]
+    assert "npm install exited 1" in error
+    assert f"target {target.resolve()} holds partial output" in error
+    assert (target / "package.json").is_file()
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX-only")
+def test_run_timeout_kills_every_descendant(tmp_path: Path) -> None:
+    pid_file = tmp_path / "child.pid"
+    # The grandchild closes the pipes, so only a process-group kill stops it.
+    script = f'sleep 60 >/dev/null 2>&1 & echo $! > "{pid_file}"; wait'
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        starter._run(["/bin/sh", "-c", script], cwd=tmp_path, timeout=1)
+
+    child = int(pid_file.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 5
+    while _alive(child) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not _alive(child), f"descendant {child} survived the timeout"
+
+
+def test_run_returns_stdout_and_raises_on_a_non_zero_exit(tmp_path: Path) -> None:
+    python = sys.executable
+    assert starter._run([python, "-c", "print('ok')"], cwd=tmp_path, timeout=30) == "ok\n"
+    with pytest.raises(starter.StarterError, match="exited 3"):
+        starter._run([python, "-c", "raise SystemExit(3)"], cwd=tmp_path, timeout=30)
 
 
 def test_count_copies_finds_nested_duplicate_peers() -> None:

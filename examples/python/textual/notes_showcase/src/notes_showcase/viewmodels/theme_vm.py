@@ -12,12 +12,15 @@ Implements the surface defined in
   name; raises ``ValueError`` on unknown preset.
 * ``toggle_high_contrast`` — non-parameterised toggle of
   ``model.high_contrast`` (preserves accent + scale).
-* ``set_accent_color``   — :class:`vmx.RelayCommandOf[str]` accepting a hex
-  colour string.
+* ``set_accent_color``   — :class:`vmx.RelayCommandOf[str]` accepting a
+  ``#RGB`` or ``#RRGGBB`` hex colour; raises ``ValueError`` on any other value
+  (ADR-0201 §2.5).
 * ``set_font_scale``     — :class:`vmx.RelayCommandOf[float]` clamping to
   ``[0.75..1.75]``.
-* ``follow_system_command`` — sets ``follows_system=True`` and re-reads the
-  host theme via the injected :data:`host_theme_provider` callback.
+* ``follow_system_command`` — sets ``follows_system=True`` and adopts the
+  host theme from the injected :data:`host_theme_provider` callback. With no
+  provider, or a host theme that is not a preset, it keeps the theme
+  (ADR-0201 §2.6).
 
 Every effective mutation publishes a :class:`ThemeChangedMessage` carrying the
 prior and the freshly-adopted :class:`ThemeModel`. The base
@@ -37,6 +40,7 @@ Wire-up (VMX-129):
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Callable
 from typing import cast
 
@@ -65,14 +69,8 @@ from notes_showcase.models.theme_model import (
     ThemeModel,
 )
 
-
-def _default_host_theme_provider() -> ThemeModel:
-    """Fallback :data:`host_theme_provider` — used when no host hook is wired.
-
-    Returns the :data:`DARK_PRESET` so ``follow_system_command`` is always
-    safe to execute, even in unit tests or non-Textual hosts.
-    """
-    return DARK_PRESET
+# ADR-0201 §2.5: an accent is ``#RGB`` or ``#RRGGBB``, in either case.
+_ACCENT_PATTERN = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
 
 
 class ThemeVM(ComponentVMOf[ThemeModel]):
@@ -103,9 +101,7 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
             hub=hub,
             dispatcher=dispatcher,
         )
-        self._host_theme_provider = (
-            host_theme_provider if host_theme_provider is not None else _default_host_theme_provider
-        )
+        self._host_theme_provider = host_theme_provider
 
         # Drives both DerivedProperties. Seeded with the initial model; updated
         # whenever ``_set_model`` accepts a new value.
@@ -151,15 +147,11 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
             .build()
         )
 
-        # set_accent_color — parameterised by hex string. Predicate rejects
-        # empty strings; the task accepts any non-empty hex (parsing is the
-        # adapter's job — keeps the VM framework-agnostic).
+        # set_accent_color — parameterised by hex string. No argument
+        # predicate (ADR-0201 §2.5): the task rejects any value that is not
+        # ``#RGB`` or ``#RRGGBB``, an empty string and ``None`` included.
         self._set_accent_color: RelayCommandOf[str] = (
-            RelayCommandOf[str]
-            .builder()
-            .predicate(lambda arg: arg is not None and bool(arg))
-            .task(self._set_accent_color_impl)
-            .build()
+            RelayCommandOf[str].builder().task(self._set_accent_color_impl).build()
         )
 
         # set_font_scale — parameterised by float. Predicate accepts any
@@ -249,8 +241,8 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         )
 
     def _set_accent_color_impl(self, hex_color: str | None) -> None:
-        if hex_color is None or not hex_color:
-            return
+        if not isinstance(hex_color, str) or _ACCENT_PATTERN.fullmatch(hex_color) is None:
+            raise ValueError(f"Invalid accent color: {hex_color!r}. Use #RGB or #RRGGBB.")
         if self._model.accent_color == hex_color:
             return
         self._apply_model(dataclasses.replace(self._model, accent_color=hex_color))
@@ -264,12 +256,13 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         self._apply_model(dataclasses.replace(self._model, font_scale_factor=clamped))
 
     def _follow_system_impl(self) -> None:
-        host = self._host_theme_provider()
-        # Always adopt the host snapshot under ``follows_system=True`` — even
-        # if the host happens to match the current preset, we still need to
-        # flip the follows_system flag to True. Equality guard in
+        # ADR-0201 §2.6: with no provider, or a host theme that is not a
+        # preset, keep the theme and set only the flag. The equality guard in
         # ``_apply_model`` then decides whether a message fires.
-        self._apply_model(dataclasses.replace(host, follows_system=True))
+        provider = self._host_theme_provider
+        host = provider() if provider is not None else None
+        base = host if host is not None and host.name in PRESETS else self._model
+        self._apply_model(dataclasses.replace(base, follows_system=True))
 
     # ── Internal apply pipeline ─────────────────────────────────────────────
     @property
@@ -354,8 +347,8 @@ class ThemeVMBuilder:
 
     def host_theme_provider(self, provider: Callable[[], ThemeModel]) -> ThemeVMBuilder:
         """Inject the host-theme snapshot resolver used by
-        :meth:`ThemeVM.follow_system_command`. Defaults to a function that
-        returns :data:`DARK_PRESET` so the command is always safe to invoke.
+        :meth:`ThemeVM.follow_system_command`. With none, the command keeps
+        the current theme and sets only ``follows_system`` (ADR-0201 §2.6).
         """
         return dataclasses.replace(self, _host_theme_provider=provider)
 

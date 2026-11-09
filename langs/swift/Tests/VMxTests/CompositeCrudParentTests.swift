@@ -6,7 +6,7 @@
 // See spec/06-composite-vm.md §7 (Modeled CRUD + parent reference) and ADR-0016.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 @testable import VMx

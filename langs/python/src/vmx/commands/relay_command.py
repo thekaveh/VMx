@@ -26,6 +26,7 @@ Behavior contract:
 from __future__ import annotations
 
 import dataclasses
+import logging
 from collections.abc import Callable
 from typing import Generic, TypeVar
 
@@ -34,8 +35,17 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps
+from vmx._subscriber_failures import FanOutSubject
 
 T = TypeVar("T")
+
+_logger = logging.getLogger(__name__)
+
+
+def _log_trigger_failure() -> None:
+    _logger.exception(
+        "can_execute_changed handler raised on a trigger emission; isolating per ADR-0191"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -57,11 +67,9 @@ class RelayCommand:
     ) -> None:
         self._task = task
         self._predicate = predicate
-        self._can_execute_changed_subject: Subject[None] = Subject()
+        self._can_execute_changed_subject: Subject[None] = FanOutSubject()
         self._disposed = False
-        self._subscriptions = [
-            t.subscribe(lambda _: self.raise_can_execute_changed()) for t in triggers
-        ]
+        self._subscriptions = [t.subscribe(lambda _: self._raise_from_trigger()) for t in triggers]
 
     # ------------------------------------------------------------------
     # Command protocol implementation
@@ -111,6 +119,17 @@ class RelayCommand:
         if self._disposed:
             return
         self._can_execute_changed_subject.on_next(None)
+
+    def _raise_from_trigger(self) -> None:
+        """Raise ``can_execute_changed`` for a trigger emission (stream-fed).
+
+        A handler failure is logged and never reaches the trigger's publisher
+        (spec/03 §3.6, ADR-0191).
+        """
+        try:
+            self.raise_can_execute_changed()
+        except Exception:
+            _log_trigger_failure()
 
     def dispose(self) -> None:
         """Dispose all trigger subscriptions and complete the subject.
@@ -189,11 +208,9 @@ class RelayCommandOf(Generic[T]):
     ) -> None:
         self._task = task
         self._predicate = predicate
-        self._can_execute_changed_subject: Subject[None] = Subject()
+        self._can_execute_changed_subject: Subject[None] = FanOutSubject()
         self._disposed = False
-        self._subscriptions = [
-            t.subscribe(lambda _: self.raise_can_execute_changed()) for t in triggers
-        ]
+        self._subscriptions = [t.subscribe(lambda _: self._raise_from_trigger()) for t in triggers]
 
     # ------------------------------------------------------------------
     # Command protocol implementation
@@ -242,6 +259,17 @@ class RelayCommandOf(Generic[T]):
         if self._disposed:
             return
         self._can_execute_changed_subject.on_next(None)
+
+    def _raise_from_trigger(self) -> None:
+        """Raise ``can_execute_changed`` for a trigger emission (stream-fed).
+
+        A handler failure is logged and never reaches the trigger's publisher
+        (spec/03 §3.6, ADR-0191).
+        """
+        try:
+            self.raise_can_execute_changed()
+        except Exception:
+            _log_trigger_failure()
 
     def dispose(self) -> None:
         """Dispose all trigger subscriptions and complete the subject.

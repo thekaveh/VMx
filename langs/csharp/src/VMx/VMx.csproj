@@ -39,4 +39,12 @@
     <InternalsVisibleTo Include="VMx.Tests" />
     <InternalsVisibleTo Include="VMx.Conformance.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- RS0016/RS0017 fail the build when the public API differs from
+         PublicAPI.Shipped.txt + PublicAPI.Unshipped.txt (#1365). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+    <!-- Members that only one target framework declares. -->
+    <AdditionalFiles Include="PublicAPI/$(TargetFramework)/PublicAPI.Shipped.txt"
+                     Condition="Exists('PublicAPI/$(TargetFramework)/PublicAPI.Shipped.txt')" />
+  </ItemGroup>
 </Project>

@@ -40,7 +40,7 @@ fn modeled_assignment_after_disposal_is_inert() {
     )
     .with_model_hint(move |model| {
         hinter_calls_for_component.fetch_add(1, Ordering::SeqCst);
-        Some(format!("hint:{}", model.value))
+        format!("hint:{}", model.value)
     });
     let initial_hint = component.modeled_hint();
     let local_changes = Arc::new(Mutex::new(Vec::new()));

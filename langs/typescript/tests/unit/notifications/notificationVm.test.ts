@@ -214,3 +214,76 @@ describe("NotificationVM after dispose", () => {
     expect(pending).toContain(notification);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Render state stops at resolution or disposal (ADR-0197, #1306, #1476)
+// ---------------------------------------------------------------------------
+
+describe("NotificationVM render state after resolution", () => {
+  it("keeps remainingMs from an observed hub resolution", () => {
+    const { vm, hub, scheduler, notification } = makeVm(10_000);
+
+    scheduler.advanceBy(3_000);
+    hub.resolve(notification, NotificationReaction.Reject);
+    scheduler.advanceBy(7_000);
+
+    expect(vm.isResolved).toBe(true);
+    expect(vm.remainingMs).toBe(7_000);
+    expect(vm.opacity).toBeCloseTo(0.7, 5);
+    vm.dispose();
+  });
+
+  it("keeps the value from the first step when disposal follows a dismiss", () => {
+    const { vm, scheduler } = makeVm(10_000);
+
+    scheduler.advanceBy(2_000);
+    vm.dismissCommand.execute();
+    scheduler.advanceBy(3_000);
+    vm.dispose();
+    scheduler.advanceBy(5_000);
+
+    expect(vm.remainingMs).toBe(8_000);
+  });
+
+  it("keeps 0 after auto-dismiss", () => {
+    const { vm, scheduler } = makeVm(10_000);
+
+    scheduler.advanceBy(10_000);
+    scheduler.advanceBy(5_000);
+
+    expect(vm.isResolved).toBe(true);
+    expect(vm.remainingMs).toBe(0);
+    expect(vm.opacity).toBe(0);
+    vm.dispose();
+  });
+
+  it("keeps 0 after auto-dismiss when the timer fires before the clock reaches expiry", () => {
+    const { vm, scheduler } = makeVm(10_000);
+
+    scheduler.fireNextEarly(1);
+
+    expect(vm.isResolved).toBe(true);
+    expect(vm.remainingMs).toBe(0);
+    expect(vm.opacity).toBe(0);
+    vm.dispose();
+  });
+});
+
+describe("NotificationVM over a disposed hub", () => {
+  it("constructs normally and resolves on dismiss", () => {
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "late");
+    hub.dispose();
+
+    const vm = new NotificationVM(notification, hub, scheduler, 10_000);
+
+    expect(vm.isResolved).toBe(false);
+    vm.dismissCommand.execute();
+    expect(vm.isResolved).toBe(true);
+    const values: (readonly Notification[])[] = [];
+    hub.pending.subscribe((snapshot) => values.push(snapshot));
+    expect(values).toEqual([]);
+    vm.dispose();
+  });
+});

@@ -1,5 +1,5 @@
-// Conformance tests: CMDD-001..013 — command decorators.
-// See spec/04-commands.md §Decorators and ADR-0012.
+// Conformance tests: CMDD-001..013 and CMDD-018 — command decorators.
+// See spec/04-commands.md §Decorators, ADR-0012, and ADR-0195.
 
 import { Subject } from "rxjs";
 import { describe, expect, it } from "vitest";
@@ -459,5 +459,29 @@ describe("DecoratorCommand postExecute on throw", () => {
 
     expect(() => dec.execute()).toThrow("boom");
     expect(log).toEqual(["pre", "post"]);
+  });
+});
+
+describe("CMDD-018", () => {
+  it("execute() never runs the inner command inside its own call", async () => {
+    // spec/04 §8.3.1, ADR-0195: also when confirm() has already completed.
+    let insideExecute = false;
+    const seen: boolean[] = [];
+    const inner = RelayCommand.builder()
+      .task(() => seen.push(insideExecute))
+      .build();
+    const decorator = new ConfirmationDecoratorCommand(inner, () =>
+      Promise.resolve(true),
+    );
+
+    insideExecute = true;
+    try {
+      decorator.execute();
+    } finally {
+      insideExecute = false;
+    }
+    await settle();
+
+    expect(seen).toEqual([false]);
   });
 });

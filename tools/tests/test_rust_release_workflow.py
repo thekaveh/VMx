@@ -176,7 +176,7 @@ def test_branch_rust_ci_runs_every_gate_on_the_msrv() -> None:
         "RUSTDOCFLAGS: -D warnings",
     ):
         assert command in job, command
-    assert "needs: [audit, build, msrv, examples, package, coverage]" in workflow
+    assert "needs: [audit, build, msrv, examples, package, public-api, coverage]" in workflow
 
 
 def test_branch_rust_ci_treats_rustdoc_warnings_as_errors() -> None:

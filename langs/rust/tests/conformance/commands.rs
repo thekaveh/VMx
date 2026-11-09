@@ -1,4 +1,4 @@
-use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
@@ -6,6 +6,8 @@ use vmx::{
     AsyncRelayCommand, CancellationToken, Command, CompositeCommand, DecoratorCommand, Message,
     MessageHub, RelayCommand, RelayCommandOf, VmxError, VmxResult, NO_PREDICATE,
 };
+
+use super::bounded_wait::within_timeout;
 
 #[derive(serde::Deserialize)]
 struct CommandFixture {
@@ -225,8 +227,11 @@ fn imperative_raise_after_disposal_is_noop() {
     let relay = RelayCommand::noop();
     let parameterized = RelayCommandOf::<i32>::noop();
     let async_command = AsyncRelayCommand::noop();
-    // Subscribe before disposal: after disposal the eligibility hub hands out
-    // no-op subscriptions, so a later subscriber could never fail the check.
+    // Disposal disposes each eligibility hub, and a disposed hub delivers no
+    // later message. So the closed channel alone keeps a later raise from
+    // reaching these subscribers, with or without the disposed check.
+    // `raise_from_final_disposal_notification_publishes_nothing_more`
+    // observes the check itself.
     let fired = Arc::new(AtomicUsize::new(0));
     let subscriptions = [
         relay.can_execute_changed(),
@@ -253,6 +258,48 @@ fn imperative_raise_after_disposal_is_noop() {
 
     assert_eq!(fired.load(Ordering::SeqCst), 0);
     drop(subscriptions);
+}
+
+/// Counts the notifications of `hub` and raises once from the first one.
+fn raise_once_from_first_notification(
+    hub: &MessageHub,
+    raise: impl Fn() + Send + Sync + 'static,
+) -> (Arc<AtomicUsize>, vmx::Subscription) {
+    let fired = Arc::new(AtomicUsize::new(0));
+    let counter = fired.clone();
+    let subscription = hub.subscribe(move |_| {
+        if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+            raise();
+        }
+    });
+    (fired, subscription)
+}
+
+#[test]
+fn raise_from_final_disposal_notification_publishes_nothing_more() {
+    // `RelayCommand` and `RelayCommandOf` set the disposed flag, publish one
+    // final notification, then dispose the hub. A raise from that
+    // notification reaches the open hub, so only the disposed check drops it
+    // (#1341). `AsyncRelayCommand` publishes no final notification.
+    let relay = RelayCommand::noop();
+    let raiser = relay.clone();
+    let (relay_fired, relay_subscription) =
+        raise_once_from_first_notification(&relay.can_execute_changed(), move || {
+            raiser.raise_can_execute_changed()
+        });
+    relay.dispose();
+    assert_eq!(relay_fired.load(Ordering::SeqCst), 1);
+    drop(relay_subscription);
+
+    let parameterized = RelayCommandOf::<i32>::noop();
+    let raiser = parameterized.clone();
+    let (parameterized_fired, parameterized_subscription) =
+        raise_once_from_first_notification(&parameterized.can_execute_changed(), move || {
+            raiser.raise_can_execute_changed()
+        });
+    parameterized.dispose();
+    assert_eq!(parameterized_fired.load(Ordering::SeqCst), 1);
+    drop(parameterized_subscription);
 }
 
 #[test]
@@ -364,6 +411,47 @@ fn async_imperative_raise_while_in_flight_is_additive() {
     run.join().unwrap().unwrap();
 
     assert_eq!(fired.load(Ordering::SeqCst), 3);
+}
+
+/// CMD-020 — a fire-and-forget fault reaches `errors` after the completion notification
+#[test]
+fn fire_and_forget_fault_reaches_errors_after_the_completion_notification() {
+    #[derive(Debug, PartialEq)]
+    enum Entry {
+        Change,
+        Error(VmxError, bool),
+    }
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("task failed".into())));
+    let _changes = command.can_execute_changed().subscribe({
+        let log = log.clone();
+        move |_| log.lock().unwrap().push(Entry::Change)
+    });
+    let (delivered, deliveries) = mpsc::channel();
+    let _errors = command.error_stream().subscribe({
+        let log = log.clone();
+        let command = command.clone();
+        move |error| {
+            log.lock()
+                .unwrap()
+                .push(Entry::Error(error, command.is_executing()));
+            let _ = delivered.send(());
+        }
+    });
+
+    command.execute();
+
+    deliveries
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the fault reached the error stream");
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec![
+            Entry::Change,
+            Entry::Change,
+            Entry::Error(VmxError::Other("task failed".into()), false),
+        ]
+    );
 }
 
 #[test]
@@ -804,11 +892,14 @@ fn deprecated_errors_hub_still_announces_fire_and_forget_faults() {
     });
 
     command.execute();
-    while command.is_executing() {
+    // The fault follows the end of the execution (CMD-020), so wait for it.
+    let deadline = Instant::now() + ERROR_TIMEOUT;
+    while errors.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
         std::thread::yield_now();
     }
 
     assert_eq!(errors.load(Ordering::SeqCst), 1);
+    assert!(!command.is_executing());
 }
 
 #[test]
@@ -999,18 +1090,6 @@ fn disposed_relay_commands_are_inert() {
 
 const NESTED_TIMEOUT: Duration = Duration::from_secs(5);
 
-fn without_deadlock<R: Send + 'static>(scenario: impl FnOnce() -> R + Send + 'static) -> R {
-    let (done, result) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = done.send(catch_unwind(AssertUnwindSafe(scenario)));
-    });
-    match result.recv_timeout(NESTED_TIMEOUT) {
-        Ok(Ok(value)) => value,
-        Ok(Err(panic)) => resume_unwind(panic),
-        Err(_) => panic!("the nested execution deadlocked: no result within {NESTED_TIMEOUT:?}"),
-    }
-}
-
 type Log = Arc<Mutex<Vec<String>>>;
 
 fn entries(log: &Log) -> Vec<String> {
@@ -1027,7 +1106,7 @@ fn slot_command(slot: &Arc<Mutex<Option<RelayCommand>>>) -> RelayCommand {
 
 #[test]
 fn an_action_that_executes_its_own_command_runs_the_nested_execution() {
-    let (log, predicate_calls) = without_deadlock(|| {
+    let (log, predicate_calls) = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let log = Log::default();
         let runs = Arc::new(AtomicUsize::new(0));
         let predicate_calls = Arc::new(AtomicUsize::new(0));
@@ -1066,7 +1145,7 @@ fn an_action_that_executes_its_own_command_runs_the_nested_execution() {
 
 #[test]
 fn nested_parameterized_executions_run_in_call_order_with_their_parameters() {
-    let visited = without_deadlock(|| {
+    let visited = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let visited = Arc::new(Mutex::new(Vec::new()));
         let slot = Arc::new(Mutex::new(None::<RelayCommandOf<u32>>));
         let command = RelayCommandOf::new({
@@ -1097,7 +1176,7 @@ fn nested_parameterized_executions_run_in_call_order_with_their_parameters() {
 fn a_can_execute_changed_handler_may_execute_the_running_command() {
     // The action raises the change imperatively, or through a builder trigger.
     for through_trigger in [false, true] {
-        let (runs, log) = without_deadlock(move || {
+        let (runs, log) = within_timeout("nested execute", NESTED_TIMEOUT, move || {
             let log = Log::default();
             let runs = Arc::new(AtomicUsize::new(0));
             let trigger = MessageHub::new();
@@ -1152,7 +1231,7 @@ fn a_can_execute_changed_handler_may_execute_the_running_command() {
 
 #[test]
 fn a_nested_execution_is_admitted_when_it_is_made() {
-    let (runs, predicate_calls) = without_deadlock(|| {
+    let (runs, predicate_calls) = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let runs = Arc::new(AtomicUsize::new(0));
         let busy = Arc::new(AtomicBool::new(false));
         let predicate_calls = Arc::new(AtomicUsize::new(0));
@@ -1193,7 +1272,7 @@ fn a_nested_execution_is_admitted_when_it_is_made() {
 
 #[test]
 fn a_deferred_execution_does_not_run_once_its_command_is_disposed() {
-    let (runs, can_execute) = without_deadlock(|| {
+    let (runs, can_execute) = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let runs = Arc::new(AtomicUsize::new(0));
         let slot = Arc::new(Mutex::new(None::<RelayCommand>));
         let command = RelayCommand::new({
@@ -1219,25 +1298,26 @@ fn a_deferred_execution_does_not_run_once_its_command_is_disposed() {
 
 #[test]
 fn a_panicking_action_discards_its_nested_executions_and_stays_usable() {
-    let (panicked, runs_after_panic, runs) = without_deadlock(|| {
-        let runs = Arc::new(AtomicUsize::new(0));
-        let slot = Arc::new(Mutex::new(None::<RelayCommand>));
-        let command = RelayCommand::new({
-            let (runs, slot) = (runs.clone(), slot.clone());
-            move || {
-                if runs.fetch_add(1, Ordering::SeqCst) == 0 {
-                    slot_command(&slot).execute();
-                    panic!("action failed after a nested execute");
+    let (panicked, runs_after_panic, runs) =
+        within_timeout("nested execute", NESTED_TIMEOUT, || {
+            let runs = Arc::new(AtomicUsize::new(0));
+            let slot = Arc::new(Mutex::new(None::<RelayCommand>));
+            let command = RelayCommand::new({
+                let (runs, slot) = (runs.clone(), slot.clone());
+                move || {
+                    if runs.fetch_add(1, Ordering::SeqCst) == 0 {
+                        slot_command(&slot).execute();
+                        panic!("action failed after a nested execute");
+                    }
                 }
-            }
-        });
-        *slot.lock().unwrap() = Some(command.clone());
+            });
+            *slot.lock().unwrap() = Some(command.clone());
 
-        let panicked = catch_unwind(AssertUnwindSafe(|| command.execute())).is_err();
-        let runs_after_panic = runs.load(Ordering::SeqCst);
-        command.execute();
-        (panicked, runs_after_panic, runs.load(Ordering::SeqCst))
-    });
+            let panicked = catch_unwind(AssertUnwindSafe(|| command.execute())).is_err();
+            let runs_after_panic = runs.load(Ordering::SeqCst);
+            command.execute();
+            (panicked, runs_after_panic, runs.load(Ordering::SeqCst))
+        });
 
     // The panic propagates to the caller (spec §3) and drops the nested call.
     assert!(panicked);
@@ -1247,7 +1327,7 @@ fn a_panicking_action_discards_its_nested_executions_and_stays_usable() {
 
 #[test]
 fn an_execute_from_another_thread_waits_for_the_running_action() {
-    let log = without_deadlock(|| {
+    let log = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let log = Log::default();
         let (entered_tx, entered) = mpsc::channel::<()>();
         let (release, released) = mpsc::channel::<()>();
@@ -1300,7 +1380,7 @@ fn an_execute_from_another_thread_waits_for_the_running_action() {
 
 #[test]
 fn wrappers_re_entered_from_their_inner_action_do_not_deadlock() {
-    let (composite_runs, decorator_log) = without_deadlock(|| {
+    let (composite_runs, decorator_log) = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let runs = Arc::new(AtomicUsize::new(0));
         let composite_slot = Arc::new(Mutex::new(None::<CompositeCommand>));
         let inner = RelayCommand::new({
@@ -1449,4 +1529,58 @@ fn deferred_call_survives_disposal_of_the_outer_cloned_builder_command() {
         "y's admitted call runs once, after the first run returns"
     );
     slot.lock().unwrap().take();
+}
+
+/// Asserts CMD-021 for one command: A panics on every notification, B counts.
+/// Rust triggers are hubs, so the trigger has no operator form.
+fn assert_failing_handler_isolated(
+    trigger: &MessageHub,
+    can_execute_changed: MessageHub,
+    raise: impl Fn(),
+) {
+    let counts = Arc::new(Mutex::new([0_usize; 2]));
+    let (a_seen, b_seen) = (counts.clone(), counts.clone());
+    let _a = can_execute_changed.subscribe(move |_| {
+        a_seen.lock().unwrap()[0] += 1;
+        panic!("handler A failed");
+    });
+    let _b = can_execute_changed.subscribe(move |_| b_seen.lock().unwrap()[1] += 1);
+    let pulse = || {
+        trigger.send(Message::Custom {
+            sender_id: 0,
+            sender_name: "trigger".to_string(),
+            name: "trigger".to_string(),
+        });
+    };
+
+    // Each panic is caught per handler, so the trigger send returns normally.
+    pulse();
+    pulse();
+    assert_eq!(*counts.lock().unwrap(), [2, 2]);
+
+    raise();
+    assert_eq!(*counts.lock().unwrap(), [3, 3]);
+}
+
+/// CMD-021 — a failing CanExecuteChanged handler stops neither other handlers nor a trigger (RelayCommand)
+#[test]
+fn relay_failing_can_execute_changed_handler_is_isolated() {
+    let trigger = MessageHub::new();
+    let command = RelayCommand::builder().trigger(trigger.clone()).build();
+    assert_failing_handler_isolated(&trigger, command.can_execute_changed(), || {
+        command.raise_can_execute_changed();
+    });
+}
+
+/// CMD-021 — a failing CanExecuteChanged handler stops neither other handlers nor a trigger (AsyncRelayCommand)
+#[test]
+fn async_relay_failing_can_execute_changed_handler_is_isolated() {
+    let trigger = MessageHub::new();
+    let command = AsyncRelayCommand::builder()
+        .task(|_| Ok(()))
+        .trigger(trigger.clone())
+        .build();
+    assert_failing_handler_isolated(&trigger, command.can_execute_changed(), || {
+        command.raise_can_execute_changed();
+    });
 }

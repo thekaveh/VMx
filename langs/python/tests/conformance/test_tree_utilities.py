@@ -1,6 +1,8 @@
-"""Conformance tests: UTIL-001..003 (spec v1.1 — Tree utilities)."""
+"""Conformance tests: UTIL-001..004 (spec v1.1 — Tree utilities)."""
 
 from __future__ import annotations
+
+from collections.abc import Callable, Iterable
 
 import pytest
 
@@ -12,9 +14,10 @@ from vmx.components.component_vm import ComponentVM
 from vmx.components.protocols import ComponentVMProto, ViewModelType
 from vmx.composites.builders import CompositeVMBuilder
 from vmx.composites.composite_vm import CompositeVM
+from vmx.hierarchical import HierarchicalVM
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
-from vmx.tree import find, walk
+from vmx.tree import find, walk, walk_expanded
 
 
 def _hub() -> MessageHub[object]:
@@ -185,3 +188,120 @@ def test_walk_propagates_type_error_raised_while_advancing_iterator() -> None:
 
     with pytest.raises(TypeError, match="iterator body failed"):
         list(walk(root))
+
+
+class _WalkNode(HierarchicalVM[str, "_WalkNode"]):
+    def __init__(self, name: str, factory: Callable[[_WalkNode], Iterable[_WalkNode]]) -> None:
+        super().__init__(
+            model=name,
+            children_factory=factory,
+            hub=_hub(),
+            dispatcher=_dispatcher(),
+            name=name,
+        )
+
+
+def _leaf_node(name: str) -> _WalkNode:
+    return _WalkNode(name, lambda _: [])
+
+
+@pytest.mark.conformance("UTIL-004")
+def test_UTIL_004_walks_report_invalid_factory_output_and_stay_retryable() -> None:
+    """UTIL-004: walk, walk_expanded and find raise the hydration error, assign
+    no parent, retry the factory, and find returns a match before the failing
+    node (spec/13 §6.1, ADR-0170)."""
+    a = _leaf_node("a")
+    c = _leaf_node("c")
+    d = _leaf_node("d")
+    snapshot: list[_WalkNode] = [c, c]
+    calls = 0
+
+    def b_factory(_: _WalkNode) -> list[_WalkNode]:
+        nonlocal calls
+        calls += 1
+        return list(snapshot)
+
+    b = _WalkNode("b", b_factory)
+    root = _WalkNode("root", lambda _: [a, b])
+    assert list(root.children) == [a, b]
+
+    with pytest.raises(ValueError):
+        list(walk(root))
+    with pytest.raises(ValueError):
+        list(walk_expanded(root))
+    with pytest.raises(ValueError):
+        find(root, lambda _: False)
+    assert calls == 3, "each walk retries the factory"
+    assert c.parent is None, "a rejected snapshot assigns no parent"
+    assert b._children_list is None, "the failing node keeps no children cache"
+
+    assert find(root, lambda node: node is a) is a
+    assert calls == 3, "find returns a match before the failing node"
+
+    snapshot[:] = [c, d]
+    assert [node.name for node in walk(root)] == ["root", "a", "b", "c", "d"]
+
+
+def test_walks_propagate_type_error_from_a_factory_that_returns_none() -> None:
+    """#1434: a non-iterable factory result raises the TypeError that a direct
+    ``children`` read raises; the walks do not turn the node into a leaf."""
+    node = _WalkNode("root", lambda _: None)  # type: ignore[arg-type,return-value]
+
+    with pytest.raises(TypeError) as direct:
+        _ = node.children
+    for run in (
+        lambda: list(walk(node)),
+        lambda: list(walk_expanded(node)),
+        lambda: find(node, lambda _: False),
+    ):
+        with pytest.raises(type(direct.value)):
+            run()
+
+
+def test_walks_propagate_type_error_raised_by_a_factory_and_retry() -> None:
+    """#1434: a TypeError raised by the factory propagates from each walk, and
+    a later walk of the same node calls the factory again."""
+    calls = 0
+
+    def failing(_: _WalkNode) -> list[_WalkNode]:
+        nonlocal calls
+        calls += 1
+        raise TypeError("factory bug")
+
+    node = _WalkNode("root", failing)
+
+    with pytest.raises(TypeError, match="factory bug"):
+        list(walk(node))
+    with pytest.raises(TypeError, match="factory bug"):
+        list(walk_expanded(node))
+    with pytest.raises(TypeError, match="factory bug"):
+        find(node, lambda _: False)
+    assert calls == 3
+
+
+def test_walk_propagates_type_error_from_iter_instead_of_reading_components() -> None:
+    """#1434, ADR-0212: a node whose ``iter()`` raises TypeError is not walked
+    through its ``components()`` slots; the error propagates."""
+    h = _hub()
+    d = _dispatcher()
+    slot = _leaf("slot", h, d)
+
+    class _IterRejecting(_ComponentVMBase):
+        @property
+        def type(self) -> ViewModelType:
+            return ViewModelType.AGGREGATE
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            raise TypeError("iter rejected")
+
+        def components(self) -> list[ComponentVMProto]:
+            return [slot]
+
+    node = _IterRejecting(name="node", hint="", hub=h, dispatcher=d)
+
+    with pytest.raises(TypeError, match="iter rejected"):
+        list(walk(node))
+    with pytest.raises(TypeError, match="iter rejected"):
+        list(walk_expanded(node))
+    with pytest.raises(TypeError, match="iter rejected"):
+        find(node, lambda _: False)

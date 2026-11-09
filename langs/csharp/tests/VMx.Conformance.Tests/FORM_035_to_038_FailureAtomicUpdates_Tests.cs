@@ -542,27 +542,26 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         form.IsDirty.Should().BeTrue();
     }
 
-    // ── Serialization (spec/20 §5.4) ──────────────────────────────────────────
+    // ── Cross-thread commits (spec/20 §5.4, ADR-0215) ──────────────────────────
 
-    // Updates are serialized: another thread's SetModel waits for the update in
-    // progress, preparation included, and then applies. Only same-thread
-    // re-entry makes a preparation stale, so a concurrent edit is never dropped.
+    // Callbacks run with no form lock held: another thread's SetModel commits
+    // while an update prepares. The overtaken update then runs again as a new
+    // call, so neither edit is dropped and no stale result is committed.
     [Fact]
-    public async Task Another_Threads_SetModel_Waits_For_The_Update_In_Progress()
+    public async Task Another_Threads_SetModel_Commits_During_A_Preparation_And_The_Overtaken_Update_Runs_Again()
     {
         using var releaseValidation = new ManualResetEventSlim();
         var firstValidating = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var secondCalling = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var validated = new ConcurrentQueue<string>();
         var validators = new Dictionary<string, Func<Model, string?>>
         {
             ["Value"] = model =>
             {
                 validated.Enqueue(model.Value);
-                if (model.Value == "first")
+                if (model.Value == "first" && firstValidating.TrySetResult())
                 {
-                    firstValidating.SetResult();
-                    releaseValidation.Wait(HangGuard).Should().BeTrue();
+                    // The test sets releaseValidation in a finally block.
+                    releaseValidation.Wait();
                 }
                 return null;
             },
@@ -584,29 +583,22 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         validated.Clear();
 
         var first = Task.Run(() => form.SetModel(new Model("first")));
-        await firstValidating.Task.WaitAsync(HangGuard);
-        var second = Task.Run(() =>
-        {
-            secondCalling.SetResult();
-            form.SetModel(new Model("second"));
-        });
-        bool secondFinishedWhileFirstPrepared;
+        Task second;
         try
         {
-            await secondCalling.Task.WaitAsync(HangGuard);
-            secondFinishedWhileFirstPrepared = await Task.WhenAny(
-                second,
-                Task.Delay(TimeSpan.FromMilliseconds(100))) == second;
+            await firstValidating.Task.WaitAsync(HangGuard);
+            second = Task.Run(() => form.SetModel(new Model("second")));
+            await second.WaitAsync(HangGuard);
+            form.Model.Should().Be(new Model("second"), "the second update does not wait for the preparation");
         }
         finally
         {
             releaseValidation.Set();
         }
 
-        await Task.WhenAll(first, second).WaitAsync(HangGuard);
-        secondFinishedWhileFirstPrepared.Should().BeFalse("the second update waits for the first to finish");
-        validated.Should().Equal("first", "second");
-        form.Model.Should().Be(new Model("second"), "the concurrent edit is applied, not dropped");
+        await first.WaitAsync(HangGuard);
+        validated.Should().Equal("first", "second", "first");
+        form.Model.Should().Be(new Model("first"), "the overtaken update runs again against the new state");
         Volatile.Read(ref modelMessages).Should().Be(2);
     }
 

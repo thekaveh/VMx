@@ -10,9 +10,11 @@ render on GitHub, in browsers, and through `rsvg-convert` for PNG exports.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import subprocess
 import tempfile
+import zlib
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -265,6 +267,85 @@ def render_png(svg_path: Path, png_path: Path) -> None:
         tmp_path.unlink(missing_ok=True)
 
 
+# Each PNG preview records, in a PNG `tEXt` chunk, the SHA-256 digest of the
+# SVG it was rendered from plus the render recipe. PNG bytes depend on the host
+# librsvg/cairo/pango/fontconfig/pngquant stack and differ between macOS and the
+# Ubuntu CI runner, so neither generation nor `--check` compares PNG bytes.
+# Generation renders a PNG only when its recorded digest differs from the
+# current SVG, so an unchanged SVG keeps its committed PNG on any host.
+# `--check` reports a PNG whose recorded digest is missing or differs. The same
+# helpers exist in docs/assets/diagrams/generate_diagrams.py; keep the keyword and the recipe equal.
+PNG_SOURCE_KEYWORD = b"vmx-svg-sha256"
+PNG_RENDER_RECIPE = f"rsvg-convert -w {PNG_WIDTH} -f png | pngquant --quality 70-95 --speed 1"
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def svg_render_digest(svg: bytes) -> str:
+    """Return the digest that a PNG rendered from ``svg`` records."""
+    return hashlib.sha256(PNG_RENDER_RECIPE.encode("utf-8") + b"\0" + svg).hexdigest()
+
+
+def _png_chunks(data: bytes) -> list[tuple[bytes, bytes]]:
+    if not data.startswith(_PNG_SIGNATURE):
+        raise ValueError("not a PNG file")
+    chunks: list[tuple[bytes, bytes]] = []
+    offset = len(_PNG_SIGNATURE)
+    while offset + 8 <= len(data):
+        length = int.from_bytes(data[offset : offset + 4], "big")
+        kind = data[offset + 4 : offset + 8]
+        body = data[offset + 8 : offset + 8 + length]
+        if len(body) != length:
+            raise ValueError("truncated PNG chunk")
+        chunks.append((kind, body))
+        offset += 12 + length
+        if kind == b"IEND":
+            break
+    return chunks
+
+
+def png_source_digest(png_path: Path) -> str | None:
+    """Return the SVG digest recorded in ``png_path``, or None if there is none."""
+    try:
+        chunks = _png_chunks(png_path.read_bytes())
+    except (OSError, ValueError):
+        return None
+    for kind, body in chunks:
+        keyword, _, text = body.partition(b"\0")
+        if kind == b"tEXt" and keyword == PNG_SOURCE_KEYWORD:
+            return text.decode("latin-1")
+    return None
+
+
+def stamp_png(png_path: Path, digest: str) -> None:
+    """Record ``digest`` in ``png_path`` as a ``tEXt`` chunk after ``IHDR``."""
+    out = bytearray(_PNG_SIGNATURE)
+    for kind, body in _png_chunks(png_path.read_bytes()):
+        if kind == b"tEXt" and body.partition(b"\0")[0] == PNG_SOURCE_KEYWORD:
+            continue
+        out += _png_chunk(kind, body)
+        if kind == b"IHDR":
+            out += _png_chunk(b"tEXt", PNG_SOURCE_KEYWORD + b"\0" + digest.encode("latin-1"))
+    png_path.write_bytes(bytes(out))
+
+
+def _png_chunk(kind: bytes, body: bytes) -> bytes:
+    crc = zlib.crc32(kind + body) & 0xFFFFFFFF
+    return len(body).to_bytes(4, "big") + kind + body + crc.to_bytes(4, "big")
+
+
+def refresh_png(svg_path: Path, png_path: Path) -> bool:
+    """Render ``png_path`` from ``svg_path`` unless it already records that SVG.
+
+    Return True when the PNG was rendered again.
+    """
+    digest = svg_render_digest(svg_path.read_bytes())
+    if png_source_digest(png_path) == digest:
+        return False
+    render_png(svg_path, png_path)
+    stamp_png(png_path, digest)
+    return True
+
+
 def write_triplet(
     output_root: Path,
     path: Path,
@@ -275,14 +356,13 @@ def write_triplet(
     body: str,
     cards: list[tuple[str, list[str]]],
 ) -> None:
+    """Write the SVG and HTML of one triplet; `generate` refreshes its PNG."""
     svg_path = output_root / path.with_suffix(".svg")
     html_path = output_root / path.with_suffix(".html")
-    png_path = output_root / path.with_suffix(".png")
     svg_path.parent.mkdir(parents=True, exist_ok=True)
     svg = svg_doc(title, subtitle, width, height, body)
     svg_path.write_text(svg, encoding="utf-8")
     html_path.write_text(html_doc(title, subtitle, svg, cards), encoding="utf-8")
-    render_png(svg_path, png_path)
 
 
 def architecture(output_root: Path) -> None:
@@ -1083,49 +1163,68 @@ def showcase_components(output_root: Path) -> None:
     )
 
 
-def generate(output_root: Path) -> None:
+def generate(output_root: Path, *, render_pngs: bool = True) -> list[Path]:
+    """Write every triplet into ``output_root``; return the PNGs rendered again.
+
+    A PNG is rendered only when it does not record the digest of its current
+    SVG. ``render_pngs=False`` writes the SVG and HTML files only.
+    """
     architecture(output_root)
     class_diagram(output_root)
     showcase_hierarchy(output_root)
     showcase_components(output_root)
+    rendered: list[Path] = []
+    if render_pngs:
+        for base in TRIPLET_BASES:
+            png_path = output_root / base.with_suffix(".png")
+            if refresh_png(output_root / base.with_suffix(".svg"), png_path):
+                rendered.append(png_path)
+    return rendered
 
 
-def check_generated(candidate_root: Path) -> list[Path]:
+def check_generated(candidate_root: Path, committed_root: Path | None = None) -> list[Path]:
     # HTML and SVG are deterministic textual outputs, so byte-equality reliably
-    # detects staleness. PNG is rasterized via rsvg-convert + pngquant, whose
-    # bytes depend on the host librsvg/cairo/pango/fontconfig/pngquant stack and
-    # legitimately differ between a macOS dev host and the Ubuntu CI runner.
-    # Assert PNG presence only, or the check becomes environment-fragile.
+    # detects staleness. PNG bytes depend on the host rasterizer stack and
+    # differ between a macOS dev host and the Ubuntu CI runner, so the check
+    # never compares them. Instead, each committed PNG must record the digest of
+    # the current SVG (see `svg_render_digest`). A missing PNG, or a PNG
+    # rendered from an older SVG, is stale.
+    committed_root = ROOT if committed_root is None else committed_root
     stale: list[Path] = []
     for base in TRIPLET_BASES:
         for suffix in (".html", ".svg"):
             relative_path = base.with_suffix(suffix)
-            committed = ROOT / relative_path
+            committed = committed_root / relative_path
             candidate = candidate_root / relative_path
             if not committed.exists() or committed.read_bytes() != candidate.read_bytes():
                 stale.append(relative_path)
         png_path = base.with_suffix(".png")
-        if not (ROOT / png_path).exists():
+        expected = svg_render_digest((candidate_root / base.with_suffix(".svg")).read_bytes())
+        if png_source_digest(committed_root / png_path) != expected:
             stale.append(png_path)
     return stale
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--check",
         action="store_true",
-        help="verify deterministic HTML/SVG outputs and PNG presence without modifying the worktree",
+        help=(
+            "verify the HTML/SVG bytes, and that each PNG records the digest of its "
+            "current SVG, without rendering or modifying the worktree"
+        ),
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if not args.check:
-        generate(ROOT)
+        for path in generate(ROOT):
+            print(f"rendered {path.relative_to(ROOT)}")
         return 0
 
     with tempfile.TemporaryDirectory(prefix="vmx-doc-diagrams-") as tmp_dir:
         candidate_root = Path(tmp_dir)
-        generate(candidate_root)
+        generate(candidate_root, render_pngs=False)
         stale = check_generated(candidate_root)
     if stale:
         for path in stale:

@@ -577,6 +577,53 @@ public sealed class AggregateChangeStreamConformanceTests
         Assert.Equal(1, completionCount);
     }
 
+    [Fact, Trait("Conformance", "AGCH-011")]
+    public void AGCH_011_SubscribersOfOneEnvelopeReceiveItInSubscriptionOrder()
+    {
+        var source = new TestSource<TestItem>(new TestItem("first"));
+        var aggregate = CreateAggregate(source);
+        var order = new List<string>();
+        var subscriptions = Enumerable.Range(0, 5)
+            .Select(label => aggregate.Observe().Subscribe(
+                change => order.Add($"{change.Reason}:{label}"),
+                () => order.Add($"Completed:{label}")))
+            .ToList();
+
+        source.Add(new TestItem("plain"));
+        Assert.Equal(Enumerable.Range(0, 5).Select(label => $"Membership:{label}"), order);
+
+        order.Clear();
+        aggregate.Batch(() => source.Add(new TestItem("batched")));
+        Assert.Equal(Enumerable.Range(0, 5).Select(label => $"Batch:{label}"), order);
+
+        order.Clear();
+        aggregate.Dispose();
+        Assert.Equal(Enumerable.Range(0, 5).Select(label => $"Completed:{label}"), order);
+        subscriptions.ForEach(subscription => subscription.Dispose());
+    }
+
+    private static readonly int[] ResubscribedOrder = [0, 2, 3, 4, 1];
+
+    [Fact]
+    public void AGCH_011_ResubscriptionReceivesEnvelopesLast()
+    {
+        var source = new TestSource<TestItem>(new TestItem("first"));
+        using var aggregate = CreateAggregate(source);
+        var order = new List<int>();
+        IDisposable Observe(int label) => aggregate.Observe().Subscribe(_ => order.Add(label));
+        var subscriptions = Enumerable.Range(0, 5).Select(Observe).ToList();
+
+        subscriptions[1].Dispose();
+        subscriptions[1] = Observe(1);
+        source.Add(new TestItem("plain"));
+        Assert.Equal(ResubscribedOrder, order);
+
+        order.Clear();
+        aggregate.Batch(() => source.Add(new TestItem("batched")));
+        Assert.Equal(ResubscribedOrder, order);
+        subscriptions.ForEach(subscription => subscription.Dispose());
+    }
+
     // AGCH-012 (ADR-0214, #1325): the aggregate holds no gate while it calls the
     // source, the selector, a selected stream's subscribe or a subscription's
     // disposal. A source that raises its structural callback under its own lock

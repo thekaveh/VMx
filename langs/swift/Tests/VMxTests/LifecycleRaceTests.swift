@@ -14,7 +14,7 @@
 // generation and aborts.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is exercised by CI (`swift.yml` on macos-latest). The
+// module); this target is exercised by CI (`swift.yml` on macos-15). The
 // assertions encode the *correct* (locked) behaviour — final status `.disposed`
 // (no resurrection) and no post-dispose `.constructed` hub message — which the
 // fixed code satisfies deterministically regardless of timing.
@@ -115,8 +115,8 @@ final class LifecycleRaceTests: XCTestCase {
             secondDone.signal()
         }
 
-        XCTAssertEqual(firstDone.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(secondDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(firstDone.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(secondDone.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(first.status, .disposed)
         XCTAssertEqual(second.status, .disposed)
         firstCancel.cancel()
@@ -159,8 +159,8 @@ final class LifecycleRaceTests: XCTestCase {
         DispatchQueue.global().async { try? first.construct(); firstDone.signal() }
         DispatchQueue.global().async { try? second.construct(); secondDone.signal() }
 
-        XCTAssertEqual(firstDone.wait(timeout: .now() + 3), .success)
-        XCTAssertEqual(secondDone.wait(timeout: .now() + 3), .success)
+        XCTAssertEqual(firstDone.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(secondDone.wait(timeout: .now() + hangGuard), .success)
         first.dispose()
         second.dispose()
         XCTAssertEqual(first.status, .disposed)
@@ -292,7 +292,7 @@ final class LifecycleRaceTests: XCTestCase {
             try? vm.reconstruct()
             reconstructDone.signal()
         }
-        XCTAssertEqual(destructEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(destructEntered.wait(timeout: .now() + hangGuard), .success)
         let disposeDone = DispatchSemaphore(value: 0)
         let secondDisposeDone = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
@@ -314,9 +314,9 @@ final class LifecycleRaceTests: XCTestCase {
         XCTAssertEqual(cleanupsWhileHookHeld, 0,
                        "terminal cleanup must not overlap the admitted hook")
         releaseDestruct.signal()
-        XCTAssertEqual(disposeDone.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(secondDisposeDone.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(reconstructDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(disposeDone.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(secondDisposeDone.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(reconstructDone.wait(timeout: .now() + hangGuard), .success)
         vm.dispose()
 
         counterLock.lock()

@@ -163,17 +163,11 @@ ModeledHinter : (M) -> string
 
 If no `ModeledHinter` is configured, `ModeledHint` returns the empty string.
 
-Open Rust gap: Rust types `Hint` and `ModeledHint` as `Option<String>`. Its
-default hinter returns `None` instead of the empty string.
-
 ### 3.2 `OnModelChanged`
 
 The builder accepts an `OnModelChanged` callback (`(M) -> void`). When the model
 setter accepts a new value, this callback is invoked AFTER the
 `PropertyChangedMessage` is emitted. Use it to wire model-driven side effects.
-
-Open Rust gap: the Rust `ComponentVmBuilder` has no `OnModelChanged` callback.
-Rust consumers observe the `model` property-change notification instead.
 
 ### 3.3 Explicit model republish
 
@@ -346,9 +340,14 @@ ExpandableState : IExpandable, ICollapsible, IExpansionTogglable:
     ToggleExpansionCommand : Command        # CanToggleExpansion() / ToggleExpansion()
 ```
 
-Open Rust gap: Rust's `ExpandableState` has no `Observable<bool>`. Its
-`expanded_changed()` method returns a `MessageHub` that publishes a
-`Message::Custom` whose `name` is `"true"` or `"false"` on each effective change.
+Rust exposes `IsExpandedChanged` as `expansion_changes()`, a hot
+`ValueStream<bool>` that sends the new value once per effective change and does
+not replay the current value to a new subscriber. Under concurrent changes, an
+older value is skipped when a newer change commits before it publishes, so the
+stream always ends on the current value (ADR-0206). Rust also keeps the
+`expanded_changed()` hub, which publishes a `Message::Custom` whose `name` is
+`"true"` or `"false"` on each effective change; the expansion commands use that
+hub as their trigger (ADR-0206).
 
 The helper is composition-friendly: VMs that want expand/collapse hold an
 `ExpandableState` and delegate the capability members to it. The

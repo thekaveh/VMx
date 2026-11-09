@@ -23,6 +23,7 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx._indexes import _reject_bool_index
+from vmx._subscriber_failures import FanOutSubject
 from vmx._wait_for_graph import WAITS
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
@@ -50,7 +51,7 @@ from vmx.components.base import (
     _ParentCompositeVM,
     _ParentTransfer,
 )
-from vmx.components.child_order import ChildOrder, _in_destruct_order
+from vmx.components.child_order import ChildOrder, _in_destruct_order, _require_child_order
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -104,6 +105,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         on_destruct: Callable[[], None] | None = None,
         destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> None:
+        # Checked before any state exists: an unknown order is a caller error.
+        _require_child_order(destruct_order)
         super().__init__(
             name=name,
             hint=hint,
@@ -133,7 +136,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._membership_condition = Condition(self._membership_gate)
 
         # Observable collection-change stream.
-        self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
+        self._collection_changed_subject: Subject[CollectionChangedEvent] = FanOutSubject()
 
         # Single cached parent adaptor reused for every child op (VMX-077):
         # a fresh _GroupParent per add/insert was wasteful and gave children an
@@ -622,6 +625,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     def _require_transaction_can_continue_locked(self) -> None:
         if self._dispose_requested or self._dispose_deferred:
             raise RuntimeError("cannot attach a child while the container is disposing")
+
+    def _disposal_pending_locked(self) -> bool:
+        return self._dispose_requested or self._dispose_deferred
 
     def _begin_membership_transaction(self) -> None:
         with self._membership_gate:

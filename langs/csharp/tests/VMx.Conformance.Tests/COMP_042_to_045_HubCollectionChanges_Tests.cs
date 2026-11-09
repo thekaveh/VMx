@@ -99,7 +99,7 @@ public class COMP_042_to_045_HubCollectionChanges_Tests
     public void COMP_042_Each_Local_Event_Is_Followed_By_One_Hub_Message_From_The_Composite()
     {
         using var hub = new MessageHub();
-        var parent = Composite(hub);
+        var parent = Composite(hub, "people");
         var a = Child(hub, "a");
         var b = Child(hub, "b");
         var c = Child(hub, "c");
@@ -118,6 +118,8 @@ public class COMP_042_to_045_HubCollectionChanges_Tests
 
         HubFollowsEachLocalEvent(log, 9);
         messages.Should().OnlyContain(message => ReferenceEquals(message.Sender, parent));
+        // ADR-0194: every message carries the container's Name, not its type name.
+        messages.Should().OnlyContain(message => message.SenderName == parent.Name);
         // C# index replacement keeps its local Remove + Add decomposition.
         messages.Select(message => message.Action).Should().Equal(
             NotifyCollectionChangedAction.Add,
@@ -343,7 +345,7 @@ public class COMP_042_to_045_HubCollectionChanges_Tests
     public void GRP_012_Each_Local_Event_Is_Followed_By_One_Hub_Message_From_The_Group()
     {
         using var hub = new MessageHub();
-        var peers = Group(hub);
+        var peers = Group(hub, "team");
         var a = Child(hub, "a");
         var b = Child(hub, "b");
         var c = Child(hub, "c");
@@ -364,6 +366,8 @@ public class COMP_042_to_045_HubCollectionChanges_Tests
 
         HubFollowsEachLocalEvent(log, 9);
         messages.Should().OnlyContain(message => ReferenceEquals(message.Sender, peers));
+        // ADR-0194: every message carries the container's Name, not its type name.
+        messages.Should().OnlyContain(message => message.SenderName == peers.Name);
         messages.Select(message => message.Action).Should().Equal(
             NotifyCollectionChangedAction.Add,
             NotifyCollectionChangedAction.Add,

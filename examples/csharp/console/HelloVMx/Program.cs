@@ -25,7 +25,7 @@ static class Demo
 
         // ── Infrastructure: shared hub + immediate dispatcher ─────────────────
 
-        var hub        = new MessageHub();
+        var hub = new MessageHub();
         var dispatcher = RxDispatcher.Immediate();
 
         // ── Subscribe to hub messages ─────────────────────────────────────────
@@ -53,7 +53,7 @@ static class Demo
             .Model(new UserModel("Alice", 30))
             .ModeledHinter(u => $"{u.Name} ({u.Age})")
             .OnConstruct(() => Console.WriteLine("  [lifecycle] OnConstruct callback fired"))
-            .OnDestruct( () => Console.WriteLine("  [lifecycle] OnDestruct callback fired"))
+            .OnDestruct(() => Console.WriteLine("  [lifecycle] OnDestruct callback fired"))
             .Build();
 
         Console.WriteLine($"  vm.Name   = {vm.Name}");

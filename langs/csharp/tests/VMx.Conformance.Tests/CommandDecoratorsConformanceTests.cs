@@ -7,8 +7,8 @@ using static VMx.Tests.Helpers.Liveness;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for command decorators, CMDD-001..013.
-/// See spec/04-commands.md §Decorators and ADR-0012.
+/// Conformance tests for command decorators, CMDD-001..013 and CMDD-018.
+/// See spec/04-commands.md §Decorators, ADR-0012 and ADR-0195.
 /// </summary>
 public class CommandDecoratorsConformanceTests
 {
@@ -505,5 +505,43 @@ public class CommandDecoratorsConformanceTests
 
         execute.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(boom);
         log.Should().Equal("pre", "post");
+    }
+
+    // ── CMDD-018 ────────────────────────────────────────────────────────────
+
+    // Marks the thread that is inside ConfirmationDecoratorCommand.Execute().
+    [ThreadStatic]
+    private static bool s_insideExecute;
+
+    /// <summary>CMDD-018: <c>Execute()</c> never runs the inner command inside its
+    /// own call, also when <c>confirm()</c> is already complete (spec/04 §8.3.1,
+    /// ADR-0195).</summary>
+    [Fact, Trait("Conformance", "CMDD-018")]
+    public async Task CMDD_018_Execute_Never_Runs_Inner_Inside_Its_Own_Call()
+    {
+        var runs = 0;
+        var sawMark = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var inner = RelayCommand.Builder()
+            .Task(() =>
+            {
+                Interlocked.Increment(ref runs);
+                sawMark.TrySetResult(s_insideExecute);
+            })
+            .Build();
+        using var decorator = new ConfirmationDecoratorCommand(inner, () => Task.FromResult(true));
+
+        s_insideExecute = true;
+        try
+        {
+            decorator.Execute(null);
+        }
+        finally
+        {
+            s_insideExecute = false;
+        }
+
+        var insideExecute = await sawMark.Task.WaitAsync(HangGuard);
+        insideExecute.Should().BeFalse("the inner command must not run inside the Execute() call");
+        Volatile.Read(ref runs).Should().Be(1);
     }
 }

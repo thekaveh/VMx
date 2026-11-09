@@ -14,6 +14,7 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx._indexes import _reject_bool_index
+from vmx._subscriber_failures import FanOutSubject
 from vmx.collections._delivery import deliver_then_publish
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
@@ -40,7 +41,7 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         self._items: list[T] = []
         self._keys: list[TKey] = []
         self._index_by_key: dict[TKey, int] = {}
-        self._subject: Subject[CollectionChangedMessage[T]] = Subject()
+        self._subject: Subject[CollectionChangedMessage[T]] = FanOutSubject()
 
     @property
     def on_collection_changed(self) -> rx.Observable[CollectionChangedMessage[T]]:

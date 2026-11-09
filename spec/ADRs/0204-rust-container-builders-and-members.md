@@ -42,8 +42,8 @@ cross-flavor behavior and the simplest Rust surface.
    after the construct hook and before the construct walk, at the point where
    C# `OnConstruct` and TypeScript `_onConstruct` populate. So the construct
    hook of the first construct sees no children, and a construct that starts
-   while the factory runs fails with `VmxError::ConcurrentOperation`
-   (LIFE-008). A population that is refused, for example
+   while the factory runs fails with `VmxError::InvalidLifecycleTransition`
+   from `Constructing` (LIFE-008, ADR-0203). A population that is refused, for example
    `VmxError::DuplicateChild`, is a failed construct: the container publishes
    `Constructing` and rolls back to `Destructed`. It attaches nothing and keeps
    the factory for the next construct, as the C# `_populated` guard does. The

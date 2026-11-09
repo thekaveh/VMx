@@ -70,3 +70,27 @@ describe("NotificationHub pending delivery", () => {
     expect(trace).toEqual(["", "first", "complete"]);
   });
 });
+
+describe("NotificationHub pending after dispose (ADR-0197)", () => {
+  it("completes a reentrant subscription made after dispose with no value", () => {
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "first");
+    const late: string[] = [];
+    let attached = false;
+
+    hub.pending.subscribe((snapshot) => {
+      if (!snapshot.includes(notification) || attached) return;
+      attached = true;
+      hub.dispose();
+      hub.pending.subscribe({
+        next: (current) => late.push(current.map((item) => item.message).join(",")),
+        error: () => late.push("error"),
+        complete: () => late.push("complete"),
+      });
+    });
+
+    void hub.post(notification);
+
+    expect(late).toEqual(["complete"]);
+  });
+});
