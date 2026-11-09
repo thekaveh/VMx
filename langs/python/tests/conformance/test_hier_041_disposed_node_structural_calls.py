@@ -65,7 +65,7 @@ def _children_changes(messages: list[object], sender: Node) -> list[object]:
 
 
 class _Tree:
-    """r -> [a -> [aa], b], every child list materialized, and detached d."""
+    """r -> [a -> [aa], b] and detached d; every node constructed and materialized."""
 
     def __init__(self) -> None:
         self.hub: MessageHub[Any] = MessageHub()
@@ -74,13 +74,14 @@ class _Tree:
         self.b = Node(self.hub, "b")
         self.r = Node(self.hub, "r", [self.a, self.b])
         self.d = Node(self.hub, "d")
-        self.r.construct()
         for node in (self.r, self.a, self.aa, self.b, self.d):
+            node.construct()
             _ = node.children
 
 
 def _disposed_a() -> tuple[_Tree, list[object]]:
     tree = _Tree()
+    assert tree.a.status is ConstructionStatus.CONSTRUCTED
     tree.a.dispose()
     assert tree.a.status is ConstructionStatus.DISPOSED
     return tree, _record(tree.hub)

@@ -63,8 +63,9 @@ public class HIER_041_DisposedNodeStructuralCallsTests
         a.AddChild(aa);
         _ = aa.Children;
         _ = b.Children;
-        r.Construct();
+        foreach (var vm in new[] { r, a, b, aa, d }) vm.Construct();
 
+        a.Status.Should().Be(ConstructionStatus.Constructed);
         a.Dispose();
         a.Status.Should().Be(ConstructionStatus.Disposed);
         var messages = Recorder(hub);
