@@ -1,6 +1,6 @@
 # ADR 0118 — Isolate container membership transactions
 
-**Status:** Accepted (2026-07-18)
+**Status:** Accepted (2026-07-18; extended by ADR-0187)
 **Spec version:** clarified in 3.22.0
 **Clarifies:** [ADR-0107](0107-atomic-container-ownership-transfer.md)
 
