@@ -61,14 +61,16 @@ model.
 - Reconstruct and destruct do not release disposal-lifetime registrations.
   Per-construct resources remain explicit in `OnConstruct`/`OnDestruct`.
 - Container VMs (composites, groups, aggregates) dispose their children
-  depth-first before their own teardown (`LIFE-013`). The order is children,
-  the container's `Disposed` publication, subclass hook, LIFO owned
-  registrations, stream completion, then commands. A child reached through
-  several teardown paths has one observable terminal transition.
-- While a construct or destruct hook of the VM runs on another thread, the VM
-  publishes `Disposed` first and waits for that hook. After the hook returns,
-  the VM disposes its children and members, before its subclass hook
-  (`LIFE-015`, spec 02 §2.4, §7.1).
+  depth-first before their own teardown (`LIFE-013`). With no hook running on
+  another thread, the order is children, the container's `Disposed`
+  publication, subclass hook, LIFO owned registrations, stream completion,
+  then commands. A child reached through several teardown paths has one
+  observable terminal transition.
+- A foreign dispose is a `dispose()` call while a construct or destruct hook of
+  the VM runs on another thread. The VM then publishes `Disposed` first and
+  waits for that hook. After the hook returns, the VM disposes its children
+  and members, before its subclass hook (`LIFE-015`, spec 02 §7, §7.1,
+  ADR-0179).
 - With no hook running on another thread, the VM disposes its children and
   members inline, before it publishes `Disposed`. A `construct()`,
   `destruct()`, or `reconstruct()` call that starts during that cascade fails
@@ -84,8 +86,9 @@ model.
 - A member view-model registered with the member-disposal helper (`OwnMember`
   in C#, `_own_member` in Python, `ownMember` in TypeScript and Swift,
   `own_member` in Rust) is disposed depth-first instead: members are disposed
-  in registration order before the parent publishes `Disposed`, after a
-  container's own children (`LIFE-018`, spec 02 §7.1).
+  in registration order, after a container's own children. For a dispose that
+  is not foreign, this happens before the parent publishes `Disposed`
+  (`LIFE-018`, spec 02 §7.1).
 - A terminal cascade does not stop at a failing child or subclass hook. The
   teardown of every sibling still runs. The base teardown of the parent also
   runs. Flavors that throw or return results report the first failure only

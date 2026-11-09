@@ -240,28 +240,6 @@ below for them.
   parent's detach commit. Before, another thread could select the child in
   the destination before that commit, and the commit then reset its
   `is_current` flag while it stayed `current` (`COMP-006`).
-- `FormVM` queues every `set_model` and deny that the approving thread makes in
-  an approval's pre-publication window and replays them after `on_approved`
-  (spec/20 §5.3, ADR-0174, FORM-039, FORM-040, #1168, #1050). The window now
-  opens with the post-persist commit. Calls from `reset_on_approved`, the
-  snapshotter, and the validators of that commit are queued, as are calls from
-  the settlement `errors_changed` and `can_execute_changed` observers. Before,
-  a call from `reset_on_approved` committed at once and the reset then
-  overwrote it. A deny from a settlement observer also committed at once, so
-  `on_approved` observers saw the reverted model. A queued call now runs its
-  preparation when it is called, so a failing validator or `__eq__` raises to
-  the caller and nothing is queued. Before, the failure surfaced only at
-  replay and failed the settled approval. Each queued call replays as a new
-  call, in call order. A replay failure no longer stops the later replays. The
-  first one reaches the approval's own failure route after the last replay:
-  the `approve_async` awaiter, or `approve_errors` once on the command path.
-  A failure that the approval already carries wins. That is a failed reset, or
-  a failure that a settlement or `on_approved` observer raises. After a failed
-  reset, the calls it queued replay before the failure is routed. Only the
-  approving thread's calls are queued. Another thread still waits only during
-  the publication scope, and while the post-persist commit runs its approve is
-  refused and the reset overwrites its `set_model`. Each queued update calls
-  the validators once more, at call time.
 - A `FormVM` wait for another thread's publication scope now records an edge
   in `vmx._wait_for_graph.WAITS` (spec/20 §5.5, ADR-0176, #1170). Before, a
   form observer that sent on a hub could deadlock with that hub's drainer.
@@ -281,11 +259,6 @@ below for them.
   A failed settlement nested in an outer approval's notifications now keeps
   the outer pre-publication window. An update from its `can_execute_changed`
   observer is queued, as in C# and Rust.
-- `TokenPagedComposition`: a load that finds a terminal token when it starts now
-  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
-  terminal token after the load command was admitted. The load then refetched
-  page 1 and appended it again, and `has_more` stayed true. The load now changes
-  nothing and does not supersede an in-flight refresh.
 - `ObservableDictionary`: `remove` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was

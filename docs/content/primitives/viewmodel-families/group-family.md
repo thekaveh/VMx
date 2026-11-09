@@ -47,7 +47,7 @@ Lifecycle orchestration matches `CompositeVM`:
   `DestructOrder(ChildOrder.Reverse)` walks them last child first, so a child
   that depends on an earlier sibling is torn down before it (ADR-0161).
   Construct order does not change, and every child is still disposed before
-  the group
+  the group, unless the dispose is foreign (spec 02 §7)
 - `AutoConstructOnAdd(true)` constructs a child added after construct starts;
   construct then also waits for that child
 - `BatchUpdate()` suppresses per-mutation collection events and emits one reset

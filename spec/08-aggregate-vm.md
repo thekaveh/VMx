@@ -107,10 +107,14 @@ and commit-or-terminal-abort steps.
 
 ## 5. Disposal
 
-`dispose()` invokes `dispose()` on each `ComponentN` slot before the aggregate
-itself transitions to `Disposed`. This mirrors the depth-first cascade specified
-by LIFE-013 for `CompositeVM` / `GroupVM`: child `Disposed` transitions are
-observed before the aggregate's own. The order across slots is unspecified.
+`dispose()` invokes `dispose()` on each `ComponentN` slot. For a dispose that
+is not foreign, it does so before the aggregate itself transitions to
+`Disposed`. This mirrors the depth-first cascade specified by LIFE-013 for
+`CompositeVM` / `GroupVM`: child `Disposed` transitions are observed before the
+aggregate's own. For a foreign dispose, the aggregate publishes `Disposed`
+first, waits for its admitted hook, and then disposes the slots before its
+subclass dispose hook (chapter 02 §7, ADR-0179). The order across slots is
+unspecified.
 
 ## 6. Selection
 

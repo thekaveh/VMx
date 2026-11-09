@@ -319,12 +319,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
   scope. When the wait would close a cycle, the revalidation joins the
   publisher's queue and replays there. The validator itself is registered at
   once.
-- `TokenPagedComposition`: a load that finds a terminal token when it starts now
-  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
-  terminal token after the load command admitted the run. The load then
-  refetched page 1 and appended it again, and `has_more()` stayed true. The load
-  now changes nothing and does not supersede an in-flight refresh. The ad hoc
-  `load_more(loader)` call is unchanged.
 - A `FormVm` approval started from another approval's settlement notification
   now runs its approval subscribers with model edits applied at once (#1160).
   Before, the outer approval's pre-publication window stayed active, so those

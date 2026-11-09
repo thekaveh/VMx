@@ -68,8 +68,9 @@ destructs and disposes its children in reverse child order, last child first,
 as chapter 06 §5 says for composites. This covers the destruct phase of
 `reconstruct()`. The option does not change `construct()`. The default, `Insertion`,
 keeps the current behavior, and every reference implementation walks the
-children first child first. Every child is disposed before the group
-publishes `Disposed` (`LIFE-013`).
+children first child first. For a dispose that is not foreign, every child is
+disposed before the group publishes `Disposed` (`LIFE-013`). A foreign dispose
+publishes `Disposed` first (chapter 02 §7).
 
 ## 3. Builder
 

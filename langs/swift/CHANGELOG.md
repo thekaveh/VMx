@@ -284,47 +284,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `description` now names the reason. For a non-member it reads "Cannot set
   current to 'X' in composite 'Y': not an admitted child of the composite."
   instead of "Cannot set current to 'X': not a child of composite 'Y'."
-- `FormVM` no longer deadlocks when a `canExecuteChanged` sink on another
-  thread calls `setModel`, deny or `dispose()` while a successful approval is
-  published, or when an `onApproved` sink updates the form while such a sink
-  waits (#1168, ADR-0174). `onApproved`, `approveErrors`, `errorsChanged` and
-  `canExecuteChanged` of `approveCommand` and `denyCommand` now deliver
-  through `VMxConcurrentSubject`, which holds no lock while a sink runs, as
-  C# and Python do. A sink can therefore run on two threads at once, and a
-  sink that updates the form on each `canExecuteChanged` while another thread
-  edits it can recurse on its own thread. Sinks receive each value in
-  subscription order; the spec does not require this (open decision §2.5).
-  The public types of the commands do not change, and other commands keep
-  Combine delivery.
-- `FormVM` queues a `setModel` or deny that the approving thread makes from
-  `resetOnApproved`, another callback of the approval's commit, or a
-  settlement `errorsChanged` or `canExecuteChanged` sink (#1168, ADR-0174,
-  FORM-039, FORM-040). Before, a `setModel` from `resetOnApproved` committed
-  and delivered its notifications while the commit held the state lock. It
-  could deadlock with a sink on another thread, and the reset then overwrote
-  it, so the last `errorsChanged` map did not match `errors`. A deny from a
-  settlement sink committed at once, so `onApproved` observers saw the
-  reverted model. A queued call now runs its preparation (equality,
-  validators, and the snapshotter for deny) when it is called, changes and
-  publishes nothing, and replays in call order after `onApproved` is
-  delivered. After a failed reset, it replays after the failed settlement's
-  `canExecuteChanged` and before the failure is routed. A candidate equal to
-  the live model is still queued. A nested update made during that
-  preparation makes the outer call stale, so it is not queued. Each queued
-  update now runs its validators once more, at call time.
-- `VMxConcurrentSubject`, the internal subject behind `ComponentVMBase`
-  property changes and the `FormVM` channels, now delivers in subscription
-  order and reads a subscription's cancelled flag under its lock. It also
-  honors subscriber demand, as `PassthroughSubject` does: a value sent while a
-  subscriber has no outstanding demand is dropped for that subscriber. Before,
-  it delivered every value, so a demand-limited subscriber broke. For example,
-  `for await` over `propertyChanged.values` or `errorsChanged.values` trapped
-  with "Received an output without requesting demand".
-- `TokenPagedComposition`: a load that finds a terminal token when it starts now
-  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
-  terminal token after the load command was admitted. The load then refetched
-  page 1 and appended it again, and `hasMore` stayed true. The load now changes
-  nothing and does not supersede an in-flight refresh.
 - `ObservableDictionary`: `delete(_:_:)` and `clear()` now update `keys2`
   before `keys1`, as an add does (#1075). A `keys1` subscriber now sees the
   updated `keys2`. Before, an entry that a `keys1` subscriber added during
