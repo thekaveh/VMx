@@ -357,13 +357,16 @@ Swift and Rust page a stored copy that they take at construction. A later
 change to the caller's array or `Vec` does not reach that copy. To change the
 Swift copy, call `setSource(_:)`. To change the Rust copy, call `set_source`,
 `push` or `remove_at`. Each of these calls clamps `currentPageIndex`. Swift
-`init(sourceComposite:)` follows the composite through `collectionChanged`. Each
-emission replaces the stored copy.
+`init(sourceComposite:)` and Rust `PagedComposition::from_composite` follow the
+composite through its local collection-change stream. Each emission replaces
+the stored copy. Rust publishes each paging change as a `PropertyChangedMessage`
+on the pager's `hub()`, with snake_case names, and stops after `dispose()`.
 
 Python and TypeScript materialize a one-shot source when they construct the
 pager. In TypeScript, a one-shot source is a direct iterator such as a generator
 object. In Python, it is any `Iterator`. Swift takes an array or a
-`CompositeVM`, and Rust takes a `Vec`, so a one-shot source cannot occur there.
+`CompositeVM`, and Rust takes a `Vec` or a `CompositeVm`, so a one-shot source
+cannot occur there.
 C# does not materialize a one-shot source. Materialize it first, for example
 with `ToList()`. The pager then pages that copy. Every source must be finite,
 because `pageCount` needs its total length.

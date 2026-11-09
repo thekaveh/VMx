@@ -10,10 +10,40 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `CompositeVm::collection_changed()`, `GroupVm::collection_changed()` and
+  `ModeledCompositeVm::collection_changed()` return the local collection-change
+  stream of the children (#1256, ADR-0208, `COMP-041`, `COMP-042`, `GRP-012`).
+  The name matches `ServicedObservableCollection::collection_changed()`. Each
+  effective mutation sends one `CollectionChangedMessage` here, then the same
+  message to the hub. A hub batch never defers it, and a disposed container
+  sends nothing.
+- `ObservableList` local streams (#1257, ADR-0208, `COL-005` to `COL-009`):
+  `item_added()`, `item_removed()`, `item_replaced()` and `reset()` return a
+  typed `EventStream` with `ItemAddedEvent`, `ItemRemovedEvent` and
+  `ItemReplacedEvent` payloads, and `property_changed()` sends `Count` after
+  each granular event or `Reset` that changed the count. A batch suppresses
+  the granular events and sends one `Reset`. `remove(&item)` removes the
+  first equal item, sends `ItemRemoved` and returns `true`; with no equal item
+  it returns `false` and sends nothing. New public types: `EventStream`,
+  `EventSubscription`, `ItemAddedEvent`, `ItemRemovedEvent`,
+  `ItemReplacedEvent` and `ReadOnlyObservableList`.
+- `ObservableMultiDictionary::collection_changed()`, a local event that
+  receives each change before the hub (#1257, ADR-0208, `COL-066`,
+  `COL-067`). A panicking local subscriber does not stop the hub message.
+- `PagedComposition` property notifications (#1269, ADR-0208, `COL-016` to
+  `COL-018`, `COL-031`). The pager publishes `PropertyChangedMessage`s on its
+  hub with the names `page_size`, `is_paging_enabled`, `page_count`,
+  `current_page_index` and `items`, in the Swift order, and a call that
+  changes nothing publishes nothing. `with_hub` takes the hub, and `new` makes
+  a private one; `hub()` and `id()` return them.
+  `PagedComposition::from_composite` and `from_composite_with_hub` page the
+  children of a `CompositeVm` and replace the copy after each composite
+  collection change. `dispose()` stops the observation and all publication.
+
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
-  `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
-  already behaved this way.
+  `keys2()`. The tests cover add, insert, remove and clear. ADR-0208 later
+  extended them to the key-view subscribers and the local event.
 - `COL-066` conformance tests: a panicking local collection subscriber does
   not suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). Rust
   already behaved this way.
@@ -90,6 +120,29 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Breaking:** `ObservableList::new(owner_id, hub)` is now
+  `ObservableList::new(owner_id)`, which has no hub, and
+  `ObservableMultiDictionary::new(owner_id, hub)` is now
+  `ObservableMultiDictionary::new(owner_id)` (#1257, ADR-0208). Use
+  `ObservableList::with_hub(owner_id, hub)` and
+  `ObservableMultiDictionary::with_hub(owner_id, hub)` to keep the hub. The
+  single-key `ObservableDictionary::new(owner_id, hub)` does not change.
+- **Breaking:** `ObservableMultiDictionary::keys1()` and `keys2()` return a
+  live, read-only `ReadOnlyObservableList` instead of a `Vec` snapshot (#1257,
+  ADR-0208). Call `.to_vec()` for a snapshot. A view lists each distinct key
+  in the order of its first appearance, so after a removal it can differ from
+  the entry order that the snapshot used. The views change before the local
+  event and the hub message (ADR-0177).
+- `ObservableDictionary` and `ObservableMultiDictionary` find a key through a
+  hash index beside the insertion order (#1296, ADR-0208). A build of n
+  distinct keys makes O(n) key comparisons instead of n(n−1)/2, and a lookup,
+  an update and a removal compare about one key. User `hash`, `eq` and `drop`
+  code still runs with no VMx mutex held. A removal stays O(n).
+- `ObservableMultiDictionary` mutations from several threads run one at a
+  time: a writer waits while another thread delivers. A nested mutation from a
+  key comparison or a subscriber commits at once and is delivered after the
+  current change. An Add message carries the entry's position when it is sent,
+  or `None` when a local subscriber removed the entry (#733, ADR-0208).
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default

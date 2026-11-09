@@ -1,7 +1,7 @@
 # 12. Rust Parity Status
 
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
-after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7.
+after closure: §12.7 to §12.11, plus the "Still open" notes in §12.4.7.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -305,7 +305,7 @@ observable behavior covered by this review.
 
 The ADR-0120 sender representation in §12.2.1 remains the sole intentional
 flavor-specific shape in this ledger. The §12.5 editorial note applies to all
-five flavors and is not a parity backlog. §12.7 to §12.12 record the open items and differences found
+five flavors and is not a parity backlog. §12.7 to §12.11 record the open items and differences found
 after closure. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
@@ -367,14 +367,7 @@ When `NotificationHub` is disposed, Rust emits a final empty `pending` snapshot
 before completion. C#, Python, TypeScript, and Swift complete without a final
 snapshot. Waiters resolve to `Pending` in every flavor (NOTIF-017).
 
-## 12.11. Open Item: PagedComposition Notifications
-
-Rust `PagedComposition` raises no property notifications. C#, Python,
-TypeScript, and Swift publish `CurrentPageIndex`, `Items`, `PageCount`, and the
-other paging properties on every change. Rust consumers read the state after
-each call.
-
-## 12.12. Open Item: FilteredCompositeVm Initial Cursor Policy
+## 12.11. Open Item: FilteredCompositeVm Initial Cursor Policy
 
 Rust `FilteredCompositeVm::new` always reconciles under `SnapToFirst`. A caller
 sets `Clear` or `PreserveIfVisible` with `set_cursor_policy` after construction,

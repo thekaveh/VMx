@@ -895,9 +895,13 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         )
     }
 
-    /// Local collection-change stream of the children (see
-    /// `ObservableList::local_changes`).
-    pub(crate) fn membership_changes(&self) -> MessageHub {
+    /// Returns the local collection-change stream of the children.
+    ///
+    /// Each effective mutation sends one `CollectionChangedMessage` here
+    /// first, then the equivalent message to [`hub`](Self::hub) (spec/06 §4,
+    /// ADR-0208). A hub batch never defers this stream. A list batch sends one
+    /// `Reset` when it completes. After disposal the group sends nothing.
+    pub fn collection_changed(&self) -> MessageHub {
         self.items.local_changes()
     }
 

@@ -216,7 +216,7 @@ const tabs = CompositeVM.builder<ComponentVM>()
     ```
 
 Rust ships both `CompositeVm` and `ModeledCompositeVm`. The
-[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its removal evidence. Its §12.12 keeps the Rust `FilteredCompositeVm`
+[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its removal evidence. Its §12.11 keeps the Rust `FilteredCompositeVm`
 initial cursor policy open: a Rust view always starts under `SnapToFirst`.
 
 ## 6.2.5.6. Common Pitfalls

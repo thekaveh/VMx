@@ -1373,6 +1373,52 @@ fn failed_transfer_publishes_no_membership_event() {
     assert_eq!(item.parent_id(), Some(old_parent.id()));
 }
 
+/// COMP-041 — the local streams of both parents order a transfer and skip a failed one
+#[test]
+fn comp_041_local_streams_order_a_transfer_and_skip_a_failed_one() {
+    let old_parent = vmx::GroupVm::with_services("old", MessageHub::new(), NullDispatcher::new());
+    let destination =
+        vmx::CompositeVm::with_services("destination", MessageHub::new(), NullDispatcher::new());
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let record = |stream: MessageHub, parent: &'static str| {
+        let order = Arc::clone(&order);
+        stream.subscribe(move |message| {
+            if let Message::CollectionChanged(change) = message {
+                order.lock().unwrap().push((parent, change.action.clone()));
+            }
+        })
+    };
+    let _old = record(old_parent.collection_changed(), "old");
+    let _destination = record(destination.collection_changed(), "destination");
+    let moved = child("moved");
+    old_parent.add(moved.clone()).unwrap();
+    order.lock().unwrap().clear();
+
+    destination.add(moved.clone()).unwrap();
+    assert_eq!(
+        *order.lock().unwrap(),
+        vec![
+            ("old", CollectionChangeAction::Remove),
+            ("destination", CollectionChangeAction::Add),
+        ]
+    );
+
+    // A failed destination construction rolls the transfer back with no
+    // local event on either parent.
+    order.lock().unwrap().clear();
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let failing = child("failing");
+    old_parent.add(failing.clone()).unwrap();
+    failing.on_construct(|| Err(VmxError::Other("construct failed".to_string())));
+    order.lock().unwrap().clear();
+
+    assert!(destination.add(failing.clone()).is_err());
+    assert!(order.lock().unwrap().is_empty());
+    assert_eq!(old_parent.items(), vec![failing.clone()]);
+    assert_eq!(destination.items(), vec![moved]);
+}
+
 /// COMP-041 — A throwing old-current callback cannot suppress committed events.
 #[test]
 fn transfer_finishes_publication_before_resuming_old_current_panic() {

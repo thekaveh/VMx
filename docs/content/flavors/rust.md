@@ -17,7 +17,7 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The
   [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  lists the open items and recorded differences in §12.4.7 and §12.7–§12.12.
+  lists the open items and recorded differences in §12.4.7 and §12.7–§12.11.
 
 For hub delivery and callback ordering, see
 [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering).
@@ -145,6 +145,24 @@ replacement are no-ops.
 Rust messages carry the action, optional old and new positions, sender ID, and
 property name. They carry no legacy `index` and no typed item payload. Use
 `ObservableList<T>` for granular streams, batching, and `Count` notifications.
+`ObservableList::new(owner_id)` has no hub, and `with_hub(owner_id, hub)` also
+publishes to a hub. Its `item_added()`, `item_removed()`, `item_replaced()`, and
+`reset()` streams carry typed payloads, and `property_changed()` sends `Count`
+after each granular event that changed the count:
+
+```rust
+let list = ObservableList::new(owner_id);
+let added = list.item_added().subscribe(|event| render_row(&event.item, event.index));
+list.push(first);
+assert!(list.remove(&first)); // first equal item; sends ItemRemoved
+```
+
+`ObservableMultiDictionary::new(owner_id)` also takes no hub. Its
+`collection_changed()` stream receives each change before the hub, and
+`keys1()` and `keys2()` return live, read-only `ReadOnlyObservableList` views.
+Both dictionaries find keys through a hash index, so a lookup makes O(1) key
+comparisons on average. `CompositeVm`, `GroupVm`, and `ModeledCompositeVm`
+expose their children's local stream as `collection_changed()` (ADR-0208).
 
 The caller owns the subscription and controls each stored VM's construct,
 destruct, and dispose operations. Membership retains an item as an ordinary

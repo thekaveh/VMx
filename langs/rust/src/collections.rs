@@ -3,10 +3,13 @@
 //! Spec: `spec/21-collections.md`.
 
 use super::{
-    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, AtomicBool,
+    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, AtomicBool, BTreeMap,
     CollectionChangeAction, CollectionChangedMessage, Condvar, Hash, HashMap, Message, MessageHub,
-    Mutex, Ordering, PropertyChangedMessage, ThreadId, VecDeque, VmxError, VmxResult,
+    Mutex, Ordering, PropertyChangedMessage, PropertyChangedStream, ThreadId, VecDeque, VmxError,
+    VmxResult,
 };
+use std::collections::hash_map::RandomState;
+use std::hash::BuildHasher;
 
 /// A copy-on-write vector shared with lock-free readers.
 ///
@@ -902,15 +905,181 @@ where
     }
 }
 
-#[derive(Clone)]
-/// An ordered observable list with reset-coalescing batch updates.
+type EventHandler<E> = Arc<dyn Fn(&E) + Send + Sync + 'static>;
+
+struct EventStreamInner<E: ?Sized> {
+    next_subscription_id: usize,
+    subscribers: BTreeMap<usize, EventHandler<E>>,
+}
+
+/// A hot, synchronous stream of typed local collection events.
 ///
-/// Mutations publish collection messages and publish the spec-literal `Count`
-/// property when the effective item count changes.
+/// Each event reaches the subscribers present when it is sent, on the
+/// sending thread, before the mutation call returns. Late subscribers do not
+/// receive earlier events. Subscriber panics are isolated from the publisher
+/// and from the other subscribers (spec/21 §3.2, ADR-0208).
+pub struct EventStream<E: ?Sized + 'static> {
+    inner: Arc<Mutex<EventStreamInner<E>>>,
+}
+
+impl<E: ?Sized + 'static> Clone for EventStream<E> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl<E: ?Sized + 'static> EventStream<E> {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(EventStreamInner {
+                next_subscription_id: 0,
+                subscribers: BTreeMap::new(),
+            })),
+        }
+    }
+
+    /// Subscribes to the events sent after this call.
+    pub fn subscribe<F>(&self, handler: F) -> EventSubscription
+    where
+        F: Fn(&E) + Send + Sync + 'static,
+    {
+        let id = {
+            let mut inner = lock(&self.inner);
+            inner.next_subscription_id += 1;
+            let id = inner.next_subscription_id;
+            inner.subscribers.insert(id, Arc::new(handler));
+            id
+        };
+        let stream = Arc::downgrade(&self.inner);
+        EventSubscription {
+            detach: Mutex::new(Some(Box::new(move || {
+                if let Some(stream) = stream.upgrade() {
+                    // The handler drops after the lock is released.
+                    let removed = lock(&stream).subscribers.remove(&id);
+                    drop(removed);
+                }
+            }))),
+        }
+    }
+
+    fn has_subscribers(&self) -> bool {
+        !lock(&self.inner).subscribers.is_empty()
+    }
+
+    fn send(&self, event: &E) {
+        let subscribers = lock(&self.inner)
+            .subscribers
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for subscriber in subscribers {
+            let _ = catch_unwind(AssertUnwindSafe(|| subscriber(event)));
+        }
+    }
+}
+
+type Detach = Box<dyn FnOnce() + Send + 'static>;
+
+/// Disposable registration in an [`EventStream`].
+pub struct EventSubscription {
+    detach: Mutex<Option<Detach>>,
+}
+
+impl EventSubscription {
+    /// Detaches the subscriber; repeated calls are inert.
+    pub fn dispose(&self) {
+        let detach = lock(&self.detach).take();
+        if let Some(detach) = detach {
+            detach();
+        }
+    }
+}
+
+impl Drop for EventSubscription {
+    fn drop(&mut self) {
+        self.dispose();
+    }
+}
+
+/// Payload of [`ObservableList::item_added`]: the item and its insertion index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemAddedEvent<T> {
+    /// The added item.
+    pub item: T,
+    /// The index the item was inserted at.
+    pub index: usize,
+}
+
+/// Payload of [`ObservableList::item_removed`]: the item and its index
+/// before the removal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemRemovedEvent<T> {
+    /// The removed item.
+    pub item: T,
+    /// The index the item had before it was removed.
+    pub index: usize,
+}
+
+/// Payload of [`ObservableList::item_replaced`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemReplacedEvent<T> {
+    /// The item now at `index`.
+    pub new_item: T,
+    /// The item that `new_item` replaced.
+    pub old_item: T,
+    /// The replaced index.
+    pub index: usize,
+}
+
+/// One granular event, built only when its stream has a subscriber.
+enum ItemEvent<T> {
+    Added(ItemAddedEvent<T>),
+    Removed(ItemRemovedEvent<T>),
+    Replaced(ItemReplacedEvent<T>),
+}
+
+/// The local streams of one list, shared by its clones.
+struct ListStreams<T: 'static> {
+    item_added: EventStream<ItemAddedEvent<T>>,
+    item_removed: EventStream<ItemRemovedEvent<T>>,
+    item_replaced: EventStream<ItemReplacedEvent<T>>,
+    reset: EventStream<()>,
+    property_changed: PropertyChangedStream,
+}
+
+impl<T: 'static> ListStreams<T> {
+    fn new() -> Self {
+        Self {
+            item_added: EventStream::new(),
+            item_removed: EventStream::new(),
+            item_replaced: EventStream::new(),
+            reset: EventStream::new(),
+            property_changed: PropertyChangedStream::default(),
+        }
+    }
+}
+
+#[derive(Clone)]
+/// An ordered observable list with granular events and reset-coalescing
+/// batch updates (spec/21 §3).
+///
+/// Each mutation sends one granular event on [`item_added`](Self::item_added),
+/// [`item_removed`](Self::item_removed), [`item_replaced`](Self::item_replaced)
+/// or [`reset`](Self::reset). A mutation that changes the item count then
+/// sends the spec-literal `Count` name on
+/// [`property_changed`](Self::property_changed). A list made with
+/// [`with_hub`](Self::with_hub) also publishes each change to its hub as a
+/// `CollectionChangedMessage` and the `Count` change as a
+/// `PropertyChangedMessage`. A list made with [`new`](Self::new) has no hub.
 pub struct ObservableList<T: Clone + Send + 'static> {
-    inner: Arc<Mutex<Vec<T>>>,
-    hub: MessageHub,
+    /// The items. A value removal compares a shared snapshot with no lock
+    /// held, so writes copy when a snapshot is outstanding (#765).
+    inner: Arc<Mutex<Shared<T>>>,
+    hub: Option<MessageHub>,
     local: MessageHub,
+    streams: Arc<ListStreams<T>>,
     owner_id: usize,
     owner_name: Arc<str>,
     batch_depth: Arc<Mutex<usize>>,
@@ -920,9 +1089,15 @@ pub struct ObservableList<T: Clone + Send + 'static> {
 }
 
 impl<T: Clone + Send + 'static> ObservableList<T> {
-    /// Creates an empty list whose messages use `owner_id`.
-    pub fn new(owner_id: usize, hub: MessageHub) -> Self {
-        Self::with_owner_name(owner_id, "ObservableList", hub)
+    /// Creates an empty list without a message hub. Its mutations reach only
+    /// the local streams.
+    pub fn new(owner_id: usize) -> Self {
+        Self::build(owner_id, "ObservableList", None)
+    }
+
+    /// Creates an empty list that also publishes its changes to `hub`.
+    pub fn with_hub(owner_id: usize, hub: MessageHub) -> Self {
+        Self::build(owner_id, "ObservableList", Some(hub))
     }
 
     /// Creates an empty list whose messages carry the owning container's
@@ -932,10 +1107,15 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         owner_name: impl Into<Arc<str>>,
         hub: MessageHub,
     ) -> Self {
+        Self::build(owner_id, owner_name, Some(hub))
+    }
+
+    fn build(owner_id: usize, owner_name: impl Into<Arc<str>>, hub: Option<MessageHub>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(Vec::new())),
+            inner: Arc::new(Mutex::new(Shared::default())),
             hub,
             local: MessageHub::new(),
+            streams: Arc::new(ListStreams::new()),
             owner_id,
             owner_name: owner_name.into(),
             batch_depth: Arc::new(Mutex::new(0)),
@@ -960,6 +1140,47 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         self.local.clone()
     }
 
+    /// Returns a reader of the current items that does not keep the list's
+    /// streams alive, so a subscriber of those streams may hold it.
+    pub(crate) fn reader(&self) -> impl Fn() -> Vec<T> + Send + Sync + 'static
+    where
+        T: Sync,
+    {
+        let inner = Arc::clone(&self.inner);
+        move || {
+            let snapshot = Arc::clone(&lock(&inner));
+            Vec::clone(&snapshot)
+        }
+    }
+
+    /// Returns the stream of added items and their insertion indices.
+    pub fn item_added(&self) -> EventStream<ItemAddedEvent<T>> {
+        self.streams.item_added.clone()
+    }
+
+    /// Returns the stream of removed items and their indices before removal.
+    pub fn item_removed(&self) -> EventStream<ItemRemovedEvent<T>> {
+        self.streams.item_removed.clone()
+    }
+
+    /// Returns the stream of replacements.
+    pub fn item_replaced(&self) -> EventStream<ItemReplacedEvent<T>> {
+        self.streams.item_replaced.clone()
+    }
+
+    /// Returns the stream that fires after a clear, a whole-list replacement,
+    /// or a batch that changed the list.
+    pub fn reset(&self) -> EventStream<()> {
+        self.streams.reset.clone()
+    }
+
+    /// Returns the local property-change stream. It sends the spec-literal
+    /// `Count` name after each granular event or `Reset` that changed the
+    /// item count (spec/21 §3.3).
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.streams.property_changed.clone()
+    }
+
     /// Returns the number of items.
     pub fn len(&self) -> usize {
         lock(&self.inner).len()
@@ -972,7 +1193,8 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
 
     /// Returns an ordered snapshot of all items.
     pub fn to_vec(&self) -> Vec<T> {
-        lock(&self.inner).clone()
+        let snapshot = Arc::clone(&lock(&self.inner));
+        Vec::clone(&snapshot)
     }
 
     /// Returns the item at `index`, if present.
@@ -982,25 +1204,95 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
 
     /// Appends an item and publishes add and count changes.
     pub fn push(&self, item: T) {
+        let event_item = self
+            .streams
+            .item_added
+            .has_subscribers()
+            .then(|| item.clone());
+        let mut retired = None;
         let index = {
             let mut inner = lock(&self.inner);
-            let index = inner.len();
-            inner.push(item);
-            index
+            let items = cow_mut(&mut inner, &mut retired);
+            items.push(item);
+            items.len() - 1
         };
-        self.publish(CollectionChangeAction::Add, None, Some(index), true);
+        drop(retired);
+        self.publish(
+            CollectionChangeAction::Add,
+            None,
+            Some(index),
+            true,
+            event_item.map(|item| ItemEvent::Added(ItemAddedEvent { item, index })),
+        );
     }
 
     /// Inserts an item at a valid boundary index.
     pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
-        let mut inner = lock(&self.inner);
-        if index > inner.len() {
-            return Err(VmxError::InvalidArgument("index out of range".to_string()));
+        let event_item = self
+            .streams
+            .item_added
+            .has_subscribers()
+            .then(|| item.clone());
+        let mut retired = None;
+        {
+            let mut inner = lock(&self.inner);
+            if index > inner.len() {
+                return Err(VmxError::InvalidArgument("index out of range".to_string()));
+            }
+            cow_mut(&mut inner, &mut retired).insert(index, item);
         }
-        inner.insert(index, item);
-        drop(inner);
-        self.publish(CollectionChangeAction::Add, None, Some(index), true);
+        drop(retired);
+        self.publish(
+            CollectionChangeAction::Add,
+            None,
+            Some(index),
+            true,
+            event_item.map(|item| ItemEvent::Added(ItemAddedEvent { item, index })),
+        );
         Ok(())
+    }
+
+    /// Removes the first item equal to `item` and returns `true`, or returns
+    /// `false` and publishes nothing when no item is equal (spec/21 §3.1).
+    ///
+    /// `PartialEq` runs on a shared snapshot with no lock held. When the list
+    /// changed meanwhile, the search runs again.
+    pub fn remove(&self, item: &T) -> bool
+    where
+        T: PartialEq,
+    {
+        loop {
+            let snapshot = Arc::clone(&lock(&self.inner));
+            let Some(index) = snapshot.iter().position(|candidate| candidate == item) else {
+                return false;
+            };
+            let mut retired = None;
+            let removed = {
+                let mut inner = lock(&self.inner);
+                // A write copies while the snapshot is held, so an unchanged
+                // pointer means that no write happened since the search.
+                if !Arc::ptr_eq(&inner, &snapshot) {
+                    drop(inner);
+                    drop(snapshot);
+                    continue;
+                }
+                // The store still holds the items, so this drops no item.
+                drop(snapshot);
+                cow_mut(&mut inner, &mut retired).remove(index)
+            };
+            drop(retired);
+            self.publish(
+                CollectionChangeAction::Remove,
+                Some(index),
+                None,
+                true,
+                Some(ItemEvent::Removed(ItemRemovedEvent {
+                    item: removed,
+                    index,
+                })),
+            );
+            return true;
+        }
     }
 
     /// Removes and returns the item at `index`.
@@ -1008,42 +1300,73 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         let item = self
             .remove_at_silent(index)
             .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
-        self.publish(CollectionChangeAction::Remove, Some(index), None, true);
+        let event_item = self
+            .streams
+            .item_removed
+            .has_subscribers()
+            .then(|| item.clone());
+        self.publish(
+            CollectionChangeAction::Remove,
+            Some(index),
+            None,
+            true,
+            event_item.map(|item| ItemEvent::Removed(ItemRemovedEvent { item, index })),
+        );
         Ok(item)
     }
 
     pub(crate) fn remove_at_silent(&self, index: usize) -> Option<T> {
-        let mut inner = lock(&self.inner);
-        if index >= inner.len() {
-            None
-        } else {
-            Some(inner.remove(index))
-        }
+        let mut retired = None;
+        let removed = {
+            let mut inner = lock(&self.inner);
+            if index >= inner.len() {
+                None
+            } else {
+                Some(cow_mut(&mut inner, &mut retired).remove(index))
+            }
+        };
+        drop(retired);
+        removed
     }
 
     pub(crate) fn insert_silent(&self, index: usize, item: T) -> VmxResult<()> {
-        let mut inner = lock(&self.inner);
-        if index > inner.len() {
-            return Err(VmxError::InvalidArgument("index out of range".to_string()));
+        let mut retired = None;
+        {
+            let mut inner = lock(&self.inner);
+            if index > inner.len() {
+                return Err(VmxError::InvalidArgument("index out of range".to_string()));
+            }
+            cow_mut(&mut inner, &mut retired).insert(index, item);
         }
-        inner.insert(index, item);
+        drop(retired);
         Ok(())
     }
 
     pub(crate) fn publish_remove(&self, index: usize) {
-        self.publish(CollectionChangeAction::Remove, Some(index), None, true);
+        self.publish(
+            CollectionChangeAction::Remove,
+            Some(index),
+            None,
+            true,
+            None,
+        );
     }
 
     pub(crate) fn publish_add(&self, index: usize) {
-        self.publish(CollectionChangeAction::Add, None, Some(index), true);
+        self.publish(CollectionChangeAction::Add, None, Some(index), true, None);
     }
 
     pub(crate) fn replace_silent(&self, index: usize, item: T) -> VmxResult<T> {
-        let mut inner = lock(&self.inner);
-        if index >= inner.len() {
-            return Err(VmxError::InvalidArgument("index out of range".to_string()));
-        }
-        Ok(std::mem::replace(&mut inner[index], item))
+        let mut retired = None;
+        let old = {
+            let mut inner = lock(&self.inner);
+            if index >= inner.len() {
+                return Err(VmxError::InvalidArgument("index out of range".to_string()));
+            }
+            std::mem::replace(&mut cow_mut(&mut inner, &mut retired)[index], item)
+        };
+        drop(retired);
+        Ok(old)
     }
 
     pub(crate) fn publish_replace(&self, index: usize) {
@@ -1052,13 +1375,32 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             Some(index),
             Some(index),
             false,
+            None,
         );
     }
 
     /// Replaces and returns an item without changing the count.
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        let new_item = self
+            .streams
+            .item_replaced
+            .has_subscribers()
+            .then(|| item.clone());
         let old = self.replace_silent(index, item)?;
-        self.publish_replace(index);
+        let event = new_item.map(|new_item| {
+            ItemEvent::Replaced(ItemReplacedEvent {
+                new_item,
+                old_item: old.clone(),
+                index,
+            })
+        });
+        self.publish(
+            CollectionChangeAction::Replace,
+            Some(index),
+            Some(index),
+            false,
+            event,
+        );
         Ok(old)
     }
 
@@ -1074,7 +1416,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             if inner.is_empty() && snapshot.is_empty() {
                 return;
             }
-            std::mem::replace(&mut *inner, snapshot)
+            std::mem::replace(&mut *inner, Arc::new(snapshot))
         };
         let old_count = previous.len();
         // Old items are dropped after the lock is released.
@@ -1084,10 +1426,12 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             None,
             None,
             old_count != new_count,
+            None,
         );
     }
 
     pub(crate) fn move_item_silent(&self, from_index: usize, to_index: usize) -> VmxResult<bool> {
+        let mut retired = None;
         {
             let mut inner = lock(&self.inner);
             if from_index >= inner.len() || to_index >= inner.len() {
@@ -1098,9 +1442,11 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             if from_index == to_index {
                 return Ok(false);
             }
-            let item = inner.remove(from_index);
-            inner.insert(to_index, item);
+            let items = cow_mut(&mut inner, &mut retired);
+            let item = items.remove(from_index);
+            items.insert(to_index, item);
         }
+        drop(retired);
         Ok(true)
     }
 
@@ -1110,6 +1456,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             Some(from_index),
             Some(to_index),
             false,
+            None,
         );
     }
 
@@ -1125,18 +1472,19 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
 
     /// Empties the list without notifying and returns the removed items, so
     /// the caller drops them after releasing any lock it holds.
-    pub(crate) fn take_silent(&self) -> Vec<T> {
+    pub(crate) fn take_silent(&self) -> Shared<T> {
         std::mem::take(&mut *lock(&self.inner))
     }
 
     pub(crate) fn publish_reset(&self) {
-        self.publish(CollectionChangeAction::Reset, None, None, true);
+        self.publish(CollectionChangeAction::Reset, None, None, true, None);
     }
 
     /// Runs `action` while coalescing effective changes into one reset.
     ///
-    /// Nested batches are supported, and a panic is resumed after batch state
-    /// and notifications are finalized.
+    /// Granular events are suppressed inside the batch. Nested batches are
+    /// supported, and a panic is resumed after batch state and notifications
+    /// are finalized.
     pub fn batch_update<F>(&self, action: F)
     where
         F: FnOnce(),
@@ -1160,7 +1508,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             };
             if changed {
                 let count_changed = self.len() != *lock(&self.batch_count_at_start);
-                self.publish(CollectionChangeAction::Reset, None, None, count_changed);
+                self.publish(
+                    CollectionChangeAction::Reset,
+                    None,
+                    None,
+                    count_changed,
+                    None,
+                );
             }
         }
         if let Err(error) = result {
@@ -1168,12 +1522,15 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         }
     }
 
+    /// Sends the granular event, the local and hub collection messages, and
+    /// then the `Count` change, in that order (spec/21 §3.3).
     fn publish(
         &self,
         action: CollectionChangeAction,
         old_index: Option<usize>,
         new_index: Option<usize>,
         count_changed: bool,
+        event: Option<ItemEvent<T>>,
     ) {
         if self.publication_closed.load(Ordering::Acquire) {
             return;
@@ -1182,6 +1539,15 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             *lock(&self.batch_dirty) = true;
             return;
         }
+        match &event {
+            Some(ItemEvent::Added(event)) => self.streams.item_added.send(event),
+            Some(ItemEvent::Removed(event)) => self.streams.item_removed.send(event),
+            Some(ItemEvent::Replaced(event)) => self.streams.item_replaced.send(event),
+            None if action == CollectionChangeAction::Reset => self.streams.reset.send(&()),
+            None => {}
+        }
+        // The payload items drop here, with no lock held.
+        drop(event);
         let message = Message::CollectionChanged(CollectionChangedMessage {
             sender_id: self.owner_id,
             sender_name: self.owner_name.to_string(),
@@ -1191,29 +1557,127 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             new_index,
         });
         self.local.send(message.clone());
-        self.hub.send(message);
+        if let Some(hub) = &self.hub {
+            hub.send(message);
+        }
         if count_changed {
-            self.hub
-                .send(Message::PropertyChanged(PropertyChangedMessage {
+            self.streams.property_changed.notify("Count");
+            if let Some(hub) = &self.hub {
+                hub.send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: self.owner_id,
                     sender_name: self.owner_name.to_string(),
                     property_name: "Count".to_string(),
                 }));
+            }
         }
     }
 }
 
-/// Insertion-ordered dictionary keys and values plus a write counter.
+impl<T: Clone + Send + 'static> IntoIterator for &ObservableList<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.to_vec().into_iter()
+    }
+}
+
+/// A live, read-only view of an [`ObservableList`] (spec/21 §4.2,
+/// ADR-0208).
+///
+/// It has every read and subscribe member of the list and no mutator and no
+/// batch member. Only its owner changes the backing list.
+pub struct ReadOnlyObservableList<T: Clone + Send + 'static> {
+    list: ObservableList<T>,
+}
+
+impl<T: Clone + Send + 'static> Clone for ReadOnlyObservableList<T> {
+    fn clone(&self) -> Self {
+        Self {
+            list: self.list.clone(),
+        }
+    }
+}
+
+impl<T: Clone + Send + 'static> ReadOnlyObservableList<T> {
+    fn new(list: ObservableList<T>) -> Self {
+        Self { list }
+    }
+
+    /// Returns the stream of added items and their insertion indices.
+    pub fn item_added(&self) -> EventStream<ItemAddedEvent<T>> {
+        self.list.item_added()
+    }
+
+    /// Returns the stream of removed items and their indices before removal.
+    pub fn item_removed(&self) -> EventStream<ItemRemovedEvent<T>> {
+        self.list.item_removed()
+    }
+
+    /// Returns the stream of replacements.
+    pub fn item_replaced(&self) -> EventStream<ItemReplacedEvent<T>> {
+        self.list.item_replaced()
+    }
+
+    /// Returns the stream that fires after a reset of the view.
+    pub fn reset(&self) -> EventStream<()> {
+        self.list.reset()
+    }
+
+    /// Returns the local `Count` property-change stream.
+    pub fn property_changed(&self) -> PropertyChangedStream {
+        self.list.property_changed()
+    }
+
+    /// Returns the number of items.
+    pub fn len(&self) -> usize {
+        self.list.len()
+    }
+
+    /// Reports whether the view has no items.
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+
+    /// Returns the item at `index`, if present.
+    pub fn get(&self, index: usize) -> Option<T> {
+        self.list.get(index)
+    }
+
+    /// Returns an ordered snapshot of all items.
+    pub fn to_vec(&self) -> Vec<T> {
+        self.list.to_vec()
+    }
+}
+
+impl<T: Clone + Send + 'static> IntoIterator for &ReadOnlyObservableList<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.to_vec().into_iter()
+    }
+}
+
+/// Insertion-ordered dictionary keys and values, a hash index, and a write
+/// counter.
 ///
 /// Key comparisons run user `PartialEq` code, so the dictionaries compare
 /// keys against a shared snapshot of `keys` with no lock held and commit only
 /// when `revision` still matches the snapshot; otherwise they search again
 /// (the `FormVm::set_model` pattern). Taking the snapshot clones one `Arc`,
-/// not the keys (#765). Replaced and removed keys and values, and a key
-/// snapshot that a write displaced, are dropped after the lock is released.
+/// not the keys (#765). A key is hashed with no lock held before the search.
+/// The search compares only the entries in that hash's bucket, so a lookup
+/// makes O(1) comparisons on average (#1296). Replaced and removed keys and
+/// values, and a key snapshot that a write displaced, are dropped after the
+/// lock is released.
 struct DictionaryEntries<K, V> {
     keys: Shared<K>,
     values: Vec<V>,
+    /// The hash of each key, in entry order.
+    hashes: Vec<u64>,
+    /// The entry positions of each key hash, in ascending order.
+    buckets: HashMap<u64, Vec<usize>>,
     revision: u64,
 }
 
@@ -1222,6 +1686,8 @@ impl<K, V> Default for DictionaryEntries<K, V> {
         Self {
             keys: Shared::default(),
             values: Vec::new(),
+            hashes: Vec::new(),
+            buckets: HashMap::new(),
             revision: 0,
         }
     }
@@ -1229,17 +1695,74 @@ impl<K, V> Default for DictionaryEntries<K, V> {
 
 impl<K: Clone, V> DictionaryEntries<K, V> {
     /// Appends an entry and returns its index.
-    fn push(&mut self, key: K, value: V, retired: &mut Retired<K>) -> usize {
+    fn push(&mut self, key: K, hash: u64, value: V, retired: &mut Retired<K>) -> usize {
+        let index = self.values.len();
         cow_mut(&mut self.keys, retired).push(key);
         self.values.push(value);
-        self.values.len() - 1
+        self.hashes.push(hash);
+        self.buckets.entry(hash).or_default().push(index);
+        index
     }
 
-    /// Removes and returns the entry at `index`.
+    /// Removes and returns the entry at `index`. The bucket positions of the
+    /// later entries shift down by one, so a removal is O(n).
     fn remove(&mut self, index: usize, retired: &mut Retired<K>) -> (K, V) {
         let key = cow_mut(&mut self.keys, retired).remove(index);
-        (key, self.values.remove(index))
+        let value = self.values.remove(index);
+        let hash = self.hashes.remove(index);
+        if let Some(bucket) = self.buckets.get_mut(&hash) {
+            bucket.retain(|position| *position != index);
+            if bucket.is_empty() {
+                self.buckets.remove(&hash);
+            }
+        }
+        for (position, hash) in self.hashes.iter().enumerate().skip(index) {
+            if let Some(slot) = self
+                .buckets
+                .get_mut(hash)
+                .and_then(|bucket| bucket.iter_mut().find(|slot| **slot == position + 1))
+            {
+                *slot = position;
+            }
+        }
+        (key, value)
     }
+
+    /// Empties the entries and returns the keys and values, for the caller to
+    /// drop after it releases the lock.
+    fn take(&mut self) -> (Shared<K>, Vec<V>) {
+        self.hashes.clear();
+        self.buckets.clear();
+        (
+            std::mem::take(&mut self.keys),
+            std::mem::take(&mut self.values),
+        )
+    }
+}
+
+impl<K, V> DictionaryEntries<K, V> {
+    /// Returns the key snapshot and the positions whose key has `hash`.
+    fn candidates(&self, hash: u64) -> (Shared<K>, Vec<usize>) {
+        (
+            Arc::clone(&self.keys),
+            self.buckets.get(&hash).cloned().unwrap_or_default(),
+        )
+    }
+}
+
+/// Returns the first candidate whose key `matches`. It runs with no lock
+/// held. The key snapshot drops here, with no lock held, so a commit after
+/// the search does not copy the keys.
+fn search<K>(
+    keys: Shared<K>,
+    candidates: Vec<usize>,
+    mut matches: impl FnMut(&K) -> bool,
+) -> Option<usize> {
+    let found = candidates
+        .into_iter()
+        .find(|position| matches(&keys[*position]));
+    drop(keys);
+    found
 }
 
 /// Returns the shared key snapshot. The caller drops it with no lock held.
@@ -1247,22 +1770,18 @@ fn key_snapshot<K, V>(inner: &Mutex<DictionaryEntries<K, V>>) -> Shared<K> {
     Arc::clone(&lock(inner).keys)
 }
 
-/// Finds the first key that `matches`, running it with no lock held, and
-/// returns the revision that the search saw.
+/// Finds the first key with `hash` that `matches`, running it with no lock
+/// held, and returns the revision that the search saw.
 fn locate_key<K, V>(
     inner: &Mutex<DictionaryEntries<K, V>>,
+    hash: u64,
     matches: impl FnMut(&K) -> bool,
 ) -> (u64, Option<usize>) {
-    let (revision, keys) = {
+    let (revision, (keys, candidates)) = {
         let inner = lock(inner);
-        (inner.revision, Arc::clone(&inner.keys))
+        (inner.revision, inner.candidates(hash))
     };
-    let index = keys.iter().position(matches);
-    // Released before the caller retakes the lock, so a commit does not copy
-    // the keys, and a snapshot that a write displaced meanwhile drops its
-    // keys here, with no lock held.
-    drop(keys);
-    (revision, index)
+    (revision, search(keys, candidates, matches))
 }
 
 /// Runs `write` when no write happened since `revision`, bumping it. A key
@@ -1291,6 +1810,7 @@ where
     V: Clone + Send + 'static,
 {
     inner: Arc<Mutex<DictionaryEntries<K, V>>>,
+    hasher: RandomState,
     hub: MessageHub,
     owner_id: usize,
 }
@@ -1304,20 +1824,22 @@ where
     pub fn new(owner_id: usize, hub: MessageHub) -> Self {
         Self {
             inner: Arc::new(Mutex::new(DictionaryEntries::default())),
+            hasher: RandomState::new(),
             hub,
             owner_id,
         }
     }
 
-    fn locate(&self, key: &K) -> (u64, Option<usize>) {
-        locate_key(&self.inner, |candidate| candidate == key)
+    fn locate(&self, key: &K, hash: u64) -> (u64, Option<usize>) {
+        locate_key(&self.inner, hash, |candidate| candidate == key)
     }
 
     /// Adds `key` or replaces its existing value in place.
     pub fn insert(&self, key: K, value: V) {
+        let hash = self.hasher.hash_one(&key);
         let mut entry = Some((key, value));
         let ((action, replaced, new_index), retired) = loop {
-            let (revision, index) = self.locate(&entry.as_ref().expect("entry pending").0);
+            let (revision, index) = self.locate(&entry.as_ref().expect("entry pending").0, hash);
             let committed = commit_entries(&self.inner, revision, |entries, retired| {
                 let (key, value) = entry.take().expect("entry pending");
                 match index {
@@ -1329,7 +1851,7 @@ where
                         None,
                     ),
                     None => {
-                        let position = entries.push(key, value, retired);
+                        let position = entries.push(key, hash, value, retired);
                         // Add carries its insertion position (spec/21 §2.4).
                         (CollectionChangeAction::Add, None, Some(position))
                     }
@@ -1345,8 +1867,9 @@ where
 
     /// Returns the value associated with `key`, if present.
     pub fn get(&self, key: &K) -> Option<V> {
+        let hash = self.hasher.hash_one(key);
         loop {
-            let (revision, index) = self.locate(key);
+            let (revision, index) = self.locate(key, hash);
             let inner = lock(&self.inner);
             if inner.revision == revision {
                 return index.map(|index| inner.values[index].clone());
@@ -1356,8 +1879,9 @@ where
 
     /// Removes and returns the value associated with `key`.
     pub fn remove(&self, key: &K) -> Option<V> {
+        let hash = self.hasher.hash_one(key);
         let removed = loop {
-            let (revision, index) = self.locate(key);
+            let (revision, index) = self.locate(key, hash);
             let Some(index) = index else {
                 break None;
             };
@@ -1378,10 +1902,7 @@ where
         let removed = {
             let mut inner = lock(&self.inner);
             inner.revision = inner.revision.wrapping_add(1);
-            (
-                std::mem::take(&mut inner.keys),
-                std::mem::take(&mut inner.values),
-            )
+            inner.take()
         };
         let changed = !removed.1.is_empty();
         drop(removed);
@@ -1412,17 +1933,150 @@ where
     }
 }
 
+/// One change to a key view, applied in commit order.
+enum KeyViewChange<K> {
+    Push(K),
+    RemoveAt(usize),
+    Clear,
+}
+
+/// One committed dictionary mutation that waits for delivery.
+struct DictionaryChange<K1, K2> {
+    action: CollectionChangeAction,
+    /// For an Add: the entry's identity, its commit position and the
+    /// revision of the commit.
+    added: Option<(u64, usize, u64)>,
+    keys1: Option<KeyViewChange<K1>>,
+    keys2: Option<KeyViewChange<K2>>,
+}
+
+/// The entries of a multi-key dictionary and the distinct keys of each axis.
+struct MultiDictionaryState<K1, K2, V> {
+    entries: DictionaryEntries<(K1, K2), V>,
+    /// Each entry's position in the `Keys1` and `Keys2` views.
+    slots: Vec<(usize, usize)>,
+    /// Each entry's identity, which locates an entry after a later write.
+    ids: Vec<u64>,
+    next_id: u64,
+    /// The distinct first keys in view order, each with its entry count.
+    axis1: DictionaryEntries<K1, usize>,
+    /// The distinct second keys in view order, each with its entry count.
+    axis2: DictionaryEntries<K2, usize>,
+}
+
+impl<K1, K2, V> Default for MultiDictionaryState<K1, K2, V> {
+    fn default() -> Self {
+        Self {
+            entries: DictionaryEntries::default(),
+            slots: Vec::new(),
+            ids: Vec::new(),
+            next_id: 0,
+            axis1: DictionaryEntries::default(),
+            axis2: DictionaryEntries::default(),
+        }
+    }
+}
+
+/// Removes one entry of the distinct key at `slot` and returns the view
+/// change when the key's last entry is gone.
+fn release_axis_key<K: Clone>(
+    axis: &mut DictionaryEntries<K, usize>,
+    slot: usize,
+    retired: &mut Retired<K>,
+) -> Option<(KeyViewChange<K>, K)> {
+    axis.values[slot] -= 1;
+    if axis.values[slot] > 0 {
+        return None;
+    }
+    let (key, _) = axis.remove(slot, retired);
+    Some((KeyViewChange::RemoveAt(slot), key))
+}
+
+/// The queue of committed changes and the thread that delivers them.
+struct DictionaryDelivery<K1, K2> {
+    state: Mutex<DictionaryDeliveryState<K1, K2>>,
+    ready: Condvar,
+}
+
+struct DictionaryDeliveryState<K1, K2> {
+    pending: VecDeque<DictionaryChange<K1, K2>>,
+    draining_owner: Option<ThreadId>,
+}
+
+impl<K1, K2> Default for DictionaryDelivery<K1, K2> {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(DictionaryDeliveryState {
+                pending: VecDeque::new(),
+                draining_owner: None,
+            }),
+            ready: Condvar::new(),
+        }
+    }
+}
+
+/// Admits one mutation of a multi-key dictionary.
+///
+/// One thread at a time mutates and delivers; another thread waits until the
+/// delivery ends. A nested mutation on the delivering thread, from a key
+/// comparison or a subscriber, commits at once and queues its change behind
+/// the change being delivered. When the admission that owns the delivery
+/// drops, it delivers every queued change in commit order.
+struct DictionaryAdmission<'a, K1, K2, V>
+where
+    K1: Clone + Eq + Hash + Send + 'static,
+    K2: Clone + Eq + Hash + Send + 'static,
+    V: Clone + Send + 'static,
+{
+    dictionary: &'a ObservableMultiDictionary<K1, K2, V>,
+    current: ThreadId,
+    owns_drain: bool,
+}
+
+impl<K1, K2, V> Drop for DictionaryAdmission<'_, K1, K2, V>
+where
+    K1: Clone + Eq + Hash + Send + 'static,
+    K2: Clone + Eq + Hash + Send + 'static,
+    V: Clone + Send + 'static,
+{
+    fn drop(&mut self) {
+        if self.owns_drain {
+            self.dictionary.drain(self.current);
+        }
+    }
+}
+
 #[derive(Clone)]
-/// An observable dictionary keyed by an ordered pair of keys.
+/// An observable dictionary keyed by an ordered pair of keys (spec/21 §4).
+///
+/// Each effective mutation commits the entries and the count, then updates
+/// the live [`keys1`](Self::keys1) and [`keys2`](Self::keys2) views, then
+/// sends one `CollectionChangedMessage` on the local
+/// [`collection_changed`](Self::collection_changed) stream, then the same
+/// message to the hub when one was given (ADR-0177, ADR-0208).
 pub struct ObservableMultiDictionary<K1, K2, V>
 where
     K1: Clone + Eq + Hash + Send + 'static,
     K2: Clone + Eq + Hash + Send + 'static,
     V: Clone + Send + 'static,
 {
-    inner: Arc<Mutex<DictionaryEntries<(K1, K2), V>>>,
-    hub: MessageHub,
+    inner: Arc<Mutex<MultiDictionaryState<K1, K2, V>>>,
+    delivery: Arc<DictionaryDelivery<K1, K2>>,
+    keys1: ObservableList<K1>,
+    keys2: ObservableList<K2>,
+    hasher: RandomState,
+    local: MessageHub,
+    hub: Option<MessageHub>,
     owner_id: usize,
+}
+
+/// The result of one search: the revision it saw, the entry, and, for a
+/// missing entry, the distinct-key slots of both keys.
+struct MultiLocation {
+    revision: u64,
+    entry: Option<usize>,
+    slot1: Option<usize>,
+    slot2: Option<usize>,
 }
 
 impl<K1, K2, V> ObservableMultiDictionary<K1, K2, V>
@@ -1431,129 +2085,450 @@ where
     K2: Clone + Eq + Hash + Send + 'static,
     V: Clone + Send + 'static,
 {
-    /// Creates an empty multi-key dictionary whose messages use `owner_id`.
-    pub fn new(owner_id: usize, hub: MessageHub) -> Self {
+    /// Creates an empty multi-key dictionary without a message hub. Its
+    /// mutations reach only the key views and the local stream.
+    pub fn new(owner_id: usize) -> Self {
+        Self::build(owner_id, None)
+    }
+
+    /// Creates an empty multi-key dictionary that also publishes its changes
+    /// to `hub`.
+    pub fn with_hub(owner_id: usize, hub: MessageHub) -> Self {
+        Self::build(owner_id, Some(hub))
+    }
+
+    fn build(owner_id: usize, hub: Option<MessageHub>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(DictionaryEntries::default())),
+            inner: Arc::new(Mutex::new(MultiDictionaryState::default())),
+            delivery: Arc::new(DictionaryDelivery::default()),
+            keys1: ObservableList::new(owner_id),
+            keys2: ObservableList::new(owner_id),
+            hasher: RandomState::new(),
+            local: MessageHub::new(),
             hub,
             owner_id,
         }
     }
 
-    fn locate(&self, key1: &K1, key2: &K2) -> (u64, Option<usize>) {
-        locate_key(&self.inner, |(candidate1, candidate2)| {
+    /// Returns the local collection-change stream. It receives each
+    /// `CollectionChangedMessage` before the hub does.
+    pub fn collection_changed(&self) -> MessageHub {
+        self.local.clone()
+    }
+
+    /// Hashes both keys, and the pair from the two key hashes, with no lock
+    /// held.
+    fn hashes(&self, key1: &K1, key2: &K2) -> (u64, u64, u64) {
+        let hash1 = self.hasher.hash_one(key1);
+        let hash2 = self.hasher.hash_one(key2);
+        (hash1, hash2, self.hasher.hash_one((hash1, hash2)))
+    }
+
+    /// Searches the entry and, when `with_slots` is set and the entry is
+    /// missing, the distinct-key slots, with no lock held.
+    fn locate(
+        &self,
+        key1: &K1,
+        key2: &K2,
+        (hash1, hash2, hash): (u64, u64, u64),
+        with_slots: bool,
+    ) -> MultiLocation {
+        let (revision, entries, axis1, axis2) = {
+            let inner = lock(&self.inner);
+            (
+                inner.entries.revision,
+                inner.entries.candidates(hash),
+                with_slots.then(|| inner.axis1.candidates(hash1)),
+                with_slots.then(|| inner.axis2.candidates(hash2)),
+            )
+        };
+        let entry = search(entries.0, entries.1, |(candidate1, candidate2)| {
             candidate1 == key1 && candidate2 == key2
-        })
+        });
+        let (slot1, slot2) = match (entry, axis1, axis2) {
+            (None, Some(axis1), Some(axis2)) => (
+                search(axis1.0, axis1.1, |candidate| candidate == key1),
+                search(axis2.0, axis2.1, |candidate| candidate == key2),
+            ),
+            _ => (None, None),
+        };
+        MultiLocation {
+            revision,
+            entry,
+            slot1,
+            slot2,
+        }
+    }
+
+    fn admit(&self) -> DictionaryAdmission<'_, K1, K2, V> {
+        let current = thread::current().id();
+        let mut state = lock(&self.delivery.state);
+        while state.draining_owner.is_some_and(|owner| owner != current) {
+            state = wait(&self.delivery.ready, state);
+        }
+        let owns_drain = state.draining_owner.is_none();
+        if owns_drain {
+            state.draining_owner = Some(current);
+        }
+        DictionaryAdmission {
+            dictionary: self,
+            current,
+            owns_drain,
+        }
+    }
+
+    fn enqueue(&self, change: DictionaryChange<K1, K2>) {
+        lock(&self.delivery.state).pending.push_back(change);
+    }
+
+    /// Delivers every queued change in commit order, then ends the delivery.
+    /// While the thread unwinds, it applies the queued key-view changes with
+    /// no notification, so the views stay in step with the entries.
+    fn drain(&self, current: ThreadId) {
+        loop {
+            let change = {
+                let mut state = lock(&self.delivery.state);
+                debug_assert_eq!(state.draining_owner, Some(current));
+                let Some(change) = state.pending.pop_front() else {
+                    state.draining_owner = None;
+                    self.delivery.ready.notify_all();
+                    return;
+                };
+                change
+            };
+            if thread::panicking() {
+                // The thread unwinds from user code under the admission.
+                self.apply_silently(change);
+            } else if let Err(error) = catch_unwind(AssertUnwindSafe(|| self.deliver(change))) {
+                // The streams isolate subscriber panics, so this is a hub
+                // debug assertion. The views still follow the entries, and
+                // the delivery ends before the panic resumes.
+                self.drain_silently(current);
+                resume_unwind(error);
+            }
+        }
+    }
+
+    /// Applies every queued key-view change with no notification, then ends
+    /// the delivery.
+    fn drain_silently(&self, current: ThreadId) {
+        loop {
+            let change = {
+                let mut state = lock(&self.delivery.state);
+                debug_assert_eq!(state.draining_owner, Some(current));
+                let Some(change) = state.pending.pop_front() else {
+                    state.draining_owner = None;
+                    self.delivery.ready.notify_all();
+                    return;
+                };
+                change
+            };
+            self.apply_silently(change);
+        }
+    }
+
+    fn apply_silently(&self, change: DictionaryChange<K1, K2>) {
+        fn apply<K: Clone + Send + 'static>(list: &ObservableList<K>, change: KeyViewChange<K>) {
+            match change {
+                KeyViewChange::Push(key) => {
+                    let end = list.len();
+                    let _ = list.insert_silent(end, key);
+                }
+                KeyViewChange::RemoveAt(position) => drop(list.remove_at_silent(position)),
+                KeyViewChange::Clear => drop(list.take_silent()),
+            }
+        }
+        if let Some(view) = change.keys1 {
+            apply(&self.keys1, view);
+        }
+        if let Some(view) = change.keys2 {
+            apply(&self.keys2, view);
+        }
+    }
+
+    /// Updates the key views, then sends the local event and the hub message
+    /// (spec/21 §4.2 and §4.6).
+    fn deliver(&self, change: DictionaryChange<K1, K2>) {
+        fn apply<K: Clone + Send + 'static>(list: &ObservableList<K>, change: KeyViewChange<K>) {
+            match change {
+                KeyViewChange::Push(key) => list.push(key),
+                KeyViewChange::RemoveAt(position) => drop(list.remove_at(position)),
+                KeyViewChange::Clear => list.clear(),
+            }
+        }
+        if let Some(view) = change.keys1 {
+            apply(&self.keys1, view);
+        }
+        if let Some(view) = change.keys2 {
+            apply(&self.keys2, view);
+        }
+        let message = |new_index| {
+            Message::CollectionChanged(CollectionChangedMessage {
+                sender_id: self.owner_id,
+                sender_name: "ObservableMultiDictionary".to_string(),
+                property_name: "items".to_string(),
+                action: change.action.clone(),
+                old_index: None,
+                new_index,
+            })
+        };
+        self.local.send(message(self.position(change.added)));
+        if let Some(hub) = &self.hub {
+            hub.send(message(self.position(change.added)));
+        }
+    }
+
+    /// Returns an added entry's position now: its commit position when no
+    /// later write happened, otherwise its current position, or `None` when a
+    /// subscriber removed it (spec/21 §2.4, #733).
+    fn position(&self, added: Option<(u64, usize, u64)>) -> Option<usize> {
+        let (id, position, revision) = added?;
+        let inner = lock(&self.inner);
+        if inner.entries.revision == revision {
+            Some(position)
+        } else {
+            inner.ids.iter().position(|candidate| *candidate == id)
+        }
     }
 
     /// Adds a new key pair, rejecting a pair that is already present without
     /// changing the dictionary (spec/21 §4.1 `Add`).
     pub fn add(&self, key1: K1, key2: K2, value: V) -> VmxResult<()> {
+        let admission = self.admit();
+        let hashes = self.hashes(&key1, &key2);
         let mut entry = Some((key1, key2, value));
-        let (position, retired) = loop {
+        loop {
             let pending = entry.as_ref().expect("entry pending");
-            let (revision, index) = self.locate(&pending.0, &pending.1);
-            if index.is_some() {
+            let location = self.locate(&pending.0, &pending.1, hashes, true);
+            if location.entry.is_some() {
+                drop(admission);
                 return Err(VmxError::InvalidArgument("duplicate key pair".to_string()));
             }
-            if let Some(committed) = commit_entries(&self.inner, revision, |entries, retired| {
-                let (key1, key2, value) = entry.take().expect("entry pending");
-                entries.push((key1, key2), value, retired)
-            }) {
-                break committed;
+            if self.commit_insert(&mut entry, hashes, &location) {
+                break;
             }
+        }
+        drop(admission);
+        Ok(())
+    }
+
+    /// Adds a key pair or replaces its existing value in place.
+    pub fn insert(&self, key1: K1, key2: K2, value: V) {
+        let admission = self.admit();
+        let hashes = self.hashes(&key1, &key2);
+        let mut entry = Some((key1, key2, value));
+        loop {
+            let pending = entry.as_ref().expect("entry pending");
+            let location = self.locate(&pending.0, &pending.1, hashes, true);
+            let committed = match location.entry {
+                Some(index) => self.commit_replace(&mut entry, index, location.revision),
+                None => self.commit_insert(&mut entry, hashes, &location),
+            };
+            if committed {
+                break;
+            }
+        }
+        drop(admission);
+    }
+
+    /// Replaces the value at `index` when no write happened since `revision`.
+    /// The stored keys stay; the argument keys and the old value drop after
+    /// the lock is released.
+    fn commit_replace(&self, entry: &mut Option<(K1, K2, V)>, index: usize, revision: u64) -> bool {
+        let replaced = {
+            let mut inner = lock(&self.inner);
+            if inner.entries.revision != revision {
+                return false;
+            }
+            inner.entries.revision = inner.entries.revision.wrapping_add(1);
+            let (key1, key2, value) = entry.take().expect("entry pending");
+            (
+                key1,
+                key2,
+                std::mem::replace(&mut inner.entries.values[index], value),
+            )
+        };
+        drop(replaced);
+        self.enqueue(DictionaryChange {
+            action: CollectionChangeAction::Replace,
+            added: None,
+            keys1: None,
+            keys2: None,
+        });
+        true
+    }
+
+    /// Appends the pending entry when no write happened since the search,
+    /// and queues its key-view changes. A key that is new to its view is
+    /// cloned before the lock is taken: one clone for the distinct-key index
+    /// and one for the view.
+    fn commit_insert(
+        &self,
+        entry: &mut Option<(K1, K2, V)>,
+        (hash1, hash2, hash): (u64, u64, u64),
+        location: &MultiLocation,
+    ) -> bool {
+        let pending = entry.as_ref().expect("entry pending");
+        let new1 = location
+            .slot1
+            .is_none()
+            .then(|| (pending.0.clone(), pending.0.clone()));
+        let new2 = location
+            .slot2
+            .is_none()
+            .then(|| (pending.1.clone(), pending.1.clone()));
+        let mut retired = (None, None, None);
+        let (keys1, keys2, added) = {
+            let mut inner = lock(&self.inner);
+            if inner.entries.revision != location.revision {
+                drop(inner);
+                drop((new1, new2));
+                return false;
+            }
+            let state = &mut *inner;
+            state.entries.revision = state.entries.revision.wrapping_add(1);
+            let (key1, key2, value) = entry.take().expect("entry pending");
+            let position = state
+                .entries
+                .push((key1, key2), hash, value, &mut retired.0);
+            let (slot1, keys1) = match (location.slot1, new1) {
+                (Some(slot), _) => {
+                    state.axis1.values[slot] += 1;
+                    (slot, None)
+                }
+                (None, Some((stored, view))) => (
+                    state.axis1.push(stored, hash1, 1, &mut retired.1),
+                    Some(KeyViewChange::Push(view)),
+                ),
+                (None, None) => unreachable!("a new first key is cloned"),
+            };
+            let (slot2, keys2) = match (location.slot2, new2) {
+                (Some(slot), _) => {
+                    state.axis2.values[slot] += 1;
+                    (slot, None)
+                }
+                (None, Some((stored, view))) => (
+                    state.axis2.push(stored, hash2, 1, &mut retired.2),
+                    Some(KeyViewChange::Push(view)),
+                ),
+                (None, None) => unreachable!("a new second key is cloned"),
+            };
+            state.slots.push((slot1, slot2));
+            let id = state.next_id;
+            state.next_id = state.next_id.wrapping_add(1);
+            state.ids.push(id);
+            (keys1, keys2, (id, position, state.entries.revision))
         };
         drop(retired);
-        // Add carries its insertion position (spec/21 §2.4).
-        self.publish_at(CollectionChangeAction::Add, Some(position));
-        Ok(())
+        self.enqueue(DictionaryChange {
+            action: CollectionChangeAction::Add,
+            added: Some(added),
+            keys1,
+            keys2,
+        });
+        true
     }
 
     /// Removes every entry and publishes one `Reset`, as every flavor's
     /// dictionary does, even when it was already empty.
     pub fn clear(&self) {
+        let admission = self.admit();
         let removed = {
             let mut inner = lock(&self.inner);
-            inner.revision = inner.revision.wrapping_add(1);
-            (
-                std::mem::take(&mut inner.keys),
-                std::mem::take(&mut inner.values),
-            )
+            let state = &mut *inner;
+            state.entries.revision = state.entries.revision.wrapping_add(1);
+            state.slots.clear();
+            state.ids.clear();
+            (state.entries.take(), state.axis1.take(), state.axis2.take())
         };
         drop(removed);
-        self.publish(CollectionChangeAction::Reset);
+        self.enqueue(DictionaryChange {
+            action: CollectionChangeAction::Reset,
+            added: None,
+            keys1: Some(KeyViewChange::Clear),
+            keys2: Some(KeyViewChange::Clear),
+        });
+        drop(admission);
     }
 
     /// Returns a snapshot of every entry in insertion order.
     pub fn entries(&self) -> Vec<(K1, K2, V)> {
         let inner = lock(&self.inner);
         inner
+            .entries
             .keys
             .iter()
-            .zip(&inner.values)
+            .zip(&inner.entries.values)
             .map(|((key1, key2), value)| (key1.clone(), key2.clone(), value.clone()))
             .collect()
     }
 
-    /// Adds a key pair or replaces its existing value in place.
-    pub fn insert(&self, key1: K1, key2: K2, value: V) {
-        let mut entry = Some((key1, key2, value));
-        let ((action, replaced, new_index), retired) = loop {
-            let pending = entry.as_ref().expect("entry pending");
-            let (revision, index) = self.locate(&pending.0, &pending.1);
-            let committed = commit_entries(&self.inner, revision, |entries, retired| {
-                let (key1, key2, value) = entry.take().expect("entry pending");
-                match index {
-                    // The stored keys stay; the argument keys are returned so
-                    // that they drop after the lock is released.
-                    Some(index) => (
-                        CollectionChangeAction::Replace,
-                        Some((
-                            (key1, key2),
-                            std::mem::replace(&mut entries.values[index], value),
-                        )),
-                        None,
-                    ),
-                    None => {
-                        let position = entries.push((key1, key2), value, retired);
-                        (CollectionChangeAction::Add, None, Some(position))
-                    }
-                }
-            });
-            if let Some(committed) = committed {
-                break committed;
-            }
-        };
-        drop((replaced, retired));
-        self.publish_at(action, new_index);
-    }
-
     /// Removes and returns the value associated with a key pair.
     pub fn remove(&self, key1: &K1, key2: &K2) -> Option<V> {
+        let admission = self.admit();
+        let hashes = self.hashes(key1, key2);
         let removed = loop {
-            let (revision, index) = self.locate(key1, key2);
-            let Some(index) = index else {
+            let location = self.locate(key1, key2, hashes, false);
+            let Some(index) = location.entry else {
                 break None;
             };
-            if let Some(removed) = commit_entries(&self.inner, revision, |entries, retired| {
-                entries.remove(index, retired)
-            }) {
+            if let Some(removed) = self.commit_remove(index, location.revision) {
                 break Some(removed);
             }
         };
-        let ((removed_keys, value), retired) = removed?;
-        drop((removed_keys, retired));
-        self.publish(CollectionChangeAction::Remove);
+        drop(admission);
+        removed
+    }
+
+    /// Removes the entry at `index` when no write happened since `revision`,
+    /// and queues its key-view changes. Removed keys drop after the lock is
+    /// released.
+    fn commit_remove(&self, index: usize, revision: u64) -> Option<V> {
+        let mut retired = (None, None, None);
+        let (value, removed, keys1, keys2) = {
+            let mut inner = lock(&self.inner);
+            if inner.entries.revision != revision {
+                return None;
+            }
+            let state = &mut *inner;
+            state.entries.revision = state.entries.revision.wrapping_add(1);
+            let (keys, value) = state.entries.remove(index, &mut retired.0);
+            let (slot1, slot2) = state.slots.remove(index);
+            state.ids.remove(index);
+            let released1 = release_axis_key(&mut state.axis1, slot1, &mut retired.1);
+            let released2 = release_axis_key(&mut state.axis2, slot2, &mut retired.2);
+            for (entry1, entry2) in &mut state.slots {
+                if released1.is_some() && *entry1 > slot1 {
+                    *entry1 -= 1;
+                }
+                if released2.is_some() && *entry2 > slot2 {
+                    *entry2 -= 1;
+                }
+            }
+            let (keys1, key1) = released1.unzip();
+            let (keys2, key2) = released2.unzip();
+            (value, (keys, key1, key2), keys1, keys2)
+        };
+        drop((removed, retired));
+        self.enqueue(DictionaryChange {
+            action: CollectionChangeAction::Remove,
+            added: None,
+            keys1,
+            keys2,
+        });
         Some(value)
     }
 
     /// Returns the value associated with a key pair, if present.
     pub fn get(&self, key1: &K1, key2: &K2) -> Option<V> {
+        let hashes = self.hashes(key1, key2);
         loop {
-            let (revision, index) = self.locate(key1, key2);
+            let location = self.locate(key1, key2, hashes, false);
             let inner = lock(&self.inner);
-            if inner.revision == revision {
-                return index.map(|index| inner.values[index].clone());
+            if inner.entries.revision == location.revision {
+                return location
+                    .entry
+                    .map(|index| inner.entries.values[index].clone());
             }
         }
     }
@@ -1565,44 +2540,18 @@ where
 
     /// Returns the number of key-pair memberships.
     pub fn count(&self) -> usize {
-        lock(&self.inner).values.len()
+        lock(&self.inner).entries.values.len()
     }
 
-    /// Returns distinct first-dimension keys in insertion order.
-    pub fn keys1(&self) -> Vec<K1> {
-        let mut keys = Vec::new();
-        for (key, _) in key_snapshot(&self.inner).iter() {
-            if !keys.contains(key) {
-                keys.push(key.clone());
-            }
-        }
-        keys
+    /// Returns the live, read-only view of the distinct first-dimension keys,
+    /// in the order of their first appearance (spec/21 §4.2).
+    pub fn keys1(&self) -> ReadOnlyObservableList<K1> {
+        ReadOnlyObservableList::new(self.keys1.clone())
     }
 
-    /// Returns distinct second-dimension keys in insertion order.
-    pub fn keys2(&self) -> Vec<K2> {
-        let mut keys = Vec::new();
-        for (_, key) in key_snapshot(&self.inner).iter() {
-            if !keys.contains(key) {
-                keys.push(key.clone());
-            }
-        }
-        keys
-    }
-
-    fn publish(&self, action: CollectionChangeAction) {
-        self.publish_at(action, None);
-    }
-
-    fn publish_at(&self, action: CollectionChangeAction, new_index: Option<usize>) {
-        self.hub
-            .send(Message::CollectionChanged(CollectionChangedMessage {
-                sender_id: self.owner_id,
-                sender_name: "ObservableMultiDictionary".to_string(),
-                property_name: "items".to_string(),
-                action,
-                old_index: None,
-                new_index,
-            }));
+    /// Returns the live, read-only view of the distinct second-dimension
+    /// keys, in the order of their first appearance (spec/21 §4.2).
+    pub fn keys2(&self) -> ReadOnlyObservableList<K2> {
+        ReadOnlyObservableList::new(self.keys2.clone())
     }
 }

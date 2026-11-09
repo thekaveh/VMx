@@ -22,6 +22,7 @@ mod conformance {
     mod container_hook_disposal;
     mod derived_properties;
     mod dialogs;
+    mod dictionary_hash_lookup;
     mod dictionary_key_view_order;
     mod discriminator;
     mod drop_reentry;
@@ -55,10 +56,13 @@ mod conformance {
     mod message_hub;
     mod message_recorder;
     mod modeled_crud;
+    mod multi_dictionary_events;
     mod notifications;
     mod null_services;
+    mod observable_list_events;
     mod observable_list_replace_all;
     mod owned_resources;
+    mod paged_composition_notifications;
     mod post_dispose_modeled_assignment;
     mod property_change;
     mod reconstruct_command_parity;

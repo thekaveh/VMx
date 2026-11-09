@@ -364,6 +364,8 @@ ADR-0006 and require no further action:
   (`event PropertyChangedEventHandler?`)
 - **Python**: `on_property_changed: Observable[str]` (emits the changed property name)
 - **TypeScript**: `propertyChanged: Observable<string>` (emits the changed property name)
+- **Rust**: a `PropertyChangedMessage` on the pager's `MessageHub` (`hub()`),
+  with snake_case names, as Rust `TokenPagedComposition` does (ADR-0208)
 - **Rationale**: C# implements the .NET-standard `INotifyPropertyChanged` contract
   required by XAML binding. Python/TS expose an Rx observable — same pattern as the
   `CollectionChanged` and `ServicedObservableCollection` observable divergences.
@@ -555,6 +557,32 @@ here so audits don't reopen them prematurely:
   `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
   `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
   `this.#onApproved.next(current)`).
+
+### 2.34 Rust `ObservableList` and `ObservableMultiDictionary` surface (ADR-0208)
+
+These Rust differences remain after ADR-0208 and are idiomatic (ADR-0006):
+
+- **Streams.** The list streams are methods, `item_added()`, `item_removed()`,
+  `item_replaced()` and `reset()`, that return a typed `EventStream`. The
+  payloads are the structs `ItemAddedEvent`, `ItemRemovedEvent` and
+  `ItemReplacedEvent`, with `new_item`, `old_item` and `index` fields, and
+  `()` for `Reset`. The local `Count` notification is on `property_changed()`.
+- **Hub.** A list made with `with_hub` also publishes to the hub. The other
+  flavors' list has no hub. The dictionary and container local streams return
+  a `MessageHub` of `CollectionChangedMessage`, as
+  `ServicedObservableCollection::collection_changed()` does. That message has
+  no item or entry payload (§2.15); a subscriber reads `to_vec()` or
+  `entries()`.
+- **Indexers.** Rust has no list or dictionary indexer. The standard `Index`
+  trait returns a reference, and the items are held behind a lock. The list
+  reads with `get(index) -> Option<T>`. The dictionary reads with
+  `get(key1, key2) -> Option<V>`, which is the `TryGetValue` shape, and
+  upserts with `insert`.
+- **Key views.** `keys1()` and `keys2()` return a `ReadOnlyObservableList`,
+  the live, read-only view that Python returns (§2.21).
+- **Single-key dictionary.** Rust also exports `ObservableDictionary<K, V>`,
+  which takes a hub and has no local event or key view. Spec/21 §4.1 defines
+  no single-key type.
 
 ## 3. Rationale
 

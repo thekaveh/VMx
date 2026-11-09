@@ -194,6 +194,6 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 ## 5. Related records
 
 - Rust parity backlog: [Rust parity status](2026-07-16-rust-capability-parity.md),
-  §12.4.7 and §12.7–§12.12.
+  §12.4.7 and §12.7–§12.11.
 - The remaining Notes Showcase UX policies stay with the owner and are not
   listed here.

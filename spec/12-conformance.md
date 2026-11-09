@@ -2750,9 +2750,6 @@ refreshed next token (COL-065 covers the branches that retain it)
 
 ### COL-031 — `PagedComposition<TVM>` observes composite collection changes
 
-Applies to C#, Python, TypeScript, and Swift. Rust `PagedComposition` takes a
-`Vec` source and does not observe it (chapter 21 §5.5).
-
 **Given** a finite `PagedComposition<TVM>` wrapping a `CompositeVM<TVM>` source
 **And** a property-changed subscriber
 **When** the composite source is mutated
@@ -3204,8 +3201,6 @@ notifications
 **And** the dictionary-event and hub subscribers see the updated entries,
 `Count`, `Keys1`, and `Keys2`
 **And** the test does not check the order of the two key-view notifications
-**And** Rust, whose `keys1()` and `keys2()` return snapshots and which has no
-local event, checks the hub subscriber only
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 

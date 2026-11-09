@@ -93,8 +93,9 @@ pub use commands::{
 
 mod collections;
 pub use collections::{
+    EventStream, EventSubscription, ItemAddedEvent, ItemRemovedEvent, ItemReplacedEvent,
     KeyedServicedObservableCollection, ObservableDictionary, ObservableList,
-    ObservableMultiDictionary, ServicedObservableCollection,
+    ObservableMultiDictionary, ReadOnlyObservableList, ServicedObservableCollection,
 };
 
 mod composites;
