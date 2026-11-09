@@ -1,5 +1,5 @@
 //
-// DerivedProperty conformance tests — DPROP-001..012.
+// DerivedProperty conformance tests — DPROP-001..013.
 //
 // Ports langs/typescript/tests/conformance/derivedProperties.test.ts. See
 // spec/15-derived-properties.md and spec/ADRs/0011-derived-properties.md.
@@ -10,7 +10,7 @@
 // call stack — letting these tests read `dp.value` immediately after a mutation.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -189,6 +189,48 @@ final class DerivedPropertyTests: XCTestCase {
         dp.dispose()
         dp.dispose() // must not trap or re-complete
     }
+
+    /// DPROP-013 — structural: `valueChanged` has the failure type `Never` and
+    /// a Combine sink cannot throw, so no subscriber can fail. Two subscribers
+    /// each receive every changed value once, for one and two sources.
+    func testDprop013ValueChangedSubscribersCannotFailAndAllReceive() throws {
+        let single = CurrentValueSubject<Int, Never>(0)
+        let dp = DerivedProperty<Int>.from(single.eraseToAnyPublisher()) { $0 * 10 }
+        XCTAssertTrue(failureType(of: dp.valueChanged) == Never.self)
+        var first: [Int] = []
+        var second: [Int] = []
+        let a = dp.valueChanged.sink { first.append($0) }
+        let b = dp.valueChanged.sink { second.append($0) }
+        single.send(1)
+        single.send(2)
+        XCTAssertEqual(try dp.value, 20)
+        XCTAssertEqual(first, [10, 20])
+        XCTAssertEqual(second, [10, 20])
+        a.cancel()
+        b.cancel()
+        dp.dispose()
+
+        let s1 = CurrentValueSubject<Int, Never>(0)
+        let s2 = CurrentValueSubject<Int, Never>(0)
+        let combined = DerivedProperty<Int>.from(
+            s1.eraseToAnyPublisher(),
+            s2.eraseToAnyPublisher()
+        ) { $0 + $1 }
+        var combinedFirst: [Int] = []
+        var combinedSecond: [Int] = []
+        let c = combined.valueChanged.sink { combinedFirst.append($0) }
+        let d = combined.valueChanged.sink { combinedSecond.append($0) }
+        s1.send(1)
+        s2.send(2)
+        XCTAssertEqual(try combined.value, 3)
+        XCTAssertEqual(combinedFirst, [1, 3])
+        XCTAssertEqual(combinedSecond, [1, 3])
+        c.cancel()
+        d.cancel()
+        combined.dispose()
+    }
+
+    private func failureType<P: Publisher>(of _: P) -> Any.Type { P.Failure.self }
 
     /// DPROP-012 — fixture-driven scenarios match `derived-properties.json`.
     func testDprop012FixtureScenariosMatch() throws {

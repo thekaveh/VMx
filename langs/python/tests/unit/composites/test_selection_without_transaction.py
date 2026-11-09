@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
@@ -157,16 +157,16 @@ class _ParkedAdd:
             if wait_in_handler is not None:
                 self.handler_wait_succeeded = wait_in_handler()
             else:
-                self._release.wait(2 * HANG_GUARD)
+                wait_event(self._release, 2 * HANG_GUARD)
 
         root.on_collection_changed.subscribe(on_changed)
         self._worker = _start(lambda: root.add(late), self.errors)
-        assert self._in_handler.wait(HANG_GUARD)
+        assert wait_event(self._in_handler)
         assert root._membership_transaction_active
 
     def finish(self) -> None:
         self._release.set()
-        self._worker.join(3 * HANG_GUARD)
+        join_thread(self._worker, 3 * HANG_GUARD)
         assert not self._worker.is_alive()
         assert self.errors == []
 
@@ -523,7 +523,7 @@ def test_another_thread_cannot_select_an_unadmitted_child_but_can_select_a_membe
 
     def hook() -> None:
         in_hook.set()
-        release.wait(2 * HANG_GUARD)
+        wait_event(release, 2 * HANG_GUARD)
         raise RuntimeError("boom")
 
     late = _child(hub, dispatcher, "late", on_construct=hook)
@@ -532,14 +532,14 @@ def test_another_thread_cannot_select_an_unadmitted_child_but_can_select_a_membe
     errors: list[BaseException] = []
     worker = _start(lambda: root.vm.add(late), errors)
     try:
-        assert in_hook.wait(HANG_GUARD)
+        assert wait_event(in_hook)
         with pytest.raises(ValueError, match="not a member"):
             root.vm.current = late
         assert not root.vm.can_select_component(late)
         root.vm.current = keep  # the foreign transaction neither fails nor delays it
     finally:
         release.set()
-        worker.join(3 * HANG_GUARD)
+        join_thread(worker, 3 * HANG_GUARD)
     assert not worker.is_alive()
 
     assert [str(error) for error in errors] == ["boom"]
@@ -571,7 +571,7 @@ def test_walk_ignores_a_staged_population_candidate() -> None:
 
     def bad_hook() -> None:
         in_hook.set()
-        release.wait(2 * HANG_GUARD)
+        wait_event(release, 2 * HANG_GUARD)
         raise RuntimeError("population fails")
 
     bad = _child(hub, immediate, "bad", on_construct=bad_hook)
@@ -582,7 +582,7 @@ def test_walk_ignores_a_staged_population_candidate() -> None:
 
     def selector(_kids: Iterable[ComponentVM]) -> ComponentVM:
         workers.append(_start(lambda: root.repopulate([good, bad]), errors))
-        assert in_hook.wait(HANG_GUARD)
+        assert wait_event(in_hook)
         selectable.append(root.can_select_component(good))
         return good  # staged by the worker's population
 
@@ -606,7 +606,7 @@ def test_walk_ignores_a_staged_population_candidate() -> None:
     finally:
         release.set()
         assert _wait_until(lambda: bool(workers))
-        workers[0].join(3 * HANG_GUARD)
+        join_thread(workers[0], 3 * HANG_GUARD)
     assert not workers[0].is_alive()
 
     assert [str(error) for error in errors] == ["population fails"]
@@ -854,7 +854,7 @@ def test_transfer_destination_admits_the_moved_child_after_the_old_parents_detac
                 observed["refusal"] = error
 
         worker = _start(select, errors)
-        worker.join(HANG_GUARD)
+        join_thread(worker)
         observed["joined"] = not worker.is_alive()
 
     old_parent = _Root(hub, dispatcher, lambda: [], on_current=on_old_current)

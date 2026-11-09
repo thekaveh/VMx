@@ -52,6 +52,16 @@ Triggers do NOT carry data — only the fact that re-evaluation should happen. T
 typical pattern: derive a trigger from a property's change stream
 (`vm.Status.Where(s => s == Constructed).Select(_ => Unit.Default)`).
 
+**Failing handlers (spec v3.30, ADR-0191).** `CanExecuteChanged` follows
+chapter 03 §3.6. Each notification reaches every handler, even when an earlier
+handler fails. A failing handler detaches neither itself nor a trigger
+subscription, also for a trigger built with operators. A trigger emission is
+stream-fed: its failure never reaches the trigger's publisher. A
+`RaiseCanExecuteChanged` call is call-fed: C# and Python rethrow the first
+failure after every handler has run. `CompositeCommand` and the command
+decorators forward the event under the same rule. Rust triggers are hubs, so
+the operator form does not apply to Rust.
+
 ### 4.1 Recipe: trigger from a hub property change
 
 A common pattern is firing `CanExecuteChanged` whenever a specific ViewModel
@@ -246,6 +256,14 @@ immediately, before the gate has resolved. Each flavor also exposes an awaitable
 asynchronous inner through its awaitable entry point and a synchronous inner
 through `inner.Execute()`. The awaited call completes when that invocation
 completes.
+
+`Execute()` never invokes the inner command inside its own call (spec v3.30,
+ADR-0195). This holds also when `confirm()` returns a result that is already
+complete. The inner command then runs after `Execute()` returns, or on another
+thread. `Execute()` MAY call `confirm()` before it returns. The awaitable
+`ExecuteAsync()` path has no such rule. Chapter 11 §3.1 states the thread
+that runs the confirmed inner command. In C#, it can be a thread-pool thread,
+also when the caller has a `SynchronizationContext`.
 
 Because the synchronous `Execute` has already returned, a `confirm` delegate that
 rejects/raises and an `inner.Execute()` that throws have **no caller to propagate
@@ -491,6 +509,8 @@ caller-supplied token.
   starts and once when it completes (whether by success, cancellation, or fault) —
   so a bound control's enabled state tracks the in-flight state.
 - `IsExecuting` exposes the in-flight flag for direct binding.
+- The completion `CanExecuteChanged` runs where the task completes. The
+  command does not marshal it to the caller's thread (chapter 11 §3.1).
 
 ### 10.3 Cancellation is non-throwing by default
 
@@ -526,6 +546,11 @@ A task that faults for a non-cancellation reason is **not** swallowed:
   unhandled rejection). Cancellations never reach this channel. `errors` completes
   on dispose. This mirrors the `ConfirmationDecoratorCommand` error channel (§8.3.1,
   ADR-0049) and the `FormVM` approve channel (chapter 20 §8, ADR-0048).
+- On the fire-and-forget path, the completion comes first (spec v3.30,
+  ADR-0195). The command clears its in-flight state and raises the completion
+  `CanExecuteChanged` (§10.2). Only then does it emit the fault on `errors`.
+  An `errors` subscriber therefore reads `IsExecuting == false`, and its
+  `Execute` call can start a new execution.
 
 ### 10.5 Cross-flavor parity (ADR-0006 / ADR-0056)
 
@@ -539,7 +564,7 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 
 ## 11. Conformance
 
-`CMD-001` through `CMD-019` and `CMDD-001` through `CMDD-017` in
+`CMD-001` through `CMD-021` and `CMDD-001` through `CMDD-018` in
 `12-conformance.md` cover:
 
 - `Execute` invokes the configured task
@@ -559,6 +584,11 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
   additive with triggers and async state changes, safe after disposal, and
   available on synchronous, parameterized, and async relay commands (§4.3,
   ADR-0086)
+- `CMD-020` — a fire-and-forget `AsyncRelayCommand` fault reaches `errors`
+  after the completion `CanExecuteChanged`, so an `errors` subscriber reads
+  `IsExecuting == false` (§10.4, ADR-0195)
+- `CMD-021` — a failing `CanExecuteChanged` handler stops neither the other
+  handlers nor an operator-built trigger (§4, ADR-0191)
 - `CMDD-010` — `ConfirmationDecoratorCommand` surfaces a rejecting `confirm`
   delegate or a throwing inner command on its `errors` channel instead of
   swallowing it (§8.3.1, ADR-0049)
@@ -571,6 +601,9 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
   failures reach exactly one channel on each path; the inner keeps its own
   admission and cancellation; nested wrappers are awaited, and disposal neither
   cancels nor owns the inner (§8.3.2, ADR-0145)
+- `CMDD-018` — the fire-and-forget `Execute()` never invokes the inner command
+  inside its own call, also when `confirm()` is already complete (§8.3.1,
+  ADR-0195)
 
 `DISP-002` additionally disposes an in-flight async command twice and pins one
 cancellation, one terminal teardown, and inert later execution (ADR-0084).

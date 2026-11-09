@@ -754,3 +754,31 @@ async def test_closing_a_note_that_is_not_current_keeps_the_selection() -> None:
     second.close_command.execute()
 
     assert vm.current is first
+
+
+async def test_starred_filter_search_and_paging_never_change_current() -> None:
+    # ADR-0201 §2.1: a refilter or a page change never changes ``current``;
+    # the note is on the visible page again once it matches.
+    vm = _build(page_size=2)
+    vm.construct()
+    await vm.bind_to_async("nb-reviews")
+    note = next(n for n in vm.inner if not n.model.starred)
+    vm.current = note
+
+    vm.show_starred_only = True
+    assert note not in vm.visible_items
+    assert vm.current is note
+    vm.show_starred_only = False
+
+    vm.search_term = "no-note-matches-this-term"
+    assert vm.visible_items == []
+    assert vm.current is note
+    vm.search_term = ""
+
+    vm.move_to_last_page()
+    assert note not in vm.visible_items
+    assert vm.current is note
+    vm.move_to_first_page()
+
+    assert vm.current is note
+    assert note in vm.visible_items

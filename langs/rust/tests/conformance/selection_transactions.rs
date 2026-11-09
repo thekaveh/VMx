@@ -6,7 +6,7 @@
 //! bounded by `GUARD`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -14,6 +14,8 @@ use vmx::{
     ComponentVm, CompositeVm, ConstructionStatus, ManualDispatcher, Message, MessageHub, VmNode,
     VmxError,
 };
+
+use super::bounded_wait::within_timeout;
 
 type Leaf = ComponentVm<&'static str, ManualDispatcher>;
 type Root = CompositeVm<Leaf, ManualDispatcher>;
@@ -56,19 +58,6 @@ fn record_current_changes(root: &Root) -> Log {
 
 fn entries(log: &Log) -> Vec<String> {
     log.lock().unwrap().clone()
-}
-
-/// Runs `body` on another thread and returns its result within the guard.
-fn within_guard<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(body());
-    });
-    match rx.recv_timeout(GUARD) {
-        Ok(value) => value,
-        Err(RecvTimeoutError::Timeout) => panic!("{what} did not finish within the hang guard"),
-        Err(RecvTimeoutError::Disconnected) => panic!("{what} panicked"),
-    }
 }
 
 /// A one-shot signal between two threads with a bounded wait.
@@ -292,7 +281,9 @@ fn deferred_walk_disposal_refuses_a_foreign_add() {
         }
         disposer.dispose().unwrap();
         let (worker_root, worker_child) = (disposer.clone(), extra_for_worker.clone());
-        let result = within_guard("the foreign add", move || worker_root.add(worker_child));
+        let result = within_timeout("the foreign add", GUARD, move || {
+            worker_root.add(worker_child)
+        });
         *sink.lock().unwrap() = Some(result);
     });
 
@@ -468,7 +459,7 @@ fn selection_commits_while_another_thread_holds_an_add() {
 
     let selector = root.clone();
     let (selected_a, staged) = (a.clone(), late.clone());
-    let outcome = within_guard("selection during a foreign add", move || {
+    let outcome = within_timeout("selection during a foreign add", GUARD, move || {
         (
             selector.set_current(Some(selected_a.clone())),
             selector.can_select_component(&selected_a),
@@ -608,7 +599,7 @@ fn deferred_disposal_refuses_non_null_selection_but_not_a_clear() {
 
     let selector = root.clone();
     let (selected_b, deselected_a) = (b.clone(), a.clone());
-    let outcome = within_guard("selection while disposal is deferred", move || {
+    let outcome = within_timeout("selection while disposal is deferred", GUARD, move || {
         (
             selector.set_current(Some(selected_b.clone())),
             selector.select_component(&selected_b),
@@ -670,7 +661,9 @@ fn foreign_disposal_during_a_selection_publication_is_deferred() {
 
     let disposer = root.clone();
     assert_eq!(
-        within_guard("dispose during a publication", move || disposer.dispose()),
+        within_timeout("dispose during a publication", GUARD, move || {
+            disposer.dispose()
+        }),
         Ok(())
     );
     assert_eq!(root.status(), ConstructionStatus::Constructed);
@@ -698,7 +691,7 @@ fn async_selection_validates_at_call_time_and_at_delivery() {
 
     let selector = root.clone();
     let (selected_a, staged) = (a.clone(), late.clone());
-    let outcome = within_guard("async selection during a foreign add", move || {
+    let outcome = within_timeout("async selection during a foreign add", GUARD, move || {
         (
             selector.set_current(Some(selected_a)),
             selector.set_current(Some(staged)),
@@ -837,7 +830,7 @@ fn destruct_clear_runs_while_disposal_is_deferred_by_a_foreign_transfer() {
     entered.wait("the worker defers root's disposal");
 
     let destructor = root.clone();
-    let destructed = within_guard("destruct while disposal is deferred", move || {
+    let destructed = within_timeout("destruct while disposal is deferred", GUARD, move || {
         let result = destructor.destruct();
         (result, destructor.current())
     });
@@ -885,7 +878,7 @@ fn transfer_destination_admits_the_moved_child_after_the_old_parents_detach_comm
                 return;
             }
             let (dest, child) = (window_dest.clone(), window_child.clone());
-            let observed = within_guard("the foreign selection", move || {
+            let observed = within_timeout("the foreign selection", GUARD, move || {
                 let can_select = dest.can_select_component(&child);
                 (can_select, dest.set_current(Some(child)))
             });
@@ -1045,4 +1038,95 @@ fn replacement_clears_the_old_current_child_before_it_frees_it() {
         VmNode::is_current(&a),
         "the replacement's clear never resets a selection in another composite"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The clear that a detach commits (#1285, spec/06 §4.3 rules 1 and 2).
+// ---------------------------------------------------------------------------
+
+/// Two constructed roots; `x` is a child of `a` and current there.
+fn clear_fixture() -> (Root, Root, Leaf) {
+    let dispatcher = ManualDispatcher::new();
+    let a = root("a", &dispatcher);
+    let b = root("b", &dispatcher);
+    a.construct().unwrap();
+    b.construct().unwrap();
+    let x = leaf("x");
+    a.add(x.clone()).unwrap();
+    a.set_current(Some(x.clone())).unwrap();
+    assert!(x.is_current());
+    (a, b, x)
+}
+
+/// `clear()` writes no removed child's flag after its gate: a composite that
+/// adopts and selects the child from `on_current_changed` keeps the flag set.
+#[test]
+fn clear_keeps_the_flag_of_a_child_another_composite_selected_in_the_callback() {
+    let (a, b, x) = clear_fixture();
+    let (adopter, adopted) = (b.clone(), x.clone());
+    a.on_current_changed(move |current| {
+        if current.is_none() {
+            adopter.add(adopted.clone()).unwrap();
+            adopter.set_current(Some(adopted.clone())).unwrap();
+        }
+    });
+
+    a.clear();
+
+    assert!(a.is_empty());
+    assert_eq!(b.current(), Some(x.clone()));
+    assert!(x.is_current());
+}
+
+/// `clear()` writes no removed child's flag after its gate: a composite that
+/// adopts and selects the child on another thread, while `clear()` is held in
+/// its `on_current_changed` subscriber, keeps the flag set.
+#[test]
+fn clear_keeps_the_flag_of_a_child_another_thread_selected_meanwhile() {
+    let (a, b, x) = clear_fixture();
+    let entered = Signal::new();
+    let release = Signal::new();
+    let (callback_entered, callback_release) = (entered.clone(), release.clone());
+    a.on_current_changed(move |current| {
+        if current.is_none() {
+            callback_entered.set();
+            callback_release.wait("the test releases clear()");
+        }
+    });
+    let clearing = a.clone();
+    let worker = std::thread::spawn(move || clearing.clear());
+    entered.wait("clear() reaches its on_current_changed subscriber");
+
+    let (adopter, adopted) = (b.clone(), x.clone());
+    within_timeout("the adoption on another thread", GUARD, move || {
+        adopter.add(adopted.clone()).unwrap();
+        adopter.set_current(Some(adopted)).unwrap();
+    });
+    release.set();
+    join_within_guard(worker, "clear()");
+
+    assert!(a.is_empty());
+    assert_eq!(b.current(), Some(x.clone()));
+    assert!(x.is_current());
+}
+
+/// `clear()` resets the removed current child's flag once, through the
+/// detach clear it commits under the gate.
+#[test]
+fn clear_resets_the_removed_current_flag_once() {
+    let (a, _b, x) = clear_fixture();
+    let notifications = Arc::new(Mutex::new(0usize));
+    let sink = Arc::clone(&notifications);
+    let _subscription = x.property_changed().subscribe(move |name| {
+        if name == "is_current" {
+            *sink.lock().unwrap() += 1;
+        }
+    });
+
+    a.clear();
+
+    assert!(a.is_empty());
+    assert_eq!(a.current(), None);
+    assert!(!x.is_current());
+    assert_eq!(*notifications.lock().unwrap(), 1);
 }

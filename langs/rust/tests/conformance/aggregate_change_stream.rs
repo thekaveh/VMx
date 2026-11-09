@@ -287,6 +287,25 @@ fn subscriptions(counts: &Arc<Mutex<HashMap<usize, usize>>>, id: usize) -> usize
     locked(counts).get(&id).copied().unwrap_or(0)
 }
 
+/// The number of live change handlers on `item`'s stream, so a test can see
+/// a leaked item subscription (#1300). The count comes from a test seam, so
+/// a build without the `test-seams` feature reads `None`.
+fn live_handlers(item: &TestNode) -> Option<usize> {
+    #[cfg(feature = "test-seams")]
+    let count = Some(item.property_changed().subscriber_count_for_testing());
+    #[cfg(not(feature = "test-seams"))]
+    let count = {
+        let _ = item;
+        None
+    };
+    count
+}
+
+/// `count` plus `extra`, or `None` when the count is not available.
+fn above(count: Option<usize>, extra: usize) -> Option<usize> {
+    count.map(|count| count + extra)
+}
+
 fn reasons(changes: &Arc<Mutex<Vec<AggregateChange<TestNode>>>>) -> Vec<AggregateChangeReason> {
     locked(changes).iter().map(|change| change.reason).collect()
 }
@@ -522,25 +541,37 @@ fn aggregate_terminal_epoch_stays_silent_until_remove_and_readd() {
 fn aggregate_zero_refcount_detaches_before_membership_without_resubscribe() {
     let kept = TestNode::new(60, "kept");
     let removed = TestNode::new(61, "removed");
+    let baseline = live_handlers(&removed);
     let source = TestSource::new(vec![kept.clone(), removed.clone()]);
     let (aggregate, counts, _hooks) = counting_aggregate(source.clone());
     let changes = Arc::new(Mutex::new(Vec::new()));
     let capture = Arc::clone(&changes);
     let probe = removed.clone();
+    let handlers_at_membership = Arc::new(Mutex::new(Vec::new()));
+    let handlers_capture = Arc::clone(&handlers_at_membership);
     let _subscription = aggregate
         .observe(AggregateObserveOptions::default())
         .subscribe(move |change: AggregateChange<TestNode>| {
             let membership = change.reason == AggregateChangeReason::Membership;
             locked(&capture).push(change);
             if membership {
-                // Already detached: an emission from the removed epoch is silent.
+                // Already detached: the removed item's stream has no
+                // aggregate handler, and an emission from the removed epoch
+                // is silent.
+                locked(&handlers_capture).push(live_handlers(&probe));
                 probe.emit();
             }
         });
+    assert_eq!(live_handlers(&removed), above(baseline, 1));
 
     source.remove_id(removed.id());
     removed.emit();
     assert_eq!(reasons(&changes), vec![AggregateChangeReason::Membership]);
+    assert_eq!(
+        *locked(&handlers_at_membership),
+        vec![baseline],
+        "the removed item's subscription is released before Membership"
+    );
 
     // Move (reorder), identity-retaining Reset, retaining Replace, and
     // duplicate add of `kept` must not resubscribe it.
@@ -666,27 +697,39 @@ fn aggregate_duplicate_id_has_one_behavioral_subscription() {
 #[test]
 fn aggregate_duplicate_identity_subscribes_once_and_detaches_before_membership() {
     let item = TestNode::new(66, "duplicate");
+    let baseline = live_handlers(&item);
     let source = TestSource::new(vec![item.clone(), item.clone()]);
     let (aggregate, counts, _hooks) = counting_aggregate(source.clone());
     let changes = Arc::new(Mutex::new(Vec::new()));
     let capture = Arc::clone(&changes);
     let probe = item.clone();
+    let handlers_at_membership = Arc::new(Mutex::new(Vec::new()));
+    let handlers_capture = Arc::clone(&handlers_at_membership);
     let _subscription = aggregate
         .observe(AggregateObserveOptions::default())
         .subscribe(move |change: AggregateChange<TestNode>| {
             let membership = change.reason == AggregateChangeReason::Membership;
             locked(&capture).push(change);
             if membership {
+                locked(&handlers_capture).push(live_handlers(&probe));
                 probe.emit();
             }
         });
     assert_eq!(subscriptions(&counts, item.id()), 1);
+    assert_eq!(live_handlers(&item), above(baseline, 1));
 
     item.emit();
     assert_eq!(reasons(&changes), vec![AggregateChangeReason::Item]);
     source.remove_id(item.id());
     assert_eq!(subscriptions(&counts, item.id()), 1);
+    // One occurrence remains, so its one shared subscription stays live.
+    assert_eq!(live_handlers(&item), above(baseline, 1));
     source.remove_id(item.id());
+    // The final removal released the subscription before its Membership.
+    assert_eq!(
+        *locked(&handlers_at_membership),
+        vec![above(baseline, 1), baseline]
+    );
     // The in-handler probe during the first removal's Membership is delivered
     // (still positive refcount); the one during the final removal is silent.
     let final_reasons = reasons(&changes);
@@ -1017,4 +1060,68 @@ fn aggregate_over_container_sees_member_added_inside_hub_batch() {
     ];
     assert_eq!(reasons(&composite_changes), expected);
     assert_eq!(reasons(&group_changes), expected);
+}
+
+/// AGCH-011 — the subscribers of one envelope receive it in subscription order
+#[test]
+fn aggregate_subscribers_receive_each_envelope_in_subscription_order() {
+    let source = TestSource::new(vec![TestNode::new(1101, "first")]);
+    let aggregate = aggregate(source.clone());
+    let order = Arc::new(Mutex::new(Vec::<(&'static str, usize)>::new()));
+    let _subscriptions = (0..5)
+        .map(|label| {
+            let (next, complete) = (Arc::clone(&order), Arc::clone(&order));
+            aggregate
+                .observe(AggregateObserveOptions::default())
+                .subscribe_with_completion(
+                    move |change| {
+                        let reason = match change.reason {
+                            AggregateChangeReason::Batch => "batch",
+                            AggregateChangeReason::Membership => "membership",
+                            _ => "other",
+                        };
+                        locked(&next).push((reason, label));
+                    },
+                    move || locked(&complete).push(("completed", label)),
+                )
+        })
+        .collect::<Vec<_>>();
+    let expected = |reason: &'static str| (0..5).map(|label| (reason, label)).collect::<Vec<_>>();
+
+    source.add(TestNode::new(1102, "plain"));
+    assert_eq!(*locked(&order), expected("membership"));
+
+    locked(&order).clear();
+    aggregate.batch(|| source.add(TestNode::new(1103, "batched")));
+    assert_eq!(*locked(&order), expected("batch"));
+
+    locked(&order).clear();
+    aggregate.dispose();
+    assert_eq!(*locked(&order), expected("completed"));
+}
+
+/// AGCH-011 — a resubscription receives each envelope last
+#[test]
+fn aggregate_resubscription_receives_last() {
+    let source = TestSource::new(vec![TestNode::new(1111, "first")]);
+    let aggregate = aggregate(source.clone());
+    let order = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let subscribe = |label: usize| {
+        let sink = Arc::clone(&order);
+        aggregate
+            .observe(AggregateObserveOptions::default())
+            .subscribe(move |_| locked(&sink).push(label))
+    };
+    let mut subscriptions = (0..5).map(subscribe).collect::<Vec<_>>();
+
+    subscriptions[1].dispose();
+    subscriptions.push(subscribe(1));
+
+    source.add(TestNode::new(1112, "plain"));
+    assert_eq!(*locked(&order), vec![0, 2, 3, 4, 1]);
+
+    locked(&order).clear();
+    aggregate.batch(|| source.add(TestNode::new(1113, "batched")));
+    assert_eq!(*locked(&order), vec![0, 2, 3, 4, 1]);
+    aggregate.dispose();
 }

@@ -534,7 +534,7 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
                     countLock.unlock()
                     if isFirst {
                         validatorEntered.signal()
-                        _ = releaseValidator.wait(timeout: .now() + 10)
+                        _ = releaseValidator.wait(timeout: .now() + hangGuard * 2)
                     }
                 }
                 return nil
@@ -556,7 +556,7 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
             boxedForm.value.setModel("first")
             firstDone.signal()
         }
-        XCTAssertEqual(validatorEntered.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(validatorEntered.wait(timeout: .now() + hangGuard), .success)
         DispatchQueue.global().async {
             boxedForm.value.setModel("second")
             secondDone.signal()
@@ -568,7 +568,7 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
         XCTAssertEqual(form.model, "second")
         releaseValidator.signal()
 
-        XCTAssertEqual(firstDone.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(firstDone.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(form.model, "first", "the overtaken update ran again")
         countLock.lock()
         let publishedCount = published

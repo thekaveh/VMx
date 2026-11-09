@@ -4,10 +4,14 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use super::bounded_wait::within_timeout;
 use vmx::{
     Command, ComponentVm, CompositeVm, ConstructionStatus, DefaultDispatcher, Dispatcher,
     ManualDispatcher, Message, MessageHub, ReadonlyComponentVm,
 };
+
+/// The bound on every drain wait in this file.
+const BOUND: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 struct RejectBackgroundDispatcher;
@@ -92,7 +96,7 @@ fn rejected_background_admission_rolls_back_and_remains_recoverable() {
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
     assert!(!matches!(
         vm.construct(),
-        Err(vmx::VmxError::ConcurrentOperation)
+        Err(vmx::VmxError::InvalidLifecycleTransition { .. })
     ));
 }
 
@@ -658,18 +662,6 @@ fn subscriber_can_observe_on_chosen_dispatcher() {
     assert!(*observed.lock().unwrap());
 }
 
-/// Runs `drain` on a helper thread and fails the test if it does not return.
-fn drains_within_bound(drain: impl FnOnce() + Send + 'static) {
-    let (done, finished) = mpsc::channel();
-    thread::spawn(move || {
-        drain();
-        let _ = done.send(());
-    });
-    finished
-        .recv_timeout(Duration::from_secs(5))
-        .expect("the drain did not return; it blocked on its own queue lock");
-}
-
 /// #746 — a foreground action that dispatches to the foreground queue does
 /// not block `drain_foreground`, and both actions run in FIFO order.
 #[test]
@@ -687,7 +679,7 @@ fn drain_foreground_runs_an_action_that_dispatches_to_the_same_queue() {
     }
 
     let draining = dispatcher.clone();
-    drains_within_bound(move || draining.drain_foreground());
+    within_timeout("the drain", BOUND, move || draining.drain_foreground());
 
     assert_eq!(*log.lock().unwrap(), vec!["first", "second"]);
 }
@@ -719,9 +711,9 @@ fn drain_background_runs_a_hook_that_constructs_another_background_vm() {
 
     outer.construct().unwrap();
     let draining = dispatcher.clone();
-    drains_within_bound(move || draining.drain_background());
+    within_timeout("the drain", BOUND, move || draining.drain_background());
     let draining = dispatcher.clone();
-    drains_within_bound(move || draining.drain_foreground());
+    within_timeout("the drain", BOUND, move || draining.drain_foreground());
 
     assert_eq!(outer.status(), ConstructionStatus::Constructed);
     assert_eq!(inner.status(), ConstructionStatus::Constructed);

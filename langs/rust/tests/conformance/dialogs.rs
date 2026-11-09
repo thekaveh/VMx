@@ -376,18 +376,91 @@ fn confirmation_decorator_uses_dialog_confirm_gate() {
     assert_eq!(*blocked_calls.lock().unwrap(), 0);
 }
 
+/// Presents `modal` through the `DialogService` trait, as view-model code
+/// that is generic over its dialog service does.
+fn present_through<S: DialogService, T: Clone + Send + 'static>(
+    service: &S,
+    modal: &ModalVm<T>,
+) -> AsyncValue<T> {
+    service.present(modal)
+}
+
 /// DIA-009 — VM-backed modal presentation returns the modal result
 #[test]
 fn modal_presentation_returns_host_result() {
+    /// A host adapter whose user picks `choice` in every presented modal.
+    struct ChoosingHost {
+        choice: &'static str,
+        presented: Mutex<usize>,
+    }
+
+    impl DialogService for ChoosingHost {
+        fn pick_file_to_open(
+            &self,
+            _filter: Option<FileFilter>,
+            _title: Option<&str>,
+        ) -> AsyncValue<Option<String>> {
+            AsyncValue::ready(None)
+        }
+
+        fn pick_file_to_save(
+            &self,
+            _filter: Option<FileFilter>,
+            _title: Option<&str>,
+            _suggested_name: Option<&str>,
+        ) -> AsyncValue<Option<String>> {
+            AsyncValue::ready(None)
+        }
+
+        fn confirm(&self, _message: &str, _title: Option<&str>) -> AsyncValue<bool> {
+            AsyncValue::ready(false)
+        }
+
+        fn notify(
+            &self,
+            _message: &str,
+            _title: Option<&str>,
+            _severity: NotificationSeverity,
+        ) -> AsyncValue<()> {
+            AsyncValue::ready(())
+        }
+
+        fn present<T: Clone + Send + 'static>(&self, modal: &ModalVm<T>) -> AsyncValue<T> {
+            *self.presented.lock().unwrap() += 1;
+            // A real host maps the modal's result type to a view. This one
+            // answers `&'static str` modals with its scripted choice.
+            let choice = (&self.choice as &dyn std::any::Any)
+                .downcast_ref::<T>()
+                .cloned();
+            let completion = modal.completion();
+            // The user answers later, from the host's UI thread.
+            let modal = modal.clone();
+            std::thread::spawn(move || {
+                if let Some(choice) = choice {
+                    modal.dismiss(choice);
+                }
+            });
+            completion
+        }
+    }
+
+    let host = ChoosingHost {
+        choice: "accepted",
+        presented: Mutex::new(0),
+    };
     let modal = ModalVm::new("cancel");
-    let completion = modal.completion();
 
-    assert_eq!(completion.try_get(), None);
+    let result = present_through(&host, &modal);
 
-    modal.dismiss("accepted");
-
-    assert_eq!(completion.wait(), "accepted");
+    assert_eq!(result.wait(), "accepted");
     assert_eq!(modal.result(), Some("accepted"));
+    assert_eq!(*host.presented.lock().unwrap(), 1);
+
+    // The provided generic method keeps the trait dyn-compatible (ADR-0210).
+    let services: Vec<Box<dyn DialogService>> = vec![Box::new(host), Box::new(NullDialogService)];
+    assert!(services
+        .iter()
+        .all(|service| !service.confirm("?", None).wait()));
 }
 
 /// DIA-010 — Null modal presentation resolves with cancellation result
@@ -396,10 +469,10 @@ fn null_modal_presentation_uses_cancellation_result() {
     let service = NullDialogService;
     let modal = ModalVm::new("cancel");
 
-    let result = service.present(&modal);
+    let result = present_through(&service, &modal);
 
     assert_eq!(result.wait(), "cancel");
-    assert!(modal.is_dismissed());
+    assert_eq!(modal.result(), Some("cancel"));
 }
 
 /// DIA-010 — Null modal presentation keeps an already-dismissed modal's result
@@ -409,7 +482,7 @@ fn null_modal_presentation_keeps_an_earlier_result() {
     let modal = ModalVm::new("cancel");
     modal.dismiss("chosen");
 
-    let result = service.present(&modal);
+    let result = present_through(&service, &modal);
 
     assert_eq!(result.wait(), "chosen");
     assert_eq!(modal.result(), Some("chosen"));

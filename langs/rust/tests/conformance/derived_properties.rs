@@ -1,8 +1,12 @@
 use std::sync::{mpsc, Arc, Barrier, Mutex};
 
+use super::bounded_wait::within_timeout;
 use serde::Deserialize;
 use serde_json::Value;
 use vmx::{DerivedProperty, ExpandableState, ValueStream};
+
+/// The bound on every deadlock wait in this file.
+const BOUND: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Deserialize)]
 struct DerivedPropertyFixture {
@@ -502,16 +506,6 @@ fn value_changes_subscriber_may_recompute() {
     assert_eq!(values.lock().unwrap().last(), Some(&3));
 }
 
-/// Runs `body` on a worker and fails if it does not finish within 5 s.
-fn finishes<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(body());
-    });
-    rx.recv_timeout(std::time::Duration::from_secs(5))
-        .unwrap_or_else(|_| panic!("{what} deadlocked"))
-}
-
 /// #751 — a `value_changes` subscriber that recomputes, while another
 /// thread's `recompute` transform runs, does not deadlock either thread.
 #[test]
@@ -539,7 +533,7 @@ fn subscriber_recompute_during_another_threads_transform_does_not_deadlock() {
         .unwrap();
     release.send(()).unwrap();
 
-    finishes("recompute and source delivery", move || {
+    within_timeout("recompute and source delivery", BOUND, move || {
         worker.join().unwrap();
         sender.join().unwrap();
     });
@@ -563,7 +557,7 @@ fn subscriber_may_wait_for_another_threads_source_update() {
         })
     };
 
-    finishes("recompute", {
+    within_timeout("recompute", BOUND, {
         let property = property.clone();
         move || property.recompute(|value| value + 1)
     });
@@ -595,4 +589,55 @@ fn recompute_waiting_behind_another_commits_nothing_after_dispose() {
     waiting.join().unwrap();
 
     assert_eq!(property.value(), at_dispose);
+}
+
+type Recorded = Arc<Mutex<Vec<i32>>>;
+
+/// Subscribes A (records, then panics) and B (records) to `stream`.
+fn record_failing_then_healthy(
+    stream: &ValueStream<i32>,
+) -> (Recorded, Recorded, [vmx::ValueSubscription; 2]) {
+    let a_values = Arc::new(Mutex::new(Vec::new()));
+    let b_values = Arc::new(Mutex::new(Vec::new()));
+    let (a_seen, b_seen) = (a_values.clone(), b_values.clone());
+    let a = stream.subscribe(move |value| {
+        a_seen.lock().unwrap().push(value);
+        panic!("subscriber A failed");
+    });
+    let b = stream.subscribe(move |value| b_seen.lock().unwrap().push(value));
+    (a_values, b_values, [a, b])
+}
+
+/// DPROP-013 — a failing ValueChanged subscriber stops neither the property nor the other subscribers
+#[test]
+fn failing_value_changed_subscriber_stops_neither_property_nor_others() {
+    let source = ValueStream::new(0);
+    let property = DerivedProperty::from_one(source.clone(), |value| value * 10);
+    let (a_values, b_values, _subscriptions) =
+        record_failing_then_healthy(&property.value_changes());
+
+    // The panics are caught per subscriber, so `send` returns normally.
+    source.send(1);
+    source.send(2);
+
+    assert_eq!(property.value(), 20);
+    assert_eq!(*a_values.lock().unwrap(), vec![10, 20]);
+    assert_eq!(*b_values.lock().unwrap(), vec![10, 20]);
+}
+
+/// DPROP-013 — a failing ValueChanged subscriber stops neither a two-source property nor the other subscribers
+#[test]
+fn failing_value_changed_subscriber_stops_neither_two_source_property_nor_others() {
+    let s1 = ValueStream::new(1);
+    let s2 = ValueStream::new(2);
+    let property = DerivedProperty::from_two(s1.clone(), s2.clone(), |a, b| a + b);
+    let (a_values, b_values, _subscriptions) =
+        record_failing_then_healthy(&property.value_changes());
+
+    s1.send(10);
+    s2.send(20);
+
+    assert_eq!(property.value(), 30);
+    assert_eq!(*a_values.lock().unwrap(), vec![12, 30]);
+    assert_eq!(*b_values.lock().unwrap(), vec![12, 30]);
 }

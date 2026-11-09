@@ -8,7 +8,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// CMD-001 through CMD-019 — see spec/12-conformance.md §Commands.
+/// CMD-001 through CMD-020 — see spec/12-conformance.md §Commands.
 /// </summary>
 public class CommandConformanceTests
 {
@@ -225,6 +225,41 @@ public class CommandConformanceTests
         await run;
 
         fired.Should().Be(3, "execution completion remains additive on the same channel");
+    }
+
+    // CMD-020 — a fire-and-forget fault reaches Errors after the completion
+    // notification, so an Errors subscriber reads IsExecuting == false
+    // (spec/04 §10.2/§10.4, ADR-0195).
+    [Fact, Trait("Conformance", "CMD-020")]
+    public async Task CMD_020_FireAndForget_Fault_Reaches_Errors_After_Completion_Notification()
+    {
+        var error = new InvalidOperationException("boom");
+        var log = new List<string>();
+        var errorSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cmd = AsyncRelayCommand.Builder()
+            .Task(async _ =>
+            {
+                await Task.Yield();
+                throw error;
+            })
+            .Build();
+        cmd.CanExecuteChanged += (_, _) =>
+        {
+            lock (log) log.Add("change");
+        };
+        using var subscription = cmd.Errors.Subscribe(e =>
+        {
+            lock (log) log.Add($"error:{ReferenceEquals(e, error)}:IsExecuting={cmd.IsExecuting}");
+            errorSeen.TrySetResult();
+        });
+
+        cmd.Execute(null);
+        await errorSeen.Task.WaitAsync(Liveness.HangGuard);
+
+        lock (log)
+        {
+            log.Should().Equal("change", "change", "error:True:IsExecuting=False");
+        }
     }
 
     // CMD-013 — Disposed RelayCommand instances are inert.

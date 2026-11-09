@@ -12,7 +12,7 @@
 // `InlineDisposeCascadeConformanceTests`.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -578,7 +578,7 @@ final class LifecycleTests: XCTestCase {
             }
             for _ in 0..<16 { start.signal() }
 
-            XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+            XCTAssertEqual(group.wait(timeout: .now() + hangGuard), .success)
             XCTAssertEqual(vm.disposeCalls, 1)
         }
     }

@@ -261,8 +261,13 @@ class FormVM(Generic[TM]):
             RelayCommand.builder()
             .task(self._approve_fire_and_forget)
             .predicate(self._can_approve)
-            .triggers(self._can_execute_trigger)
             .build()
+        )
+        # The form's own notification is call-fed (spec/03 §3.6): an observer
+        # failure reaches the form's caller (spec/20 §5.3). A command trigger
+        # would log it instead, so the form raises the command directly.
+        self._can_execute_trigger.subscribe(
+            lambda _: self._approve_command.raise_can_execute_changed()
         )
 
     # ── Builder entrypoint ───────────────────────────────────────────────────

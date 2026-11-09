@@ -14,13 +14,22 @@ type FormResetOnApproved<M> = Arc<dyn Fn(&M) -> VmxResult<M> + Send + Sync>;
 type FieldValidator<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, Option<String>> + Send + Sync>;
 type ApprovedCallback<M> = Arc<dyn Fn(M) + Send + Sync>;
+type ApprovedCompletion = Arc<dyn Fn() + Send + Sync>;
+
+/// One approval registration: its callback and, for
+/// [`FormVm::subscribe_approved_with_completion`], its completion callback.
+struct ApprovedEntry<M> {
+    id: u64,
+    callback: ApprovedCallback<M>,
+    completion: Option<ApprovedCompletion>,
+}
 
 /// Approval callbacks keyed by registration, so one can detach without
 /// disturbing the others. Disposal sets `closed` under the same lock, so a
 /// registration racing disposal is rejected instead of retained.
 struct ApprovedRegistry<M> {
     next_id: u64,
-    entries: Vec<(u64, ApprovedCallback<M>)>,
+    entries: Vec<ApprovedEntry<M>>,
     closed: bool,
 }
 
@@ -33,23 +42,54 @@ impl<M> ApprovedRegistry<M> {
         }
     }
 
-    fn register(&mut self, callback: ApprovedCallback<M>) -> Result<u64, ApprovedCallback<M>> {
-        if self.closed {
-            return Err(callback);
-        }
+    /// Registers a callback, or returns the rejected entry on a closed
+    /// registry.
+    fn register(
+        &mut self,
+        callback: ApprovedCallback<M>,
+        completion: Option<ApprovedCompletion>,
+    ) -> Result<u64, ApprovedEntry<M>> {
         let id = self.next_id;
+        let entry = ApprovedEntry {
+            id,
+            callback,
+            completion,
+        };
+        if self.closed {
+            return Err(entry);
+        }
         self.next_id += 1;
-        self.entries.push((id, callback));
+        self.entries.push(entry);
         Ok(id)
     }
 
     fn is_registered(&self, id: u64) -> bool {
-        self.entries.iter().any(|(entry, _)| *entry == id)
+        self.entries.iter().any(|entry| entry.id == id)
     }
 
-    fn remove(&mut self, id: u64) -> Option<ApprovedCallback<M>> {
-        let index = self.entries.iter().position(|(entry, _)| *entry == id)?;
-        Some(self.entries.remove(index).1)
+    fn remove(&mut self, id: u64) -> Option<ApprovedEntry<M>> {
+        let index = self.entries.iter().position(|entry| entry.id == id)?;
+        Some(self.entries.remove(index))
+    }
+
+    fn callback(&self, id: u64) -> Option<ApprovedCallback<M>> {
+        self.entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .map(|entry| Arc::clone(&entry.callback))
+    }
+}
+
+/// Releases the approval callbacks of `entries`, then runs their completion
+/// callbacks in registration order, with no lock held. A panicking
+/// completion is contained, as a hub completion is, so the rest still run.
+fn complete_approved<M>(entries: Vec<ApprovedEntry<M>>) {
+    let completions: Vec<ApprovedCompletion> = entries
+        .into_iter()
+        .filter_map(|entry| entry.completion)
+        .collect();
+    for completion in completions {
+        let _ = catch_unwind(AssertUnwindSafe(|| completion()));
     }
 }
 
@@ -676,9 +716,9 @@ impl<M> Notices<M> {
 /// A queued notification other than `errors_changed`. Every kind but
 /// [`Notice::Reverted`] already sends nothing on a disposed form.
 enum Notice {
-    /// The approve command's eligibility change of an update, when its gates
-    /// moved from the first value to the second.
-    Eligibility(bool, bool),
+    /// The approve command's eligibility change of an update, when the update
+    /// changed one of its gates.
+    Eligibility(bool),
     /// The `"model"` hub message.
     Model,
     /// The [`FormRevertedMessage`] of a revert. A nested one is dropped once
@@ -686,9 +726,6 @@ enum Notice {
     Reverted { nested: bool },
     /// The eligibility change of a nested approval's admission.
     Admission,
-    /// The eligibility change of a revalidation, when [`FormVm::can_approve`]
-    /// moved from this value.
-    Revalidated(bool),
 }
 
 /// What an update's preparation and commit hand to [`FormVm::run_update`].
@@ -807,11 +844,9 @@ impl Drop for UpdateGuard<'_> {
 struct PreparedUpdate<M> {
     model: M,
     errors: BTreeMap<String, String>,
-    /// Whether the validity and strict-mode gates admitted approval before
-    /// the update.
-    was_eligible: bool,
-    /// Whether they admit approval after it.
-    eligible: bool,
+    /// Whether the update changes `is_valid`, or `is_dirty` in strict mode
+    /// (spec/20 §5.2, ADR-0196).
+    approve_gate_changed: bool,
 }
 
 /// What a preparation read before its first callback (spec/20 §5.4,
@@ -1180,8 +1215,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         let PreparedUpdate {
             model,
             errors,
-            was_eligible,
-            eligible,
+            approve_gate_changed,
         } = self.prepare_update(Some(live), None, model);
         let guard = self.update_lock.acquire();
         let model = match self.place_prepared(base, QueuedUpdate::Assign(model), refused_by, true) {
@@ -1203,7 +1237,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         let errors_changed = self.commit_update(model, errors);
         let step = self.committed(
             errors_changed,
-            vec![Notice::Eligibility(was_eligible, eligible), Notice::Model],
+            vec![Notice::Eligibility(approve_gate_changed), Notice::Model],
         );
         drop(guard);
         step
@@ -1386,9 +1420,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             }
             for notice in after.drain(..) {
                 match notice {
-                    Notice::Eligibility(was_eligible, eligible) => {
-                        self.publish_eligibility_change(was_eligible, eligible);
-                    }
+                    Notice::Eligibility(changed) => self.publish_eligibility_change(changed),
                     Notice::Model => self.publish_model_changed(),
                     Notice::Reverted { nested } => {
                         if !(nested && *lock(&self.disposed)) {
@@ -1406,9 +1438,6 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                         // send fails only on an internal panic.
                         announced.set(announced.get() + 1);
                         self.raise_approve_can_execute_changed();
-                    }
-                    Notice::Revalidated(could_approve) => {
-                        self.publish_approve_state_change(could_approve);
                     }
                 }
             }
@@ -1857,17 +1886,13 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 let ids: Vec<u64> = lock(&self.approved_callbacks)
                     .entries
                     .iter()
-                    .map(|(id, _)| *id)
+                    .map(|entry| entry.id)
                     .collect();
                 for id in ids {
                     if *lock(&self.disposed) {
                         break;
                     }
-                    let callback = lock(&self.approved_callbacks)
-                        .entries
-                        .iter()
-                        .find(|(entry_id, _)| *entry_id == id)
-                        .map(|(_, callback)| Arc::clone(callback));
+                    let callback = lock(&self.approved_callbacks).callback(id);
                     if let Some(callback) = callback {
                         callback(model.clone());
                     }
@@ -2002,14 +2027,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 };
             }
         }
-        let (was_eligible, eligible) = (update.was_eligible, update.eligible);
+        let approve_gate_changed = update.approve_gate_changed;
         let errors_changed = self.commit_update(update.model, update.errors);
         let step = self.committed(
             errors_changed,
             vec![
                 Notice::Reverted { nested: false },
                 Notice::Model,
-                Notice::Eligibility(was_eligible, eligible),
+                Notice::Eligibility(approve_gate_changed),
             ],
         );
         drop(guard);
@@ -2022,7 +2047,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// [`approve_errors`](Self::approve_errors). Its eligibility is
     /// [`can_approve`](Self::can_approve), so it is disabled while an approval
     /// is in flight, and its eligibility change fires when an approval is
-    /// admitted and once when it settles. A settlement observer, such as an
+    /// admitted and once when it settles. An update also fires it once when
+    /// it changes [`is_valid`](Self::is_valid), or
+    /// [`is_dirty`](Self::is_dirty) in strict mode, also while an approval is
+    /// in flight (spec/20 §5.2, ADR-0196). A settlement observer, such as an
     /// approval or `approve_errors` subscriber, may execute it again: that
     /// approval is admitted and runs before the observer's `execute` returns.
     /// Executed from a preparation callback or an update's `errors_changed`
@@ -2112,7 +2140,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(M) + Send + Sync + 'static,
     {
-        let rejected = lock(&self.approved_callbacks).register(Arc::new(callback));
+        let rejected = lock(&self.approved_callbacks).register(Arc::new(callback), None);
         drop(rejected);
     }
 
@@ -2158,17 +2186,83 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(M) + Send + Sync + 'static,
     {
-        let registered = lock(&self.approved_callbacks).register(Arc::new(callback));
+        self.register_approved(Arc::new(callback), None)
+    }
+
+    /// Subscribes like [`subscribe_approved`](Self::subscribe_approved), and
+    /// also calls `on_completed` once when the form is disposed (spec/20
+    /// §10, ADR-0210).
+    ///
+    /// `on_completed` runs once, after the form's `errors_changed()` and
+    /// `approve_errors()` hubs are disposed, with no form lock held. A
+    /// repeated [`dispose`](Self::dispose) does not run it again. On a form
+    /// that is already disposed it runs at once, `on_approved` never runs,
+    /// and the returned handle is inactive. Detaching the handle before the
+    /// form is disposed releases both callbacks, and `on_completed` never
+    /// runs.
+    ///
+    /// A panic in `on_completed` is contained, as a hub completion callback
+    /// is, so disposal still completes the other subscribers. A panic in
+    /// `on_approved` propagates out of [`approve`](Self::approve), as it does
+    /// for [`subscribe_approved`](Self::subscribe_approved) (ADR-0139).
+    ///
+    /// ```
+    /// use std::sync::atomic::{AtomicUsize, Ordering};
+    /// use std::sync::Arc;
+    /// use vmx::FormVm;
+    ///
+    /// let form = FormVm::new("profile", 1);
+    /// let completed = Arc::new(AtomicUsize::new(0));
+    /// let subscription = {
+    ///     let completed = completed.clone();
+    ///     form.subscribe_approved_with_completion(
+    ///         |_model| {},
+    ///         move || {
+    ///             completed.fetch_add(1, Ordering::SeqCst);
+    ///         },
+    ///     )
+    /// };
+    ///
+    /// form.dispose();
+    /// form.dispose();
+    ///
+    /// assert_eq!(completed.load(Ordering::SeqCst), 1);
+    /// assert!(!subscription.is_active());
+    /// ```
+    pub fn subscribe_approved_with_completion<F, C>(
+        &self,
+        on_approved: F,
+        on_completed: C,
+    ) -> ApprovalSubscription
+    where
+        F: Fn(M) + Send + Sync + 'static,
+        C: Fn() + Send + Sync + 'static,
+    {
+        self.register_approved(Arc::new(on_approved), Some(Arc::new(on_completed)))
+    }
+
+    fn register_approved(
+        &self,
+        callback: ApprovedCallback<M>,
+        completion: Option<ApprovedCompletion>,
+    ) -> ApprovalSubscription {
+        let registered = lock(&self.approved_callbacks).register(callback, completion);
         match registered {
             Ok(id) => ApprovalSubscription::new(id, Arc::downgrade(&self.approved_callbacks)),
             Err(rejected) => {
-                drop(rejected);
+                // The form is disposed: complete at once, with no lock held.
+                complete_approved(vec![rejected]);
                 ApprovalSubscription::inactive()
             }
         }
     }
 
     /// Disposes commands and notification hubs and makes later mutations inert.
+    ///
+    /// After the hubs complete, disposal releases the approval callbacks and
+    /// calls the completion callback of each
+    /// [`subscribe_approved_with_completion`](Self::subscribe_approved_with_completion)
+    /// subscription once, with no form lock held (spec/20 §10, ADR-0210).
     ///
     /// Disposal waits until no other thread holds a publication scope on the
     /// form (spec/20 §5.5). When that wait would close a wait-for cycle, the
@@ -2279,7 +2373,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             registry.closed = true;
             std::mem::take(&mut registry.entries)
         };
-        drop(released);
+        // Complete the approval subscribers after the hubs, with no lock
+        // held (spec/20 §10, ADR-0210).
+        complete_approved(released);
         let field_validators = std::mem::take(&mut *lock(&self.field_validators));
         let model_validators = std::mem::take(&mut *lock(&self.model_validators));
         drop(field_validators);
@@ -2308,8 +2404,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Revalidates the live model after a validator registration, then
-    /// publishes an effective error change and the approve command's
-    /// eligibility change.
+    /// publishes an effective error change and, when the run changed
+    /// `is_valid`, the approve command's eligibility change (spec/20 §5.2,
+    /// ADR-0196).
     ///
     /// The run is an update frame (spec/20 §5.4 and §5.5, #1231, ADR-0216).
     /// It waits like [`set_model`](Self::set_model) while another thread holds
@@ -2338,12 +2435,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// joins the publisher's queue without preparing.
     fn recheck(&self, refused_by: Option<ThreadId>) -> Step<M> {
         let base = self.preparation_base();
-        let prepared = refused_by.is_none().then(|| {
-            (
-                self.can_approve(),
-                self.validation_errors_for(&self.model()),
-            )
-        });
+        let prepared = refused_by
+            .is_none()
+            .then(|| (self.is_valid(), self.validation_errors_for(&self.model())));
         let guard = self.update_lock.acquire();
         match self.place_prepared(base, QueuedUpdate::Revalidate, refused_by, false) {
             Placement::Commit(_) => {}
@@ -2355,14 +2449,15 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             }
             Placement::Done => return Step::default(),
         }
-        let Some((could_approve, errors)) = prepared else {
+        let Some((was_valid, errors)) = prepared else {
             return Step::default();
         };
         self.note_commit();
+        let validity_changed = was_valid != errors.is_empty();
         let errors_changed = self.replace_validation_errors(errors);
         // The generation moves after the install (see `commit_update`).
         self.commit_generation.fetch_add(1, Ordering::SeqCst);
-        let step = self.committed(errors_changed, vec![Notice::Revalidated(could_approve)]);
+        let step = self.committed(errors_changed, vec![Notice::Eligibility(validity_changed)]);
         drop(guard);
         step
     }
@@ -2563,7 +2658,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Computes the rest of an update to `model` without changing the form:
-    /// the approval gates before and after it, and the model's validation
+    /// whether it changes an approval gate, and the model's validation
     /// result. Every callback runs on copies, with no lock held (spec/20 §5.4,
     /// ADR-0215).
     ///
@@ -2579,20 +2674,20 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 snapshot.unwrap_or_else(|| self.snapshot()),
             )
         });
+        let was_valid = self.is_valid();
         let was_dirty = dirty_inputs
             .as_ref()
-            .is_none_or(|(live, snapshot)| live != snapshot);
-        let was_eligible = self.is_valid() && was_dirty;
+            .map(|(live, snapshot)| live != snapshot);
         let errors = self.validation_errors_for(&model);
-        let dirty = dirty_inputs
+        let is_dirty = dirty_inputs
             .as_ref()
-            .is_none_or(|(_, snapshot)| model != *snapshot);
-        let eligible = errors.is_empty() && dirty;
+            .map(|(_, snapshot)| model != *snapshot);
+        // An update that changes both gates raises one change (spec/20 §5.2).
+        let approve_gate_changed = was_valid != errors.is_empty() || was_dirty != is_dirty;
         PreparedUpdate {
             model,
             errors,
-            was_eligible,
-            eligible,
+            approve_gate_changed,
         }
     }
 
@@ -2709,18 +2804,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
     }
 
-    /// Raises the approve command's eligibility change when an update moved
-    /// its validity or strict-mode gate. While the form is disposed or an
-    /// approval is in flight, the command stays disabled whatever the update
-    /// changed.
-    fn publish_eligibility_change(&self, was_eligible: bool, eligible: bool) {
-        if was_eligible != eligible && !self.approval_in_flight.load(Ordering::SeqCst) {
-            self.raise_approve_can_execute_changed();
-        }
-    }
-
-    fn publish_approve_state_change(&self, previous: bool) {
-        if self.can_approve() != previous {
+    /// Raises the approve command's eligibility change when an update
+    /// `changed` its validity or strict-mode dirty gate (spec/20 §5.2,
+    /// ADR-0196). The rule compares the gates, not `can_approve`, so an
+    /// approval in flight does not suppress it. A disposed form sends nothing.
+    fn publish_eligibility_change(&self, changed: bool) {
+        if changed {
             self.raise_approve_can_execute_changed();
         }
     }

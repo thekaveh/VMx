@@ -200,10 +200,13 @@ Each approval subscription detaches on its own: dispose the C# `IDisposable`,
 Python disposable, or TypeScript `Subscription`, cancel the Swift
 `AnyCancellable`, or dispose or drop the Rust `ApprovalSubscription`. Form
 disposal releases every remaining subscriber, and a registration made after
-disposal keeps nothing. Rust `subscribe_approved` subscribers receive no
-completion signal on dispose; the other flavors complete `OnApproved` (Rust
-parity ledger §12.9). Rust's deprecated `on_approved` registration lasts until
-the form is disposed (ADR-0139).
+disposal keeps nothing. Every flavor signals form disposal to an approval
+subscriber: C#, Python, TypeScript and Swift complete `OnApproved`, and Rust
+calls the completion callback of `subscribe_approved_with_completion(...)`
+once (ADR-0210). That Rust callback runs at once for a subscription made after
+disposal, and never for a handle detached before it. Rust
+`subscribe_approved` takes no completion callback. Rust's deprecated
+`on_approved` registration lasts until the form is disposed (ADR-0139).
 
 Builder examples use the idiomatic name but the same captured-model contract:
 

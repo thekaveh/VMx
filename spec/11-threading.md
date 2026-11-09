@@ -92,6 +92,37 @@ producers are serialized behind that scope and retain ordinary synchronous
 delivery on their own calling thread after it exits. Re-entrant sends are
 delivered iteratively on the current drainer's thread. See `03-messages.md §3.3`.
 
+### 3.1 Continuations after awaited work (spec v3.30, ADR-0195)
+
+Some VMx operations await work and then continue. A
+`ConfirmationDecoratorCommand` awaits `confirm()` and then runs the inner
+command (chapter 04 §8.3). An `AsyncRelayCommand` awaits its task and then
+raises its completion `CanExecuteChanged` and any `errors` emission (chapter
+04 §10). A `TokenPagedComposition` load or refresh awaits its fetch and then
+publishes its `CollectionChanged` and property notifications (chapter 21 §6).
+
+VMx does not marshal such a continuation. The continuation runs where the
+awaited work completes, not on the caller's thread and not on
+`IDispatcher.Foreground`. VMx makes no further thread guarantee for it:
+
+- **C#:** VMx awaits with `ConfigureAwait(false)`. The continuation can run on
+  a thread-pool thread, also when the caller has a `SynchronizationContext`.
+- **Python:** the continuation runs on the event loop that runs the operation.
+  That is the caller's running loop, or the VMx background loop when no loop
+  runs.
+- **TypeScript:** the continuation runs on the one JavaScript thread.
+- **Swift:** the continuation runs on the executor of the Swift task that VMx
+  starts. VMx starts these tasks from nonisolated code, so they do not run on
+  the main actor.
+- **Rust:** the continuation runs on the thread that settles the awaited value,
+  or on a VMx worker thread.
+
+A consumer that needs foreground delivery marshals the work itself. It
+subscribes through `ObserveOn(dispatcher.Foreground)` or the flavor
+equivalent, or it makes the inner command post its work to
+`IDispatcher.Foreground`. An inner command that mutates a composite must do
+so on the foreground (§3).
+
 ## 4. Background work
 
 VMs MAY perform construction and destruction work on `IDispatcher.Background`. The
@@ -111,12 +142,11 @@ does not turn parent orchestration into a synchronous wait for background-enable
 descendants; containers retain their existing child-cascade and failure routes.
 
 The child-transition helper of chapter 02 §6.1 runs inside the parent's hook,
-so a background-enabled parent runs it on `IDispatcher.Background` in C#,
-Python, TypeScript and Swift. Rust's walk methods run the component's
-transition on the calling thread, so `construct_with_children` and
-`destruct_with_children` reject a component built with `background(true)` and
-return `VmxError::InvalidArgument` before any transition starts.
-`reconstruct_with_children` follows the direct-reconstruct rule above and runs
+so a background-enabled parent runs it on `IDispatcher.Background`. In Rust,
+the walk of a `construct` or `destruct` of a component built with
+`background(true)` runs after the hook on the background dispatcher
+(ADR-0203). A reconstruct, with stored walks or through
+`reconstruct_with_children`, follows the direct-reconstruct rule above and runs
 synchronously for every component. Background children of the walk still run
 their own hooks on the background dispatcher, and the walk waits for them.
 
@@ -162,9 +192,16 @@ The await primitive for a consumer-defined background wrapper is the
 terminal-status subscription above; the hub does not replay the last status to a
 late subscriber. Every flavor's containers wait at the status level for
 background children to settle (chapter 02 §6). In Rust, a container waits for a
-child node that forwards `VmNode::when_lifecycle_settled`; a third-party node
-that does not forward it is accepted while still in flight. C# alone ships
-first-class outcome tasks for it (`ConstructAsync` / `DestructAsync`); those
+child node that forwards `VmNode::when_lifecycle_settled`. For a node that does
+not forward it, the container observes its own message hub (ADR-0205). When the
+container starts the node and, by the time the start call returns, the hub
+delivered or queued the node's transient status, the container waits on that
+hub for a status of the node that arrives once the node is no longer in flight,
+and a node that settles anywhere else rolls the container back. In every other case (the node publishes on another hub, or the
+container joins a node already in flight), the container accepts the node while
+it is still in flight rather than wait without limit. C# alone ships
+first-class outcome tasks for awaiting a transition (`ConstructAsync` /
+`DestructAsync`); those
 tasks preserve hook and child-cascade failures per ADR-0109. Equivalent async
 lifecycle entry points remain deliberately absent from the other flavors under
 ADR-0008/ADR-0009 rather than an active parity requirement.

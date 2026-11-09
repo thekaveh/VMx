@@ -59,7 +59,10 @@ public final class SearchableState<T>: Searchable {
         self.predicate = predicate
         self.filteredSubject = CurrentValueSubject(items().filter { predicate($0, "") })
 
+        // Skip the seeded "" so construction starts no term debounce
+        // (SRCH-008, ADR-0198).
         let debouncedTerm = termSubject
+            .dropFirst()
             .debounce(for: debounce, scheduler: scheduler)
             .eraseToAnyPublisher()
         let forcedTerm = forceSearchSubject

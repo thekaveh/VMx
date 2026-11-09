@@ -1,6 +1,6 @@
 # ADR 0038 — Spec accuracy corrections (ch. 14/16/20/21) and FORM-014
 
-**Status:** Accepted (2026-06-11)
+**Status:** Accepted (2026-06-11; TypeScript compound-key detail superseded by ADR-0111)
 **Spec version:** 2.5.0
 
 ## 1. Context

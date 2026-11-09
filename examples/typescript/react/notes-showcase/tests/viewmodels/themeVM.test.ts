@@ -21,7 +21,7 @@ import { ThemeVM } from "../../src/viewmodels/themeVM.js";
 
 function makeVM(
   initial?: ThemeModel,
-  systemResolver?: () => "dark" | "light",
+  systemResolver?: () => string,
 ): { vm: ThemeVM; hub: MessageHub } {
   const hub = new MessageHub();
   const vm = new ThemeVM({
@@ -256,13 +256,36 @@ describe("THEME-005 — followSystemCommand + reset on setTheme", () => {
     expect(vm.currentTheme.value.name).toBe("dark");
   });
 
-  it("system resolver defaults to dark when host has no media-query API", () => {
-    // jsdom in vitest default config does NOT install matchMedia; the
-    // VM's default resolver should pick "dark".
-    const { vm } = makeVM();
+  it("ADR-0201 §2.6: with no resolver, keeps the theme and sets followsSystem", () => {
+    const initial: ThemeModel = {
+      ...LIGHT_PRESET,
+      accentColor: "#123456",
+      fontScaleFactor: 1.25,
+    };
+    const { vm, hub } = makeVM(initial);
+    const msgs = captureMessages(hub);
+
     vm.followSystemCommand.execute();
-    expect(vm.currentTheme.value.name).toBe("dark");
+
+    expect(vm.model).toEqual({ ...initial, followsSystem: true });
     expect(vm.followsSystem.value).toBe(true);
+    expect(msgs).toHaveLength(1);
+
+    vm.followSystemCommand.execute();
+    expect(msgs).toHaveLength(1);
+  });
+
+  it("ADR-0201 §2.6: a resolved name that is not a preset gives the same result", () => {
+    const initial: ThemeModel = { ...LIGHT_PRESET, fontScaleFactor: 1.25 };
+    for (const name of ["sepia", "toString"]) {
+      const { vm, hub } = makeVM(initial, () => name);
+      const msgs = captureMessages(hub);
+
+      vm.followSystemCommand.execute();
+
+      expect(vm.model).toEqual({ ...initial, followsSystem: true });
+      expect(msgs).toHaveLength(1);
+    }
   });
 });
 
@@ -284,6 +307,25 @@ describe("ThemeVM — accent color", () => {
     expect(() => vm.setAccentColor.execute("not-a-color")).toThrow(
       "invalid accent color",
     );
+  });
+
+  it("ADR-0201 §2.5: rejects every value that is not #RGB or #RRGGBB", () => {
+    const { vm, hub } = makeVM();
+    const before = vm.model;
+    const msgs = captureMessages(hub);
+    for (const bad of ["not-a-color", "#12345", "", "#abcd", "abc", "#ggg"]) {
+      expect(() => vm.setAccentColor.execute(bad)).toThrow("invalid accent color");
+    }
+    expect(vm.model).toBe(before);
+    expect(msgs).toHaveLength(0);
+  });
+
+  it("ADR-0201 §2.5: accepts either hex case and stores the value as given", () => {
+    const { vm } = makeVM();
+    vm.setAccentColor.execute("#AABBCC");
+    expect(vm.model.accentColor).toBe("#AABBCC");
+    vm.setAccentColor.execute("#aBc");
+    expect(vm.model.accentColor).toBe("#aBc");
   });
 
   it("setAccentColor with the same value is a no-op", () => {

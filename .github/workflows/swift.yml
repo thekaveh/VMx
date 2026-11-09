@@ -14,6 +14,8 @@ on:
       - "examples/notes-showcase-theme-scenario.json"
       - "spec/**"
       - "tools/check-swift-package-sync.py"
+      - "tools/check-swift-subscript-chains.py"
+      - "starters/swift-package/**"
       - "tools/swift-test-watchdog.py"
       - ".github/workflows/swift.yml"
       - "tools/check-conformance-execution.py"
@@ -23,6 +25,17 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
+
+# #1440: a newer push to a pull request cancels that pull request's older run
+# of this workflow, so a superseded run frees its runners. Push, schedule and
+# workflow_dispatch runs each get a group of their own and are never cancelled
+# or replaced; a shared group would replace a pending run (#534).
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+    || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -59,6 +72,12 @@ jobs:
         run: swift --version | grep -E '^(Apple )?Swift version 6\.0(\.| |$)'
       - name: Check root and nested manifest parity
         run: python3 tools/check-swift-package-sync.py
+      - name: Reject optional chaining on a subscript result
+        # Swift 6.4 at -Onone can return a non-nil member for a missing
+        # dictionary key when the lookup and the member access are chained
+        # (#1462, CONTRIBUTING.md). The check is textual and covers every
+        # Swift file of the repository's packages.
+        run: python3 tools/check-swift-subscript-chains.py
       - name: Build root package
         run: swift build -c release
       - name: Enforce strict concurrency boundaries
@@ -88,7 +107,7 @@ jobs:
           python3 tools/check-conformance-execution.py --flavor swift
           --report langs/swift/conformance-results.xml --evidence conformance-evidence.json
           --commit "${{ github.sha }}" --toolchain "$(swift --version 2>&1 | head -n 1)"
-          --configuration "macos-15 ${{ matrix.label }}"
+          --configuration "${{ matrix.os }} ${{ matrix.label }}"
 
       - name: Publish conformance evidence
         if: ${{ !cancelled() }}
@@ -145,7 +164,7 @@ jobs:
                   start_new_session=True,
               )
               try:
-                  output, _ = process.communicate(timeout=120)
+                  output, _ = process.communicate(timeout=300)
               except subprocess.TimeoutExpired:
                   os.killpg(process.pid, signal.SIGKILL)
                   output, _ = process.communicate()
@@ -276,6 +295,28 @@ jobs:
           python3 ../../../tools/swift-test-watchdog.py --per-test-timeout 120
           -- swift test --parallel
 
+  public-api:
+    name: public API (diagnose-api-breaking-changes)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # SwiftPM checks out the baseline revision from this repository's
+          # history, so the recorded revision must be present.
+          fetch-depth: 0
+      - name: Show Swift version
+        run: swift --version
+      - name: Compare the public API with the baseline revision
+        # Fails on any break of the root package's VMx product that
+        # langs/swift/api/breakage-allowlist.txt does not list
+        # (CONTRIBUTING.md, "Public API baselines").
+        run: >-
+          swift package diagnose-api-breaking-changes
+          "$(tr -d '[:space:]' < langs/swift/api/baseline-revision)"
+          --products VMx
+          --breakage-allowlist-path langs/swift/api/breakage-allowlist.txt
+
   coverage:
     name: coverage floor
     runs-on: macos-15
@@ -289,9 +330,12 @@ jobs:
         # checks in the other jobs never see instrumentation. Counter updates
         # are atomic so tests that call one function from many threads (such
         # as DISP-003) cannot undercount the regions coverage derives by
-        # subtraction (#513).
+        # subtraction (#513). The run is one process, so the watchdog reads
+        # XCTest's output and kills and names a case that runs longer than
+        # four minutes, long before the job timeout (#1461).
         run: >-
-          swift test --package-path langs/swift --enable-code-coverage
+          python3 tools/swift-test-watchdog.py --per-test-timeout 240
+          -- swift test --package-path langs/swift --enable-code-coverage
           -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all
       - name: Enforce the recorded coverage floor
         run: >-
@@ -312,11 +356,29 @@ jobs:
             swift-coverage-provenance.json
           if-no-files-found: error
 
+  thread-sanitizer:
+    name: thread sanitizer
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Show Swift version
+        run: swift --version
+      - name: Test the library under Thread Sanitizer
+        # A separate debug build under .build. halt_on_error ends the test
+        # process at the first data-race report, so a TSan warning fails the
+        # step (#1407). The run is one process; the watchdog names a hung case.
+        env:
+          TSAN_OPTIONS: halt_on_error=1
+        run: >-
+          python3 tools/swift-test-watchdog.py --per-test-timeout 240
+          -- swift test --package-path langs/swift --sanitize=thread
+
   required:
     timeout-minutes: 5
     name: "required: swift"
     if: always()
-    needs: [build, platforms, examples, coverage]
+    needs: [build, platforms, examples, public-api, coverage, thread-sanitizer]
     runs-on: ubuntu-latest
     steps:
       - name: Require every Swift job

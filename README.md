@@ -84,9 +84,9 @@ them from a VMx checkout until their first registry release.
 | Flavor        | Public package                                                                                  | Source line |
 | ------------- | ----------------------------------------------------------------------------------------------- | ----------- |
 | Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                                    | v3.30.0     |
-| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM          | v3.31.0     |
+| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM          | v4.0.0      |
 | TypeScript    | [`@thekaveh/vmx` 3.30.0](https://www.npmjs.com/package/@thekaveh/vmx/v/3.30.0) on npm           | v3.31.0     |
-| React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.2      |
+| React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.3      |
 | C#            | Not yet published to NuGet                                                                      | v3.30.0     |
 | Rust          | Not yet published to crates.io                                                                  | v0.36.0     |
 
@@ -259,8 +259,11 @@ independently in SemVer. Every published package declares the spec version it
 implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
 `__minSpecVersion__` in TypeScript, `VMxVersion.minSpecVersion` in Swift,
 `MIN_SPEC_VERSION` in Rust). A
-spec major bump triggers a major bump in every active flavor; a spec minor bump
-is fully backwards compatible and ships in flavors as a minor bump.
+spec major bump triggers a major bump in every active flavor. A spec minor bump
+only adds or clarifies normative behavior, and each flavor ships it as a minor
+bump. A flavor also takes a major bump for its own source-breaking change, even
+when the spec bump is minor. ADR-0009 records the narrow 3.x exceptions that
+ship a source break in a minor version.
 
 ### 6.2 Spec and flavor compatibility
 

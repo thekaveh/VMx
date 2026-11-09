@@ -41,10 +41,14 @@ import { NoteVM } from "./noteVM.js";
 
 const SENTINEL = Symbol("not-set");
 
+/** Persists a note for its save command (ADR-0201 §2.3). */
+export type SaveNoteHandler = (vm: NoteVM) => Promise<void>;
+
 export class NotesViewVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
   readonly #dialogService: IDialogService | null;
   readonly #notificationHub: INotificationHub | null;
+  readonly #saveNote: SaveNoteHandler | null;
   readonly #inner: NoteVM[] = [];
   readonly #filtered: NoteVM[] = [];
   readonly #paged: PagedComposition<NoteVM>;
@@ -79,6 +83,7 @@ export class NotesViewVM extends ComponentVMBase {
     searchScheduler?: SchedulerLike;
     dialogService?: IDialogService | null;
     notificationHub?: INotificationHub | null;
+    saveNote?: SaveNoteHandler | null;
   }) {
     super({
       name: opts.name,
@@ -89,6 +94,7 @@ export class NotesViewVM extends ComponentVMBase {
     this.#repo = opts.repository;
     this.#dialogService = opts.dialogService ?? null;
     this.#notificationHub = opts.notificationHub ?? null;
+    this.#saveNote = opts.saveNote ?? null;
     declareCapabilities(
       this,
       "IPageable",
@@ -386,7 +392,11 @@ export class NotesViewVM extends ComponentVMBase {
         .onClose((vm) => {
           if (this.#current === vm) this.current = null;
         })
-        .onSave((vm) => this.#repo.saveNote(vm.model));
+        // ADR-0201 §2.3: the host's save handler when set (WorkspaceVM makes
+        // it the editor Save for the edited note), else the stored model.
+        .onSave((vm) =>
+          this.#saveNote !== null ? this.#saveNote(vm) : this.#repo.saveNote(vm.model),
+        );
       if (this.#dialogService !== null) {
         const dialog = this.#dialogService;
         builder = builder.confirmDelete((vm) =>
@@ -490,6 +500,7 @@ export class NotesViewVMBuilder {
   #searchScheduler: SchedulerLike | null = null;
   #dialogService: IDialogService | null = null;
   #notificationHub: INotificationHub | null = null;
+  #saveNote: SaveNoteHandler | null = null;
 
   constructor(from?: NotesViewVMBuilder) {
     if (from) {
@@ -503,6 +514,7 @@ export class NotesViewVMBuilder {
       this.#searchScheduler = from.#searchScheduler;
       this.#dialogService = from.#dialogService;
       this.#notificationHub = from.#notificationHub;
+      this.#saveNote = from.#saveNote;
     }
   }
 
@@ -561,6 +573,14 @@ export class NotesViewVMBuilder {
     return b;
   }
 
+  /** Optional save handler for each note's save command (ADR-0201 §2.3).
+   * Without it, a note save persists the note's stored model. */
+  saveNote(handler: SaveNoteHandler): NotesViewVMBuilder {
+    const b = new NotesViewVMBuilder(this);
+    b.#saveNote = handler;
+    return b;
+  }
+
   build(): NotesViewVM {
     if (this.#name === null) throw new Error("name is required");
     if (this.#hub === null || this.#dispatcher === null)
@@ -579,6 +599,7 @@ export class NotesViewVMBuilder {
         : {}),
       dialogService: this.#dialogService,
       notificationHub: this.#notificationHub,
+      saveNote: this.#saveNote,
     });
   }
 }

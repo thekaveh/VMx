@@ -224,6 +224,9 @@ but not retained. Already-parked items remain parked until resolved, terminally
 rejected, or the root is disposed. `ParkedAttachCount` exposes the pending count;
 root disposal clears it.
 
+A disposed receiver, a disposed structural root, or a disposed parent follows
+§7.1.
+
 Duplicates, missing parents, cycles, already-attached items, selector failures,
 and underlying attachment failures MUST NOT abort the batch. Successful nodes
 use the existing `AddChild` path, preserving parent/path/message invariants. If
@@ -261,6 +264,42 @@ reference remain unchanged. Swift reports `AddChild` rejection through its
 idiomatic `Result`; Rust uses `VmxResult`; the other flavors throw their
 standard invalid-operation error (ADR-0105).
 
+### 7.1 Disposed nodes (spec v3.30)
+
+Disposal freezes a node's child list. From the moment a node's `Status` is
+`Disposed`, these rules apply (ADR-0190, `HIER-041`):
+
+- `AddChild`, `RemoveChild`, `ReparentChild`, `InvalidateChildren`,
+  `InvalidateSubtree` and `AttachMany` on the disposed node refuse. They refuse
+  also where the call would otherwise do nothing.
+- `AddChild` and `ReparentChild` on a live node refuse when the child's
+  current parent is disposed. The child stays in that parent.
+- `AttachMany` also refuses when the structural root is disposed. On a live
+  root, a candidate whose parent is disposed gets an `AttachmentFailed`
+  rejection (§6). It is not parked and is not an orphan.
+- `InvalidateSubtree` on a live node skips each disposed descendant. That node
+  keeps its cache and publishes nothing. The call still visits that node's
+  materialized children.
+
+A refused call changes no child list, parent link, path, cache or parked item,
+and it publishes no message. It reports the refusal on the channel that a
+structural re-entry uses (§4):
+
+| Flavor     | `AddChild`, `RemoveChild`, `ReparentChild`                                                                  | `AttachMany`                                         | `InvalidateChildren`, `InvalidateSubtree` |
+| ---------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------- |
+| C#         | throw `ObjectDisposedException`                                                                             | throws `ObjectDisposedException`                     | throw `ObjectDisposedException`           |
+| Python     | raise `RuntimeError`                                                                                        | raises `RuntimeError`                                | raise `RuntimeError`                      |
+| TypeScript | throw `Error`                                                                                               | throws `Error`                                       | throw `Error`                             |
+| Swift      | `addChild` and `removeChild` return `.failure(.disposed)`; `reparentChild` throws `HierarchyError.disposed` | returns each item as an `attachmentFailed` rejection | return without a change                   |
+| Rust       | return `Err(VmxError::Disposed)`                                                                            | returns each item as an `AttachmentFailed` rejection | return without a change                   |
+
+The rules cover only a disposed node's own child list. A live node can still
+remove, transfer or invalidate a disposed child. A read of `Children` on a
+disposed node still materializes lazy children silently (§4), and disposal
+still never detaches a child (§3). In Rust, a dispose on another thread can
+land after a call's check; the call then completes as if the dispose came
+after it.
+
 ## 8. `TreeStructureChangedMessage`
 
 ```
@@ -278,10 +317,10 @@ TreeStructureChangedMessage:
   `parent → children[0] → children[0].children[0] → … → children[1] → …`.
 - **`ExpandableState`** (chapter 05 §8, ADR-0015): consumers may compose the
   non-generic `ExpandableState` to expose `IExpandable`. `walk_expanded`
-  (chapter 13 §5, §6) then skips the children of a collapsed node; Rust does
-  not stop there yet (chapter 13 §6 open gap). Expansion does not materialize
-  children: they materialize on first `Children` access, or at construct time
-  with the eager option (§4). `HierarchicalVM` does NOT auto-implement
+  (chapter 13 §5, §6) then skips the children of a collapsed node. Rust
+  composes it with `HierarchicalVm::compose_expansion` (ADR-0207). Expansion
+  does not materialize children: they materialize on first `Children` access,
+  or at construct time with the eager option (§4). `HierarchicalVM` does NOT auto-implement
   `IExpandable` — per ADR-0028 §3.6 and ADR-0010, capabilities are opt-in.
 - **`SearchableState`** (chapter 06 §8, ADR-0014): consumers may compose
   `SearchableState<TVM>` to provide a filtered view of a tree. The filter
@@ -492,3 +531,7 @@ hub message. A host maps `Current` to a route or a detail view.
   and publishes no hub message.
 - `HIER-040` — A disposed `TreeSelection` completes its stream, reads null and
   ignores later calls and tree changes.
+- `HIER-041` — A disposed node refuses every structural call, also a call that
+  would do nothing, without mutation or messages. A transfer from a disposed
+  parent refuses. `AttachMany` rejects a candidate under a disposed parent, and
+  `InvalidateSubtree` skips a disposed descendant (§7.1, ADR-0190).

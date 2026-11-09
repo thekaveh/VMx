@@ -21,6 +21,7 @@ on:
       - "tools/check-conformance-coverage.py"
       - "tools/check-conformance-execution.py"
       - "tools/check-typescript-schema-sync.py"
+      - "tools/check-typescript-api.py"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
@@ -28,6 +29,17 @@ on:
 defaults:
   run:
     working-directory: langs/typescript
+
+# #1440: a newer push to a pull request cancels that pull request's older run
+# of this workflow, so a superseded run frees its runners. Push, schedule and
+# workflow_dispatch runs each get a group of their own and are never cancelled
+# or replaced; a shared group would replace a pending run (#534).
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+    || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   schema-sync:
@@ -66,13 +78,13 @@ jobs:
           cache-dependency-path: langs/typescript/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
 
       - name: Validate dependency graph
         run: npm run check:deps
 
       - name: Audit dependencies
-        run: npm audit --package-lock-only --audit-level=low
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --package-lock-only --audit-level=low
 
       - name: Sync spec fixtures
         run: npm run sync-fixtures
@@ -91,6 +103,13 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Compare public declarations with the API baseline
+        # The declarations come from the locked TypeScript and tsup versions,
+        # so one combination is enough. Update langs/typescript/api/vmx.api.txt
+        # for an intended change (CONTRIBUTING.md, "Public API baselines").
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '26'
+        run: python3 ../../tools/check-typescript-api.py
 
       - name: Test
         # On the matrix combination that uploads coverage, run with --coverage
@@ -129,7 +148,8 @@ jobs:
 
   runtime-floor:
     needs: build
-    timeout-minutes: 10
+    # Fits the worst case of the retried npm ci (tools/ci-retry.mjs, #1360).
+    timeout-minutes: 15
     name: runtime floor (node20.5.0)
     runs-on: ubuntu-latest
     steps:
@@ -144,7 +164,7 @@ jobs:
 
       - name: Build public artifacts
         run: |
-          npm ci
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
           npm run build
 
       - name: Set up minimum Node.js
@@ -158,18 +178,16 @@ jobs:
   react:
     needs: build
     timeout-minutes: 25
-    name: react adapter (React ${{ matrix.react }})
+    name: react adapter (React ${{ matrix.react }} / node${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - react: "18.3.1"
-            react-types: "18.3.28"
-            react-dom-types: "18.3.7"
-          - react: "19.2.8"
-            react-types: "19.2.17"
-            react-dom-types: "19.2.3"
+        # Each React major installs with npm ci from its own tracked lockfile
+        # (#1334): React 19 from packages/react, React 18 from
+        # packages/react-18-deps. The Node lines match the core build job.
+        react: ["18", "19"]
+        node-version: ["20", "22", "24", "26"]
     defaults:
       run:
         working-directory: .
@@ -177,27 +195,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node-version }}
           cache: npm
           cache-dependency-path: |
             langs/typescript/package-lock.json
             packages/react/package-lock.json
+            packages/react-18-deps/package-lock.json
       - name: Build VMx core
         run: |
-          npm ci --prefix langs/typescript
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix langs/typescript
           npm run build --prefix langs/typescript
+      - name: Use the React 18 dependency tree
+        if: matrix.react == '18'
+        run: cp packages/react-18-deps/package.json packages/react-18-deps/package-lock.json packages/react/
       - name: Install adapter dependencies
-        run: npm ci --prefix packages/react
-      - name: Select React matrix version
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix packages/react
+      - name: Check the installed React major
         run: >-
-          npm install --prefix packages/react --no-save --package-lock=false
-          "react@${{ matrix.react }}" "react-dom@${{ matrix.react }}"
-          "@types/react@${{ matrix.react-types }}"
-          "@types/react-dom@${{ matrix.react-dom-types }}"
+          node -p 'require("./packages/react/node_modules/react/package.json").version'
+          | grep -E '^${{ matrix.react }}\.'
       - name: Validate dependency graph
         run: npm run check:deps --prefix packages/react
       - name: Audit dependencies
-        run: npm audit --prefix packages/react --package-lock-only --audit-level=low
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --prefix packages/react --package-lock-only --audit-level=low
       - name: Type-check
         run: npm run typecheck --prefix packages/react
       - name: Lint
@@ -207,9 +227,53 @@ jobs:
       - name: Test
         run: npm test --prefix packages/react
       - name: Verify package and fresh consumer
+        # The consumer smoke installs a separate, fresh consumer project in a
+        # temporary directory; it does not change the adapter's tree.
         run: |
           python3 tools/check-react-package.py
-          python3 tools/smoke-react-consumer.py --react "${{ matrix.react }}"
+          python3 tools/smoke-react-consumer.py --react \
+            "$(node -p 'require("./packages/react/node_modules/react/package.json").version')"
+
+  react-runtime-floor:
+    needs: build
+    timeout-minutes: 20
+    name: react adapter runtime floor (React ${{ matrix.react }} / node20.5.0)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        react: ["18", "19"]
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up build Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            langs/typescript/package-lock.json
+            packages/react/package-lock.json
+            packages/react-18-deps/package-lock.json
+      - name: Build VMx core
+        run: |
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix langs/typescript
+          npm run build --prefix langs/typescript
+      - name: Use the React 18 dependency tree
+        if: matrix.react == '18'
+        run: cp packages/react-18-deps/package.json packages/react-18-deps/package-lock.json packages/react/
+      - name: Build the adapter
+        run: |
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix packages/react
+          npm run build --prefix packages/react
+      - name: Set up minimum Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "20.5.0"
+      - name: Load the ESM and CJS entry points at the runtime floor
+        run: node packages/react/scripts/check-runtime-floor.mjs "${{ matrix.react }}"
 
   package:
     timeout-minutes: 15
@@ -233,7 +297,7 @@ jobs:
           cache-dependency-path: langs/typescript/package-lock.json
 
       - name: Install package dependencies
-        run: npm ci --prefix langs/typescript
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix langs/typescript
 
       - name: Check npm package contents
         run: python3 tools/check-typescript-package.py
@@ -285,7 +349,7 @@ jobs:
         # package "vmx"` because dist/ is absent in the packed snapshot.
         working-directory: langs/typescript
         run: |
-          npm ci
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
           npm run build
 
       - name: Install React adapter deps + build dist
@@ -294,11 +358,11 @@ jobs:
         # Prepare its exported dist entry before the file dependency is packed.
         working-directory: packages/react
         run: |
-          npm ci
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
           npm run build
 
       - name: console example install
-        run: npm ci --prefix examples/typescript/console/hello-vmx
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix examples/typescript/console/hello-vmx
 
       - name: console example dependency graph
         run: npm run check:deps --prefix examples/typescript/console/hello-vmx
@@ -317,13 +381,13 @@ jobs:
         # the prior .gitignore entry hid it from the repo, silently disabling
         # the actions/setup-node cache above). No `npm install` fallback: a
         # drifted lockfile must fail loudly, not silently install unpinned.
-        run: npm ci --prefix examples/typescript/react/notes-showcase
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix examples/typescript/react/notes-showcase
 
       - name: notes-showcase dependency graph
         run: npm run check:deps --prefix examples/typescript/react/notes-showcase
 
       - name: notes-showcase audit
-        run: npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
 
       - name: notes-showcase test (includes the executed React recipe)
         run: npm test --prefix examples/typescript/react/notes-showcase --ignore-scripts
@@ -342,13 +406,13 @@ jobs:
       - name: integration recipes install
         # Executes the Vue, Solid and Svelte guide snippets (docs/content/integration)
         # against the host versions pinned in this fixture's package.json.
-        run: npm ci --prefix examples/typescript/integration-recipes
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix examples/typescript/integration-recipes
 
       - name: integration recipes dependency graph
         run: npm run check:deps --prefix examples/typescript/integration-recipes
 
       - name: integration recipes audit
-        run: npm audit --prefix examples/typescript/integration-recipes --package-lock-only --audit-level=moderate
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --prefix examples/typescript/integration-recipes --package-lock-only --audit-level=moderate
 
       - name: integration recipes test (executed on jsdom - Vue, Solid, Svelte)
         run: npm test --prefix examples/typescript/integration-recipes --ignore-scripts
@@ -360,7 +424,7 @@ jobs:
     timeout-minutes: 5
     name: "required: typescript"
     if: always()
-    needs: [build, runtime-floor, react, package, examples]
+    needs: [build, runtime-floor, react, react-runtime-floor, package, examples]
     runs-on: ubuntu-latest
     # This aggregator job has no checkout, so override the workflow-level
     # `defaults.run.working-directory: langs/typescript` (which would not exist
