@@ -85,8 +85,10 @@ cd langs/rust
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-features
+cargo test --locked                        # default features: test seams compiled out
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
 cargo package --locked
+python3 ../../tools/check-rust-package.py  # crate holds exactly the tracked files
 ```
 
 ### 3.6 Conformance coverage tool

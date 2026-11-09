@@ -120,6 +120,45 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --manifest-path langs/rust/Cargo.toml --all-features --no-deps
 
+  msrv:
+    timeout-minutes: 30
+    # The release `rust-test` job runs these gates on the declared MSRV, so a
+    # lint or test that only Rust 1.88 reports fails here first (#1247).
+    name: build & test (1.88.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust 1.88.0
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
+        with:
+          toolchain: 1.88.0
+          components: rustfmt, clippy
+
+      - name: Format check
+        run: cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
+
+      - name: Clippy
+        run: cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-features --all-targets -- -D warnings
+
+      - name: Clippy with default features
+        # Without `test-seams`, the conformance cases that call the test seams
+        # are compiled out; this keeps that build warning-free.
+        run: cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked --manifest-path langs/rust/Cargo.toml --all-features
+
+      - name: Test with default features
+        # The compile-fail doctests in src/lib.rs prove that a default build
+        # does not export the test seams (#1294).
+        run: cargo test --locked --manifest-path langs/rust/Cargo.toml
+
+      - name: Documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --manifest-path langs/rust/Cargo.toml --all-features --no-deps
+
   examples:
     timeout-minutes: 20
     name: examples
@@ -162,10 +201,6 @@ jobs:
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: ${{ matrix.toolchain }}
-
-      - name: Compile and run test-only helpers at MSRV
-        if: matrix.toolchain == '1.88.0'
-        run: cargo test --locked --all-features --lib --manifest-path langs/rust/Cargo.toml
 
       - name: Package crate
         run: cargo package --locked --manifest-path langs/rust/Cargo.toml
@@ -228,7 +263,7 @@ jobs:
     timeout-minutes: 5
     name: "required: rust"
     if: always()
-    needs: [audit, build, examples, package, coverage]
+    needs: [audit, build, msrv, examples, package, coverage]
     runs-on: ubuntu-latest
     steps:
       - name: Require every Rust job

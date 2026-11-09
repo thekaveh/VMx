@@ -16,7 +16,9 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
-use vmx::{wait_registered_for_testing, Command, FormVm, Subscription, VmxError};
+#[cfg(feature = "test-seams")]
+use vmx::wait_registered_for_testing;
+use vmx::{Command, FormVm, Subscription, VmxError};
 
 /// The hang guard of every wait in this file.
 const BOUND: Duration = Duration::from_secs(10);
@@ -262,6 +264,7 @@ fn a_dispose_from_an_update_eligibility_observer_completes_the_channels_when_it_
 /// Thread B registers a field validator. B's revalidation waits, recorded in
 /// the wait-for graph, and B's `errors_changed` delivery comes after A's
 /// subscriber returns.
+#[cfg(feature = "test-seams")]
 #[test]
 fn a_validator_registration_waits_for_another_threads_settlement_scope() {
     let form = form(|_| Ok(()));

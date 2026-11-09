@@ -91,7 +91,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-python-package.py` — Validates the exact VMx Python wheel and sdist contents before publication.
 - `check-react-package.py` — Fails when the React adapter's npm payload drifts from its allowlist.
 - `check-rust-doc-snippets.py` — Compiles every Rust fence in the public Rust getting-started guide.
-- `check-rust-package.py` — Verifies the exact allowlisted contents of the Rust crate package.
+- `check-rust-package.py` — Verifies that the Rust crate package holds exactly the fixed top-level and generated files plus each file Git tracks under `langs/rust/src` and `langs/rust/tests`. A new tracked file needs no edit to the tool.
 - `check-swift-package-sync.py` — Verifies that the root and nested SwiftPM manifests stay equivalent.
 - `check-typescript-package.py` — Verifies the exact allowlisted contents of the TypeScript npm package.
 - `check-typescript-schema-sync.py` — Asserts that TypeScript's tracked conformance schema copies match the spec.
