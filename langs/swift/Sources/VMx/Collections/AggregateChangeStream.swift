@@ -216,8 +216,15 @@ public final class AggregateChangeStream<Item: AnyObject> {
             self?.membershipChanged()
         }
         gate.lock()
-        membershipSubscription = subscription
+        // A dispose() on another thread may already have run. It could not
+        // see this subscription, so this thread cancels it.
+        let closed = completed
+        if !closed { membershipSubscription = subscription }
         gate.unlock()
+        if closed {
+            subscription.cancel()
+            return
+        }
         initialize()
     }
 
@@ -319,7 +326,11 @@ public final class AggregateChangeStream<Item: AnyObject> {
             var released: [AnyCancellable] = []
             var settled = false
             gate.lock()
-            if version != currentStructuralVersion() {
+            if completed {
+                // A concurrent dispose() closed the aggregate after staging.
+                released = releaseStagedLocked(plan)
+                settled = true
+            } else if version != currentStructuralVersion() {
                 released = releaseStagedLocked(plan)
             } else {
                 released = commitLocked(plan)

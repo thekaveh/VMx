@@ -71,7 +71,11 @@ cross-flavor-uniform and simplest option.
    Reconciliation reads the structural version, takes the snapshot, creates
    the new entries under the gate, then calls the selector and subscribes with
    no gate held. It checks the version under the gate before the commit and
-   repeats on a change, as Rust does. Removed, staged and disposed
+   repeats on a change, as Rust does. Setup and later reconciliations also
+   check under the gate that the aggregate is still open. If a concurrent
+   disposal closed it, they release the staged subscriptions, and
+   construction releases the structural subscription that the disposal could
+   not see. Removed, staged and disposed
    subscriptions are detached from the state under the gate and disposed after
    it is released. Only the draining thread reconciles, so two
    reconciliations never overlap (`AGCH-012`). TypeScript runs on one thread

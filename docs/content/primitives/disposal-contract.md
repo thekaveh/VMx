@@ -167,6 +167,11 @@ or selection change: add, insert, remove, remove by index, replace, clear,
 move, or a selection. These changes can refuse after disposal; the flavor
 exceptions below state the result in each flavor. Every other change is inert.
 
+In the `AggregateChangeStream` row, a reconciliation that runs at the same
+time as disposal can hold a selected-item subscription that it staged but did
+not commit. That reconciliation releases the subscription when it sees the
+disposal, and the aggregate ignores its values (ADR-0214).
+
 Rows marked "only" exist in the named flavor. Every other row applies to every
 flavor unless the exceptions below say otherwise.
 

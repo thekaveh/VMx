@@ -135,6 +135,7 @@ class _TestSource:
         self.snapshot_count = 0
         self.snapshot_override: Callable[[], tuple[Item | None, ...]] | None = None
         self.callback_target: object | None = None
+        self.after_subscribe: Callable[[], None] | None = None
 
     def snapshot(self) -> tuple[Item | None, ...]:
         self.snapshot_count += 1
@@ -145,9 +146,12 @@ class _TestSource:
     def subscribe_membership(self, callback: Callable[[], None]) -> DisposableBase:
         self.callback_target = getattr(callback, "__self__", None)
         self.handlers.append(callback)
-        return Disposable(
+        subscription = Disposable(
             lambda: self.handlers.remove(callback) if callback in self.handlers else None
         )
+        if self.after_subscribe is not None:
+            self.after_subscribe()
+        return subscription
 
     def pulse(self) -> None:
         for handler in tuple(self.handlers):
@@ -842,3 +846,37 @@ def test_AGCH_012_dispose_does_not_deadlock_with_a_source_that_notifies_under_it
     assert _joined(disposer)
     assert _joined(adder)
     assert source.handler_count == 0
+
+
+def test_dispose_during_setup_releases_the_staged_and_structural_subscriptions() -> None:
+    # ADR-0214, #1325: setup holds no gate, so a dispose() can run before setup
+    # commits. Setup then releases what it subscribed instead of keeping it.
+    staged = Item("staged")
+    staged_source = _TestSource(staged)
+
+    def dispose_then_select(item: Item) -> Observable[object]:
+        target = staged_source.callback_target
+        assert isinstance(target, AggregateChangeStream)
+        target.dispose()
+        return item.changes.observable
+
+    staged_aggregate = AggregateChangeStream(staged_source, dispose_then_select)
+    assert staged.changes.subscribe_count == 1
+    assert staged.changes.dispose_count == 1
+    assert staged_source.handlers == []
+    staged_aggregate.dispose()
+
+    structural = Item("structural")
+    structural_source = _TestSource(structural)
+
+    def dispose_after_subscribe() -> None:
+        target = structural_source.callback_target
+        assert isinstance(target, AggregateChangeStream)
+        target.dispose()
+
+    structural_source.after_subscribe = dispose_after_subscribe
+    structural_aggregate = aggregate(structural_source)
+    assert structural_source.handlers == []
+    assert structural_source.snapshot_count == 0
+    assert structural.changes.subscribe_count == 0
+    structural_aggregate.dispose()

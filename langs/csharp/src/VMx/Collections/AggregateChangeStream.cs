@@ -95,7 +95,21 @@ public sealed class AggregateChangeStream<T> : IDisposable
         try
         {
             IDisposable membership = _source.SubscribeMembership(OnMembershipChanged);
-            lock (_gate) _membershipSubscription = membership;
+            bool closed;
+            lock (_gate)
+            {
+                // A Dispose() on another thread may already have run. It could
+                // not see this subscription, so this thread releases it.
+                closed = _completed || _terminalError is not null;
+                if (!closed) _membershipSubscription = membership;
+            }
+
+            if (closed)
+            {
+                SafeDispose(membership);
+                return;
+            }
+
             Initialize();
         }
         catch (Exception error)
@@ -199,7 +213,13 @@ public sealed class AggregateChangeStream<T> : IDisposable
             bool settled = false;
             lock (_gate)
             {
-                if (version != Volatile.Read(ref _structuralState))
+                if (_completed || _terminalError is not null)
+                {
+                    // A concurrent Dispose() closed the aggregate after staging.
+                    ReleaseStagedLocked(plan, released);
+                    settled = true;
+                }
+                else if (version != Volatile.Read(ref _structuralState))
                 {
                     ReleaseStagedLocked(plan, released);
                 }

@@ -1355,6 +1355,11 @@ output where the host convention supports completion, and makes later source
 activity inert. It never constructs, destructs, disposes, reparents, removes,
 or otherwise manages a source item.
 
+A reconciliation that runs at the same time as disposal can hold a selected
+subscription that it staged but did not commit (§9.4, ADR-0214). That
+subscription can stay live after explicit disposal returns. The reconciliation
+releases it when it sees the disposal, and the aggregate ignores its values.
+
 The supported source families expose no common source-completion signal.
 Source lifetime therefore does not replace explicit aggregate disposal.
 

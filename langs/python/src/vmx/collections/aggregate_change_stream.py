@@ -121,8 +121,15 @@ class AggregateChangeStream(Generic[T]):
         try:
             membership = source.subscribe_membership(self._on_membership_changed)
             with self._gate:
-                self._membership_subscription = membership
-            self._initialize()
+                # A dispose() on another thread may already have run. It could
+                # not see this subscription, so this thread releases it.
+                closed = self._completed or self._terminal_error is not None
+                if not closed:
+                    self._membership_subscription = membership
+            if closed:
+                self._safe_dispose(membership)
+            else:
+                self._initialize()
         except BaseException:
             released: list[DisposableBase] = []
             with self._gate:
@@ -200,7 +207,11 @@ class AggregateChangeStream(Generic[T]):
             released: list[DisposableBase] = []
             settled = False
             with self._gate:
-                if version != self._read_structural_version():
+                if self._completed or self._terminal_error is not None:
+                    # A concurrent dispose() closed the aggregate after staging.
+                    self._release_staged_locked(plan, released)
+                    settled = True
+                elif version != self._read_structural_version():
                     self._release_staged_locked(plan, released)
                 else:
                     self._commit_plan_locked(plan, released)

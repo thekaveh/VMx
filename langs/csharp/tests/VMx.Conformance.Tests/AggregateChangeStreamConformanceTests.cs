@@ -677,6 +677,36 @@ public sealed class AggregateChangeStreamConformanceTests
         return thread;
     }
 
+    // ADR-0214, #1325: setup holds no gate, so a Dispose() can run before setup
+    // commits. Setup then releases what it subscribed instead of keeping it.
+    [Fact]
+    public void DisposeDuringSetupReleasesTheStagedAndStructuralSubscriptions()
+    {
+        var staged = new TestItem("staged");
+        var stagedSource = new TestSource<TestItem>(staged);
+        var stagedAggregate = new AggregateChangeStream<TestItem>(stagedSource, item =>
+        {
+            Assert.IsType<AggregateChangeStream<TestItem>>(stagedSource.CallbackTarget).Dispose();
+            return item.Changes;
+        });
+
+        Assert.Equal(1, staged.Changes.SubscribeCount);
+        Assert.Equal(1, staged.Changes.DisposeCount);
+        Assert.Equal(0, stagedSource.StructuralSubscriberCount);
+        stagedAggregate.Dispose();
+
+        var structural = new TestItem("structural");
+        var structuralSource = new TestSource<TestItem>(structural);
+        structuralSource.AfterSubscribe = () =>
+            Assert.IsType<AggregateChangeStream<TestItem>>(structuralSource.CallbackTarget).Dispose();
+        var structuralAggregate = CreateAggregate(structuralSource);
+
+        Assert.Equal(0, structuralSource.StructuralSubscriberCount);
+        Assert.Equal(0, structuralSource.SnapshotCount);
+        Assert.Equal(0, structural.Changes.SubscribeCount);
+        structuralAggregate.Dispose();
+    }
+
     private static AggregateChangeStream<TestItem> CreateAggregate(
         IObservableMembershipSource<TestItem> source) =>
         new(source, item => item.Changes);
@@ -712,6 +742,8 @@ public sealed class AggregateChangeStreamConformanceTests
 
         internal object? CallbackTarget { get; private set; }
 
+        internal Action? AfterSubscribe { get; set; }
+
         public IReadOnlyList<T> Snapshot()
         {
             SnapshotCount++;
@@ -722,7 +754,9 @@ public sealed class AggregateChangeStreamConformanceTests
         {
             CallbackTarget = callback.Target;
             _handlers.Add(callback);
-            return Disposable.Create(() => _handlers.Remove(callback));
+            IDisposable subscription = Disposable.Create(() => _handlers.Remove(callback));
+            AfterSubscribe?.Invoke();
+            return subscription;
         }
 
         internal void Add(T item)

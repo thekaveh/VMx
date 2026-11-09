@@ -4771,6 +4771,10 @@ and then raises the structural callback
 **Then** both threads finish within a bounded time
 **And** Rust, whose structural subscription is a hub subscription, does not
 take the source lock in its unsubscribe
+**And** TypeScript, which runs on one thread, checks the same sequences on one
+thread: a selector that adds a member during setup, a selector that adds a
+member during a drain, and a structural callback that the source raises after
+disposal began
 
 ## 32. Async resource viewmodel (`ARES-NNN`) — spec v3.20
 
