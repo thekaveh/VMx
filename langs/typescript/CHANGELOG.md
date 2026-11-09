@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `COMP-049` conformance tests (ADR-0190, #1351). A container whose disposal is
   requested during a change sends no hub message for it. TypeScript already
   behaved this way.
+- `COL-071` and `AGCH-012` conformance tests (ADR-0214). A duplicate
+  `ObservableDictionary.add` already threw `Error` and changed nothing.
+  TypeScript runs on one thread, so `AGCH-012` needs no code change.
 - `markSchedulerCancelled(scheduler)` (ADR-0200, #1481). A custom scheduler
   that cancels its queued work calls it before it unsubscribes, so VMx runs no
   hook and publishes no status for that work.
@@ -247,6 +250,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   preparation callback or an `errorsChanged` observer is released without
   calling its persister (ADR-0216, spec/20 §5.4, `FORM-044`, #1415). Before,
   every later notification was sent and the persister ran.
+
+- `PagedComposition` paging calls after `dispose()` are inert (#1299,
+  ADR-0214). `pageSize` and `currentPageIndex` writes and the four move calls
+  change no state. Reads keep the last page size and page index.
+
+- The `at()` helpers of `ObservableList`, `ServicedObservableCollection` and
+  `KeyedServicedObservableCollection` resolve a negative index from the end,
+  as `Array.prototype.at` does (#1322, ADR-0009 §2.23). `at(-1)` returns the
+  last item; an index outside the list returns `undefined`.
 
 - A current `AsyncResourceVM` loader that ends with its own cancellation now
   restores the saved stable state, as `cancel()` does, instead of installing

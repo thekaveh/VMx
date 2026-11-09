@@ -37,6 +37,9 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   update's queue stops the later sends and releases a nested approval
   without calling its persister. Swift sinks cannot fail, so the test checks
   the path without a failure.
+- `COL-071` conformance tests (ADR-0214). A duplicate
+  `ObservableDictionary.add` already threw
+  `ObservableDictionaryError.duplicateKey` and changed nothing.
 - `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
   cancellation restores the saved stable state. Swift already behaved this
   way.
@@ -199,6 +202,17 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 - A `dispose()` whose wait for a publication scope is refused now wakes the
   waiting calls at once, and they find the form disposed (ADR-0215, spec/20
   §5.5, #1426). Before, they woke when the publisher's scope closed.
+
+- `PagedComposition` paging calls after `dispose()` are inert (#1299,
+  ADR-0214). `pageSize` and `currentPageIndex` writes, the four move calls and
+  `setSource(_:)` change no state and emit nothing. Reads keep the last page.
+  This replaces the documented behavior that direct paging stays available.
+
+- `AggregateChangeStream` holds no gate while it calls the membership source's
+  `subscribeMembership` and `snapshot()`, the item selector, a selected
+  publisher's `sink` or a cancellation (#1325, ADR-0214, `AGCH-012`). A source
+  that raises its structural callback under its own lock no longer deadlocks
+  the aggregate during `init`, a structural reconciliation or `dispose()`.
 
 - Disposing the current child of a composite now clears the composite's
   `current` before `dispose()` returns (ADR-0189, #1317). The composite

@@ -875,6 +875,18 @@ nested call. An update runs its dirty comparisons only in strict mode
 
 See ADR-0216 and chapter 20 §5.2, §5.4, and §5.5.
 
+v3.30.0 also settles five collection rules. After `dispose()`,
+`PagedComposition` paging calls change no state and emit nothing. A duplicate
+`ObservableDictionary` `Add` fails with the keyed-collection duplicate-key type
+and changes nothing, so Python raises `ValueError` (`COL-071`). Python keyed
+`extend` and `+=` are atomic slice assignments at the end. The aggregate change
+stream calls the source, the selector, and subscriptions with no gate held, so
+a source may raise its structural callback under its own lock (`AGCH-012`). C#
+serviced collections accept a nested mutation from a `CollectionChanged`
+handler. The catalog now contains 480 library IDs plus 5 scenario IDs.
+
+See ADR-0214 and chapter 21 §2.10, §4.1, and §9.4.
+
 See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
-ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204, ADR-0215, ADR-0216 and the
-affected behavior chapters.
+ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204, ADR-0214, ADR-0215, ADR-0216
+and the affected behavior chapters.

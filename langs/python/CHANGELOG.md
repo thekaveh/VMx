@@ -104,6 +104,12 @@ below for them.
 - A non-strict `FormVM` update no longer compares the model with the snapshot
   (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict `set_model` runs
   the equality once, and a non-strict deny not at all.
+- `ObservableDictionary.add` raises `ValueError`, not `KeyError`, for a key
+  pair that is already present (#1308, ADR-0214, `COL-071`). This is the
+  duplicate-key type of `KeyedServicedObservableCollection`. The call changes
+  nothing and emits nothing. Code that catches `KeyError` from a duplicate
+  `add` must catch `ValueError`; `get` still raises `KeyError` for an absent
+  key pair.
 - A refused child `select()` or `deselect()` now changes nothing and raises
   nothing (ADR-0188, spec/05 §6, #1424). Before, it raised inside the caller's
   own uncommitted membership transaction and while disposal of the composite
@@ -196,6 +202,22 @@ below for them.
 - A `dispose()` whose wait for a publication scope is refused now wakes the
   waiting calls at once, and they find the form disposed (ADR-0215, spec/20
   §5.5, #1426). Before, they woke when the publisher's scope closed.
+- `KeyedServicedObservableCollection.extend` and `+=` are atomic (#1321,
+  ADR-0214). Each behaves as `collection[len(collection):] = values`: a
+  duplicate key, a projector failure or an input iteration failure changes
+  nothing and emits nothing. Before, the values before the failing one stayed
+  committed and announced. Success emits one Reset on the local and hub
+  channels; empty input emits nothing.
+- `AggregateChangeStream` holds no gate while it calls the membership source's
+  `subscribe_membership` and `snapshot()`, the item selector, a selected
+  stream's `subscribe` or a subscription's `dispose()` (#1325, ADR-0214,
+  `AGCH-012`). A source that raises its structural callback under its own lock
+  no longer deadlocks the aggregate during construction, a structural
+  reconciliation or `dispose()`.
+- `ObservableDictionary` sends no hub `CollectionChangedMessage` after a local
+  subscriber disposes it during delivery (#1431). This covers `add`, `remove`,
+  replacement and `clear`. A failing subscriber of a live dictionary still
+  does not suppress the hub message (`COL-066`).
 - A terminal cleanup that a wait cycle deferred to an admitted hook's thread
   no longer loses its failure (ADR-0200, spec/02 §2.4 and §7, #1297). When the
   hook succeeds, the hook's `construct()`, `destruct()` or `reconstruct()` call

@@ -221,14 +221,16 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     def add(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         """Insert a new entry.
 
-        Raises :class:`KeyError` if ``(key1, key2)`` already exists.
+        Raises :class:`ValueError` if ``(key1, key2)`` already exists, as the
+        keyed collection does for a duplicate key (spec/21 §4.1, ADR-0214).
+        Nothing changes and nothing is emitted.
         """
         if key1 is None:
             raise TypeError("key1 must not be None")
         if key2 is None:
             raise TypeError("key2 must not be None")
         if (key1, key2) in self._data:
-            raise KeyError(f"Key ({key1!r}, {key2!r}) already exists")
+            raise ValueError(f"Key ({key1!r}, {key2!r}) already exists")
         self._internal_add(key1, key2, value)
 
     def remove(self, key1: TKey1, key2: TKey2) -> bool:
@@ -428,8 +430,12 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         return any(_same_key(k, key2) for k in self._keys2)
 
     def _publish_to_hub(self, msg: CollectionChangedMessage[object]) -> None:
-        """Send *msg* to the hub if one is wired (no-op otherwise)."""
-        if self._hub is not None:
+        """Send *msg* to the hub if one is wired and the dictionary is live.
+
+        A local subscriber may dispose the dictionary during delivery. A
+        disposed dictionary publishes nothing (spec/01 §1.4, #1431).
+        """
+        if self._hub is not None and not self._disposed:
             self._hub.send(msg)
 
     def _on_added(self, key1: TKey1, key2: TKey2, value: TValue, index: int) -> None:
@@ -478,15 +484,14 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         # The hub message reads the entry's position when it is sent, as an Add
         # does: a local subscriber may have moved or removed it (ADR-0193).
         def publish() -> None:
-            if self._hub is not None:
-                self._hub.send(
-                    CollectionChangedMessage.for_replace(
-                        self,
-                        (key1, key2, new_value),
-                        (key1, key2, old_value),
-                        self._index_of(key1, key2),
-                    )
+            self._publish_to_hub(
+                CollectionChangedMessage.for_replace(
+                    self,
+                    (key1, key2, new_value),
+                    (key1, key2, old_value),
+                    self._index_of(key1, key2),
                 )
+            )
 
         # Local granular event first, then the hub (ADR-0171).
         deliver_then_publish(

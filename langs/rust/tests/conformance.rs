@@ -26,6 +26,7 @@ mod conformance {
     mod container_members;
     mod derived_properties;
     mod dialogs;
+    mod dictionary_duplicate_add;
     mod dictionary_hash_lookup;
     mod dictionary_key_view_order;
     mod dictionary_key_views_read_only;

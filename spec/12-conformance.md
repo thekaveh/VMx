@@ -3564,6 +3564,20 @@ event
 > Spec: `21-collections.md` §2.5, `01-concepts.md` §1.4, `03-messages.md` §3.6,
 > ADR-0191.
 
+### COL-071 — a duplicate dictionary `Add` fails and changes nothing
+
+**Given** an `ObservableDictionary` with a hub and the entries `("a", 1)` and
+`("b", 2)`
+**And** subscribers on the dictionary's own events, both key views, and the hub
+**When** `Add("a", 1, value)` is called with a new value
+**Then** the call fails with C# `ArgumentException`, Python `ValueError`,
+TypeScript `Error`, Swift `ObservableDictionaryError.duplicateKey`, or Rust
+`Err(VmxError::InvalidArgument(_))`
+**And** the stored value at `("a", 1)`, the entries, both key views, and
+`Count` do not change
+**And** no local event and no hub message is sent
+**And** Rust, which has no local event, checks the hub subscriber only
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles
@@ -5268,6 +5282,30 @@ to 4 in subscription order
 host convention supports completion
 
 > Spec: `21-collections.md` §9.5, §9.6, and §9.7, ADR-0192.
+
+### AGCH-012 — the aggregate calls the source, selector, and subscriptions with no gate held
+
+**Given** a membership source that adds an item and raises its structural
+callback while it holds its own lock, and whose snapshot and unsubscribe take
+that lock
+**When** construction calls the selector for the first item, and the selector
+starts a second thread that adds a second item under the source lock and waits
+until that thread holds the lock
+**Then** both threads finish within a bounded time
+**And** a later emission from the second item's selected stream produces one
+`Item` change
+**When** a draining thread calls the selector during a structural
+reconciliation while a second thread adds an item under the source lock
+**Then** both threads finish within a bounded time
+**When** the aggregate is disposed while another thread holds the source lock
+and then raises the structural callback
+**Then** both threads finish within a bounded time
+**And** Rust, whose structural subscription is a hub subscription, does not
+take the source lock in its unsubscribe
+**And** TypeScript, which runs on one thread, checks the same sequences on one
+thread: a selector that adds a member during setup, a selector that adds a
+member during a drain, and a structural callback that the source raises after
+disposal began
 
 ## 32. Async resource viewmodel (`ARES-NNN`) — spec v3.20
 

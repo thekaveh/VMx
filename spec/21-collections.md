@@ -456,6 +456,13 @@ are absent from final-result validation and MAY be reused by an item inserted
 by the same operation. Python's extended-slice cardinality rules and
 TypeScript's normalized `start` / `deleteCount` behavior remain native.
 
+Python keyed `extend(values)` and `+=` are slice assignment at the end: each
+behaves as `collection[len(collection):] = values` (ADR-0214). A duplicate key
+in the input or against a present membership, a projector failure, or an input
+iteration failure changes nothing and emits nothing. On success the operation
+emits one Reset on the local channel and one on the hub. Empty input emits
+nothing. The other flavors have no multi-value add.
+
 Only after successful final-result validation does the operation atomically
 commit items, captured keys, and the index. Duplicate, projection, input
 iteration, or native slice-shape failure changes nothing and emits nothing.
@@ -712,6 +719,16 @@ ObservableDictionary<TKey1, TKey2, TValue>:
     CollectionChanged : event/Observable
 ```
 
+`Add` is a strict insert. For a key pair that is already present, it fails
+and changes nothing: the stored value, the entries, both key views, and `Count`
+stay the same, and no local event or hub message is sent. The failure types are
+the duplicate-key types of the keyed collection (§2.10): C# throws
+`ArgumentException`, Python raises `ValueError`, TypeScript throws `Error`,
+Swift throws `ObservableDictionaryError.duplicateKey`, and Rust returns
+`Err(VmxError::InvalidArgument(_))` (ADR-0214). The indexer, `set`, and Rust
+`insert` replace the value of a present key pair instead and report no
+duplicate.
+
 ### 4.2 Distinct-key observable views
 
 `Keys1` and `Keys2` are live, read-only `ReadOnlyObservableList<TKey>` views
@@ -837,7 +854,7 @@ positions.
 ### 4.8 Conformance
 
 `COL-010` through `COL-015`, `COL-022`, `COL-066`, `COL-067`, `COL-068`,
-`COL-069`, and `COL-070` in `12-conformance.md`.
+`COL-069`, `COL-070`, and `COL-071` in `12-conformance.md`.
 
 ## 5. Paging: `PagedComposition<TVM>`
 
@@ -1134,11 +1151,12 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-067`, `COL-069`, and `AGCH-001` through `AGCH-011` in
-`12-conformance.md`. Applicable ADRs:
+`COL-001` through `COL-067`, `COL-069`, `COL-071`, `AGCH-001` through
+`AGCH-011`, and `AGCH-012` in `12-conformance.md`. Applicable ADRs:
 ADR-0024, ADR-0096, ADR-0097, ADR-0171, and ADR-0191 (§2), ADR-0026 and
 ADR-0089 (§3), ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 and ADR-0202
-(§6), and ADR-0085 (shared Move semantics), and ADR-0098 and ADR-0192 (§9).
+(§6), and ADR-0085 (shared Move semantics), ADR-0098 and ADR-0192 (§9), and
+ADR-0214 (§2.10, §4.1, §9.4).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public
 collection, paging, batch, aggregate, and projection helpers that expose
@@ -1292,8 +1310,8 @@ stale callback can therefore never become an `Item` event for a later re-add.
 
 ### 9.4 Setup and structural reconciliation
 
-Construction subscribes to structural changes under the serialized gate before
-taking its first snapshot. If a structural callback occurs during setup, the
+Construction subscribes to structural changes before taking its first
+snapshot. If a structural callback occurs during setup, the
 snapshot is stale and reconciliation repeats until it commits a snapshot with
 no intervening structural callback. This construction-time reconciliation
 commits only the latest membership. It queues no `Membership` event for replay;
@@ -1308,6 +1326,17 @@ succeeds does it commit the new identity multiset, detach zero-refcount entries,
 and settle the reconciliation. That commit queues `Membership` only when the
 structural pulse was admitted after construction; setup-race reconciliation
 remains silent.
+
+The serialized gate guards only the aggregate's own state (ADR-0214). The
+aggregate holds no gate or other state lock while it calls the source's
+structural subscribe or snapshot, the selector, a selected stream's subscribe,
+or the disposal of a structural or selected subscription. It reads the
+structural version before each snapshot and checks it again under the gate
+before it commits, so a structural callback that arrives during these calls
+makes the reconciliation repeat. A source MAY therefore raise its structural
+callback while it holds its own lock, and take that lock in its snapshot and
+unsubscribe. Only the draining thread reconciles, so reconciliations never
+overlap.
 
 Selected streams MAY emit synchronously while their subscriptions are staged.
 During initial construction, those values are pre-existing state and are
@@ -1396,6 +1425,11 @@ activity inert. Completion reaches the subscribers in subscription order
 (§9.5). It never constructs, destructs, disposes, reparents, removes,
 or otherwise manages a source item.
 
+A reconciliation that runs at the same time as disposal can hold a selected
+subscription that it staged but did not commit (§9.4, ADR-0214). That
+subscription can stay live after explicit disposal returns. The reconciliation
+releases it when it sees the disposal, and the aggregate ignores its values.
+
 The supported source families expose no common source-completion signal.
 Source lifetime therefore does not replace explicit aggregate disposal.
 
@@ -1406,4 +1440,5 @@ subscriber-local initial delivery, committed membership resynchronization,
 item provenance, zero-refcount and terminal-epoch silence, Reset, duplicate
 refcounts, nested exceptional batching, empty batches and Move stability,
 reentrant FIFO and stale epochs, transactional failure, disposal, ownership,
-subscriber isolation, and subscriber order.
+subscriber isolation, and subscriber order. `AGCH-012` covers calls into the
+source, the selector, and subscriptions with no aggregate gate held.

@@ -26,12 +26,13 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
 {
     private readonly IMessageHub? _hub;
 
-    // Each entry of a local handler is registered on the base event through a
-    // wrapper that records its failure, so a throwing entry does not stop the
-    // later ones (spec/03 §3.6, ADR-0191). The base event keeps one entry per
-    // handler entry, so ObservableCollection's reentrancy check is unchanged.
-    // The lock covers the list and the base event together, so a concurrent
-    // add and remove cannot leave an untracked wrapper on the base event.
+    // Each entry of a local handler is kept here with a wrapper that records
+    // its failure, so a throwing entry does not stop the later ones (spec/03
+    // §3.6, ADR-0191). OnCollectionChanged invokes the wrappers itself, never
+    // through the base event, so ObservableCollection's reentrancy block never
+    // applies and a handler may mutate the collection (spec/21 §2.13,
+    // ADR-0214, #1343). The lock guards the list against a concurrent add and
+    // remove.
     private readonly List<(Delegate Handler, NotifyCollectionChangedEventHandler Wrapper)> _localHandlers = [];
     private ExceptionDispatchInfo? _deliveryFailure;
 
@@ -48,7 +49,12 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
     /// <remarks>
     /// Every handler receives each change once, even when an earlier handler
     /// throws. The mutation then rethrows the first failure after the hub send
-    /// (spec/03 §3.6, ADR-0171, ADR-0191).
+    /// (spec/03 §3.6, ADR-0171, ADR-0191). The event keeps its own handler
+    /// list, so the base <see cref="ObservableCollection{T}"/> never blocks
+    /// reentrancy. A <see cref="CollectionChanged"/> handler may mutate the
+    /// collection while other handlers are attached; the nested mutation
+    /// completes its own local and hub delivery first (spec/21 §2.13,
+    /// ADR-0214, #1343).
     /// </remarks>
     public override event NotifyCollectionChangedEventHandler? CollectionChanged
     {
@@ -66,7 +72,6 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
                         catch (Exception error) { _deliveryFailure ??= ExceptionDispatchInfo.Capture(error); }
                     };
                     _localHandlers.Add((entry, wrapper));
-                    base.CollectionChanged += wrapper;
                 }
             }
         }
@@ -81,8 +86,6 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
                 for (int start = _localHandlers.Count - entries.Length; start >= 0; start--)
                 {
                     if (!RunMatches(start, entries)) continue;
-                    for (int i = start; i < start + entries.Length; i++)
-                        base.CollectionChanged -= _localHandlers[i].Wrapper;
                     _localHandlers.RemoveRange(start, entries.Length);
                     return;
                 }
@@ -134,7 +137,6 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         T[] snapshot = items.ToArray();
         if (Count == 0 && snapshot.Length == 0) return;
 
-        CheckReentrancy();
         Items.Clear();
         foreach (T item in snapshot) Items.Add(item);
 
@@ -169,11 +171,18 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         //    stops neither the later handlers nor the hub message for the
         //    committed change: send it, then rethrow the first failure
         //    (spec/01 §1.4, spec/03 §3.6, ADR-0171, ADR-0191). A nested
-        //    delivery keeps its own first failure.
+        //    delivery keeps its own first failure. The handlers are invoked
+        //    here, not through base.OnCollectionChanged, so no reentrancy
+        //    block applies (ADR-0214).
         ExceptionDispatchInfo? outerFailure = _deliveryFailure;
         _deliveryFailure = null;
-        try { base.OnCollectionChanged(e); }
-        catch (Exception error) { _deliveryFailure ??= ExceptionDispatchInfo.Capture(error); }
+        NotifyCollectionChangedEventHandler[] wrappers;
+        lock (_localHandlers)
+        {
+            wrappers = new NotifyCollectionChangedEventHandler[_localHandlers.Count];
+            for (int i = 0; i < wrappers.Length; i++) wrappers[i] = _localHandlers[i].Wrapper;
+        }
+        foreach (NotifyCollectionChangedEventHandler wrapper in wrappers) wrapper(this, e);
         ExceptionDispatchInfo? firstFailure = _deliveryFailure;
         _deliveryFailure = outerFailure;
 

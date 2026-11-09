@@ -164,6 +164,11 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   carries the container's name (#1309, ADR-0194). Rust already behaved this
   way.
 
+- `COL-071` and `AGCH-012` conformance tests (ADR-0214). A duplicate
+  `ObservableMultiDictionary::add` already returned
+  `Err(VmxError::InvalidArgument(_))` and changed nothing. The aggregate
+  already called the source and the selector with no state lock held.
+
 - `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
   `ComponentVm::own_member` contract and rejects the container itself with

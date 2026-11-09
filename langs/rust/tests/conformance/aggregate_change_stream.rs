@@ -1125,3 +1125,243 @@ fn aggregate_resubscription_receives_last() {
     assert_eq!(*locked(&order), vec![0, 2, 3, 4, 1]);
     aggregate.dispose();
 }
+
+// AGCH-012 (ADR-0214, #1325): the aggregate holds no state lock while it calls
+// the source, the selector, a selected stream's subscribe or a subscription's
+// disposal. A source that raises its structural callback under its own lock
+// therefore cannot deadlock with the aggregate. Rust already behaves this way;
+// these tests pin it.
+
+const JOIN_BOUND: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A reentrant lock, as the C# `Monitor` and Python `RLock` sources use: the
+/// thread that raises the callback may drain the aggregate and snapshot again.
+#[derive(Default)]
+struct ReentrantLock {
+    state: Mutex<(Option<std::thread::ThreadId>, usize)>,
+    released: Condvar,
+}
+
+struct ReentrantGuard<'a>(&'a ReentrantLock);
+
+impl ReentrantLock {
+    fn acquire(&self) -> ReentrantGuard<'_> {
+        let me = std::thread::current().id();
+        let mut state = locked(&self.state);
+        while state.0.is_some_and(|owner| owner != me) {
+            state = self
+                .released
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+        state.0 = Some(me);
+        state.1 += 1;
+        ReentrantGuard(self)
+    }
+}
+
+impl Drop for ReentrantGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = locked(&self.0.state);
+        state.1 -= 1;
+        if state.1 == 0 {
+            state.0 = None;
+            self.0.released.notify_all();
+        }
+    }
+}
+
+/// A membership source that adds an item and raises its structural callback
+/// while it holds its own lock. Its snapshot takes that lock too.
+#[derive(Clone)]
+struct LockingSource {
+    lock: Arc<ReentrantLock>,
+    items: Arc<Mutex<Vec<TestNode>>>,
+    membership: MessageHub,
+    holding: Arc<(Mutex<bool>, Condvar)>,
+    while_holding_lock: Arc<Mutex<Option<std::time::Duration>>>,
+}
+
+impl LockingSource {
+    fn new() -> Self {
+        Self {
+            lock: Arc::new(ReentrantLock::default()),
+            items: Arc::new(Mutex::new(Vec::new())),
+            membership: MessageHub::new(),
+            holding: Arc::new((Mutex::new(false), Condvar::new())),
+            while_holding_lock: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn pulse(&self) {
+        self.membership.send(Message::Custom {
+            sender_id: 0,
+            sender_name: "LockingSource".to_string(),
+            name: "membership".to_string(),
+        });
+    }
+
+    fn add_under_lock(&self, item: TestNode) {
+        let _guard = self.lock.acquire();
+        locked(&self.items).push(item);
+        let (flag, ready) = self.holding.as_ref();
+        *locked(flag) = true;
+        ready.notify_all();
+        if let Some(pause) = *locked(&self.while_holding_lock) {
+            std::thread::sleep(pause);
+        }
+        self.pulse();
+    }
+
+    fn add_then_notify(&self, item: TestNode) {
+        {
+            let _guard = self.lock.acquire();
+            locked(&self.items).push(item);
+        }
+        self.pulse();
+    }
+
+    fn wait_until_holding(&self) -> bool {
+        let (flag, ready) = self.holding.as_ref();
+        let (guard, _) = ready
+            .wait_timeout_while(locked(flag), JOIN_BOUND, |held| !*held)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard
+    }
+}
+
+impl ObservableMembershipSource<TestNode> for LockingSource {
+    fn snapshot(&self) -> Vec<TestNode> {
+        let _guard = self.lock.acquire();
+        locked(&self.items).clone()
+    }
+
+    fn subscribe_membership<F>(&self, handler: F) -> Subscription
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.membership.subscribe(move |_| handler())
+    }
+}
+
+/// Runs `action` on a new thread; the receiver gets a value when it ends.
+fn background<F>(action: F) -> std::sync::mpsc::Receiver<()>
+where
+    F: FnOnce() + Send + 'static,
+{
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        action();
+        let _ = done.send(());
+    });
+    finished
+}
+
+type AdderSlot = Arc<Mutex<Option<std::sync::mpsc::Receiver<()>>>>;
+
+/// A selector that, for `trigger`, starts a thread that adds `second` under
+/// the source lock, waits until that thread holds the lock, then waits 200 ms.
+fn waiting_selector(
+    source: &LockingSource,
+    trigger_id: usize,
+    second: &TestNode,
+    adder: &AdderSlot,
+) -> impl Fn(&TestNode) -> PropertyChangedStream + Send + Sync + 'static {
+    let (source, second, adder) = (source.clone(), second.clone(), Arc::clone(adder));
+    move |item: &TestNode| {
+        if item.id() == trigger_id && locked(&adder).is_none() {
+            let (source_for_adder, item_to_add) = (source.clone(), second.clone());
+            *locked(&adder) = Some(background(move || {
+                source_for_adder.add_under_lock(item_to_add)
+            }));
+            assert!(source.wait_until_holding());
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        item.property_changed()
+    }
+}
+
+fn finished(receiver: &std::sync::mpsc::Receiver<()>) -> bool {
+    receiver.recv_timeout(JOIN_BOUND).is_ok()
+}
+
+/// AGCH-012 — setup does not deadlock with a source that notifies under its lock
+#[test]
+fn aggregate_setup_does_not_deadlock_with_a_source_that_notifies_under_its_lock() {
+    let source = LockingSource::new();
+    let first = TestNode::new(1, "first");
+    let second = TestNode::new(2, "second");
+    source.add_then_notify(first.clone());
+    let adder: AdderSlot = Arc::new(Mutex::new(None));
+    let select = waiting_selector(&source, first.id(), &second, &adder);
+    let built: Arc<Mutex<Option<AggregateChangeStream<TestNode>>>> = Arc::new(Mutex::new(None));
+    let (slot, constructing_source) = (Arc::clone(&built), source.clone());
+
+    let constructed = background(move || {
+        *locked(&slot) = Some(AggregateChangeStream::new(constructing_source, select));
+    });
+
+    assert!(finished(&constructed));
+    assert!(finished(locked(&adder).as_ref().unwrap()));
+    let aggregate = locked(&built).take().unwrap();
+    let (changes, _subscription) = collect(&aggregate, AggregateObserveOptions::default());
+    second.emit();
+    assert_eq!(reasons(&changes), vec![AggregateChangeReason::Item]);
+    assert_eq!(
+        locked(&changes)[0].item.as_ref().map(TestNode::id),
+        Some(second.id())
+    );
+    aggregate.dispose();
+}
+
+/// AGCH-012 — a draining reconciliation does not deadlock with a source that notifies under its lock
+#[test]
+fn aggregate_drain_does_not_deadlock_with_a_source_that_notifies_under_its_lock() {
+    let source = LockingSource::new();
+    let trigger = TestNode::new(1, "trigger");
+    let second = TestNode::new(2, "second");
+    let adder: AdderSlot = Arc::new(Mutex::new(None));
+    let aggregate = AggregateChangeStream::new(
+        source.clone(),
+        waiting_selector(&source, trigger.id(), &second, &adder),
+    );
+    let (changes, _subscription) = collect(&aggregate, AggregateObserveOptions::default());
+
+    let drainer_source = source.clone();
+    let drained = background(move || drainer_source.add_then_notify(trigger));
+
+    assert!(finished(&drained));
+    assert!(finished(locked(&adder).as_ref().unwrap()));
+    locked(&changes).clear();
+    second.emit();
+    assert_eq!(reasons(&changes), vec![AggregateChangeReason::Item]);
+    assert_eq!(
+        locked(&changes)[0].item.as_ref().map(TestNode::id),
+        Some(second.id())
+    );
+    aggregate.dispose();
+}
+
+/// AGCH-012 — dispose does not deadlock with a source that notifies under its lock
+#[test]
+fn aggregate_dispose_does_not_deadlock_with_a_source_that_notifies_under_its_lock() {
+    let source = LockingSource::new();
+    source.add_then_notify(TestNode::new(1, "first"));
+    let aggregate = Arc::new(AggregateChangeStream::new(
+        source.clone(),
+        |item: &TestNode| item.property_changed(),
+    ));
+    // The adder holds the source lock and waits while dispose runs. Then it
+    // raises the callback. A Rust membership subscription is a hub
+    // subscription, so the unsubscribe cannot take the source lock here.
+    *locked(&source.while_holding_lock) = Some(std::time::Duration::from_millis(200));
+
+    let adder_source = source.clone();
+    let added = background(move || adder_source.add_under_lock(TestNode::new(2, "second")));
+    assert!(source.wait_until_holding());
+    let disposing = Arc::clone(&aggregate);
+    let disposed = background(move || disposing.dispose());
+
+    assert!(finished(&disposed));
+    assert!(finished(&added));
+}
