@@ -524,9 +524,9 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
             .sink { message in
                 guard message.senderName == "drainer" else { return }
                 drainerEntered.signal()
-                _ = releaseDrainer.wait(timeout: .now() + graphTimeout)
+                _ = releaseDrainer.wait(timeout: .now() + hangGuard * 2)
                 // X's hub send waits for Y before Y calls the form.
-                _ = publisherWaitsOnHub.wait(timeout: .now() + graphTimeout)
+                _ = publisherWaitsOnHub.wait(timeout: .now() + hangGuard)
                 boxedForm.value.setModel("outer")
             }
             .store(in: &cancellables)
