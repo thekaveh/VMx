@@ -759,28 +759,31 @@ impl ErrorState {
 #[derive(Clone)]
 /// Editable model state with validation, persistence, approval, and revert commands.
 ///
-/// # Re-entrant `Clone`
-///
-/// The form runs `M::clone` while it holds the lock of the value that it
-/// clones, the live model or the snapshot. These locks are not re-entrant. A
-/// model `Clone` must therefore not call a method of its own form that reads
-/// the model or the snapshot on the same thread: [`model`](Self::model),
-/// [`snapshot`](Self::snapshot), [`is_dirty`](Self::is_dirty) and
-/// [`set_model`](Self::set_model). [`can_approve`](Self::can_approve) calls
-/// `is_dirty` in strict mode, so the same limit applies to it there. Such a
-/// call never returns.
-///
-/// A model `Clone` can read the validation errors through
-/// [`is_valid`](Self::is_valid), [`errors`](Self::errors),
-/// [`error_map`](Self::error_map) and [`field_error`](Self::field_error).
-/// These reads take only the error lock, never the model or snapshot lock.
-///
 /// A validator registration made after [`dispose`](Self::dispose)
 /// ([`with_validator`](Self::with_validator),
 /// [`with_field_validator`](Self::with_field_validator),
 /// [`with_model_validator`](Self::with_model_validator),
 /// [`with_clearing_model_validator`](Self::with_clearing_model_validator))
 /// has no effect.
+///
+/// # Re-entrant `Clone`
+///
+/// The form runs `M::clone` while it holds the lock of the value that it
+/// clones, the live model or the snapshot. These locks are not re-entrant. A
+/// model `Clone` must therefore not call a method of its own form that reads
+/// the model or the snapshot on the same thread, for example
+/// [`model`](Self::model), [`snapshot`](Self::snapshot),
+/// [`is_dirty`](Self::is_dirty) and [`set_model`](Self::set_model).
+/// [`approve`](Self::approve), [`revert`](Self::revert) and the
+/// [`approve_command`](Self::approve_command) and
+/// [`deny_command`](Self::deny_command) commands also read the model or the
+/// snapshot. [`can_approve`](Self::can_approve) calls `is_dirty` in strict
+/// mode, so the same limit applies to it there. Such a call never returns.
+///
+/// A model `Clone` can read the validation errors through
+/// [`is_valid`](Self::is_valid), [`errors`](Self::errors),
+/// [`error_map`](Self::error_map) and [`field_error`](Self::field_error).
+/// These reads take only the error lock, never the model or snapshot lock.
 pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     pub(crate) component: ComponentVm<M>,
     snapshot: Arc<Mutex<M>>,

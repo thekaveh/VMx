@@ -155,11 +155,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   does not change.
 - The `FormVm` rustdoc now states the limit of a re-entrant model `Clone`
   (#1279). The form runs `M::clone` under the lock of the live model or the
-  snapshot, and these locks are not re-entrant. A model `Clone` that calls
-  `model()`, `snapshot()`, `is_dirty()` or `set_model()` on its own form and
-  thread never returns, and nor does `can_approve()` in strict mode. A model
-  `Clone` can read `is_valid()`, `errors()`, `error_map()` and
-  `field_error()`. The code does not change.
+  snapshot, and these locks are not re-entrant. A model `Clone` that calls a
+  method of its own form that reads the model or the snapshot on the same
+  thread never returns. Examples are `model()`, `snapshot()`, `is_dirty()`,
+  `set_model()`, `approve()`, `revert()` and the approve and deny commands,
+  and `can_approve()` in strict mode. A model `Clone` can read `is_valid()`,
+  `errors()`, `error_map()` and `field_error()`. The code does not change.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
