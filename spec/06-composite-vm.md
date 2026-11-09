@@ -228,6 +228,24 @@ membership mutex, so opposing callback graphs cannot retain one while acquiring
 another container. A callback observes the selected child still constructed;
 any deferred disposal cascade begins only after the callback returns.
 
+A membership change never waits for another thread's membership transaction
+(spec v3.30, ADR-0187). The membership changes are `Add`, `Insert`, index
+replacement, population, the detach of a child that moves out of the
+container, `Remove`, `RemoveAt` and `Clear`. While any thread holds the
+container's transaction, each of them MUST fail before mutation, on the owner
+thread and on any other thread. Membership, parent links, `Current` and the
+event stream stay unchanged. When the old parent refuses a detach, the add
+that moves the child fails and rolls back like any failed transfer. A refusal
+uses the "membership transaction in progress" error of a re-entrant change:
+C# `InvalidOperationException`, Python `RuntimeError`, TypeScript `Error`,
+Swift `ContainerOwnershipError.attachmentFailed`, and Rust
+`VmxError::OwnershipTransactionInProgress`. Swift `remove(_:)` returns
+`false`. Swift `removeAt(_:)` and `clear()` cannot throw, so a refused call
+returns with no change. Rust `clear()` returns `VmxResult<()>` and reports the
+refusal. Only disposal waits for another thread's transaction, as the
+disposal paragraph below says. Selection follows §4.3, and a wait for a
+child's ownership gate follows chapter 03 §4.1 (`COMP-048`).
+
 If any step after preflight fails, both memberships, `Parent`, `Current`, child
 current flags, lazy/builder population state, and the event stream MUST equal
 their pre-call values. Bulk population rolls earlier transfers back in reverse
@@ -411,8 +429,48 @@ after that child does (chapter 02 §6). If its construction fails during the
 add, the add fails and is undone. A child added before the construct walk
 takes its membership snapshot (for example by the construct hook) is walked
 like any other member. A child added after the snapshot is a late child: the
-walk joins it and never restarts it, and if it fails while the walk waits on
-it, the composite rolls back.
+walk joins it and never restarts it, and if it fails while it is still a
+member, the composite rolls back.
+
+The construct walk counts members only (spec v3.30, ADR-0186). A member is a
+child in the composite's membership when the walk checks it. These rules hold
+for snapshot children and late children, with and without
+`AutoConstructOnAdd(true)`:
+
+1. Before the walk starts or joins a child, it checks under the membership
+   gate that the child is a member, and skips a child that is not. It checks
+   a late child after that child's add finished its start attempt.
+1. After a child settles, the walk checks again. When the child is no longer
+   a member, its result does not change the composite: a failure does not
+   roll the composite back, and the walk goes on to the next child. A removal
+   does not stop the wait; the walk goes on when the removed child settles.
+1. A removal does not cancel, destruct or dispose the child. A child that the
+   walk started before the removal finishes its own transition and can reach
+   `Constructed`.
+
+So a snapshot child removed before the walk reaches it is not constructed. A
+snapshot background child or a late child removed while the walk waits on it
+does not roll the composite back, whatever its result. A late child removed
+before the walk reaches it is skipped. A failed add undoes its own attach, so
+its child is removed too: the add fails, and the composite does not roll
+back. The composite reaches `Constructed` when every remaining member has
+(`COMP-047`).
+
+With `AutoConstructOnAdd(true)`, the walk ends with a commit step under the
+membership gate. The step joins a late child that an add started after the
+walk's last scan. With none left, it writes `Status = Constructed` and
+reserves the `Constructed` publication in the same gated section (chapter 02
+§2.4). The publication follows when the transition completes. Until then,
+`Status` reads `Constructed`, but the transition is still in flight:
+`construct()`, `destruct()` and `reconstruct()` raise as for an in-flight
+transition (`LIFE-008`), and the `can_*` predicates return `false`. An add in
+this window follows the add-after-`Constructed` rule above, and the walk does
+not join its child. A background child added in the window can therefore
+still be `Constructing` when the composite publishes `Constructed`. A walk
+that disposal stopped, or that its construct hook abandoned by raising after
+it started the walk, commits nothing. The commit step checks this under the
+same lock as the status write. TypeScript writes and publishes the status
+with no consumer code in between, so it has no window.
 
 ## 6. Modeled variant `CompositeVM<M, VM>`
 
@@ -654,6 +712,19 @@ The `DestructOrder` option introduced in §5 is covered by:
 
 - `COMP-046` — `Reverse` destructs and disposes the children last child first,
   and construct is the same with and without the option.
+
+The construct-walk membership rules of §5.1 are covered by:
+
+- `COMP-047` — a child removed before the walk reaches it, or while the walk
+  waits on it, does not roll the composite back, whether it is a snapshot or a
+  late child, and the walk does not construct a snapshot child removed before
+  it.
+
+The cross-thread membership rule of §4.2 is covered by:
+
+- `COMP-048` — while another thread holds the composite's membership
+  transaction, an add, a population and a removal fail at once and change
+  nothing.
 
 The builder hooks introduced in §3.2 are covered by:
 
