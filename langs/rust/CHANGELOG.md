@@ -87,7 +87,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with `background(true)`, the walk of a construct or destruct runs on the
   background dispatcher. The call returns with the component transient, and
   the component settles once the walk and its members settle; a failure
-  reaches `background_errors()`. A reconstruct runs both walks on the calling
+  reaches `background_errors()`. The terminal or rollback status publishes on
+  the foreground dispatcher, also after a member failure that arrives while
+  the walk still runs. A reconstruct runs both walks on the calling
   thread for every component, as `reconstruct()` runs its hooks. The walk
   closure of `construct_with_children` and `destruct_with_children` is
   therefore `Send + 'static`, and those methods run it in place of the stored

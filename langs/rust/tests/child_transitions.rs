@@ -670,6 +670,52 @@ fn a_background_walk_waits_for_a_background_member_and_rolls_back_on_failure() {
     assert_eq!(errors.try_recv(), Ok(VmxError::Other("after".to_string())));
 }
 
+/// A member failure recorded while a background walk still runs rolls the
+/// parent back on the foreground dispatcher, not on the background thread
+/// that runs the walk (spec/11 §3, ADR-0203).
+#[test]
+fn a_member_failure_during_a_background_walk_publishes_the_rollback_on_the_foreground() {
+    let hub = MessageHub::new();
+    let parent_dispatcher = ManualDispatcher::new();
+    let child_dispatcher = ManualDispatcher::new();
+    let child: Member = ComponentVm::builder()
+        .name("child")
+        .model(0)
+        .background(true)
+        .on_construct(|| Err(VmxError::Other("child".to_string())))
+        .services(hub.clone(), child_dispatcher.clone())
+        .build()
+        .unwrap();
+    let parent = member(&hub, &parent_dispatcher, "parent", true);
+    let (errors_send, errors) = mpsc::channel();
+    let _errors = parent.background_errors().subscribe(move |error| {
+        errors_send.send(error).unwrap();
+    });
+
+    let walked = child.clone();
+    parent
+        .construct_with_children(move |walk| {
+            walk.transition(&walked)?;
+            // The member fails while the walk is still running.
+            child_dispatcher.drain();
+            Ok(())
+        })
+        .unwrap();
+    parent_dispatcher.drain_background();
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    assert_eq!(parent.status(), ConstructionStatus::Constructing);
+    assert_eq!(errors.try_recv(), Err(mpsc::TryRecvError::Empty));
+    assert_eq!(parent_dispatcher.foreground_queued_len(), 1);
+
+    parent_dispatcher.drain_foreground();
+    assert_eq!(parent.status(), ConstructionStatus::Destructed);
+    let expected = format!(
+        "child {} settled at Destructed instead of Constructed",
+        child.id()
+    );
+    assert_eq!(errors.try_recv(), Ok(VmxError::Other(expected)));
+}
+
 /// `reconstruct()` and the reconstruct command run the stored walks, also for
 /// a background component, whose reconstruct stays synchronous (spec/11 §4,
 /// ADR-0203).

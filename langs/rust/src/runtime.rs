@@ -2907,6 +2907,17 @@ impl Drop for StartAttempt {
 /// A container transition waiting for children that settle asynchronously
 /// (spec/02 §6): later child steps queue behind the child being awaited, and
 /// the container publishes its terminal status only after the queue drains.
+/// What a container's transition does once its own action returned.
+enum ChildWalkOutcome {
+    /// No child step is pending; the action publishes the terminal status.
+    Settled,
+    /// A child step is pending; the settle continuation publishes.
+    Deferred,
+    /// A child failed while the action ran; the caller publishes the
+    /// rollback status.
+    Failed(VmxError),
+}
+
 struct ChildSettle {
     generation: u64,
     waiting: bool,
@@ -3688,10 +3699,17 @@ impl<D: Dispatcher> ComponentCore<D> {
                 return;
             };
             // A member walk still waiting on a child hands the terminal
-            // publication to the settle continuation (spec/02 §6.1).
-            if result.is_ok() && core.defer_until_children_settle(generation) {
-                return;
-            }
+            // publication to the settle continuation (spec/02 §6.1). A
+            // member failure recorded while the walk ran rolls back through
+            // the foreground publication below (spec/11 §3).
+            let result = match result {
+                Ok(()) => match core.arm_children_settle(generation) {
+                    ChildWalkOutcome::Settled => Ok(()),
+                    ChildWalkOutcome::Deferred => return,
+                    ChildWalkOutcome::Failed(error) => Err(error),
+                },
+                Err(error) => Err(error),
+            };
             let error = result.err();
             let settled = if error.is_none() { target } else { rollback };
             let publication_core = core.clone();
@@ -4803,29 +4821,42 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     /// Hands the terminal publication to the settle continuation when a
     /// child step is still pending after the container's action returned,
-    /// or applies a child failure recorded while the action ran.
+    /// or applies a child failure recorded while the action ran, on the
+    /// calling thread.
     fn defer_until_children_settle(&self, generation: u64) -> bool {
-        let failure = {
-            let mut inner = lock(&self.inner);
-            let pending = self.settle_is_current(&inner, generation)
-                && inner.child_settle.as_ref().is_some_and(ChildSettle::busy);
-            match inner.child_settle.as_mut() {
-                Some(settle) if pending => {
-                    settle.armed = true;
-                    settle.failure.take()
-                }
-                _ => {
-                    let cleared = inner.child_settle.take();
-                    drop(inner);
-                    drop(cleared);
-                    return false;
-                }
+        match self.arm_children_settle(generation) {
+            ChildWalkOutcome::Settled => false,
+            ChildWalkOutcome::Deferred => true,
+            ChildWalkOutcome::Failed(error) => {
+                self.settle_children(generation, Some(error));
+                true
             }
-        };
-        if let Some(error) = failure {
-            self.settle_children(generation, Some(error));
         }
-        true
+    }
+
+    /// Arms the settle continuation once the container's action returned.
+    /// A child failure recorded while the action ran is returned, and the
+    /// caller publishes the rollback; the settle stays marked failed, so no
+    /// other path publishes a terminal status in the meantime.
+    fn arm_children_settle(&self, generation: u64) -> ChildWalkOutcome {
+        let mut inner = lock(&self.inner);
+        let pending = self.settle_is_current(&inner, generation)
+            && inner.child_settle.as_ref().is_some_and(ChildSettle::busy);
+        match inner.child_settle.as_mut() {
+            Some(settle) if pending => {
+                settle.armed = true;
+                settle
+                    .failure
+                    .take()
+                    .map_or(ChildWalkOutcome::Deferred, ChildWalkOutcome::Failed)
+            }
+            _ => {
+                let cleared = inner.child_settle.take();
+                drop(inner);
+                drop(cleared);
+                ChildWalkOutcome::Settled
+            }
+        }
     }
 
     /// Publishes a deferred container transition's terminal status: the
