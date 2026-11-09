@@ -7,7 +7,7 @@ where every in-scope spec feature is exercised in each UI-backed flavor. Two
 separate checks back it:
 
 - **Structural:** `tools/check-showcase-parity.py` requires every flavor to ship
-  the same per-VM test files and the five `THEME-00x` scenario markers. It
+  the same per-VM test files and the `THEME-00x` scenario markers. It
   checks names and markers only, not what the tests assert.
 - **Behavioral:** two shared scenarios run in every flagship, and each
   flavor's suite compares every step's semantic snapshot with the same

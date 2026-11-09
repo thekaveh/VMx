@@ -757,6 +757,7 @@ public class ComponentVMConformanceTests
 
         public void SelectChild(IComponentVM vm) => _current = vm;
         public void DeselectChild(IComponentVM vm) { if (_current == vm) _current = null; }
+        public void ChildDisposed(IComponentVM vm) { }
         public bool ContainsChild(IComponentVM vm) => false;
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
             => throw new InvalidOperationException("Selection-only test parent cannot transfer children.");

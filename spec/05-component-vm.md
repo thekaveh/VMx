@@ -259,9 +259,14 @@ can_deselect() returns true iff:
   - Parent.Current == this
 ```
 
-`select()` calls `parent.select_component(this)`. `deselect()` calls
-`parent.deselect_component(this)`. The selection contract is defined in
-`06-composite-vm.md`.
+`select()` asks the parent to select this VM, and `deselect()` asks it to
+clear this VM as `Current`. Both run the checks of `select_component(this)`
+and `deselect_component(this)` (chapter 06 §3.1, §4.3). If the parent refuses,
+the call changes nothing and raises nothing, in every flavor (ADR-0188).
+`can_select()` and `can_deselect()` check only `Parent`, `Parent.Current` and
+`Status`, so they do not predict every refusal. `parent.can_select_component(this)`
+tells a caller in advance whether the parent refuses `select()`. The selection
+contract is defined in `06-composite-vm.md`.
 
 `Parent.Current` denotes the container's `Current` slot, which only a `CompositeVM`
 owns. A `GroupVM` has no selection slot; its `Current` is conceptually always empty,
