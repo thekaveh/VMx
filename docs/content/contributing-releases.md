@@ -19,6 +19,14 @@ release procedure for every flavor.
 - Branch from `develop`, open the feature PR to `develop`, and run the relevant
   flavor checks locally.
 - Promote `develop` to protected `main` only through a separate maintainer PR.
+- `develop` and `main` stay in sync by tree, not by history. `develop` permits
+  squash merges only and `main` permits merge commits only, so `develop` history
+  does not contain the `main` merge commits, and GitHub reports each promotion
+  PR as `BEHIND` `main`. That state is expected. After each promotion,
+  `git diff --quiet <promotion head> <main merge commit>` must exit 0. A change
+  that reaches `main` by another route, such as a merged release-please release
+  PR, returns to `develop` through a squash PR from a branch cut at that `main`
+  commit, before the next promotion. CONTRIBUTING.md §1.1 gives the full policy.
 - Direct pushes to `develop` and `main` are blocked. Both PR stages require the
   always-present conformance, C#, Python, TypeScript, Swift, Rust, docs,
   examples, security, and spec-discipline aggregate checks against the latest
@@ -295,7 +303,10 @@ versions cannot collide. The spec uses `spec-vX.Y.Z`; Swift also pairs its
 operational tag with the semantic `vX.Y.Z` tag required by SwiftPM.
 Registry-backed channels are protected by environment approval, OIDC,
 pre-publish checks of the exact locally built artifact, public-artifact checks,
-and fresh-consumer verification. The Python channel pins its isolated PEP 517
+and fresh-consumer verification. Only the publish job holds `id-token: write`:
+earlier jobs without it install, build, test, and upload the exact artifact,
+and the publish job publishes that artifact (Rust's `cargo publish` still runs
+its verification build there). The Python channel pins its isolated PEP 517
 backend and installs/smokes the wheel from `dist/` before the irreversible PyPI
 action, then repeats the consumer check from the public registry.
 
@@ -349,7 +360,7 @@ Use this sequence for every flavor:
 Run `gh workflow run release.yml --ref develop` to validate only the
 five-version Ubuntu Python test matrix. Dispatch has no publication inputs.
 All other release jobs require a tag push, including when dispatch targets an
-existing release tag. This does not exercise the protected build/publish job;
+existing release tag. This does not exercise the build or protected publish jobs;
 normal Python CI separately checks wheel and extracted-sdist packaging. Real
 tag pushes retain their main-ancestry and publication gates.
 

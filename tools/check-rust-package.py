@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Verify the exact allowlisted contents of the Rust crate package."""
+"""Verify that the Rust crate package holds exactly the expected files.
+
+The expected inventory is the fixed top-level and Cargo-generated files plus
+every file that Git tracks under ``langs/rust/src`` and ``langs/rust/tests``.
+A new tracked source or test file therefore needs no edit here. A packaged
+file outside that inventory, such as ``.env`` or an untracked scratch test,
+fails the check.
+"""
 
 from __future__ import annotations
 
@@ -8,131 +15,55 @@ import subprocess
 import sys
 from pathlib import Path
 
-REQUIRED_PATHS = frozenset(
-    """.cargo_vcs_info.json
-CHANGELOG.md
-Cargo.lock
-Cargo.toml
-Cargo.toml.orig
-LICENSE
-NOTICE
-README.md
-src/aggregate_change_stream.rs
-src/aggregates.rs
-src/async_resource_vm.rs
-src/async_value.rs
-src/capabilities.rs
-src/commands.rs
-src/composites.rs
-src/components.rs
-src/collections.rs
-src/derived_property.rs
-src/discriminator.rs
-src/dialogs.rs
-src/fixtures/command-truthtable.json
-src/fixtures/derived-properties.json
-src/fixtures/lifecycle-transitions.json
-src/fixtures/message-ordering.json
-src/forms.rs
-src/forwarding.rs
-src/groups.rs
-src/hierarchical.rs
-src/lib.rs
-src/modeled_crud.rs
-src/notifications.rs
-src/paged_composition.rs
-src/runtime.rs
-src/runtime/commit_after_cascade_tests.rs
-src/runtime/wait_graph_tests.rs
-src/searchable_state.rs
-src/specialized_vms.rs
-src/token_paging.rs
-src/tree_selection.rs
-src/value_stream.rs
-src/wait_for_graph.rs
-tests/child_transitions.rs
-tests/conformance.rs
-tests/conformance/aggregate_change_stream.rs
-tests/conformance/aggregate_vm.rs
-tests/conformance/async_resource_completion.rs
-tests/conformance/async_resource_vm.rs
-tests/conformance/async_value.rs
-tests/conformance/auto_construct_during_constructing.rs
-tests/conformance/background_child_settle.rs
-tests/conformance/builders.rs
-tests/conformance/capabilities.rs
-tests/conformance/child_transition_helper.rs
-tests/conformance/collection_failing_local_subscriber.rs
-tests/conformance/collection_lookup_clones.rs
-tests/conformance/collections.rs
-tests/conformance/command_decorators.rs
-tests/conformance/command_ext.rs
-tests/conformance/commands.rs
-tests/conformance/component_vm.rs
-tests/conformance/composite_vm.rs
-tests/conformance/confirmation_async_inner.rs
-tests/conformance/container_disposal_wait_cycle.rs
-tests/conformance/container_hook_disposal.rs
-tests/conformance/derived_properties.rs
-tests/conformance/dialogs.rs
-tests/conformance/dictionary_key_view_order.rs
-tests/conformance/discriminator.rs
-tests/conformance/drop_reentry.rs
-tests/conformance/expandable.rs
-tests/conformance/expandable_support.rs
-tests/conformance/filtered_composite.rs
-tests/conformance/form_approval_admission.rs
-tests/conformance/form_approval_update_queue.rs
-tests/conformance/form_model_hub_publication.rs
-tests/conformance/form_nested_update_notifications.rs
-tests/conformance/form_approval_subscription.rs
-tests/conformance/form_failure_atomic_updates.rs
-tests/conformance/form_publication_wait_cycle.rs
-tests/conformance/form_reader_consistency.rs
-tests/conformance/form_unscoped_delivery.rs
-tests/conformance/forms.rs
-tests/conformance/forwarding.rs
-tests/conformance/group_vm.rs
-tests/conformance/hierarchical.rs
-tests/conformance/hierarchical_batch.rs
-tests/conformance/hierarchical_disposed_node.rs
-tests/conformance/hub_collection_changes.rs
-tests/conformance/hub_disposal_during_publication.rs
-tests/conformance/hub_membership_wait_cycle.rs
-tests/conformance/inline_dispose_cascade.rs
-tests/conformance/leaf_hook_disposal.rs
-tests/conformance/lifecycle.rs
-tests/conformance/localization.rs
-tests/conformance/message_hub.rs
-tests/conformance/message_recorder.rs
-tests/conformance/modeled_crud.rs
-tests/conformance/notifications.rs
-tests/conformance/null_services.rs
-tests/conformance/observable_list_replace_all.rs
-tests/conformance/owned_resources.rs
-tests/conformance/post_dispose_modeled_assignment.rs
-tests/conformance/property_change.rs
-tests/conformance/reconstruct_command_parity.rs
-tests/conformance/reverse_destruct_order.rs
-tests/conformance/search_filter.rs
-tests/conformance/selection_transactions.rs
-tests/conformance/subscribe_value.rs
-tests/conformance/threading.rs
-tests/conformance/token_clone_reentry.rs
-tests/conformance/token_load_terminal.rs
-tests/conformance/token_refresh_cursor.rs
-tests/conformance/tree_selection.rs
-tests/conformance/tree_utils.rs
-tests/conformance/user_equality_reentry.rs
-tests/conformance/value_stream.rs
-tests/conformance/vm_collection_move.rs""".splitlines()
+DEFAULT_PACKAGE_DIR = Path(__file__).resolve().parents[1] / "langs" / "rust"
+
+# The top-level files that `include` in Cargo.toml selects, and the files
+# that `cargo package` generates.
+FIXED_PATHS = frozenset(
+    {
+        ".cargo_vcs_info.json",
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "LICENSE",
+        "NOTICE",
+        "README.md",
+    }
 )
 
+# The crate directories whose tracked files `include` selects.
+SOURCE_DIRS = ("src", "tests")
 
-def validate_paths(paths: set[str]) -> list[str]:
+
+def tracked_source_paths(package_dir: Path) -> set[str]:
+    """Return the crate-relative paths that Git tracks in ``SOURCE_DIRS``."""
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", *SOURCE_DIRS],
+        cwd=package_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return {path for path in result.stdout.split("\0") if path}
+
+
+def expected_paths(tracked: set[str]) -> frozenset[str]:
+    """Return the full expected package inventory for ``tracked`` sources."""
+    return FIXED_PATHS | frozenset(tracked)
+
+
+def validate_paths(paths: set[str], tracked: set[str]) -> list[str]:
     """Return deterministic errors for missing or unexpected package paths."""
-    errors = [f"missing required package file: {path}" for path in sorted(REQUIRED_PATHS - paths)]
-    errors.extend(f"unexpected package file: {path}" for path in sorted(paths - REQUIRED_PATHS))
+    expected = expected_paths(tracked)
+    errors = [f"missing required package file: {path}" for path in sorted(expected - paths)]
+    for path in sorted(paths - expected):
+        if path.split("/", 1)[0] in SOURCE_DIRS:
+            reason = "Git does not track it"
+        else:
+            reason = "it is not a fixed top-level or generated crate file"
+        errors.append(f"unexpected package file: {path} ({reason})")
     return errors
 
 
@@ -163,13 +94,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--package-dir",
         type=Path,
-        default=Path(__file__).resolve().parents[1] / "langs" / "rust",
+        default=DEFAULT_PACKAGE_DIR,
     )
     args = parser.parse_args(argv)
 
     try:
-        paths = package_paths(args.package_dir.resolve())
-        errors = validate_paths(paths)
+        package_dir = args.package_dir.resolve()
+        paths = package_paths(package_dir)
+        tracked = tracked_source_paths(package_dir)
+        if not tracked:
+            raise ValueError(f"Git tracks no files under src/ or tests/ in {package_dir}")
+        errors = validate_paths(paths, tracked)
     except (
         OSError,
         ValueError,
@@ -186,7 +121,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
 
-    print(f"OK: Rust crate package contains {len(paths)} allowlisted files")
+    print(
+        f"OK: Rust crate package contains {len(paths)} files: "
+        f"{len(FIXED_PATHS)} fixed and {len(tracked)} tracked under src/ and tests/"
+    )
     return 0
 
 

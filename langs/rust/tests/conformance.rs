@@ -34,6 +34,8 @@ mod conformance {
     mod form_failure_atomic_updates;
     mod form_model_hub_publication;
     mod form_nested_update_notifications;
+    // Every case here observes the wait-for graph through a test seam.
+    #[cfg(feature = "test-seams")]
     mod form_publication_wait_cycle;
     mod form_reader_consistency;
     mod form_unscoped_delivery;
@@ -45,6 +47,8 @@ mod conformance {
     mod hierarchical_disposed_node;
     mod hub_collection_changes;
     mod hub_disposal_during_publication;
+    // Every case here observes the wait-for graph through a test seam.
+    #[cfg(feature = "test-seams")]
     mod hub_membership_wait_cycle;
     mod inline_dispose_cascade;
     mod leaf_hook_disposal;

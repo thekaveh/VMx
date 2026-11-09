@@ -146,7 +146,7 @@ flavor-specific difference.
 
 | Type                                                                           | Dispose behavior                                                      | Later calls                                                                               | Released                                                                                                                                                                                           | Readable state            |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| VM families: component, read-only, composite, group, aggregate 1–6             | One `Disposed` transition; VM-local streams complete                  | Lifecycle calls other than dispose fail; changes are inert                                | Children depth-first, then subclass hook, LIFO owned registrations, stream completion, commands                                                                                                    | Status                    |
+| VM families: component, read-only, composite, group, aggregate 1–6             | One `Disposed` transition; VM-local streams complete                  | Lifecycle calls other than dispose fail; container changes can refuse                     | Children depth-first, then subclass hook, LIFO owned registrations, stream completion, commands                                                                                                    | Status                    |
 | `HierarchicalVM`                                                               | One `Disposed` transition; VM-local streams complete                  | Lifecycle calls other than dispose fail; structural calls refuse; other changes are inert | No children, which stay live (see [Disposing A Subtree](viewmodel-families/hierarchical-family.md#6264-disposing-a-subtree)); subclass hook, LIFO owned registrations, stream completion, commands | Status                    |
 | Forwarding component and composite VMs                                         | Delegates to the wrapped VM, which completes once                     | Wrapped VM contract                                                                       | Delegates to the wrapped VM                                                                                                                                                                        | Wrapped VM contract       |
 | Message hub                                                                    | Message stream completes once                                         | Sends are ignored                                                                         | Pending transaction queue and subject                                                                                                                                                              | —                         |
@@ -173,6 +173,11 @@ flavor-specific difference.
 | `MessageRecorder` (Rust only)                                                  | Recording stops; the hub detaches the recorder                        | No later message is recorded                                                              | Hub registration                                                                                                                                                                                   | Recorded messages         |
 | Value streams and their subscriptions (Rust only)                              | Subscribers complete once; subscriptions detach                       | Later sends are inert                                                                     | Subscribers                                                                                                                                                                                        | Last value                |
 
+In the VM families row, a container change is a composite or group membership
+or selection change: add, insert, remove, remove by index, replace, clear,
+move, or a selection. These changes can refuse after disposal; the flavor
+exceptions below state the result in each flavor. Every other change is inert.
+
 Rows marked "only" exist in the named flavor. Every other row applies to every
 flavor unless the exceptions below say otherwise.
 
@@ -182,8 +187,11 @@ flavor unless the exceptions below say otherwise.
 
 - `MessageHub`, `AsyncRelayCommand`, and `TokenPagedComposition` claim disposal
   under a gate. `NotificationHub` claims it under a lock.
-- VM lifecycle calls other than dispose raise. Selection and property changes
-  are inert.
+- VM lifecycle calls other than dispose raise. Property changes are inert.
+- Composite and group `Add`, `Insert`, `Remove`, `RemoveAt`, `Clear`, `Move`,
+  and the indexer setter raise `ObjectDisposedException`. A composite selection
+  raises `ObjectDisposedException`, a null clear included, unless it assigns the
+  child that is already current, which changes nothing.
 - `RelayCommand` and `RelayCommand<T>` can raise one final `CanExecuteChanged`
   before the terminal disabled state.
 - The message stream is `Messages`; the derived-property stream is
@@ -204,6 +212,10 @@ flavor unless the exceptions below say otherwise.
   `NotificationHub` use their own locks. `AsyncResourceVM` uses its resource
   gate.
 - The terminal status is `DISPOSED`; illegal lifecycle calls raise.
+- Composite and group `add`, `insert`, `remove`, `remove_at`, `clear`, `move`,
+  item assignment, and item deletion raise `RuntimeError`. A composite selection
+  raises `RuntimeError`, a null clear included, unless it assigns the child that
+  is already current, which changes nothing.
 - Commands complete their owned subjects once. The async relay command cancels
   one in-flight task.
 - `NotificationHub` futures resolve `PENDING`, and post resolves `PENDING`.
@@ -220,6 +232,9 @@ flavor unless the exceptions below say otherwise.
 ### 6.8.5.3. TypeScript
 
 - The terminal status is `Disposed`; illegal lifecycle calls throw.
+- Composite and group `add`, `insert`, `remove`, `removeAt`, `setAt`, `clear`,
+  and `move` throw `Error`. Every composite selection after `Disposed` throws
+  `Error`, a null clear and the child that is already current included.
 - Commands complete their owned subjects once. The async relay command aborts
   one `AbortController`.
 - `NotificationHub` promises resolve `Pending`. `NotificationVM` and
@@ -242,6 +257,16 @@ flavor unless the exceptions below say otherwise.
   are outside this inventory.
 - Publishers finish rather than complete. The terminal status is `.disposed`;
   illegal lifecycle calls throw.
+- After `Disposed`, a composite `current` assignment or `setCurrent(_:)` of a
+  member or `nil` changes nothing and does not throw. A non-member is still
+  refused: `setCurrent(_:)` throws `CompositeMembershipError`, and the
+  `current` setter traps. Composite and group `addResult(_:)`,
+  `insertResult(_:at:)`, and `replaceResult(at:with:)` return
+  `.failure(.attachmentFailed)`. So `add(_:)` stops a debug build with
+  `assertionFailure` and changes nothing in a release build, and
+  `insert(_:at:)` and `replace(at:with:)` change nothing. `remove(_:)` returns
+  `false`, and `removeAt(_:)` and `clear()` return without a change.
+  `move(from:to:)` throws `ContainerOwnershipError.attachmentFailed`.
 - VM families claim disposal under the lifecycle lock. `MessageHub` and
   `NotificationHub` use their own locks. `TokenPagedComposition` claims it on
   its state queue.
@@ -275,6 +300,10 @@ flavor unless the exceptions below say otherwise.
 - A VM sends one `Disposed` message. It releases children, LIFO owned
   registrations, and its property-change stream. Illegal lifecycle calls return
   `VmxError::Disposed`.
+- Composite and group `add`, `insert`, `remove`, `remove_at`, `replace`, and
+  `move_item` return `VmxError::Disposed`. Composite `set_current` returns
+  `VmxError::Disposed` for every value, `None` and the child that is already
+  current included. `clear()` makes no change.
 - `MessageHub` claims disposal under its state mutex. It removes subscribers and
   drops queued messages instead of completing a stream.
 - `Subscription` and `PropertyChangedSubscription` are the hub subscription

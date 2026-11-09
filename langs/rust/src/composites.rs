@@ -216,9 +216,9 @@ impl<T: VmNode> CompositeSelection<T> {
             }
         }
         if let Some(expected) = expected_current_id {
-            if !lock(&self.current)
+            if lock(&self.current)
                 .as_ref()
-                .is_some_and(|current| current.id() == expected)
+                .is_none_or(|current| current.id() != expected)
             {
                 return Err(VmxError::NotCurrent);
             }

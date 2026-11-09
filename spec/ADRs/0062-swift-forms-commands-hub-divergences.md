@@ -117,6 +117,11 @@ Failures — whether from a throwing confirm or, in principle, from a throwing
 inner command — route to the sealed Combine `errors: AnyPublisher<Error, Never>`
 channel (CMDD-010).
 
+> **Corrected by [ADR-0184](0184-disposing-hub-batch-and-swift-non-throwing-inner-command.md).**
+> A Swift synchronous inner command cannot throw, because `Command.execute()`
+> has no `throws`. Only a throwing confirm reaches the `errors` channel, and
+> `CMDD-010` and `CMDD-013` exempt Swift from their throwing-inner clauses.
+
 **`ModeledCrudCommands` confirm signatures:** The `confirmUpdate` and
 `confirmDelete` optional delegates on `ModeledCrudCommands<VM: AnyObject>` are
 widened to `(() async throws -> Bool)?` to be composable with

@@ -10,8 +10,11 @@ use super::{
     HIERARCHY_TOPOLOGY_GATE,
 };
 
-type HierChildrenFactory<M> =
-    Arc<dyn Fn(&HierarchicalVm<M>) -> Vec<HierarchicalVm<M>> + Send + Sync>;
+type HierChildrenFactory<M, N> =
+    Arc<dyn Fn(&HierarchicalVm<M, N>) -> Vec<HierarchicalVm<M, N>> + Send + Sync>;
+
+/// A node's materialized children.
+type HierChildren<M, N> = Vec<HierarchicalVm<M, N>>;
 
 // The hook runs only for the node whose identity it names, so tests that
 // materialize other trees in parallel never reach it.
@@ -97,19 +100,38 @@ struct ChildrenMaterializationState {
 /// fn requires_expandable<T: Expandable>(_: &T) {}
 /// requires_expandable(&HierarchicalVm::new("root", "root".to_string()));
 /// ```
-pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
-    inner: Arc<HierarchicalVmInner<M>>,
+///
+/// # Node data
+///
+/// `N` is consumer node data, the Rust form of a `TVM` subclass (spec/18 §2,
+/// ADR-0202). Every node of one tree has the same type
+/// `HierarchicalVm<M, N>`, so [`parent`](Self::parent),
+/// [`children`](Self::children) and [`path`](Self::path) return nodes whose
+/// [`node_data`](Self::node_data) needs no downcast. `N` defaults to `()`, so
+/// `HierarchicalVm<M>` names a node without data.
+///
+/// Clones of a node share one `N`, so `N` needs no `Clone` or `PartialEq`.
+/// Keep changing state behind interior mutability, such as a `Mutex` or an
+/// atomic, and add node methods through an extension trait. `N` must not hold
+/// a strong handle to its own node or to an ancestor: that makes a reference
+/// cycle, and the nodes are never dropped.
+pub struct HierarchicalVm<
+    M: Clone + PartialEq + Send + Sync + 'static,
+    N: Send + Sync + 'static = (),
+> {
+    inner: Arc<HierarchicalVmInner<M, N>>,
     materialization_context: Option<u64>,
 }
 
-struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static> {
+struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> {
     component: ComponentVm<M>,
-    children: Arc<Mutex<Option<Vec<HierarchicalVm<M>>>>>,
+    node_data: N,
+    children: Arc<Mutex<Option<HierChildren<M, N>>>>,
     materializing_children: Arc<(Mutex<ChildrenMaterializationState>, Condvar)>,
-    parent: Mutex<Option<Weak<HierarchicalVmInner<M>>>>,
-    children_factory: HierChildrenFactory<M>,
+    parent: Mutex<Option<Weak<HierarchicalVmInner<M, N>>>>,
+    children_factory: HierChildrenFactory<M, N>,
     eager_children: Arc<Mutex<bool>>,
-    parked_attach_items: Arc<Mutex<Vec<HierarchicalVm<M>>>>,
+    parked_attach_items: Arc<Mutex<Vec<HierarchicalVm<M, N>>>>,
     hub: MessageHub,
 }
 
@@ -130,9 +152,63 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     where
         F: Fn(&Self) -> Vec<Self> + Send + Sync + 'static,
     {
+        Self::with_node_data(name, model, (), children_factory, eager_children, hub)
+    }
+
+    /// Creates an immutable hierarchy builder.
+    pub fn builder() -> HierarchicalVmBuilder<M> {
+        HierarchicalVmBuilder::new()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> HierarchicalVm<M, N> {
+    /// Creates a VM that carries consumer node data, with an explicit lazy or
+    /// eager children factory.
+    ///
+    /// ```
+    /// use vmx::{HierarchicalVm, MessageHub};
+    ///
+    /// struct FolderData {
+    ///     size: u64,
+    /// }
+    ///
+    /// let root = HierarchicalVm::with_node_data(
+    ///     "root",
+    ///     "root".to_string(),
+    ///     FolderData { size: 1 },
+    ///     |_| {
+    ///         vec![HierarchicalVm::with_node_data(
+    ///             "child",
+    ///             "child".to_string(),
+    ///             FolderData { size: 2 },
+    ///             |_| Vec::new(),
+    ///             false,
+    ///             MessageHub::new(),
+    ///         )]
+    ///     },
+    ///     false,
+    ///     MessageHub::new(),
+    /// );
+    ///
+    /// let child = &root.children()[0];
+    /// assert_eq!(child.node_data().size, 2);
+    /// assert_eq!(child.parent().unwrap().node_data().size, 1);
+    /// ```
+    pub fn with_node_data<F>(
+        name: impl Into<String>,
+        model: M,
+        node_data: N,
+        children_factory: F,
+        eager_children: bool,
+        hub: MessageHub,
+    ) -> Self
+    where
+        F: Fn(&Self) -> Vec<Self> + Send + Sync + 'static,
+    {
         Self {
             inner: Arc::new(HierarchicalVmInner {
                 component: ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new()),
+                node_data,
                 children: Arc::new(Mutex::new(None)),
                 materializing_children: Arc::new((
                     Mutex::new(ChildrenMaterializationState::default()),
@@ -148,9 +224,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         }
     }
 
-    /// Creates an immutable hierarchy builder.
-    pub fn builder() -> HierarchicalVmBuilder<M> {
-        HierarchicalVmBuilder::new()
+    /// Returns this node's own consumer node data. Clones of this node share it.
+    pub fn node_data(&self) -> &N {
+        &self.inner.node_data
     }
 
     /// Returns this node's stable identity.
@@ -985,7 +1061,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 }
 
-impl<M: Clone + PartialEq + Send + Sync + 'static> Clone for HierarchicalVm<M> {
+impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Clone
+    for HierarchicalVm<M, N>
+{
     fn clone(&self) -> Self {
         let current = thread::current().id();
         let state = lock(&self.inner.materializing_children.0);
@@ -1001,15 +1079,22 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> Clone for HierarchicalVm<M> {
     }
 }
 
-impl<M: Clone + PartialEq + Send + Sync + 'static> PartialEq for HierarchicalVm<M> {
+impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> PartialEq
+    for HierarchicalVm<M, N>
+{
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl<M: Clone + PartialEq + Send + Sync + 'static> Eq for HierarchicalVm<M> {}
+impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Eq
+    for HierarchicalVm<M, N>
+{
+}
 
-impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> {
+impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> VmNode
+    for HierarchicalVm<M, N>
+{
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.inner.component.core.when_settled(callback)
     }
@@ -1051,7 +1136,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> 
     }
 }
 
-impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M> {
+impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> TreeNode
+    for HierarchicalVm<M, N>
+{
     /// Returns [`HierarchicalVm::children`].
     ///
     /// # Panics
@@ -1071,9 +1158,17 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M
 
 #[derive(Clone)]
 /// Immutable builder for [`HierarchicalVm`].
-pub struct HierarchicalVmBuilder<M: Clone + PartialEq + Send + Sync + 'static> {
+///
+/// [`new`](Self::new) builds a node without data (`N = ()`), and
+/// [`with_node_data`](Self::with_node_data) builds a root that carries
+/// consumer node data (ADR-0202).
+pub struct HierarchicalVmBuilder<
+    M: Clone + PartialEq + Send + Sync + 'static,
+    N: Send + Sync + 'static = (),
+> {
     model: Option<M>,
-    children_factory: Option<HierChildrenFactory<M>>,
+    node_data: N,
+    children_factory: Option<HierChildrenFactory<M, N>>,
     services: Option<(MessageHub, NullDispatcher)>,
     hint: Option<String>,
     eager_children: bool,
@@ -1081,13 +1176,7 @@ pub struct HierarchicalVmBuilder<M: Clone + PartialEq + Send + Sync + 'static> {
 
 impl<M: Clone + PartialEq + Send + Sync + 'static> Default for HierarchicalVmBuilder<M> {
     fn default() -> Self {
-        Self {
-            model: None,
-            children_factory: None,
-            services: None,
-            hint: Some(String::new()),
-            eager_children: false,
-        }
+        Self::with_node_data(())
     }
 }
 
@@ -1095,6 +1184,23 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
     /// Creates an empty builder with lazy children.
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
+    HierarchicalVmBuilder<M, N>
+{
+    /// Creates an empty builder with lazy children for a root that carries
+    /// `node_data`.
+    pub fn with_node_data(node_data: N) -> Self {
+        Self {
+            model: None,
+            node_data,
+            children_factory: None,
+            services: None,
+            hint: Some(String::new()),
+            eager_children: false,
+        }
     }
 
     /// Sets the required root model.
@@ -1106,7 +1212,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
     /// Sets the recursive children factory.
     pub fn children_factory<F>(mut self, factory: F) -> Self
     where
-        F: Fn(&HierarchicalVm<M>) -> Vec<HierarchicalVm<M>> + Send + Sync + 'static,
+        F: Fn(&HierarchicalVm<M, N>) -> Vec<HierarchicalVm<M, N>> + Send + Sync + 'static,
     {
         self.children_factory = Some(Arc::new(factory));
         self
@@ -1135,7 +1241,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
     }
 
     /// Validates required fields and builds a hierarchy root.
-    pub fn build(self) -> VmxResult<HierarchicalVm<M>> {
+    pub fn build(self) -> VmxResult<HierarchicalVm<M, N>> {
         let model = self
             .model
             .ok_or_else(|| VmxError::BuilderValidation("model is required".to_string()))?;
@@ -1145,9 +1251,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
         let (hub, _dispatcher) = self
             .services
             .ok_or_else(|| VmxError::BuilderValidation("services are required".to_string()))?;
-        let node = HierarchicalVm::with_children_factory(
+        let node_data = self.node_data;
+        let node = HierarchicalVm::with_node_data(
             "HierarchicalVm",
             model,
+            node_data,
             move |parent| factory(parent),
             self.eager_children,
             hub,
