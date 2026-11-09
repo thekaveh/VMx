@@ -14,31 +14,39 @@ started and that has not returned (chapter 02 §2.4). A *foreign dispose* is a
 `dispose()` call on one thread while an admitted hook of the same view-model
 runs on another thread.
 
-ADR-0126 and chapter 02 §2.4 say that a foreign dispose publishes `Disposed`
-and then waits for the hook. #888, #1062 and #1063 moved the container and
-aggregate cascades behind that wait, so they run after `Disposed`. The guide
-pages state this order, but chapters 02, 06, 07 and 08 did not (#1165). They
-said that a container disposes its children or slots, and a leaf its members,
-before it publishes `Disposed`, with no exception. ADR-0162 §2.2 says the same
-for members and applies the admitted-hook rule without the resulting order.
+ADR-0126 and chapter 02 §2.4 say that a foreign dispose publishes `Disposed` and
+then waits for the hook. Three PRs moved container and aggregate cascades behind
+that wait, so they run after `Disposed`.
+[PR #888](https://github.com/thekaveh/VMx/pull/888) moved the C# and Python
+containers. [PR #1120](https://github.com/thekaveh/VMx/pull/1120) (issue #1062)
+moved the Rust and Swift containers and the Rust aggregates.
+[PR #1122](https://github.com/thekaveh/VMx/pull/1122) (issue #1063) moved the
+Python and Swift aggregates. None of them changed the C# `AggregateVM1` to
+`AggregateVM6`. [PR #1216](https://github.com/thekaveh/VMx/pull/1216) (ADR-0175)
+moved those later, as the list below records. The guide pages state this order,
+but chapters 02, 06, 07 and 08 did not (issue #1165). They said that a container
+disposes its children or slots, and a leaf its members, before it publishes
+`Disposed`, with no exception. ADR-0162 §2.2 says the same for members and
+applies the admitted-hook rule without the resulting order.
 
-The reproduction in #1165 shows both orders in Python, Swift and Rust.
+The reproduction in issue #1165 shows both orders in Python, Swift and Rust.
 Inspection shows the same two branches in C#. With no admitted hook on another
 thread, `c1` and `c2` publish `Disposed` before the container. During a foreign
 dispose, the container publishes `Disposed` first, and its children stay
 `Destructed` until the hook returns.
 
-#1165 named two known gaps that kept the children-first order during a foreign
-dispose. Both are closed on `develop`:
+Issue #1165 named two known gaps that kept the children-first order during a
+foreign dispose. Both are closed on `develop`:
 
-- **C# `AggregateVM1` to `AggregateVM6` (#1166).** They disposed their slots
-  before `base.Dispose()`. #1216 (ADR-0175) moved them to the base cascade at
-  the hook boundary (`DisposeWithChildrenFrom`). The same PR removed open
-  decision §2.11 from
+- **C# `AggregateVM1` to `AggregateVM6` (issue #1166).** They disposed their
+  slots before `base.Dispose()` until
+  [PR #1216](https://github.com/thekaveh/VMx/pull/1216) (ADR-0175) moved them
+  to the base cascade at the hook boundary (`DisposeWithChildrenFrom`). The
+  same PR removed open decision §2.11 from
   `docs/maintenance/2026-10-18-open-cross-flavor-decisions.md`.
-- **Rust leaf `ComponentVm` (#1164).** It disposed its `own_member` members
-  before the core disposal and its hook wait. #1216 moved the members into
-  `dispose_with_cascade_then`. The same PR removed §12.13 from
+- **Rust leaf `ComponentVm` (issue #1164).** It disposed its `own_member`
+  members before the core disposal and its hook wait. PR #1216 moved the
+  members into `dispose_with_cascade_then`. The same PR removed §12.13 from
   `docs/maintenance/2026-07-16-rust-capability-parity.md`.
 
 ## 2. Decision
