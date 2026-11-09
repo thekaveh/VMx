@@ -27,7 +27,9 @@ import {
 } from "@thekaveh/vmx";
 import {
   type INotificationHub,
+  Notification,
   NotificationHub,
+  NotificationType,
 } from "@thekaveh/vmx/notifications";
 
 import type { NoteModel } from "../models/noteModel.js";
@@ -49,6 +51,7 @@ export class WorkspaceVM {
   readonly #repo: INoteRepository;
   readonly #dialogService: IDialogService;
   readonly #hub: IMessageHub;
+  readonly #notificationHub: INotificationHub;
   readonly #notebooks: NotebooksRootVM;
   readonly #notesView: NotesViewVM;
   readonly #noteForm: NoteFormVM;
@@ -101,6 +104,7 @@ export class WorkspaceVM {
     this.#repo = opts.repository;
     this.#dialogService = opts.dialogService;
     this.#hub = opts.hub;
+    this.#notificationHub = opts.notificationHub;
 
     this.#notebooks = NotebooksRootVM.builder()
       .name("notebooks")
@@ -116,6 +120,17 @@ export class WorkspaceVM {
       .searchDebounceMs(150)
       .dialogService(opts.dialogService)
       .notificationHub(opts.notificationHub)
+      // ADR-0201 §2.3: the action-bar Save on the note the editor holds is
+      // the editor Save, with its dirty and valid gate; any other note saves
+      // its stored model.
+      .saveNote(async (note) => {
+        const form = this.#noteForm;
+        if (form.hasBoundNote && form.snapshot.id === note.model.id) {
+          if (form.isDirty && form.isValid) await form.approveAsync();
+        } else {
+          await opts.repository.saveNote(note.model);
+        }
+      })
       .build();
     this.#noteForm = NoteFormVM.builder()
       .name("form")
@@ -311,6 +326,19 @@ export class WorkspaceVM {
 
   get notifications(): NotificationsVM {
     return this.#notifications;
+  }
+
+  /**
+   * Posts an error notification for a failed fire-and-forget command.
+   * `AsyncRelayCommand.execute()` sends a rejected task to the command's
+   * `errors` channel, so the toolbar passes this method to `useCommand` as
+   * `onError` and the toast overlay shows the failure.
+   */
+  reportFailure(action: string, error: unknown): void {
+    const reason = error instanceof Error ? error.message : String(error);
+    void this.#notificationHub.post(
+      new Notification(NotificationType.Error, `${action} failed: ${reason}`),
+    );
   }
 
   get capabilityActions(): CapabilityActionsVM {

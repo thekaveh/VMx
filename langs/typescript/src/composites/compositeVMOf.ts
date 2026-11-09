@@ -6,10 +6,12 @@
  */
 import { CompositeVMBase } from "./compositeVMBase.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
+import { disposeUnownedCandidates } from "../components/unownedCandidates.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
 import type { ChildOrder } from "../components/types.js";
+import { requireChildOrder } from "../components/vmContainer.js";
 
 export class CompositeVMOf<M, VM extends ComponentVMBase> extends CompositeVMBase<VM> {
   readonly #childrenModels: () => Iterable<M>;
@@ -37,8 +39,15 @@ export class CompositeVMOf<M, VM extends ComponentVMBase> extends CompositeVMBas
   }
 
   protected override _populateChildren(): void {
-    const children = [...this.#childrenModels()].map((model) =>
-      this.#childModelToChildVM(model));
+    // A projector that throws disposes the children it already built
+    // (#1324); the composite keeps no children.
+    const children: VM[] = [];
+    try {
+      for (const model of this.#childrenModels()) children.push(this.#childModelToChildVM(model));
+    } catch (error) {
+      disposeUnownedCandidates(this, children);
+      throw error;
+    }
     this._attachPopulation(children);
   }
 
@@ -124,7 +133,7 @@ export class CompositeVMOfBuilder<M, VM extends ComponentVMBase> {
    */
   destructOrder(order: ChildOrder): CompositeVMOfBuilder<M, VM> {
     const b = new CompositeVMOfBuilder<M, VM>(this);
-    b.#destructOrder = order;
+    b.#destructOrder = requireChildOrder(order);
     return b;
   }
 

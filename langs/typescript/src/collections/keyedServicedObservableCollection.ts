@@ -13,6 +13,7 @@ import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 import type { ObservableMembershipSource } from "./observableMembership.js";
 import { emittedIndex } from "./emittedIndex.js";
 import { resolveSpliceStart } from "./spliceStart.js";
+import { itemAt } from "./itemAt.js";
 
 export interface KeyedServicedObservableCollectionOptions<TKey, TItem> {
   readonly keyOf: (item: TItem) => TKey;
@@ -43,7 +44,7 @@ export class KeyedServicedObservableCollection<TKey, TItem>
   }
 
   at(index: number): TItem | undefined {
-    return this.#items[index];
+    return itemAt(this.#items, index);
   }
 
   toArray(): TItem[] {

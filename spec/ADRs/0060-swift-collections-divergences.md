@@ -1,6 +1,6 @@
 # ADR 0060 — Swift Phase-3 Inc-2 forced divergences (collections: COL / COMP-001/002/012/013 / GRP-001/005/006)
 
-**Status:** Accepted (2026-06-29)
+**Status:** Accepted (2026-06-29; §2.4(b) superseded by ADR-0111)
 **Spec version:** 3.0.0 (subset — Phase 3, Increment 2)
 **Relates-to:** [ADR-0006](0006-idiomatic-api-per-language.md) (idiomatic surface per
 language), [ADR-0009](0009-cross-flavor-divergence-catalogue.md) (cross-flavor

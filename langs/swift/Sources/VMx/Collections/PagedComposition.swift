@@ -59,6 +59,8 @@ public final class PagedComposition<TVM>: Pageable {
     public var pageSize: Int {
         get { _pageSize }
         set {
+            // After dispose(), paging calls change no state and emit nothing (ADR-0214).
+            guard !_disposed else { return }
             let clamped = max(0, newValue)
             guard _pageSize != clamped else { return }
             _pageSize = clamped
@@ -76,6 +78,7 @@ public final class PagedComposition<TVM>: Pageable {
     public var currentPageIndex: Int {
         get { _currentPageIndex }
         set {
+            guard !_disposed else { return }
             let clamped = clampIndex(newValue)
             guard _currentPageIndex != clamped else { return }
             _currentPageIndex = clamped
@@ -100,6 +103,7 @@ public final class PagedComposition<TVM>: Pageable {
 
     /// Sets `currentPageIndex` to `0`. No-op when already at the first page.
     public func moveToFirstPage() {
+        guard !_disposed else { return }
         guard _currentPageIndex != 0 else { return }
         _currentPageIndex = 0
         _propertyChangedSubject.send("currentPageIndex")
@@ -108,6 +112,7 @@ public final class PagedComposition<TVM>: Pageable {
 
     /// Decrements `currentPageIndex`. No-op when already at `0`.
     public func moveToPreviousPage() {
+        guard !_disposed else { return }
         guard _currentPageIndex > 0 else { return }
         _currentPageIndex -= 1
         _propertyChangedSubject.send("currentPageIndex")
@@ -117,6 +122,7 @@ public final class PagedComposition<TVM>: Pageable {
     /// Increments `currentPageIndex`. No-op when already at `pageCount - 1`
     /// or when `pageCount == 0` (empty source).
     public func moveToNextPage() {
+        guard !_disposed else { return }
         let last = pageCount - 1
         guard _currentPageIndex < last else { return }
         _currentPageIndex += 1
@@ -127,6 +133,7 @@ public final class PagedComposition<TVM>: Pageable {
     /// Sets `currentPageIndex` to `pageCount - 1`. No-op when already last
     /// or when `pageCount == 0` (empty source).
     public func moveToLastPage() {
+        guard !_disposed else { return }
         let last = pageCount - 1
         guard _currentPageIndex < last else { return }
         _currentPageIndex = last
@@ -163,8 +170,10 @@ public final class PagedComposition<TVM>: Pageable {
     /// emits `propertyChanged` for the properties that changed.
     ///
     /// Call this after filtering (e.g. from `SearchableState.filtered`) to
-    /// compose filter-then-page semantics (COL-021).
+    /// compose filter-then-page semantics (COL-021). After `dispose()` the
+    /// call changes nothing (ADR-0214).
     public func setSource(_ newSource: [TVM]) {
+        guard !_disposed else { return }
         _source = newSource
         let clamped = clampIndex(_currentPageIndex)
         let indexChanged = clamped != _currentPageIndex
@@ -175,6 +184,9 @@ public final class PagedComposition<TVM>: Pageable {
     }
 
     /// Detaches source observation and completes `propertyChanged`. Idempotent.
+    /// After disposal, `pageSize` and `currentPageIndex` writes, the four move
+    /// calls and `setSource(_:)` change no state and emit nothing. Reads keep
+    /// the last page (ADR-0214).
     public func dispose() {
         guard !_disposed else { return }
         _disposed = true

@@ -1432,3 +1432,53 @@ describe("FormVM default equality – supported snapshot domain", () => {
     sut.dispose();
   });
 });
+
+// ── Failed queue send (spec/20 §5.4 rule 7, ADR-0216, #1415) ─────────────────
+
+describe("FormVM — failed queue send", () => {
+  /** A hub whose `send` throws on a model PropertyChangedMessage once armed. */
+  class ThrowingModelHub extends MessageHub {
+    readonly failure = new Error("hub send failed");
+    armed = false;
+    override send(message: Parameters<MessageHub["send"]>[0]): void {
+      if (this.armed && message instanceof PropertyChangedMessage
+        && message.propertyName === "model") {
+        throw this.failure;
+      }
+      super.send(message);
+    }
+  }
+
+  it("releases an approval started from an errorsChanged observer", async () => {
+    const hub = new ThrowingModelHub();
+    const persister = vi.fn(noop);
+    const form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister,
+      hub,
+      validators: { value: (model) => (model.value < 0 ? "negative" : null) },
+    });
+    form.setModel(m("A", -1));
+    let nested: Promise<void> | undefined;
+    form.errorsChanged.subscribe((errors) => {
+      // The form is valid again, so the nested approval is admitted.
+      if (Object.keys(errors).length === 0) nested ??= form.approveAsync();
+    });
+    let canExecuteChanged = 0;
+    form.approveCommand.canExecuteChanged.subscribe(() => {
+      canExecuteChanged += 1;
+    });
+    hub.armed = true;
+
+    expect(() => form.setModel(m("C", 2))).toThrow(hub.failure);
+
+    expect(nested).toBeDefined();
+    await expect(nested).resolves.toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(persister).not.toHaveBeenCalled();
+    // The validity change was sent; the admission was not, so no release one.
+    expect(canExecuteChanged).toBe(1);
+    expect(form.approveCommand.canExecute()).toBe(true);
+    expect(form.model).toEqual(m("C", 2));
+  });
+});

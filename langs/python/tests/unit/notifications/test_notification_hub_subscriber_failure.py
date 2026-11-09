@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.notifications import (
     Notification,
     NotificationHub,
@@ -99,7 +99,7 @@ def test_a_waiting_dispose_wakes_when_a_completion_observer_raises_base_exceptio
     def on_next(snapshot: object) -> None:
         if snapshot:
             in_next.set()
-            release.wait(HANG_GUARD)
+            wait_event(release)
             raise ValueError("delivery")
 
     def on_completed() -> None:
@@ -116,7 +116,7 @@ def test_a_waiting_dispose_wakes_when_a_completion_observer_raises_base_exceptio
 
     poster = threading.Thread(target=post_on_loop)
     poster.start()
-    assert in_next.wait(HANG_GUARD)
+    assert wait_event(in_next)
     disposed = threading.Event()
 
     def dispose() -> None:
@@ -127,6 +127,6 @@ def test_a_waiting_dispose_wakes_when_a_completion_observer_raises_base_exceptio
     threading.Thread(target=dispose, daemon=True).start()
     time.sleep(0.2)
     release.set()
-    poster.join(HANG_GUARD)
+    join_thread(poster)
 
-    assert disposed.wait(HANG_GUARD), "the waiting dispose must wake"
+    assert wait_event(disposed), "the waiting dispose must wake"

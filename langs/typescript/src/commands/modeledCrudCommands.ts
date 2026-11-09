@@ -3,6 +3,8 @@
  *
  * See spec/06-composite-vm.md §Modeled CRUD commands and ADR-0016.
  */
+import type { Observable } from "rxjs";
+
 import {
   ConfirmationDecoratorCommand,
   type ConfirmDelegate,
@@ -22,6 +24,15 @@ export interface ModeledCrudCommandsOptions<M, VM> {
   confirmUpdate?: ConfirmDelegate;
   confirmDelete?: ConfirmDelegate;
   /**
+   * Optional trigger that fires when the value of `current` changes, typically
+   * the owning composite's current-child stream. When supplied, it is wired as
+   * a trigger on the Update and Delete commands, so their `canExecuteChanged`
+   * fires on a selection change and a bound control does not keep a stale
+   * enabled state (spec/06 §7, ADR-0049). Use it when the commands are bound
+   * to UI.
+   */
+  currentChanged?: Observable<unknown>;
+  /**
    * @internal Phantom field to pin the `M` type parameter so it is not erased
    * by the TypeScript compiler. Never read at runtime; always undefined.
    */
@@ -40,20 +51,24 @@ export class ModeledCrudCommands<M, VM> {
 
   constructor(opts: ModeledCrudCommandsOptions<M, VM>) {
     const create = RelayCommand.builder().task(opts.createNew).build();
-    const update = RelayCommand.builder()
+    let updateBuilder = RelayCommand.builder()
       .task(() => {
         const c = opts.current();
         if (c) opts.updateCurrent(c);
       })
-      .predicate(() => opts.current() != null)
-      .build();
-    const remove = RelayCommand.builder()
+      .predicate(() => opts.current() != null);
+    let removeBuilder = RelayCommand.builder()
       .task(() => {
         const c = opts.current();
         if (c) opts.deleteCurrent(c);
       })
-      .predicate(() => opts.current() != null)
-      .build();
+      .predicate(() => opts.current() != null);
+    if (opts.currentChanged) {
+      updateBuilder = updateBuilder.triggers(opts.currentChanged);
+      removeBuilder = removeBuilder.triggers(opts.currentChanged);
+    }
+    const update = updateBuilder.build();
+    const remove = removeBuilder.build();
 
     this.#innerRelays = [create, update, remove];
 

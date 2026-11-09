@@ -2,8 +2,8 @@
 //! construct walk joins a child added during it, and the container completes
 //! only when that child is Constructed.
 
+use super::bounded_wait::within_timeout;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Duration;
@@ -13,30 +13,8 @@ use vmx::{
     NullDispatcher, ParentHandle, Reconstructable, Subscription, VmNode, VmxResult,
 };
 
-/// Runs `body` on a worker and fails if it does not finish in time, so a
-/// deadlock regression fails the test instead of hanging the suite. A worker
-/// panic is reported as a panic, with its message, not as a deadlock.
-fn within_timeout<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
-    let (tx, rx) = mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let _ = tx.send(body());
-    });
-    match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(value) => value,
-        Err(RecvTimeoutError::Timeout) => panic!("{what} deadlocked"),
-        Err(RecvTimeoutError::Disconnected) => {
-            let message = match worker.join() {
-                Ok(()) => "worker exited without a result".to_string(),
-                Err(payload) => payload
-                    .downcast_ref::<&str>()
-                    .map(|text| (*text).to_string())
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "non-string panic payload".to_string()),
-            };
-            panic!("{what} worker panicked: {message}")
-        }
-    }
-}
+/// The bound on every wait in this file.
+const BOUND: Duration = Duration::from_secs(5);
 
 /// A node whose construct either completes at once (foreground) or stays
 /// Constructing until the test settles it (background).
@@ -600,7 +578,7 @@ macro_rules! reconstruct_joins_child_added_by_construct_hook {
             }
         });
 
-        let result = within_timeout("reconstruct", {
+        let result = within_timeout("reconstruct", BOUND, {
             let container = container.clone();
             move || container.reconstruct()
         });
@@ -608,7 +586,7 @@ macro_rules! reconstruct_joins_child_added_by_construct_hook {
         assert_eq!(container.status(), ConstructionStatus::Constructing);
         assert_eq!(child.status(), ConstructionStatus::Constructing);
         assert!(hook_seen.lock().unwrap().is_empty());
-        within_timeout("drain", {
+        within_timeout("drain", BOUND, {
             let dispatcher = dispatcher.clone();
             move || dispatcher.drain()
         });
@@ -715,7 +693,7 @@ macro_rules! child_added_during_the_walk_is_constructed_once {
             }
         };
 
-        let result = within_timeout("construct with an add during the walk", {
+        let result = within_timeout("construct with an add during the walk", BOUND, {
             let container = container.clone();
             move || container.construct()
         });
@@ -787,7 +765,7 @@ where
         }
     });
 
-    within_timeout("settle with an add after the walk", {
+    within_timeout("settle with an add after the walk", BOUND, {
         let anchor = anchor.clone();
         move || anchor.finish(ConstructionStatus::Constructed)
     });
@@ -890,7 +868,7 @@ where
     };
     assert_eq!(*late.status.lock().unwrap(), expected);
 
-    within_timeout("settle the original child", {
+    within_timeout("settle the original child", BOUND, {
         let anchor = anchor.clone();
         move || anchor.finish(ConstructionStatus::Constructed)
     });
@@ -1066,7 +1044,7 @@ fn auto_construct_turned_on_during_walk_skips_unstarted_child<C: Container>() {
     container.add(late.clone()).unwrap();
     container.set_auto_construct_on_add(true);
 
-    within_timeout("settle the original child", {
+    within_timeout("settle the original child", BOUND, {
         let anchor = anchor.clone();
         move || anchor.finish(ConstructionStatus::Constructed)
     });
@@ -1091,7 +1069,7 @@ fn failed_late_child_rolls_back_after_auto_construct_turned_off<C: Container>() 
     late.finish(ConstructionStatus::Destructed);
     container.set_auto_construct_on_add(false);
 
-    within_timeout("settle the original child", {
+    within_timeout("settle the original child", BOUND, {
         let anchor = anchor.clone();
         move || anchor.finish(ConstructionStatus::Constructed)
     });
@@ -1114,7 +1092,7 @@ fn auto_construct_turned_off_during_walk_ignores_later_child<C: Container>() {
     container.add(late.clone()).unwrap();
     assert_eq!(late.status(), ConstructionStatus::Destructed);
 
-    within_timeout("settle the original child", {
+    within_timeout("settle the original child", BOUND, {
         let anchor = anchor.clone();
         move || anchor.finish(ConstructionStatus::Constructed)
     });
@@ -1276,7 +1254,7 @@ where
         }));
     }
 
-    within_timeout("construct the container", {
+    within_timeout("construct the container", BOUND, {
         let container = container.clone();
         move || container.construct()
     })
@@ -1293,7 +1271,7 @@ where
         ConstructionStatus::Constructing,
         "the container waits for the late child its add started"
     );
-    within_timeout("settle the late child", {
+    within_timeout("settle the late child", BOUND, {
         let late = late.clone();
         move || late.finish(ConstructionStatus::Constructed)
     });
@@ -1398,6 +1376,7 @@ where
             .expect("the delivering thread probes the container");
     within_timeout(
         "the held delivery and the seal's publication finish",
+        BOUND,
         move || {
             holder.join().unwrap();
             finisher.join().unwrap();
@@ -1419,8 +1398,20 @@ where
         !reconstruct_can_execute,
         "the reconstruct command is disabled"
     );
-    assert_eq!(second, Err(vmx::VmxError::ConcurrentOperation));
-    assert_eq!(destruct, Err(vmx::VmxError::ConcurrentOperation));
+    assert_eq!(
+        second,
+        Err(vmx::VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Constructing,
+            operation: "construct",
+        })
+    );
+    assert_eq!(
+        destruct,
+        Err(vmx::VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Constructing,
+            operation: "destruct",
+        })
+    );
     assert_eq!(
         Container::status(&container),
         ConstructionStatus::Constructed

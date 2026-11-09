@@ -2,10 +2,10 @@
 //! discards, or clears is dropped only after the owner's internal locks are
 //! released, so a `Drop` that reads its owner returns instead of deadlocking.
 
+use super::bounded_wait::within_timeout;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::RecvTimeoutError;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use vmx::{
     AggregateChangeStream, AggregateObserveOptions, AggregateVm1, AsyncResourceRetention,
@@ -15,32 +15,8 @@ use vmx::{
     NullDispatcher, PagedComposition, ValueStream,
 };
 
-/// Runs `body` on a worker and fails if it does not finish in time, so a
-/// deadlock regression fails the test instead of hanging the suite. A worker
-/// panic is reported as a panic, with its message, not as a deadlock.
-fn within_timeout<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
-    let (tx, rx) = mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let _ = tx.send(body());
-    });
-    match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(value) => value,
-        Err(RecvTimeoutError::Timeout) => {
-            panic!("{what} deadlocked: a user value was dropped under an internal lock")
-        }
-        Err(RecvTimeoutError::Disconnected) => {
-            let message = match worker.join() {
-                Ok(()) => "worker exited without a result".to_string(),
-                Err(payload) => payload
-                    .downcast_ref::<&str>()
-                    .map(|text| (*text).to_string())
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "non-string panic payload".to_string()),
-            };
-            panic!("{what} worker panicked: {message}")
-        }
-    }
-}
+/// The bound on every wait in this file.
+const BOUND: Duration = Duration::from_secs(5);
 
 thread_local! {
     static IN_HOOK: Cell<bool> = const { Cell::new(false) };
@@ -135,7 +111,7 @@ fn form_replaced_field_validator_drop_may_read_the_form() {
     });
     let reader = form.clone();
     hook.arm(move || reader.with_field_validator("other", |_| None));
-    within_timeout("FormVm::with_field_validator", {
+    within_timeout("FormVm::with_field_validator", BOUND, {
         let form = form.clone();
         move || form.with_field_validator("a", |_| None)
     });
@@ -159,7 +135,7 @@ fn form_dispose_validator_drop_may_read_the_form() {
         reader.revert();
         let _ = reader.can_approve();
     });
-    within_timeout("FormVm::dispose", {
+    within_timeout("FormVm::dispose", BOUND, {
         let form = form.clone();
         move || form.dispose()
     });
@@ -172,7 +148,7 @@ fn hierarchical_invalidate_children_drop_may_read_the_node() {
     let hook = Hook::default();
     // Setup runs under the timeout too: materializing takes the process-wide
     // hierarchy topology gate, which a deadlocked sibling test could hold.
-    let materialized = within_timeout("HierarchicalVm::invalidate_children", {
+    let materialized = within_timeout("HierarchicalVm::invalidate_children", BOUND, {
         let hook = hook.clone();
         move || {
             let factory_hook = hook.clone();
@@ -207,7 +183,7 @@ fn hierarchical_dispose_parked_drop_may_read_the_node() {
     let hook = Hook::default();
     // Setup runs under the timeout too: attaching takes the process-wide
     // hierarchy topology gate, which a deadlocked sibling test could hold.
-    let parked = within_timeout("HierarchicalVm::dispose", {
+    let parked = within_timeout("HierarchicalVm::dispose", BOUND, {
         let hook = hook.clone();
         move || {
             let root = HierarchicalVm::new("root", DropProbe::new(0, &Hook::default()));
@@ -246,7 +222,7 @@ fn filtered_set_predicate_drop_may_read_the_projection() {
     hook.arm(move || {
         let _ = reader.visible();
     });
-    within_timeout("FilteredCompositeVm::set_predicate", {
+    within_timeout("FilteredCompositeVm::set_predicate", BOUND, {
         let filtered = filtered.clone();
         move || filtered.set_predicate(|_| false)
     });
@@ -254,8 +230,8 @@ fn filtered_set_predicate_drop_may_read_the_projection() {
 }
 
 /// A filtered current item that the source removed drops after the current
-/// lock when a read reconciles the selection, so its `Drop` may read the
-/// projection.
+/// lock when the source change reconciles the selection, so its `Drop` may
+/// read the projection.
 #[test]
 fn filtered_current_item_drop_may_read_the_projection() {
     let hook = Hook::default();
@@ -269,8 +245,8 @@ fn filtered_current_item_drop_may_read_the_projection() {
     let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
     let first = filtered.current().unwrap();
     assert_eq!(first.name(), "first");
-    source.remove(&first).unwrap();
-    // The projection's current slot now owns the removed item's last handle.
+    // The projection's current slot now owns the item's only handle outside
+    // the source.
     drop(first);
 
     let reader = filtered.clone();
@@ -278,12 +254,16 @@ fn filtered_current_item_drop_may_read_the_projection() {
         let _ = reader.current();
         let _ = reader.visible();
     });
-    let current = within_timeout("FilteredCompositeVm::current", {
-        let filtered = filtered.clone();
-        move || filtered.current().map(|item| item.name())
-    });
+    within_timeout(
+        "CompositeVm::clear reconciles FilteredCompositeVm",
+        BOUND,
+        {
+            let source = source.clone();
+            move || source.clear()
+        },
+    );
     assert!(hook.disarm() > 0);
-    assert_eq!(current.as_deref(), Some("second"));
+    assert!(filtered.current().is_none());
 }
 
 /// Keyed `replace`, `remove_at` and `remove_key` drop the captured key of the
@@ -311,7 +291,7 @@ fn keyed_collection_replace_remove_at_and_remove_key_drop_may_read_the_collectio
     let fired = |hook: &Hook| hook.fired.load(Ordering::SeqCst);
 
     let before = fired(&hook);
-    let replaced = within_timeout("KeyedServicedObservableCollection::replace", {
+    let replaced = within_timeout("KeyedServicedObservableCollection::replace", BOUND, {
         let collection = collection.clone();
         move || {
             let old = collection
@@ -324,7 +304,7 @@ fn keyed_collection_replace_remove_at_and_remove_key_drop_may_read_the_collectio
     assert!(fired(&hook) > before, "replace dropped no captured key");
 
     let before = fired(&hook);
-    let removed = within_timeout("KeyedServicedObservableCollection::remove_at", {
+    let removed = within_timeout("KeyedServicedObservableCollection::remove_at", BOUND, {
         let collection = collection.clone();
         move || {
             let old = collection.remove_at(0).unwrap();
@@ -335,7 +315,7 @@ fn keyed_collection_replace_remove_at_and_remove_key_drop_may_read_the_collectio
     assert!(fired(&hook) > before, "remove_at dropped no captured key");
 
     let before = fired(&hook);
-    let removed = within_timeout("KeyedServicedObservableCollection::remove_key", {
+    let removed = within_timeout("KeyedServicedObservableCollection::remove_key", BOUND, {
         let collection = collection.clone();
         move || {
             let old = collection
@@ -361,7 +341,7 @@ fn composite_set_current_selector_drop_may_read_the_composite() {
     });
     let reader = composite.clone();
     hook.arm(move || reader.set_current_selector(|_| None));
-    within_timeout("CompositeVm::set_current_selector", {
+    within_timeout("CompositeVm::set_current_selector", BOUND, {
         let composite = composite.clone();
         move || composite.set_current_selector(|_| None)
     });
@@ -379,7 +359,7 @@ fn composite_on_current_changed_drop_may_read_the_composite() {
     });
     let reader = composite.clone();
     hook.arm(move || reader.on_current_changed(|_| {}));
-    within_timeout("CompositeVm::on_current_changed", {
+    within_timeout("CompositeVm::on_current_changed", BOUND, {
         let composite = composite.clone();
         move || composite.on_current_changed(|_| {})
     });
@@ -398,7 +378,7 @@ fn composite_clear_drop_may_dispose_the_composite() {
     hook.arm(move || {
         let _ = reader.dispose();
     });
-    let len = within_timeout("CompositeVm::clear", {
+    let len = within_timeout("CompositeVm::clear", BOUND, {
         let composite = composite.clone();
         move || {
             composite.clear();
@@ -421,7 +401,7 @@ fn group_clear_drop_may_dispose_the_group() {
     hook.arm(move || {
         let _ = reader.dispose();
     });
-    let len = within_timeout("GroupVm::clear", {
+    let len = within_timeout("GroupVm::clear", BOUND, {
         let group = group.clone();
         move || {
             group.clear();
@@ -449,7 +429,7 @@ fn aggregate_stream_removed_entry_drop_may_observe_the_stream() {
             .subscribe(|_| {});
         drop(subscription);
     });
-    within_timeout("AggregateChangeStream membership removal", {
+    within_timeout("AggregateChangeStream membership removal", BOUND, {
         let composite = composite.clone();
         move || composite.clear()
     });
@@ -465,7 +445,7 @@ fn paged_set_source_drop_may_read_the_composition() {
     hook.arm(move || {
         let _ = reader.page_count();
     });
-    let pages = within_timeout("PagedComposition::set_source", {
+    let pages = within_timeout("PagedComposition::set_source", BOUND, {
         let paged = paged.clone();
         move || {
             paged.set_source(Vec::new());
@@ -486,7 +466,7 @@ fn value_stream_send_drop_may_read_the_stream() {
     hook.arm(move || {
         let _ = reader.value();
     });
-    let id = within_timeout("ValueStream::send", {
+    let id = within_timeout("ValueStream::send", BOUND, {
         let stream = stream.clone();
         move || {
             stream.send(DropProbe::new(2, &Hook::default()));
@@ -507,7 +487,7 @@ fn derived_recompute_drop_may_read_the_property() {
     hook.arm(move || {
         let _ = reader.value();
     });
-    let id = within_timeout("DerivedProperty::recompute", {
+    let id = within_timeout("DerivedProperty::recompute", BOUND, {
         let property = property.clone();
         move || {
             property.recompute(|_| DropProbe::new(2, &Hook::default()));
@@ -539,7 +519,7 @@ fn async_resource_reload_drop_may_read_the_resource() {
     hook.arm(move || {
         let _ = reader.state();
     });
-    within_timeout("AsyncResourceVm::reload_async", {
+    within_timeout("AsyncResourceVm::reload_async", BOUND, {
         let resource = resource.clone();
         move || resource.reload_async().join().unwrap().unwrap()
     });
@@ -557,7 +537,7 @@ fn async_resource_retained_reload_drop_may_read_the_resource() {
     hook.arm(move || {
         let _ = reader.state();
     });
-    within_timeout("AsyncResourceVm::reload_async retained", {
+    within_timeout("AsyncResourceVm::reload_async retained", BOUND, {
         let resource = resource.clone();
         move || resource.reload_async().join().unwrap().unwrap()
     });
@@ -593,7 +573,7 @@ fn dispose_while_waiting_drops_a_queued_removed_child_after_the_core_lock() {
     hook.arm(move || {
         let _ = reader.status();
     });
-    within_timeout("CompositeVm::dispose while waiting", {
+    within_timeout("CompositeVm::dispose while waiting", BOUND, {
         let composite = composite.clone();
         move || composite.dispose()
     })
@@ -631,7 +611,7 @@ fn group_dispose_while_waiting_drops_a_queued_removed_child_after_the_core_lock(
     hook.arm(move || {
         let _ = reader.status();
     });
-    within_timeout("GroupVm::dispose while waiting", {
+    within_timeout("GroupVm::dispose while waiting", BOUND, {
         let group = group.clone();
         move || group.dispose()
     })
@@ -680,7 +660,7 @@ fn aggregate_dispose_while_waiting_drops_a_released_child_after_the_core_lock() 
         let _ = component.status();
     });
     drop(composite);
-    within_timeout("AggregateVm1::dispose while waiting", {
+    within_timeout("AggregateVm1::dispose while waiting", BOUND, {
         let aggregate = aggregate.clone();
         move || aggregate.dispose()
     })
@@ -724,7 +704,7 @@ fn composite_clear_survives_an_is_current_hub_subscriber_that_disposes_it() {
         }
     });
 
-    within_timeout("CompositeVm::clear", {
+    within_timeout("CompositeVm::clear", BOUND, {
         let composite = composite.clone();
         move || composite.clear()
     });
@@ -751,7 +731,7 @@ fn composite_clear_survives_an_is_current_child_subscriber_that_disposes_it() {
         }
     });
 
-    within_timeout("CompositeVm::clear", {
+    within_timeout("CompositeVm::clear", BOUND, {
         let composite = composite.clone();
         move || composite.clear()
     });
@@ -784,7 +764,7 @@ fn rollback_with_a_disposing_subscriber<C: Clone + Send + Sync + 'static>(
             }
         }
     });
-    let result = within_timeout(what, {
+    let result = within_timeout(what, BOUND, {
         let (container, child) = (container.clone(), child.clone());
         move || attach(&container, child)
     });

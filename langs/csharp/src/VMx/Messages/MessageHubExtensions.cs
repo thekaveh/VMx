@@ -20,7 +20,8 @@ public static class MessageHubExtensions
     /// filter that otherwise gets copy-pasted into every cross-VM binding. The
     /// covariant <see cref="IPropertyChangedMessage{TSender}"/> match captures
     /// messages regardless of the concrete sender generic argument; sender
-    /// identity is compared by reference.
+    /// identity is compared by reference. A subscriber that throws stays
+    /// attached, and its failure is discarded (spec/03 §3.4 and §3.6, ADR-0191).
     /// </para>
     /// </summary>
     /// <param name="hub">The hub whose message stream to observe.</param>
@@ -35,10 +36,10 @@ public static class MessageHubExtensions
         ThrowHelper.ThrowIfNull(sender, nameof(sender));
         ThrowHelper.ThrowIfNull(propertyName, nameof(propertyName));
 
-        return hub.Messages
+        return new IsolatedObservable<IPropertyChangedMessage<object>>(hub.Messages
             .OfType<IPropertyChangedMessage<object>>()
             .Where(m => ReferenceEquals(m.SenderObject, sender)
-                && string.Equals(m.PropertyName, propertyName, StringComparison.Ordinal));
+                && string.Equals(m.PropertyName, propertyName, StringComparison.Ordinal)));
     }
 
     /// <summary>
@@ -87,8 +88,8 @@ public static class MessageHubExtensions
             names.Add(name);
         }
 
-        return hub.Messages
+        return new IsolatedObservable<IPropertyChangedMessage<object>>(hub.Messages
             .OfType<IPropertyChangedMessage<object>>()
-            .Where(m => ReferenceEquals(m.SenderObject, sender) && names.Contains(m.PropertyName));
+            .Where(m => ReferenceEquals(m.SenderObject, sender) && names.Contains(m.PropertyName)));
     }
 }

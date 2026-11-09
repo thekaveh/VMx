@@ -20,6 +20,7 @@
 import { Observable, Subject } from "rxjs";
 
 import { emittedIndex } from "./emittedIndex.js";
+import { itemAt } from "./itemAt.js";
 
 // ── Payload shapes ────────────────────────────────────────────────────────────
 
@@ -92,7 +93,7 @@ export class ObservableList<T> {
   }
 
   at(index: number): T | undefined {
-    return this.#items[index];
+    return itemAt(this.#items, index);
   }
 
   toArray(): T[] {

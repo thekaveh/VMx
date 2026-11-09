@@ -183,6 +183,15 @@ func withExclusiveOwnershipReservationBatch<T>(
     return try body()
 }
 
+/// True while an ownership transaction holds `child`'s identity. Never
+/// waits: a gate that another thread holds counts as in progress.
+func isOwnershipTransactionInProgress(_ child: ComponentVMBase) -> Bool {
+    let identity = child._ownershipIdentity
+    guard tryHoldOwnershipGate(identity) else { return true }
+    defer { releaseOwnershipGate(identity) }
+    return identity.ownershipInProgress
+}
+
 func beginParentTransfer(
     _ child: ComponentVMBase,
     to destination: OwnershipParentVM,
@@ -601,6 +610,15 @@ final class ChildTransitionWalker {
         while true {
             lateChild.willSeal?()
             // A disposed owner joins no further late child (LIFE-015).
+            // Defensive check (#1410): only `_disposeAtHookBoundary` requests
+            // disposal, and it cancels this walk at once: before the request
+            // when it runs the cascade inline, and right after the request
+            // otherwise. So `stopped` decides only inside that short window
+            // on another thread, and no test can hold it open. Without the check
+            // the outcome is the same: `_flipConstructedForSeal()` does not
+            // flip a container whose disposal is requested, `advance()` stops
+            // on `superseded()`, and `_commitStatus` drops the commit of the
+            // superseded generation.
             let stopped = superseded()
             lock.lock()
             if cancelled || stopped {
@@ -624,6 +642,13 @@ final class ChildTransitionWalker {
             lock.unlock()
             do {
                 // A walk stopped by disposal never settles `fresh`.
+                // Defensive check (#1410): `superseded()` is true here only
+                // when a disposal landed during this pull, and that disposal
+                // also cancels this walk, so `fresh` never settles. Then
+                // `.pending(fresh)` publishes nothing, and `.abandoned`
+                // reaches `_commitStatus`, which drops the commit of the
+                // superseded generation. The outcome is the same either way,
+                // so no test can observe this check.
                 if try advance() { return superseded() ? .abandoned : .pending(fresh) }
             } catch {
                 endLate()

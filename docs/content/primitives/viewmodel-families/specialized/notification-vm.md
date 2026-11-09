@@ -31,6 +31,10 @@ render-time lifecycle:
 - manual dismiss resolves immediately and cancels the timer
 - external hub resolution updates `IsResolved`
 - dispose tears down timer and subscriptions
+- resolution or dispose stops the clock: `RemainingTime` and `Opacity` keep
+  the values they had at that moment (`NOTIF-019`, ADR-0197)
+- a VM built over a disposed hub constructs normally; its pending
+  subscription completes at once (`NOTIF-020`)
 
 Timer, subscription, command, and property-stream teardown happens at most
 once under the [Disposal Contract](../../disposal-contract.md).
@@ -42,6 +46,11 @@ once under the [Disposal Contract](../../disposal-contract.md).
 | Type             | `NotificationVM` | `NotificationVM`  | `NotificationVM` | `NotificationVM` | `NotificationVm`    |
 | Lifespan default | 60 s             | 60 s              | 60 s             | 60 s             | 60 s                |
 | Dismiss command  | `DismissCommand` | `dismiss_command` | `dismissCommand` | `dismissCommand` | `dismiss_command()` |
+
+Swift accepts any `NotificationScheduler`: `DispatchQueue.main`,
+`RunLoop.main` or `OperationQueue.main` in an app, and `VirtualTimeScheduler`
+in tests. The timers run on that scheduler, so pass one on the thread that
+uses the VM.
 
 Rust's `NotificationVm` has no injected scheduler: its lifespan advances only
 through `advance_by_ms`, so a host drives the clock itself. Its `dispose()`

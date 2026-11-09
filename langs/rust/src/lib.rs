@@ -54,6 +54,11 @@ macro_rules! test_seam_probes {
         #[doc = "let group = vmx::GroupVm::<vmx::ComponentVm<i32>>::new(\"probe\");"]
         #[doc = "group.set_last_scan_probe_for_testing(|| {});"]
         #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let vm: vmx::ComponentVm = vmx::ComponentVm::new(\"probe\");"]
+        #[doc = "let _ = vm.property_changed().subscriber_count_for_testing();"]
+        #[doc = "```"]
         pub struct TestSeamProbes;
     };
 }
@@ -123,8 +128,8 @@ pub(crate) use runtime::{
 
 mod components;
 pub use components::{
-    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ReadonlyComponentVm,
-    ReadonlyComponentVmBuilder, ViewModelType,
+    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ModelChangedCallback,
+    ReadonlyComponentVm, ReadonlyComponentVmBuilder, ViewModelType,
 };
 
 mod commands;
@@ -136,8 +141,9 @@ pub use commands::{
 
 mod collections;
 pub use collections::{
+    EventStream, EventSubscription, ItemAddedEvent, ItemRemovedEvent, ItemReplacedEvent,
     KeyedServicedObservableCollection, ObservableDictionary, ObservableList,
-    ObservableMultiDictionary, ServicedObservableCollection,
+    ObservableMultiDictionary, ReadOnlyObservableList, ServicedObservableCollection,
 };
 
 mod composites;
@@ -156,7 +162,7 @@ mod searchable_state;
 pub use searchable_state::SearchableState;
 
 mod modeled_crud;
-pub use modeled_crud::ModeledCrudCommands;
+pub use modeled_crud::{ModeledCrudCommands, NO_CONFIRM};
 
 mod derived_property;
 pub use derived_property::DerivedProperty;

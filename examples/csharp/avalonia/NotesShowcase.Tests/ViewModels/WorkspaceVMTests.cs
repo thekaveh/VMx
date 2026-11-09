@@ -444,6 +444,9 @@ public sealed class WorkspaceVMTests
         {
             var note = ws.NotesView.Inner[0];
             ws.NotesView.Current = note;
+            // ADR-0201 §2.3: the editor holds this note, so Save persists the
+            // draft and a clean draft writes nothing. Edit the title first.
+            ws.NoteForm.Title = note.Title + " (edited)";
 
             note.SaveCommand.Execute(null);
             await TestWait.WaitUntilAsync(() => spy.SaveCalls > 0);
@@ -451,6 +454,141 @@ public sealed class WorkspaceVMTests
 
             note.CloseCommand.Execute(null);
             Assert.Null(ws.NotesView.Current);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    private static (WorkspaceVM Workspace, SaveSpyRepository Repo) BuildSpyWorkspace()
+    {
+        var spy = new SaveSpyRepository(new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero));
+        return (WorkspaceVM.Builder().Repository(spy).Build(), spy);
+    }
+
+    private static async Task<NoteModel> StoredNoteAsync(INoteRepository repo, NoteModel note)
+        => (await repo.LoadNotesAsync(note.NotebookId)).Single(n => n.Id == note.Id);
+
+    private static Task RunActionBarSaveAsync(WorkspaceVM ws)
+    {
+        var save = ws.CapabilityActions.Actions.Value.Single(a => a.Label == "Save");
+        return Assert.IsType<AsyncRelayCommand>(save.Command).ExecuteAsync();
+    }
+
+    [Fact]
+    public async Task Selecting_another_note_discards_the_unsaved_draft()
+    {
+        // ADR-0201 §2.2: a note switch discards the draft with no prompt.
+        var (ws, repo) = BuildSpyWorkspace();
+        await ws.ConstructAsync();
+        try
+        {
+            var a = ws.NotesView.Inner[0];
+            var b = ws.NotesView.Inner[1];
+            var storedTitle = a.Model.Title;
+            ws.NotesView.Current = a;
+            ws.NoteForm.Title = storedTitle + " (draft)";
+            Assert.True(ws.NoteForm.IsDirty);
+
+            ws.NotesView.Current = b;
+
+            Assert.Equal(b.Model.Title, ws.NoteForm.Title);
+            Assert.False(ws.NoteForm.IsDirty);
+
+            ws.NotesView.Current = a;
+
+            Assert.Equal(storedTitle, ws.NoteForm.Title);
+            Assert.False(ws.NoteForm.IsDirty);
+            Assert.Equal(storedTitle, (await StoredNoteAsync(repo, a.Model)).Title);
+            Assert.Equal(0, repo.SaveCalls);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Action_bar_Save_on_the_edited_note_persists_the_editor_draft()
+    {
+        // ADR-0201 §2.3: the action-bar Save on the note the editor holds is
+        // the editor Save.
+        var (ws, repo) = BuildSpyWorkspace();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.Inner[0];
+            ws.NotesView.Current = note;
+            ws.NoteForm.Title = "Retitled through the action bar";
+
+            await RunActionBarSaveAsync(ws);
+
+            Assert.Equal("Retitled through the action bar", (await StoredNoteAsync(repo, note.Model)).Title);
+            Assert.Equal(1, repo.SaveCalls);
+            await TestWait.WaitUntilAsync(() => !ws.NoteForm.IsDirty);
+            Assert.False(ws.NoteForm.IsDirty);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task Action_bar_Save_writes_nothing_for_an_invalid_or_clean_draft(string? title)
+    {
+        // ADR-0201 §2.3: an invalid ("" title) or clean (null: no edit) draft
+        // persists nothing.
+        var (ws, repo) = BuildSpyWorkspace();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.Inner[0];
+            var storedTitle = note.Model.Title;
+            ws.NotesView.Current = note;
+            if (title is not null) ws.NoteForm.Title = title;
+
+            await RunActionBarSaveAsync(ws);
+
+            Assert.Equal(0, repo.SaveCalls);
+            Assert.Equal(storedTitle, (await StoredNoteAsync(repo, note.Model)).Title);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Action_bar_Save_on_another_note_saves_its_stored_model()
+    {
+        // ADR-0201 §2.3: when the editor holds another note, Save persists the
+        // stored model of the focused note and leaves the editor draft alone.
+        var (ws, repo) = BuildSpyWorkspace();
+        await ws.ConstructAsync();
+        try
+        {
+            var edited = ws.NotesView.Inner[0];
+            var other = ws.NotesView.Inner[1];
+            ws.NotesView.Current = edited;
+            ws.NoteForm.Title = "Draft that stays unsaved";
+            ws.SetFocus(other);
+
+            await RunActionBarSaveAsync(ws);
+
+            Assert.Equal(1, repo.SaveCalls);
+            Assert.Equal(other.Model.Title, (await StoredNoteAsync(repo, other.Model)).Title);
+            Assert.Equal(edited.Model.Title, (await StoredNoteAsync(repo, edited.Model)).Title);
+            Assert.True(ws.NoteForm.IsDirty);
+            Assert.Equal("Draft that stays unsaved", ws.NoteForm.Title);
         }
         finally
         {

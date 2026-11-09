@@ -227,6 +227,50 @@ public sealed class NotesViewVMTests
     }
 
     [Fact]
+    public async Task A_search_that_hides_the_current_note_keeps_it_and_reselects_it_when_it_shows_again()
+    {
+        // ADR-0201 §2.1: a refilter never changes Current. When the note goes
+        // back into the visible slice, Current is raised again so a bound list
+        // selects the row again.
+        var (vm, _) = await BuildAndBindAsync("nb-reviews");
+        var note = vm.VisibleItems.Single(n => n.Title == "Vendor shortlist");
+        vm.Current = note;
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.SearchTerm = "Q1";
+
+        Assert.Same(note, vm.Current);
+        Assert.DoesNotContain(note, vm.VisibleItems);
+
+        raised.Clear();
+        vm.SearchTerm = string.Empty;
+
+        Assert.Same(note, vm.Current);
+        Assert.Contains(note, vm.VisibleItems);
+        Assert.Contains(nameof(NotesViewVM.Current), raised);
+    }
+
+    [Fact]
+    public async Task A_page_change_keeps_the_current_note()
+    {
+        // ADR-0201 §2.1: a page change never changes Current.
+        var (vm, _) = await BuildAndBindAsync("nb-reviews");
+        var note = vm.VisibleItems[0];
+        vm.Current = note;
+
+        vm.MoveToNextPageCommand.Execute(null);
+
+        Assert.Same(note, vm.Current);
+        Assert.DoesNotContain(note, vm.VisibleItems);
+
+        vm.MoveToPreviousPageCommand.Execute(null);
+
+        Assert.Same(note, vm.Current);
+        Assert.Contains(note, vm.VisibleItems);
+    }
+
+    [Fact]
     public async Task Reconstruct_resets_lifecycle_and_keeps_items_via_rebind()
     {
         var (vm, _) = await BuildAndBindAsync("nb-reviews");

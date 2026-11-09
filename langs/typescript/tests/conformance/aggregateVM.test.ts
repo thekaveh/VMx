@@ -519,11 +519,12 @@ describe("AGG-007", () => {
 
   it("rejects forwarding aliases of one canonical component", () => {
     const hub = makeHub();
-    const inner = ComponentVMOf.builder<string>()
+    const makeInner = () => ComponentVMOf.builder<string>()
       .name("inner")
       .model("model")
       .services(hub, makeDisp())
       .build();
+    let inner = makeInner();
     const first = new ForwardingComponentVM(inner);
     const second = new ForwardingComponentVM(inner);
     const duplicate = AggregateVM2.builder<ForwardingComponentVM<string>, ForwardingComponentVM<string>>()
@@ -537,6 +538,9 @@ describe("AGG-007", () => {
     expect(duplicate.component1).toBeNull();
     expect(duplicate.component2).toBeNull();
 
+    // The refused population disposed the unowned `inner` (#1324), so the
+    // owned-alias case uses a fresh component.
+    inner = makeInner();
     const composite = CompositeVM.builder<ComponentVMOf<string>>()
       .name("composite")
       .services(hub, makeDisp())

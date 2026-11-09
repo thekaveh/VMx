@@ -52,8 +52,11 @@ final class RelayCommandOfTests: XCTestCase {
     /// CMD-016 — parameterized imperative raise after disposal is a no-op.
     func testCmd016ParameterizedImperativeRaiseAfterDisposalIsNoOp() {
         let cmd = RelayCommandOf<Int>.builder().build()
-        // Subscribe before disposal: a later subscriber could never observe a
-        // stray emission, so the assertion below could not fail.
+        // Disposal finishes the change subject, and a finished subject drops
+        // later values. So the closed channel alone keeps a later raise from
+        // reaching this subscriber, with or without the disposed check.
+        // `testParameterizedRaiseFromFinalDisposalNotificationPublishesNothingMore`
+        // observes the check itself.
         var fires = 0
         let cancel = cmd.canExecuteChanged.sink { fires += 1 }
         cmd.dispose()
@@ -62,6 +65,24 @@ final class RelayCommandOfTests: XCTestCase {
         cmd.raiseCanExecuteChanged()
 
         XCTAssertEqual(fires, 0)
+        cancel.cancel()
+    }
+
+    /// A raise from the final disposal notification publishes nothing more (#1341).
+    /// `dispose()` sets the disposed flag, sends one final value, then finishes
+    /// the subject. A raise from that value reaches the open subject, so only
+    /// the disposed check drops it.
+    func testParameterizedRaiseFromFinalDisposalNotificationPublishesNothingMore() {
+        let cmd = RelayCommandOf<Int>.builder().build()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { _ in
+            fires += 1
+            if fires == 1 { cmd.raiseCanExecuteChanged() }
+        }
+
+        cmd.dispose()
+
+        XCTAssertEqual(fires, 1)
         cancel.cancel()
     }
 

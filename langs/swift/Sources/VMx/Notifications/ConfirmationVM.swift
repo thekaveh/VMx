@@ -18,10 +18,14 @@ public final class ConfirmationVM: NotificationVM {
     /// Resolves the hub with `.reject`.
     public let rejectCommand: RelayCommand
 
-    public override init(
+    /// - Parameter scheduler: Measures the lifespan for `remaining` and
+    ///   `opacity`, and drives the decay ticks. Pass a real-time scheduler such
+    ///   as `DispatchQueue.main` in an app, and a `VirtualTimeScheduler` in
+    ///   tests. The lifespan never resolves the notification.
+    public override init<S: NotificationScheduler>(
         notification: Notification,
         hub: NotificationHubProtocol,
-        scheduler: VirtualTimeScheduler,
+        scheduler: S,
         lifespan: TimeInterval = 300,
         tickInterval: TimeInterval = 0
     ) {
@@ -31,9 +35,11 @@ public final class ConfirmationVM: NotificationVM {
         weak var weakSelf: ConfirmationVM?
         self.approveCommand = RelayCommand.builder()
             .task { weakSelf?.resolveWith(.approve) }
+            .predicate { !(weakSelf?.disposed ?? false) }
             .build()
         self.rejectCommand = RelayCommand.builder()
             .task { weakSelf?.resolveWith(.reject) }
+            .predicate { !(weakSelf?.disposed ?? false) }
             .build()
         super.init(
             notification: notification,
@@ -57,7 +63,8 @@ public final class ConfirmationVM: NotificationVM {
 
     /// Delegates to the base, then disposes the approve/reject commands. The
     /// base marks the VM disposed first, so an observer that runs while a
-    /// command is disposed cannot resolve the hub (#753).
+    /// command is disposed cannot resolve the hub (#753), and every command
+    /// already reports `canExecute() == false` (spec/16 §6.2, ADR-0196).
     public override func dispose() {
         super.dispose()
         approveCommand.dispose()

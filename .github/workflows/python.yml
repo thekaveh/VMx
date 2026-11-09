@@ -19,6 +19,7 @@ on:
       - "tools/check-conformance-coverage.py"
       - "tools/check-conformance-execution.py"
       - "tools/check-python-package.py"
+      - "tools/check-python-api.py"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
@@ -26,6 +27,17 @@ on:
 defaults:
   run:
     working-directory: langs/python
+
+# #1440: a newer push to a pull request cancels that pull request's older run
+# of this workflow, so a superseded run frees its runners. Push, schedule and
+# workflow_dispatch runs each get a group of their own and are never cancelled
+# or replaced; a shared group would replace a pending run (#534).
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+    || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -89,6 +101,14 @@ jobs:
 
       - name: Mypy
         run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m mypy --strict src/vmx
+
+      - name: Compare the public API with the baseline
+        # The rendered API depends on a few interpreter reprs, so the check
+        # runs on the Python version that tools/check-python-api.py pins.
+        # Update langs/python/api/vmx.api.txt for an intended change
+        # (CONTRIBUTING.md, "Public API baselines").
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- ../../tools/check-python-api.py
 
       - name: Pytest
         run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m pytest --cov=vmx --cov-report=xml -v --junitxml=conformance-results.xml -o junit_family=xunit1

@@ -102,8 +102,7 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     // ── Batch-update state ──────────────────────────────────────────────
 
-    private var _batchLevel = 0
-    private var _batchDirty = false
+    private let batch = ContainerBatch()
 
     // ── CollectionChanged publisher ─────────────────────────────────────
 
@@ -125,18 +124,13 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// Nested `batchUpdate()` calls are supported via a reference counter; the
     /// reset fires only when the outermost batch ends.
     public func batchUpdate() -> BatchUpdateHandle {
-        _batchLevel += 1
+        batch.enter()
         return BatchUpdateHandle(owner: self)
     }
 
     /// Called by `BatchUpdateHandle.dispose()` — do not call directly.
     func _exitBatch() {
-        guard _batchLevel > 0 else { return }
-        _batchLevel -= 1
-        if _batchLevel == 0 && _batchDirty {
-            _batchDirty = false
-            deliverCollectionChanged(.reset())
-        }
+        batch.exit(deliver: deliverCollectionChanged)
     }
 
     public init(
@@ -514,11 +508,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         let index = membershipGate.withLock {
             children.firstIndex(where: { $0 === child }) ?? Swift.max(children.count - 1, 0)
         }
-        if _batchLevel > 0 {
-            _batchDirty = true
-        } else {
-            deliverCollectionChanged(.added(child, at: index))
-        }
+        emit(.added(child, at: index))
         return .success(())
     }
 
@@ -824,11 +814,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     private func emit(_ event: CollectionChangedEvent) {
-        if _batchLevel > 0 {
-            _batchDirty = true
-        } else {
-            deliverCollectionChanged(event)
-        }
+        batch.emit(event, deliver: deliverCollectionChanged)
     }
 
     /// Delivers `event` locally, then publishes it on `hub` (see
@@ -840,7 +826,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             from: self,
             subject: collectionChangedSubject,
             gate: membershipGate,
-            disposeRequested: { disposeRequested }
+            disposalPending: { disposeRequested || disposeDeferred }
         )
     }
 

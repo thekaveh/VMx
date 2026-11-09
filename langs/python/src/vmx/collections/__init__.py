@@ -9,7 +9,8 @@ optionally publishes :class:`CollectionChangedMessage` events to a hub.
 See spec/21-collections.md §2 and ADR-0024.
 
 :class:`ObservableList` is a standalone observable list with granular per-mutation
-events. See spec/21-collections.md §3 and ADR-0026.
+events. See spec/21-collections.md §3 and ADR-0026. :class:`ReadOnlyObservableList`
+is its read-only facade, returned by the dictionary key views (ADR-0193).
 
 :class:`ObservableDictionary` is a two-key observable dictionary with distinct-key
 observable views. See spec/21-collections.md §4 and ADR-0025.
@@ -28,7 +29,7 @@ from vmx.collections.keyed_serviced_observable_collection import (
     KeyedServicedObservableCollection,
 )
 from vmx.collections.observable_dictionary import ObservableDictionary
-from vmx.collections.observable_list import ObservableList
+from vmx.collections.observable_list import ObservableList, ReadOnlyObservableList
 from vmx.collections.observable_membership import ObservableMembershipSource
 from vmx.collections.paged_composition import PagedComposition
 from vmx.collections.protocols import SelectableVmCollectionProto, VmCollectionProto
@@ -46,6 +47,7 @@ __all__ = [
     "ObservableList",
     "ObservableMembershipSource",
     "PagedComposition",
+    "ReadOnlyObservableList",
     "SelectableVmCollectionProto",
     "ServicedObservableCollection",
     "TokenPagedComposition",

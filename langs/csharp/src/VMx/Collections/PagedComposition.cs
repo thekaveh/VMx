@@ -68,6 +68,8 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
         get => _pageSize;
         set
         {
+            // After Dispose, paging calls change no state and emit nothing (ADR-0214).
+            if (_disposed) return;
             var clamped = value < 0 ? 0 : value;
             if (_pageSize == clamped) return;
             _pageSize = clamped;
@@ -87,6 +89,7 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
         get => _currentPageIndex;
         set
         {
+            if (_disposed) return;
             var clamped = ClampIndex(value);
             if (_currentPageIndex == clamped) return;
             _currentPageIndex = clamped;
@@ -113,6 +116,7 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
     /// <inheritdoc/>
     public void MoveToFirstPage()
     {
+        if (_disposed) return;
         if (_currentPageIndex == 0) return;
         _currentPageIndex = 0;
         OnPropertyChanged(nameof(CurrentPageIndex));
@@ -122,6 +126,7 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
     /// <inheritdoc/>
     public void MoveToPreviousPage()
     {
+        if (_disposed) return;
         if (_currentPageIndex <= 0) return;
         _currentPageIndex--;
         OnPropertyChanged(nameof(CurrentPageIndex));
@@ -131,6 +136,7 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
     /// <inheritdoc/>
     public void MoveToNextPage()
     {
+        if (_disposed) return;
         var max = PageCount - 1;
         if (_currentPageIndex >= max) return;
         _currentPageIndex++;
@@ -141,6 +147,7 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
     /// <inheritdoc/>
     public void MoveToLastPage()
     {
+        if (_disposed) return;
         var last = PageCount - 1;
         if (_currentPageIndex >= last) return;
         _currentPageIndex = last;
@@ -215,7 +222,13 @@ public sealed class PagedComposition<TVM> : IPageable, INotifyPropertyChanged, I
     private void OnPropertyChanged(string name) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    /// <summary>Detaches from the source's <see cref="INotifyCollectionChanged"/> event.</summary>
+    /// <summary>
+    /// Detaches from the source's <see cref="INotifyCollectionChanged"/> event.
+    /// After disposal, <see cref="PageSize"/> and <see cref="CurrentPageIndex"/>
+    /// writes and the four move calls change no state and raise no
+    /// <see cref="PropertyChanged"/> event. Reads keep the last page size and
+    /// page index (ADR-0214).
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;

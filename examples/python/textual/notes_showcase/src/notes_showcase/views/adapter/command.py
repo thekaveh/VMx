@@ -18,17 +18,28 @@ install a message handler, which the adapter has no business doing; the
 ``press`` override keeps the bridge UI-thread agnostic and unit-testable in
 pure pytest.
 
-The disposable returned cancels the ``can_execute_changed`` subscription. The
-``press`` override is left in place — the button is logically owned by the
-bridge for its lifetime.
+A command with an ``errors`` channel, such as ``AsyncRelayCommand``, reports a
+fire-and-forget failure there instead of to the caller. The bridge logs each
+failure and shows it as an error notification, as the NiceGUI binding does.
+The ``Command`` protocol has no ``errors`` member, so the bridge detects the
+channel at run time.
+
+The disposable returned cancels the ``can_execute_changed`` and ``errors``
+subscriptions. The ``press`` override is left in place — the button is
+logically owned by the bridge for its lifetime.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+import reactivex as rx
 from reactivex.abc import DisposableBase
+from reactivex.disposable import CompositeDisposable
 from vmx.commands.protocols import Command, ParameterizedCommand
+
+_log = logging.getLogger(__name__)
 
 
 def bind_command(
@@ -43,8 +54,11 @@ def bind_command(
     ``command.execute()``, and subscribes to ``command.can_execute_changed``
     to keep ``button.disabled`` in sync.
 
+    When the command has an ``errors`` channel, each failure on it is logged
+    and shown as an error notification that names the failure.
+
     Returns a :class:`~reactivex.abc.DisposableBase` for the
-    ``can_execute_changed`` subscription. Accepts any :class:`Command`
+    ``can_execute_changed`` and ``errors`` subscriptions. Accepts any :class:`Command`
     (including decorated ones such as ``ConfirmationDecoratorCommand``) —
     shared delete-command behavior. ``parameter`` is passed to
     ``can_execute`` and ``execute`` (for parameterised commands such as
@@ -62,5 +76,16 @@ def bind_command(
     def _on_can_execute_changed(_value: object) -> None:
         button.disabled = not command.can_execute(parameter)
 
-    subscription = command.can_execute_changed.subscribe(on_next=_on_can_execute_changed)
-    return subscription
+    def _report(error: BaseException) -> None:
+        _log.error("command failed", exc_info=error)
+        # A button that left the DOM has no app to notify.
+        if button.is_attached:
+            button.notify(f"Command failed: {error}", severity="error")
+
+    disposables: list[DisposableBase] = [
+        command.can_execute_changed.subscribe(on_next=_on_can_execute_changed)
+    ]
+    errors: rx.Observable[BaseException] | None = getattr(command, "errors", None)
+    if errors is not None:
+        disposables.append(errors.subscribe(on_next=_report))
+    return CompositeDisposable(*disposables)

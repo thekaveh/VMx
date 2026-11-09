@@ -170,6 +170,15 @@ impl NotificationState {
         self.lifespan_ms.saturating_sub(*lock(&self.elapsed_ms))
     }
 
+    /// Builds a command that resolves with `reaction`. It reports
+    /// `can_execute` false from the start of disposal, also before the VM
+    /// disposes it (spec/16 §6.2, ADR-0196).
+    fn command(&self, reaction: NotificationReaction) -> RelayCommand {
+        let (action, predicate) = (self.clone(), self.clone());
+        RelayCommand::new_shared(move || action.resolve(reaction))
+            .with_can_execute(move || !lock(&predicate.flags).disposed)
+    }
+
     /// Claims disposal once. The first claim keeps the current resolved
     /// state and returns `true`; every later claim returns `false`.
     fn claim_dispose(&self) -> bool {
@@ -208,10 +217,7 @@ impl NotificationVm {
     /// Creates a notification VM with an explicit hub and lifespan in milliseconds.
     pub fn with_hub(notification: Notification, hub: NotificationHub, lifespan_ms: u64) -> Self {
         let state = NotificationState::new(notification, hub, lifespan_ms);
-        let dismiss_command = {
-            let state = state.clone();
-            RelayCommand::new_shared(move || state.resolve(NotificationReaction::Approve))
-        };
+        let dismiss_command = state.command(NotificationReaction::Approve);
         Self {
             state,
             dismiss_command,
@@ -274,10 +280,11 @@ impl NotificationVm {
     /// Disposes the VM once and does not resolve the notification.
     ///
     /// The dismiss command, and every clone of it, becomes inert: its
-    /// `can_execute` is `false` and `execute` no longer resolves the hub. The
-    /// lifespan clock stops, and a pending notification stays pending. A
-    /// first resolution stays authoritative, and a second call has no effect
-    /// (`DISP-004`). Disposal never disposes the hub.
+    /// `can_execute` is `false` from the start of disposal and `execute` no
+    /// longer resolves the hub (spec/16 §6.2). The lifespan clock stops, and
+    /// a pending notification stays pending. A first resolution stays
+    /// authoritative, and a second call has no effect (`DISP-004`). Disposal
+    /// never disposes the hub.
     pub fn dispose(&self) {
         if self.state.claim_dispose() {
             self.dismiss_command.dispose();
@@ -308,12 +315,8 @@ impl ConfirmationVm {
     /// Creates a confirmation that resolves through `hub`.
     pub fn with_hub(notification: Notification, hub: NotificationHub) -> Self {
         let notification_vm = NotificationVm::with_hub(notification, hub, 300_000);
-        let command = |reaction| {
-            let state = notification_vm.state.clone();
-            RelayCommand::new_shared(move || state.resolve(reaction))
-        };
-        let approve_command = command(NotificationReaction::Approve);
-        let reject_command = command(NotificationReaction::Reject);
+        let approve_command = notification_vm.state.command(NotificationReaction::Approve);
+        let reject_command = notification_vm.state.command(NotificationReaction::Reject);
         Self {
             notification_vm,
             approve_command,
@@ -419,10 +422,12 @@ impl ConfirmationVm {
     /// Disposes the confirmation once and does not resolve it.
     ///
     /// The approve, reject and dismiss commands, and every clone of them,
-    /// become inert: `can_execute` is `false` and `execute` no longer
-    /// resolves the hub. A pending confirmation stays pending. A first
-    /// resolution stays authoritative, and a second call has no effect
-    /// (`DISP-004`). Disposal never disposes the hub.
+    /// become inert: `can_execute` is `false` from the start of disposal,
+    /// also inside the `can_execute_changed` notifications that disposal
+    /// raises, and `execute` no longer resolves the hub (spec/16 §6.2). A
+    /// pending confirmation stays pending. A first resolution stays
+    /// authoritative, and a second call has no effect (`DISP-004`). Disposal
+    /// never disposes the hub.
     pub fn dispose(&self) {
         if self.notification_vm.state.claim_dispose() {
             self.notification_vm.dismiss_command.dispose();

@@ -402,6 +402,9 @@ public class AggregateVMConformanceTests
         duplicate.Component1.Should().BeNull();
         duplicate.Component2.Should().BeNull();
 
+        // The refused population disposed the unowned `inner` (#1324), so the
+        // owned-alias case uses a fresh component.
+        inner = MakeLeaf(hub, dispatcher);
         var composite = CompositeVM<ComponentVM<string>>.Builder()
             .Name("composite").Services(hub, dispatcher)
             .Children(() => [inner]).Build();

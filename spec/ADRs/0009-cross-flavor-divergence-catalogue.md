@@ -318,21 +318,24 @@ ADR-0006 and require no further action:
 - **Rationale**: TS follows the `Map.prototype.get` no-throw convention. C# and Python
   match the dictionary-throws idiom of their standard libraries.
 
-### 2.21 `ObservableDictionary` key-axis view mutability (Python read-only)
+### 2.21 `ObservableDictionary` key-axis view mutability (resolved by ADR-0193)
 
-- **C# / TypeScript / Swift**: `Keys1`/`Keys2` return the live **mutable**
-  `ObservableList<TKey>` — spec-literal (spec/21 §4.1 declares
-  `Keys1 : ObservableList<TKey1>`, "live view").
-- **Python**: `keys1`/`keys2` return a `ReadOnlyObservableList` facade over the same
-  live key axis — identical read + subscribe surface, but no mutators (VMX-014), so a
-  caller cannot desync the view from the entries.
-- **Rationale**: the documented use (spec/21 §4.2 — bind to `Keys1`/`Keys2` for
-  category-view UIs) is read/subscribe-only, which the facade serves fully. Directly
-  mutating the view in the spec-literal flavors (e.g. `Keys1.Clear()`) desyncs it from
-  the entries — an unsupported footgun Python structurally prevents. Every
-  event/order/count thread is identical across all four. Converging the three mutable
-  flavors to a read-only view (and tightening spec/21 §4.1's declared type) is a
-  reasonable future spec decision for the maintainer.
+No divergence remains. Before ADR-0193, C#, TypeScript and Swift returned the
+mutable backing `ObservableList<TKey>` from `Keys1`/`Keys2`, and Python
+returned a `ReadOnlyObservableList` facade (VMX-014). A caller edit in the
+mutable flavors desynced the view from the entries. Now C#, Python, TypeScript
+and Swift all return a `ReadOnlyObservableList<TKey>` facade with no mutator
+and no batch member (spec/21 §4.2). Rust `keys1()`/`keys2()` on
+`ObservableMultiDictionary` return the same `ReadOnlyObservableList` facade over
+the live key axis (ADR-0208, §2.32).
+
+One 3.x exception to the major-version deferral: the C#, TypeScript and Swift
+change breaks source in a minor version. Only code that edits a view, or that
+names the view's type as `ObservableList`, fails to compile. An edit corrupted
+the dictionary, so no correct program depended on it, and read and subscribe
+code compiles unchanged. Each CHANGELOG lists the change as source-breaking,
+with a migration line. Where a flavor's current source version is already a
+major, the change rides in it.
 
 ### 2.22 `ServicedObservableCollection` append method
 
@@ -348,6 +351,12 @@ ADR-0006 and require no further action:
 - **TypeScript / Swift**: both add `at(index) -> T?` and `toArray() -> [T]` on
   `ObservableList` and `ServicedObservableCollection`.
 - **C# / Python**: absent; consumers use the indexer and iteration directly.
+- **Negative indexes**: the TypeScript `at` helpers of `ObservableList`,
+  `ServicedObservableCollection` and `KeyedServicedObservableCollection` follow
+  `Array.prototype.at`. A negative index counts from the end, so `at(-1)` returns
+  the last item. An index outside the list returns `undefined` (#1322). The Swift
+  helpers return `nil` for every negative index, because a Swift `Array` has no
+  negative indexes.
 - **Rationale**: `Array.prototype.at` / Swift `Array` idioms are the natural local
   equivalents. Additive; does not alter spec-observable behavior for callers that
   do not use them.
@@ -369,6 +378,8 @@ ADR-0006 and require no further action:
   (`event PropertyChangedEventHandler?`)
 - **Python**: `on_property_changed: Observable[str]` (emits the changed property name)
 - **TypeScript**: `propertyChanged: Observable<string>` (emits the changed property name)
+- **Rust**: a `PropertyChangedMessage` on the pager's `MessageHub` (`hub()`),
+  with snake_case names, as Rust `TokenPagedComposition` does (ADR-0208)
 - **Rationale**: C# implements the .NET-standard `INotifyPropertyChanged` contract
   required by XAML binding. Python/TS expose an Rx observable — same pattern as the
   `CollectionChanged` and `ServicedObservableCollection` observable divergences.
@@ -448,7 +459,17 @@ here so audits don't reopen them prematurely:
   currently spread `hub`/`dispatcher` conditionally). Until then the
   constructor overload without services is `@deprecated`, which
   `@typescript-eslint/no-deprecated` and editors report (#665). Documented here
-  so audits don't re-flag it as accidental drift.
+  so audits don't re-flag it as accidental drift. One 3.x exception to the
+  major-version deferral: TypeScript 3.31.0 types `hub` and `dispatcher` as
+  required on `HierarchicalVMConstructionContext`, the context that
+  `HierarchicalVMBuilder.build()` passes to `vmFactory` (#1354). In 3.30.0 the
+  type was an alias for `HierarchicalVMOptions`. The change breaks only code
+  that builds this context without both services. It is accepted in a minor
+  version because the builder is the only producer of the type and always
+  supplies both, the C# context also requires both, and keeping the alias would
+  bind the recommended builder path's `super(context)` to the deprecated
+  overload. The TypeScript CHANGELOG lists it as source-breaking, with a
+  migration line.
 - **Rust conveniences that build a private hub (ADR-0150).**
   `ComponentVm::new`, `CompositeVm::new`, `GroupVm::new`,
   `HierarchicalVm::new`, `FormVm::new`, `AggregateVm1::new` / `try_new` to
@@ -462,6 +483,14 @@ here so audits don't reopen them prematurely:
   likewise build a private `NotificationHub`; `with_hub` takes the shared one.
   Removing the conveniences would break Rust callers and is not scheduled.
   Documented here so audits don't re-flag it as accidental drift.
+- **Rust `HierarchicalVmBuilder` keeps only the hub (ADR-0206).**
+  `HierarchicalVmBuilder::services(hub, dispatcher)` accepts any `Dispatcher`,
+  as the other Rust builders do, but the built hierarchy drops the dispatcher.
+  `HierarchicalVm<M>` has no dispatcher type parameter, and every node uses
+  `NullDispatcher`, because the hierarchy runs no dispatched work and has no
+  background option. C# `HierarchicalVM` passes the builder dispatcher to its
+  base class. No observable behavior differs today. Documented here so audits
+  don't re-flag it as accidental drift (#1268).
 - **Swift `TokenPagedComposition` default page-equality comparer.** Swift defaults
   `pagesEqual` to `{ _, _ in false }` — the unconstrained generic `TVM` cannot
   synthesize a universal equality — so a redundant `refresh()` of a byte-identical
@@ -513,52 +542,33 @@ here so audits don't reopen them prematurely:
   syntax; the options-bag is the standard JS pattern for constructors with
   many optional parameters.
 
-### 2.32 Historical: divergences resolved in v1.2.0 (pre-v2 era)
+### 2.32 Rust `ObservableList` and `ObservableMultiDictionary` surface (ADR-0208)
 
-- C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
-- TypeScript `ConstructionStatusChangedMessage.sender` getter (additive). In
-  v3.0.0 `sender` became the message's sole stored field and the untyped
-  `senderObject` alias was removed (ADR-0054) — see the `IMessage` sender
-  field-name section above.
-- C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
-  on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
+These Rust differences remain after ADR-0208 and are idiomatic (ADR-0006):
 
-### 2.33 Historical: divergences resolved in v3.x
+- **Streams.** The list streams are methods, `item_added()`, `item_removed()`,
+  `item_replaced()` and `reset()`, that return a typed `EventStream`. The
+  payloads are the structs `ItemAddedEvent`, `ItemRemovedEvent` and
+  `ItemReplacedEvent`, with `new_item`, `old_item` and `index` fields, and
+  `()` for `Reset`. The local `Count` notification is on `property_changed()`.
+- **Hub.** A list made with `with_hub` also publishes to the hub. The other
+  flavors' list has no hub. The dictionary and container local streams return
+  a `MessageHub` of `CollectionChangedMessage`, as
+  `ServicedObservableCollection::collection_changed()` does. That message has
+  no item or entry payload (§2.15); a subscriber reads `to_vec()` or
+  `entries()`.
+- **Indexers.** Rust has no list or dictionary indexer. The standard `Index`
+  trait returns a reference, and the items are held behind a lock. The list
+  reads with `get(index) -> Option<T>`. The dictionary reads with
+  `get(key1, key2) -> Option<V>`, which is the `TryGetValue` shape, and
+  upserts with `insert`.
+- **Key views.** `keys1()` and `keys2()` return a `ReadOnlyObservableList`,
+  the live, read-only view that Python returns (§2.21).
+- **Single-key dictionary.** Rust also exports `ObservableDictionary<K, V>`,
+  which takes a hub and has no local event or key view. Spec/21 §4.1 defines
+  no single-key type.
 
-- Python removed the deprecated `RelayCommandOfT` / `RelayCommandOfTBuilder`
-  and `AggregateVMBuilderN` aliases in favor of `RelayCommandOf` and
-  `AggregateVMNBuilder` (ADR-0052).
-
-- Swift `CompositeVM` and `GroupVM` now expose the canonical insert, replace,
-  clear, and native `Sequence` surfaces through `VMCollection`.
-
-- Modeled assignment after disposal is inert in all five flavors (ADR-0091,
-  `DISP-014`).
-
-- Swift `CompositeVM` and `GroupVM` `removeAt(_:)` no longer trap on an index
-  outside `[0, count)`. They change nothing, and `removeAtResult(_:)` reports
-  the index error (ADR-0217).
-
-- During a pending disposal and after `Disposed`, a Swift selection of a
-  non-member reports the disposal refusal, as in the other flavors
-  (ADR-0217).
-
-- A refused child `select()` or `deselect()` changes nothing and raises
-  nothing in all five flavors (ADR-0188, `COMP-052`). C# used to throw
-  `InvalidOperationException`, and Python and TypeScript raised for some
-  refusals.
-
-- **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
-  captured model snapshot while Python and TypeScript emitted the live model
-  after the persister await. ADR-0048 §2.4 (VMX-047) converged all three flavors
-  on the **pre-await captured** snapshot, so `OnApproved` fires with the value
-  that was actually persisted even under a concurrent `SetModel` during the
-  await. No longer a divergence — the three flavors match (C#
-  `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
-  `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
-  `this.#onApproved.next(current)`).
-
-### 2.34 Dropped container that waits for a background child (Rust and Swift)
+### 2.33 Dropped container that waits for a background child (Rust and Swift)
 
 Chapter 02 §6 says that a container completes `construct()` only when every
 child reaches `Constructed`. It does not say what happens when no reference to
@@ -602,7 +612,7 @@ the waiting container remains (#1280).
   flavors keep the container reachable through the child. A host that needs
   the terminal status keeps a handle until the transition completes.
 
-### 2.35 Swift traps that remain (ADR-0217)
+### 2.34 Swift traps that remain (ADR-0217)
 
 A Swift property setter cannot throw, and adding `throws` to a public method
 breaks every caller. These Swift operations therefore still trap on input that
@@ -618,6 +628,51 @@ the other flavors reject with a catchable error. Each has a catchable form.
 
 Rust `DerivedProperty::from_sources` keeps its documented panic on an empty
 source list.
+
+### 2.35 Historical: divergences resolved in v1.2.0 (pre-v2 era)
+
+- C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
+- TypeScript `ConstructionStatusChangedMessage.sender` getter (additive). In
+  v3.0.0 `sender` became the message's sole stored field and the untyped
+  `senderObject` alias was removed (ADR-0054) — see the `IMessage` sender
+  field-name section above.
+- C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
+  on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
+
+### 2.36 Historical: divergences resolved in v3.x
+
+- Python removed the deprecated `RelayCommandOfT` / `RelayCommandOfTBuilder`
+  and `AggregateVMBuilderN` aliases in favor of `RelayCommandOf` and
+  `AggregateVMNBuilder` (ADR-0052).
+
+- Swift `CompositeVM` and `GroupVM` now expose the canonical insert, replace,
+  clear, and native `Sequence` surfaces through `VMCollection`.
+
+- Modeled assignment after disposal is inert in all five flavors (ADR-0091,
+  `DISP-014`).
+
+- Swift `CompositeVM` and `GroupVM` `removeAt(_:)` no longer trap on an index
+  outside `[0, count)`. They change nothing, and `removeAtResult(_:)` reports
+  the index error (ADR-0217).
+
+- During a pending disposal and after `Disposed`, a Swift selection of a
+  non-member reports the disposal refusal, as in the other flavors
+  (ADR-0217).
+
+- A refused child `select()` or `deselect()` changes nothing and raises
+  nothing in all five flavors (ADR-0188, `COMP-052`). C# used to throw
+  `InvalidOperationException`, and Python and TypeScript raised for some
+  refusals.
+
+- **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
+  captured model snapshot while Python and TypeScript emitted the live model
+  after the persister await. ADR-0048 §2.4 (VMX-047) converged all three flavors
+  on the **pre-await captured** snapshot, so `OnApproved` fires with the value
+  that was actually persisted even under a concurrent `SetModel` during the
+  await. No longer a divergence — the three flavors match (C#
+  `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
+  `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
+  `this.#onApproved.next(current)`).
 
 ## 3. Rationale
 

@@ -41,7 +41,13 @@ class FilteredCompositeVM(Generic[VM]):
         self._changed: Subject[None] = Subject()
         self._disposed = False
         self._subscription = source.on_collection_changed.subscribe(lambda _: self._recompute())
-        self._recompute()
+        try:
+            self._recompute()
+        except BaseException:
+            # Detach before the failure propagates, so the unreachable filter
+            # never runs again (#1324).
+            self.dispose()
+            raise
 
     @property
     def visible(self) -> tuple[VM, ...]:

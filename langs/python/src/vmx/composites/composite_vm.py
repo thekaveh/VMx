@@ -16,6 +16,7 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx._indexes import _reject_bool_index
+from vmx._subscriber_failures import FanOutSubject
 from vmx._wait_for_graph import WAITS
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
@@ -35,6 +36,7 @@ from vmx.components._late_child_starts import (
     _LateWalk,
     _StartRecord,
 )
+from vmx.components._unowned_candidates import dispose_unowned_candidates
 from vmx.components.base import (
     _begin_parent_transfer,
     _commit_parent_transfer,
@@ -43,7 +45,7 @@ from vmx.components.base import (
     _ParentCompositeVM,
     _ParentTransfer,
 )
-from vmx.components.child_order import ChildOrder, _in_destruct_order
+from vmx.components.child_order import ChildOrder, _in_destruct_order, _require_child_order
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -108,6 +110,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         on_current_changed: Callable[[VM | None], None] | None = None,
         destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> None:
+        # Checked before any state exists: an unknown order is a caller error.
+        _require_child_order(destruct_order)
         super().__init__(
             name=name,
             hint=hint,
@@ -122,7 +126,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._destruct_order: ChildOrder = destruct_order
         self._children: list[VM] = []
         self._current: VM | None = None
-        self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
+        self._collection_changed_subject: Subject[CollectionChangedEvent] = FanOutSubject()
         self._populated: bool = False
         # Collects the children population started constructing (see _on_construct).
         self._population_joined: list[VM] | None = None
@@ -158,6 +162,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._membership_condition = Condition(self._membership_gate)
         self._current_selector: Callable[[Iterable[VM]], VM | None] | None = current_selector
         self._on_current_changed: Callable[[VM | None], None] | None = on_current_changed
+        # Test-only seam: runs at the entry of _detach_clearing_current, before
+        # the coordination lane (#1406). Production code never sets it.
+        self._detach_probe_for_testing: Callable[[VM], None] | None = None
 
     # ── ViewModelType ─────────────────────────────────────────────────────────
 
@@ -1393,6 +1400,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         publication runs after both locks are released, under the
         current-publication lease, as in :meth:`_apply_current_change`.
         """
+        probe = self._detach_probe_for_testing
+        if probe is not None:
+            probe(detached)
         with _current_change_coordinator:
             with self._membership_gate:
                 if detached._parent is self:
@@ -1613,7 +1623,15 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
         return CompositeVMOfBuilder()
 
     def _populate_children(self) -> None:
-        children = [self._child_model_to_child_vm(model) for model in self._children_models()]
+        # A projector that raises disposes the children it already built
+        # (#1324); the composite keeps no children.
+        children: list[VM] = []
+        try:
+            for model in self._children_models():
+                children.append(self._child_model_to_child_vm(model))
+        except BaseException:
+            dispose_unowned_candidates(self, children)
+            raise
         self._attach_population(children)
 
 

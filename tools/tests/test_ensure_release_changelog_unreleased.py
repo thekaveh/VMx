@@ -100,3 +100,80 @@ def test_rejects_ambiguous_or_malformed_changelog(
         repair.ensure_unreleased(changelog)
 
     assert changelog.read_text(encoding="utf-8") == body
+
+
+# Release Please writes `*` bullets and runs of blank lines (#1391).
+RELEASE_PLEASE_SECTION = (
+    "## [3.31.0](https://github.com/thekaveh/VMx/compare/python-v3.30.0...python-v3.31.0)"
+    " (2026-11-20)\n\n\n"
+    "### ⚠ BREAKING CHANGES\n\n"
+    "* **python:** drop the legacy alias\n\n"
+    "### Features\n\n"
+    "* **python:** add a thing ([#1](https://github.com/thekaveh/VMx/issues/1))"
+    " ([abc1234](https://github.com/thekaveh/VMx/commit/abc1234))\n"
+    "* second feature_with_underscore and `code`\n\n\n"
+    "### Bug Fixes\n\n"
+    "* fix z ([#2](https://github.com/thekaveh/VMx/issues/2))\n\n"
+)
+NORMALIZED_SECTION = (
+    "## [3.31.0](https://github.com/thekaveh/VMx/compare/python-v3.30.0...python-v3.31.0)"
+    " (2026-11-20)\n\n"
+    "### ⚠ BREAKING CHANGES\n\n"
+    "- **python:** drop the legacy alias\n\n"
+    "### Features\n\n"
+    "- **python:** add a thing ([#1](https://github.com/thekaveh/VMx/issues/1))"
+    " ([abc1234](https://github.com/thekaveh/VMx/commit/abc1234))\n"
+    "- second feature_with_underscore and `code`\n\n"
+    "### Bug Fixes\n\n"
+    "- fix z ([#2](https://github.com/thekaveh/VMx/issues/2))\n\n"
+)
+PREVIOUS_RELEASE = "## [3.30.0] — 2026-11-10\n\n### Fixed\n\n- Previous.\n"
+
+
+def test_normalizes_release_please_markdown_for_mdformat(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        PREAMBLE + RELEASE_PLEASE_SECTION + "## [Unreleased]\n\n" + PREVIOUS_RELEASE,
+        encoding="utf-8",
+    )
+
+    assert repair.ensure_unreleased(changelog) is True
+    assert changelog.read_text(encoding="utf-8") == (
+        PREAMBLE + "## [Unreleased]\n\n" + NORMALIZED_SECTION + PREVIOUS_RELEASE
+    )
+    assert repair.ensure_unreleased(changelog) is False
+
+
+def test_normalizes_markdown_when_unreleased_is_already_first(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        PREAMBLE + "## [Unreleased]\n\n" + RELEASE_PLEASE_SECTION + PREVIOUS_RELEASE,
+        encoding="utf-8",
+    )
+
+    assert repair.ensure_unreleased(changelog) is True
+    assert changelog.read_text(encoding="utf-8") == (
+        PREAMBLE + "## [Unreleased]\n\n" + NORMALIZED_SECTION + PREVIOUS_RELEASE
+    )
+
+
+def test_normalization_leaves_fenced_code_unchanged() -> None:
+    text = "- Item.\n\n```text\n* not a bullet\n\n\nkept\n```\n\n\n* bullet\n"
+
+    assert repair.normalize_release_please_markdown(text) == (
+        "- Item.\n\n```text\n* not a bullet\n\n\nkept\n```\n\n- bullet\n"
+    )
+
+
+def test_normalized_release_please_output_is_mdformat_clean(tmp_path: Path) -> None:
+    mdformat = pytest.importorskip("mdformat")
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        PREAMBLE + RELEASE_PLEASE_SECTION + "## [Unreleased]\n\n" + PREVIOUS_RELEASE,
+        encoding="utf-8",
+    )
+
+    repair.ensure_unreleased(changelog)
+    text = changelog.read_text(encoding="utf-8")
+
+    assert mdformat.text(text, extensions={"gfm", "tables"}) == text
