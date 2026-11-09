@@ -14,6 +14,9 @@ below for them.
 
 ### Added
 
+- `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
+  membership change during another open membership transaction fails at once
+  and changes nothing. Python already behaved this way.
 - `ModeledCrudCommands` accepts an optional `current_changed` observable
   (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
   Update and Delete commands, so their `can_execute_changed` fires when the
@@ -104,6 +107,12 @@ below for them.
 
 ### Changed
 
+- The construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back, and
+  the walk does not construct a snapshot child removed before it reaches it.
+  `COMP-047` and `GRP-015` cover the four removal cases.
 - A `set_model` or deny made in the caller's own approval pre-publication
   window no longer waits for another thread's publication scope. It is queued
   at once (ADR-0215, spec/20 §5.5, #1426).
@@ -130,6 +139,12 @@ below for them.
 
 ### Fixed
 
+- A construct hook that raises after it started the container walk no longer
+  lets the walk's commit step set `status` to `CONSTRUCTED` (ADR-0186,
+  spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
+  walk under the lock that writes the status. The check is bound to the
+  hook that started the walk, so a stale walk never commits a later
+  `construct()`.
 - `can_select_component(None)` and `select_component(None)` no longer raise
   `AttributeError` (#1467). The predicate returns `False`, and
   `select_component` raises its predicate `ValueError`. A `None` value is never

@@ -155,6 +155,13 @@ the completion observes `Disposed`, or an inline dispose cascade in progress
 (§7.2), under the guard and aborts instead of resurrecting the VM or reserving
 a post-terminal publication (invariant 6).
 
+A container's construct commit step (chapter 06 §5.1, ADR-0186) is one such
+transition write. Under the guard, it writes `Constructed` and reserves the
+publication.
+The publication follows when the transition completes, and only `Disposed`
+can replace it (§7.2). Until then, `Status` reads `Constructed` and the
+transition stays in flight (invariant 5).
+
 Consumer callbacks MUST NOT run while that state guard is held. The admitted
 `ConstructionStatusChangedMessage`, local property notifications, command
 triggers, and lifecycle waiter completions are delivered by the per-VM
@@ -299,7 +306,10 @@ respect to other lifecycle operations on the same VM.
 `CompositeVM`, `GroupVM`, and `AggregateVM` compose their children's lifecycles:
 
 - A composite/group/aggregate's `construct()` completes only when every child has
-  reached `Constructed`.
+  reached `Constructed`. For a composite or group, every child means every
+  member when the construct walk checks it. A child that a removal takes out
+  during the walk does not count. A child added after the walk's commit step
+  follows the add-after-`Constructed` rule (chapter 06 §5.1, ADR-0186).
 - A composite/group/aggregate's `destruct()` completes only when every child has
   reached `Destructed`.
 - A child that is `Disposed` does not count for either rule (ADR-0189). The

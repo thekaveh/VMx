@@ -1071,7 +1071,7 @@ fn clear_keeps_the_flag_of_a_child_another_composite_selected_in_the_callback() 
         }
     });
 
-    a.clear();
+    a.clear().unwrap();
 
     assert!(a.is_empty());
     assert_eq!(b.current(), Some(x.clone()));
@@ -1103,7 +1103,7 @@ fn clear_keeps_the_flag_of_a_child_another_thread_selected_meanwhile() {
         adopter.set_current(Some(adopted)).unwrap();
     });
     release.set();
-    join_within_guard(worker, "clear()");
+    join_within_guard(worker, "clear()").unwrap();
 
     assert!(a.is_empty());
     assert_eq!(b.current(), Some(x.clone()));
@@ -1123,7 +1123,7 @@ fn clear_resets_the_removed_current_flag_once() {
         }
     });
 
-    a.clear();
+    a.clear().unwrap();
 
     assert!(a.is_empty());
     assert_eq!(a.current(), None);

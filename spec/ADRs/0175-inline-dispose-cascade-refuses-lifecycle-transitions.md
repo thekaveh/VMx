@@ -1,6 +1,6 @@
 # ADR 0175 — The inline dispose cascade refuses lifecycle transitions
 
-- **Status:** Accepted
+- **Status:** Accepted (clarified by ADR-0186)
 - **Date:** 2026-11-08
 - **Spec version:** 3.30.0 (chapter 02 §2.4, §2.5, §3, §4, §7.1, §7.2, and §9)
 

@@ -357,8 +357,8 @@ fn clear_releases_every_child_and_emits_one_reset() {
     group.add(a.clone()).unwrap();
     group.add(b.clone()).unwrap();
 
-    group.clear();
-    group.clear(); // already empty: no second reset
+    group.clear().unwrap();
+    group.clear().unwrap(); // already empty: no second reset
     group.dispose().unwrap();
 
     assert!(group.is_empty());

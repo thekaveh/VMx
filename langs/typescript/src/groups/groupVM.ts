@@ -439,6 +439,7 @@ export class GroupVM<VM extends ComponentVMBase>
       true,
       undefined,
       joined,
+      (child) => this._children.includes(child as VM),
     );
   }
 

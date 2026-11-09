@@ -2578,6 +2578,24 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
     )))
 }
 
+/// Reports whether a child is still a member of the container whose
+/// construct walk asks, read under that container's membership gate
+/// (spec/06 §5.1, ADR-0186).
+type MemberCheck = Arc<dyn Fn(usize) -> bool + Send + Sync>;
+
+/// The settle result of a child a construct walk joined. A child that is no
+/// longer a member settles without effect on the container (ADR-0186).
+fn walk_child_result<N: VmNode>(
+    child: &N,
+    expected: ConstructionStatus,
+    member: Option<&MemberCheck>,
+) -> VmxResult<()> {
+    if member.is_some_and(|member| !member(child.id())) {
+        return Ok(());
+    }
+    child_settled_result(child, expected)
+}
+
 /// A child that settled at the expected status, or that is `Disposed`, ends
 /// the wait as a success (spec/02 §6, ADR-0189).
 fn child_settled_result<N: VmNode>(child: &N, expected: ConstructionStatus) -> VmxResult<()> {
@@ -2758,8 +2776,9 @@ impl WalkScope {
 /// The record goes into the scope of the walk that is current then. That
 /// walk takes the record of each late member, under the same gate: without
 /// one, no add tried to start the member, so the walk skips it; with one, the
-/// walk waits until the attempt is done and then joins the member, so a
-/// failed attempt rolls the container back.
+/// walk waits until the attempt is done and then joins the member. A failed
+/// attempt ends only after its add undid the attach, so the walk ignores that
+/// child (ADR-0186).
 #[derive(Clone)]
 pub(crate) struct LateStarts {
     /// The container's membership gate.
@@ -2770,9 +2789,14 @@ pub(crate) struct LateStarts {
     /// Only the `test-seams` feature compiles it.
     #[cfg(feature = "test-seams")]
     last_scan_probe: Arc<Mutex<Option<LastScanProbe>>>,
+    /// Test-only seam: runs after a walk's commit step wrote Constructed and
+    /// before the publication, outside the gate. Only the `test-seams`
+    /// feature compiles it.
+    #[cfg(feature = "test-seams")]
+    seal_probe: Arc<Mutex<Option<LastScanProbe>>>,
 }
 
-/// A test-only callback a construct walk runs after its last late scan.
+/// A test-only callback a construct walk runs at one of its seams.
 #[cfg(feature = "test-seams")]
 type LastScanProbe = Arc<dyn Fn() + Send + Sync>;
 
@@ -2784,6 +2808,8 @@ impl LateStarts {
             current: Arc::default(),
             #[cfg(feature = "test-seams")]
             last_scan_probe: Arc::default(),
+            #[cfg(feature = "test-seams")]
+            seal_probe: Arc::default(),
         }
     }
 
@@ -2800,6 +2826,27 @@ impl LateStarts {
         #[cfg(feature = "test-seams")]
         {
             let probe = lock(&self.last_scan_probe).clone();
+            if let Some(probe) = probe {
+                probe();
+            }
+        }
+    }
+
+    /// Test-only seam: sets the callback a construct walk runs after its
+    /// commit step and before the publication, outside the membership gate
+    /// (spec/02 §2.4, ADR-0186). Production code never sets it.
+    #[cfg(feature = "test-seams")]
+    pub(crate) fn set_seal_probe(&self, probe: LastScanProbe) {
+        *lock(&self.seal_probe) = Some(probe);
+    }
+
+    /// Runs the test-only seal probe, if one is set. Without the
+    /// `test-seams` feature it does nothing, so a default build takes no
+    /// lock here.
+    fn run_seal_probe(&self) {
+        #[cfg(feature = "test-seams")]
+        {
+            let probe = lock(&self.seal_probe).clone();
             if let Some(probe) = probe {
                 probe();
             }
@@ -2905,9 +2952,12 @@ pub(crate) struct StartAttempt {
 }
 
 impl StartAttempt {
-    /// Constructs `item` when it is Destructed, then marks the attempt done,
-    /// even when the construct fails or panics. A walk waiting on the attempt
-    /// resumes here, before the add publishes its collection change.
+    /// Constructs `item` when it is Destructed, then marks the attempt done.
+    /// A walk waiting on the attempt resumes here, before the add publishes
+    /// its collection change. When the construct fails, the attempt stays
+    /// open: the add undoes the attach, and the attempt ends when the add
+    /// drops it, so the waiting walk sees a non-member (ADR-0186). A panic
+    /// still marks the attempt done here.
     pub(crate) fn run<N: VmNode, D: Dispatcher>(
         &mut self,
         core: &ComponentCore<D>,
@@ -2923,7 +2973,9 @@ impl StartAttempt {
         if core.status() != ConstructionStatus::Constructing {
             self.forget();
         }
-        self.finish();
+        if !matches!(attempt, Ok(Err(_))) {
+            self.finish();
+        }
         match attempt {
             Ok(result) => result,
             Err(payload) => resume_unwind(payload),
@@ -4639,7 +4691,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         self.child_step(self.weak_step(move |core| {
             let status = child.status();
             if status == transient || child.lifecycle_publication_pending() {
-                core.await_child(&child, target)
+                core.await_child(&child, target, None)
             } else if status == target {
                 Ok(())
             } else {
@@ -4720,6 +4772,10 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// without one, no add tried to start the member, so the walk skips it;
     /// with one, it waits until that add's attempt is done and then joins the
     /// member, so a member whose construct failed rolls the container back.
+    /// A failed add undoes its attach before its attempt ends. The walk
+    /// counts members only (ADR-0186): it skips a child that is no longer a
+    /// member when its turn comes, and ignores the settle result of a child
+    /// that stopped being a member while the walk waited on it.
     pub(crate) fn construct_children<N: VmNode>(
         &self,
         members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
@@ -4730,22 +4786,57 @@ impl<D: Dispatcher> ComponentCore<D> {
         // point attached a member of the snapshot below.
         let generation = lock(&self.inner).transition_generation;
         let walk = Arc::new(late.begin_walk(generation));
+        let member: MemberCheck = {
+            let gate = Arc::clone(&late.gate);
+            let members = Arc::clone(&members);
+            Arc::new(move |child_id| {
+                let _gate = lock(&gate);
+                members().iter().any(|child| child.id() == child_id)
+            })
+        };
         let snapshot = members();
         let visited: HashSet<usize> = snapshot.iter().map(VmNode::id).collect();
         for child in snapshot {
-            // A member already Constructing (started by an auto-construct add
-            // before this walk began) is joined, not restarted; a Constructed
-            // one passes and a Destructed one is constructed (spec/02 §6).
-            self.child_step(self.weak_step(move |core| {
-                if child.status() == ConstructionStatus::Constructing {
-                    core.await_child(&child, ConstructionStatus::Constructed)
-                } else {
-                    core.run_child_transition(&child, LifecycleOperation::Construct)
-                }
-            }))?;
+            let member = Arc::clone(&member);
+            self.child_step(self.weak_step(move |core| core.construct_member(&child, &member)))?;
         }
         self.child_step(
-            self.weak_step(move |core| core.join_late_children(visited, members, walk, then)),
+            self.weak_step(move |core| {
+                core.join_late_children(visited, members, member, walk, then)
+            }),
+        )
+    }
+
+    /// One snapshot step of a construct walk. A child that is no longer a
+    /// member is skipped (ADR-0186). A member already Constructing (started
+    /// by an auto-construct add before this walk began) is joined, not
+    /// restarted; a Constructed one passes and a Destructed one is
+    /// constructed (spec/02 §6). A construct failure of a child that is no
+    /// longer a member does not fail the walk. A `Disposed` child is skipped
+    /// with no lifecycle call (spec/02 §6, ADR-0189).
+    fn construct_member<N: VmNode>(&self, child: &N, member: &MemberCheck) -> VmxResult<()> {
+        if !member(child.id()) || child.status() == ConstructionStatus::Disposed {
+            return Ok(());
+        }
+        if child.status() == ConstructionStatus::Constructing {
+            return self.await_child(child, ConstructionStatus::Constructed, Some(member));
+        }
+        // Subscribed before the start call, as in `run_child_transition`, so
+        // a node without settle notification is still waited for (ADR-0205).
+        let observer = ChildObserver::start(self.hub(), child, ConstructionStatus::Constructing);
+        if let Err(error) = child.construct() {
+            return if member(child.id()) {
+                Err(error)
+            } else {
+                Ok(())
+            };
+        }
+        observer.note_queued_transient();
+        self.await_child_observed(
+            child,
+            ConstructionStatus::Constructed,
+            Some(member),
+            Some(observer),
         )
     }
 
@@ -4757,6 +4848,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         &self,
         mut visited: HashSet<usize>,
         members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
+        member: MemberCheck,
         walk: Arc<LateWalk>,
         then: WalkThen<D>,
     ) -> VmxResult<()> {
@@ -4767,11 +4859,16 @@ impl<D: Dispatcher> ComponentCore<D> {
         let Some((child, record)) = next else {
             walk.starts.run_last_scan_probe();
             then(self)?;
-            return self.seal_late_children(visited, members, walk);
+            return self.seal_late_children(visited, members, member, walk);
         };
-        self.child_step(self.weak_step(move |core| core.await_add_then_child(&record, &child)))?;
+        let awaited = Arc::clone(&member);
         self.child_step(
-            self.weak_step(move |core| core.join_late_children(visited, members, walk, then)),
+            self.weak_step(move |core| core.await_add_then_child(&record, &child, awaited)),
+        )?;
+        self.child_step(
+            self.weak_step(move |core| {
+                core.join_late_children(visited, members, member, walk, then)
+            }),
         )
     }
 
@@ -4788,6 +4885,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         &self,
         mut visited: HashSet<usize>,
         members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
+        member: MemberCheck,
         walk: Arc<LateWalk>,
     ) -> VmxResult<()> {
         let next = {
@@ -4800,11 +4898,17 @@ impl<D: Dispatcher> ComponentCore<D> {
             next
         };
         let Some((child, record)) = next else {
+            walk.starts.run_seal_probe();
             drop(walk);
             return Ok(());
         };
-        self.child_step(self.weak_step(move |core| core.await_add_then_child(&record, &child)))?;
-        self.child_step(self.weak_step(move |core| core.seal_late_children(visited, members, walk)))
+        let awaited = Arc::clone(&member);
+        self.child_step(
+            self.weak_step(move |core| core.await_add_then_child(&record, &child, awaited)),
+        )?;
+        self.child_step(
+            self.weak_step(move |core| core.seal_late_children(visited, members, member, walk)),
+        )
     }
 
     /// Flips a sealed construct walk's container to Constructed without
@@ -4822,11 +4926,14 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     /// Holds the container transition until the add attempt behind `record`
-    /// is done, then joins `child` like [`Self::await_child`].
+    /// is done, then joins `child` like [`Self::await_child`]. A child that
+    /// is no longer a member by then, such as one a failed add undid, does
+    /// not change the container (ADR-0186).
     fn await_add_then_child<N: VmNode>(
         &self,
         record: &Arc<StartRecord>,
         child: &N,
+        member: MemberCheck,
     ) -> VmxResult<()> {
         let (generation, stale) = {
             let mut inner = lock(&self.inner);
@@ -4841,9 +4948,10 @@ impl<D: Dispatcher> ComponentCore<D> {
         // the container (#750).
         let core = self.downgrade();
         let awaited = child.clone();
+        let awaited_member = Arc::clone(&member);
         if record.when_done(Box::new(move || {
             if let Some(core) = core.upgrade() {
-                core.join_after_add(generation, &awaited);
+                core.join_after_add(generation, &awaited, awaited_member);
             }
         })) {
             return Ok(());
@@ -4856,7 +4964,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
             }
         }
-        self.await_child(child, ConstructionStatus::Constructed)
+        self.await_child(child, ConstructionStatus::Constructed, Some(&member))
     }
 
     /// Marks this transition's settle as waiting on a child, replacing a
@@ -4874,14 +4982,19 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     /// Continues a walk that waited for an add: joins `child`, keeping the
     /// transition waiting until it settles.
-    fn join_after_add<N: VmNode>(&self, generation: u64, child: &N) {
+    fn join_after_add<N: VmNode>(&self, generation: u64, child: &N, member: MemberCheck) {
         {
             let inner = lock(&self.inner);
             if !self.settle_is_current(&inner, generation) {
                 return;
             }
         }
-        if self.watch_child(generation, child, ConstructionStatus::Constructed) {
+        if self.watch_child(
+            generation,
+            child,
+            ConstructionStatus::Constructed,
+            Some(Arc::clone(&member)),
+        ) {
             return;
         }
         {
@@ -4901,7 +5014,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         }
         self.after_child_settled(
             generation,
-            child_settled_result(child, ConstructionStatus::Constructed),
+            walk_child_result(child, ConstructionStatus::Constructed, Some(&member)),
         );
     }
 
@@ -4937,13 +5050,20 @@ impl<D: Dispatcher> ComponentCore<D> {
             _ => child.destruct()?,
         }
         observer.note_queued_transient();
-        self.await_child_observed(child, expected, Some(observer))
+        self.await_child_observed(child, expected, None, Some(observer))
     }
 
     /// Holds the container transition until `child`, already started, settles
-    /// at `expected`; fails it when the child settled anywhere else.
-    fn await_child<N: VmNode>(&self, child: &N, expected: ConstructionStatus) -> VmxResult<()> {
-        self.await_child_observed(child, expected, None)
+    /// at `expected`; fails it when the child settled anywhere else. With
+    /// `member`, a construct walk's check, a child that is no longer a member
+    /// when it settles does not fail the transition (ADR-0186).
+    fn await_child<N: VmNode>(
+        &self,
+        child: &N,
+        expected: ConstructionStatus,
+        member: Option<&MemberCheck>,
+    ) -> VmxResult<()> {
+        self.await_child_observed(child, expected, member, None)
     }
 
     /// [`Self::await_child`] with the hub observer of a child this
@@ -4953,6 +5073,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         &self,
         child: &N,
         expected: ConstructionStatus,
+        member: Option<&MemberCheck>,
         observer: Option<ChildObserver>,
     ) -> VmxResult<()> {
         let (generation, stale) = {
@@ -4964,7 +5085,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             (generation, Self::begin_child_wait(&mut inner, generation))
         };
         drop(stale);
-        if self.watch_child(generation, child, expected) {
+        if self.watch_child(generation, child, expected, member.cloned()) {
             return Ok(());
         }
         let in_flight = match expected {
@@ -4976,7 +5097,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         // delivered or queued its transient status (ADR-0205).
         if let Some(observer) = observer {
             if child.status() == in_flight
-                && self.watch_observed(generation, child, expected, observer)
+                && self.watch_observed(generation, child, expected, member.cloned(), observer)
             {
                 return Ok(());
             }
@@ -4996,7 +5117,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         if child.status() == in_flight {
             return Ok(());
         }
-        child_settled_result(child, expected)
+        walk_child_result(child, expected, member)
     }
 
     /// Like [`Self::watch_child`], with `observer` in place of the child's
@@ -5007,6 +5128,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         generation: u64,
         child: &N,
         expected: ConstructionStatus,
+        member: Option<MemberCheck>,
         observer: ChildObserver,
     ) -> bool {
         let ChildObserver {
@@ -5017,7 +5139,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         let awaited_child = child.clone();
         let awaited: AwaitedChild = Box::new(move || {
             drop(subscription);
-            child_settled_result(&awaited_child, expected)
+            walk_child_result(&awaited_child, expected, member.as_ref())
         });
         let displaced = {
             let mut inner = lock(&self.inner);
@@ -5067,10 +5189,11 @@ impl<D: Dispatcher> ComponentCore<D> {
         generation: u64,
         child: &N,
         expected: ConstructionStatus,
+        member: Option<MemberCheck>,
     ) -> bool {
         let awaited_child = child.clone();
         let awaited: AwaitedChild =
-            Box::new(move || child_settled_result(&awaited_child, expected));
+            Box::new(move || walk_child_result(&awaited_child, expected, member.as_ref()));
         let displaced = {
             let mut inner = lock(&self.inner);
             if !self.settle_is_current(&inner, generation) {

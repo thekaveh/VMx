@@ -749,6 +749,28 @@ conformance ID is added.
 
 See ADR-0200 and chapter 02 §2.4, §6.1, and §7.
 
+v3.30.0 also makes the construct walk of a composite or group count members
+only. The walk checks membership before it starts or joins a child, and again
+after the child settles. A child that a removal or a failed add takes out
+during the walk does not roll the container back. A removal never cancels,
+destructs, or disposes the child. The commit step writes `Constructed` and
+reserves its publication. An add between the two follows the
+add-after-`Constructed` rule. A walk that disposal stopped, or that a raising
+hook abandoned, commits nothing (`COMP-047`, `GRP-015`). The catalog now
+contains 454 library IDs plus 5 scenario IDs.
+
+See ADR-0186 and chapter 06 §5.1, chapter 07 §4, and chapter 02 §2.4.
+
+v3.30.0 also makes a container membership change fail at once while another
+thread holds the container's membership transaction. This covers add, insert,
+index replacement, population, transfer detach, remove, `RemoveAt`, and
+`Clear`. Each change fails before mutation with the error of a re-entrant
+change. Only disposal still waits for the transaction. Rust `clear()` now
+returns `VmxResult<()>` (`COMP-048`, `GRP-016`). The catalog now contains 456
+library IDs plus 5 scenario IDs.
+
+See ADR-0187 and chapter 06 §4.2 and chapter 07 §1.1.
+
 v3.30.0 also makes two composite selection refusals silent. A refused child
 `select()` or `deselect()` changes nothing and raises nothing in every flavor.
 While a composite is `Destructing`, a non-null selection changes nothing and
@@ -762,7 +784,7 @@ Container walks and the child-transition helper skip a `Disposed` child, so
 the container still destructs, constructs and reconstructs (`LIFE-022`). A
 `Disposed` child is not selectable. When the current child publishes
 `Disposed` from its own `dispose()`, the composite clears `Current`, and the
-child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 455
+child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 460
 library IDs plus 5 scenario IDs.
 
 See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.

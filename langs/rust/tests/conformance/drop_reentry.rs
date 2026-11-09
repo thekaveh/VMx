@@ -261,7 +261,8 @@ fn filtered_current_item_drop_may_read_the_projection() {
             let source = source.clone();
             move || source.clear()
         },
-    );
+    )
+    .unwrap();
     assert!(hook.disarm() > 0);
     assert!(filtered.current().is_none());
 }
@@ -381,7 +382,7 @@ fn composite_clear_drop_may_dispose_the_composite() {
     let len = within_timeout("CompositeVm::clear", BOUND, {
         let composite = composite.clone();
         move || {
-            composite.clear();
+            composite.clear().unwrap();
             composite.items().len()
         }
     });
@@ -404,7 +405,7 @@ fn group_clear_drop_may_dispose_the_group() {
     let len = within_timeout("GroupVm::clear", BOUND, {
         let group = group.clone();
         move || {
-            group.clear();
+            group.clear().unwrap();
             group.items().len()
         }
     });
@@ -431,7 +432,7 @@ fn aggregate_stream_removed_entry_drop_may_observe_the_stream() {
     });
     within_timeout("AggregateChangeStream membership removal", BOUND, {
         let composite = composite.clone();
-        move || composite.clear()
+        move || composite.clear().unwrap()
     });
     assert!(hook.disarm() > 0);
 }
@@ -706,7 +707,7 @@ fn composite_clear_survives_an_is_current_hub_subscriber_that_disposes_it() {
 
     within_timeout("CompositeVm::clear", BOUND, {
         let composite = composite.clone();
-        move || composite.clear()
+        move || composite.clear().unwrap()
     });
 
     assert_eq!(composite.status(), ConstructionStatus::Disposed);
@@ -733,7 +734,7 @@ fn composite_clear_survives_an_is_current_child_subscriber_that_disposes_it() {
 
     within_timeout("CompositeVm::clear", BOUND, {
         let composite = composite.clone();
-        move || composite.clear()
+        move || composite.clear().unwrap()
     });
 
     assert_eq!(composite.status(), ConstructionStatus::Disposed);

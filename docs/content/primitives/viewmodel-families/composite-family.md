@@ -41,7 +41,9 @@ without publishing a partial transfer.
 
 The destination and staged old parent stay isolated until commit or rollback.
 Structural mutation attempted re-entrantly from an auto-construction or
-population hook is rejected before it can invalidate rollback state. Selection
+population hook is rejected before it can invalidate rollback state. A
+structural change from another thread during the transaction fails at once
+in the same way. Only disposal waits for the transaction to end (ADR-0187). Selection
 validation and assignment share the membership gate, and deferred selection
 rechecks that the candidate is still a child.
 
@@ -63,7 +65,9 @@ materialized rather than evaluating its factory again (ADR-0122).
 
 The composite owns both child lifecycle and selection messaging:
 
-- `construct()` waits for every child before the composite reports constructed
+- `construct()` waits for every child before the composite reports constructed.
+  It counts members only: a child removed during the walk does not roll the
+  composite back (spec/06 §5.1, ADR-0186)
 - `destruct()` clears `Current` before destructing children. The clear opens
   no membership transaction, never waits and is never refused, so it also
   works while another thread adds a child or disposal is pending (spec/06 §5,

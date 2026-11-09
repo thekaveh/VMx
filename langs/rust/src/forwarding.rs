@@ -563,9 +563,10 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
         self.inner.move_item(from_index, to_index)
     }
 
-    /// Clears the wrapped child collection.
-    pub fn clear(&self) {
-        self.inner.clear();
+    /// Clears the wrapped child collection. Returns the wrapped composite's
+    /// refusal, as [`CompositeVm::clear`] does.
+    pub fn clear(&self) -> VmxResult<()> {
+        self.inner.clear()
     }
 
     /// Returns the current child, when selected.

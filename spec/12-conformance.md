@@ -2048,9 +2048,10 @@ ______________________________________________________________________
 
 Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
 see ADR-0016), builder hooks (COMP-025..026, see ADR-0042), the destruct
-order option (COMP-046, see ADR-0161), and the `Disposed`-child,
-`Destructing` and child-`select()` rules (COMP-050..052, see ADR-0188 and
-ADR-0189) additions to chapter 06.
+order option (COMP-046, see ADR-0161), the construct-walk membership rule
+(COMP-047, see ADR-0186), the cross-thread membership rule (COMP-048, see
+ADR-0187), and the `Disposed`-child, `Destructing` and child-`select()` rules
+(COMP-050..052, see ADR-0188 and ADR-0189) additions to chapter 06.
 
 ### COMP-014 — SearchableState defaults to empty search term
 
@@ -2380,6 +2381,44 @@ disposed
 the children in the same order as a composite built without the option
 **And** the modeled composite builder and the options form give the same order
 
+### COMP-047 — The construct walk counts members only
+
+**Given** a `CompositeVM<VM>` `p` built with `AutoConstructOnAdd(true)`, a
+member `a` whose construction completes in the background, and children whose
+construct hook fails
+**When** each of these runs in its own `construct()` of `p`, and the removed
+child's hook fails after the removal:
+
+- a snapshot child `s` is removed before the walk reaches it;
+- the snapshot child `a` is removed while the walk waits on it;
+- a late child `l`, added and started while `p` is `Constructing`, is removed
+  while the walk waits on it;
+- a late child `l` is removed before the walk reaches it
+
+**Then** each `construct()` of `p` succeeds and `p` reaches `Constructed`
+**And** `s` stays `Destructed`, because the walk never starts it
+**And** each removed child that was started settles at `Destructed` after its
+own rollback, and is not in `p`
+**And** a late child whose own add fails during its construction makes that
+add fail and be undone, and `p` still reaches `Constructed`
+
+### COMP-048 — A membership change fails at once during another thread's transaction
+
+**Given** a `CompositeVM<VM>` `p` whose membership transaction is open on
+another thread, held inside an attachment or construct hook of an add
+(TypeScript: on the call chain of that add)
+**When** an add, an insert, an index replacement, a population and a transfer
+out of `p` are attempted, and `remove`, `removeAt` and `clear` are called on
+`p`
+**Then** each call returns or raises at once, without waiting for the open
+transaction, with the flavor's "membership transaction in progress" error
+(Swift `remove(_:)` returns `false`; Swift `removeAt(_:)` and `clear()` return
+with no change)
+**And** the membership, the parent links, `Current` and the collection-change
+stream of `p`, and of the destination of the transfer, are unchanged by the
+refused calls
+**And** after the open transaction ends, the same calls succeed
+
 ### COMP-049 — A disposal requested during a change suppresses its hub message
 
 **Given** composites `old` and `new` sharing hub `H`, a recorder of
@@ -2582,7 +2621,7 @@ structure
 
 ______________________________________________________________________
 
-## 21. GroupVM v2.0 additions (`GRP-007..014`)
+## 21. GroupVM v2.0 additions (`GRP-007..016`)
 
 Search/filter additions to chapter 07. The helper is the same
 `SearchableState<TItem>` documented for composites (see ADR-0014); group-context
@@ -2658,6 +2697,34 @@ disposed
 **And** construct, including the construct phase of `reconstruct()`, settles
 the children in the same order as a group built without the option
 **And** the options form gives the same order
+
+### GRP-015 — The group construct walk counts members only
+
+**Given** a `GroupVM<VM>` `g` built with `AutoConstructOnAdd(true)`, a member
+`a` whose construction completes in the background, and children whose
+construct hook fails
+**When** the four removal cases of `COMP-047` run against `g`
+**Then** each `construct()` of `g` succeeds and `g` reaches `Constructed`
+**And** a snapshot child removed before the walk reaches it stays
+`Destructed`
+**And** each removed child that was started settles at `Destructed` after its
+own rollback, and is not in `g`
+**And** a late child whose own add fails makes that add fail and be undone,
+and `g` still reaches `Constructed`
+
+### GRP-016 — A group membership change fails at once during another thread's transaction
+
+**Given** a `GroupVM<VM>` `g` whose membership transaction is open on another
+thread, held inside an attachment or construct hook of an add (TypeScript: on
+the call chain of that add)
+**When** an add, an insert, an index replacement, a population and a transfer
+out of `g` are attempted, and `remove`, `removeAt` and `clear` are called on
+`g`
+**Then** each call returns or raises at once, without waiting, with the errors
+that `COMP-048` lists
+**And** the membership, the parent links and the collection-change stream of
+`g` are unchanged by the refused calls
+**And** after the open transaction ends, the same calls succeed
 
 ______________________________________________________________________
 

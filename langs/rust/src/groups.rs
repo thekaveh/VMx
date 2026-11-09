@@ -784,16 +784,17 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     }
 
     /// Removes all children and clears their links to this parent.
-    pub fn clear(&self) {
-        if self.reject_if_disposed().is_err() {
-            return;
-        }
-        let Ok(_transaction) = begin_membership_transaction(
+    ///
+    /// Returns [`VmxError::Disposed`] after disposal. Returns
+    /// [`VmxError::OwnershipTransactionInProgress`] at once, and changes
+    /// nothing, while a membership transaction of this group is open on any
+    /// thread (spec/07 §1.1, ADR-0187).
+    pub fn clear(&self) -> VmxResult<()> {
+        self.reject_if_disposed()?;
+        let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
-        ) else {
-            return;
-        };
+        )?;
         let removed = {
             let _gate = lock(&self.membership_gate);
             for item in self.items() {
@@ -812,6 +813,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         if changed {
             self.items.publish_reset();
         }
+        transaction.finish()
     }
 
     /// Registers this add's start record for `item` in the current construct
@@ -864,6 +866,19 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         F: Fn() + Send + Sync + 'static,
     {
         self.late_starts.set_last_scan_probe(Arc::new(probe));
+    }
+
+    /// Test-only seam: runs `probe` after each construct walk's commit step
+    /// wrote `Constructed` and before the group publishes it. Production
+    /// code never calls it. Only the non-default `test-seams` feature
+    /// exports it.
+    #[cfg(feature = "test-seams")]
+    #[doc(hidden)]
+    pub fn set_seal_probe_for_testing<F>(&self, probe: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.late_starts.set_seal_probe(Arc::new(probe));
     }
 
     /// Constructs the group and each current child in collection order.
@@ -1132,8 +1147,8 @@ impl<T: VmNode, D: Dispatcher> VmCollection<T> for GroupVm<T, D> {
     fn replace(&self, index: usize, item: T) -> VmxResult<T> {
         GroupVm::replace(self, index, item)
     }
-    fn clear(&self) {
-        GroupVm::clear(self);
+    fn clear(&self) -> VmxResult<()> {
+        GroupVm::clear(self)
     }
     fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
         GroupVm::move_item(self, from_index, to_index)

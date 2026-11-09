@@ -83,13 +83,14 @@ final class ContainerDisposalWaitCycleTests: XCTestCase {
         }
     }
 
-    /// The #717 reproduction. Thread B adds to Y and blocks in Y's
-    /// `collectionChanged` sink. Thread A adds Y's child `c` to X, so A holds
-    /// X's transaction and waits for Y's. B's sink then disposes X.
+    /// The #717 reproduction with disposal waits only, because a membership
+    /// change no longer waits (ADR-0187). Thread B adds to Y and blocks in
+    /// Y's `collectionChanged` sink. Thread A adds to X, and its X sink
+    /// disposes Y, so A holds X's transaction and waits for Y's. B's sink
+    /// then disposes X: that wait would close the cycle.
     private func runCrossContainerDisposal(_ x: Container, file: StaticString = #filePath, line: UInt = #line) throws {
         let y = Container.composite("y")
         let c = try child("c")
-        guard case .success = y.addResult(c) else { return XCTFail("seeding y failed", file: file, line: line) }
 
         let threadA = SharedValue<UInt64>(0)
         let threadB = SharedValue<UInt64>(0)
@@ -99,6 +100,7 @@ final class ContainerDisposalWaitCycleTests: XCTestCase {
         let aDone = DispatchSemaphore(value: 0)
         let bDone = DispatchSemaphore(value: 0)
         let blockOnce = SharedValue(true)
+        let disposeYOnce = SharedValue(true)
         ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
             if accepted, caller == threadA.value { aWaiting.signal() }
             if !accepted, caller == threadB.value { bRefused.value = true }
@@ -110,6 +112,11 @@ final class ContainerDisposalWaitCycleTests: XCTestCase {
             bInSink.signal()
             _ = aWaiting.wait(timeout: .now() + hangGuard)
             x.dispose()
+        }.store(in: &cancellables)
+        x.collectionChanged.sink { _ in
+            guard disposeYOnce.value else { return }
+            disposeYOnce.value = false
+            y.dispose()
         }.store(in: &cancellables)
 
         Thread.detachNewThread {
@@ -131,8 +138,8 @@ final class ContainerDisposalWaitCycleTests: XCTestCase {
         XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard), .success, "thread B (disposing x) hung", file: file, line: line)
         XCTAssertTrue(bRefused.value, "the disposal's wait closed a cycle and was refused", file: file, line: line)
         XCTAssertEqual(x.vm.status, .disposed, file: file, line: line)
-        XCTAssertEqual([x.contains(c), y.contains(c)].filter { $0 }.count, 1,
-                       "c is a child of exactly one container", file: file, line: line)
+        XCTAssertEqual(y.vm.status, .disposed, file: file, line: line)
+        XCTAssertEqual(c.status, .disposed, "the deferred disposal includes the added child", file: file, line: line)
     }
 
     func testCompositeDisposalThatWouldCloseAMembershipCycleDefersToTheOwner() throws {

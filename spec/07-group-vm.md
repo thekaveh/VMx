@@ -58,6 +58,10 @@ event stream. Lifecycle compensation failure is surfaced rather than swallowed,
 as qualified by ADR-0118. Disposal requested while an old-parent transfer is
 staged follows chapter 06 §4.2 and ADR-0122: commit or rollback reaches a stable
 membership boundary before the old parent snapshots and cascades its children.
+A membership change never waits for another thread's membership transaction
+of the group. `Add`, `Insert`, index replacement, population, transfer detach,
+`Remove`, `RemoveAt` and `Clear` fail before mutation while any thread holds
+it, with the errors that chapter 06 §4.2 lists (ADR-0187, `GRP-016`).
 
 ## 2. Children construction orchestration
 
@@ -100,6 +104,11 @@ event fires. The default is `false`. A child added while the group is still
 `Constructing` is started and joined by the construct walk, as in chapter 06
 §5.1.
 
+The construct walk of a group counts members only, and its commit step
+follows chapter 06 §5.1 (ADR-0186). A child removed before the walk reaches
+it, or while the walk waits on it, does not roll the group back. An add after
+the commit step follows the add-after-`Constructed` rule (`GRP-015`).
+
 ## 5. Batch updates (spec v1.1)
 
 A group MUST expose an idiomatic scoped batch API: a returned disposable /
@@ -124,7 +133,8 @@ in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
 ## 7. Conformance
 
 `GRP-001` through `GRP-006`, `GRP-007` through `GRP-010`, `GRP-011`,
-`GRP-012` through `GRP-013`, and `GRP-014` in `12-conformance.md` cover:
+`GRP-012` through `GRP-013`, `GRP-014`, and `GRP-015` through `GRP-016` in
+`12-conformance.md` cover:
 
 - collection-change events on add/remove
 - absence of `Current`
@@ -139,6 +149,10 @@ in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
 - (v3.30) `DestructOrder(ChildOrder.Reverse)` destructs and disposes the
   children last child first, and construct is the same with and without the
   option (`GRP-014`)
+- (v3.30) the construct walk counts members only, so a removal during the
+  walk does not roll the group back (`GRP-015`)
+- (v3.30) a membership change during another thread's membership transaction
+  fails at once and changes nothing (`GRP-016`)
 - (v3.30) a group whose local subscriber requests its disposal sends no hub
   message for that change (`COMP-049`)
 - atomic cross-parent transfer, duplicate/cycle rejection, isolated rollback

@@ -678,6 +678,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         }
       },
       joined,
+      (child) => this._children.includes(child as VM),
     );
   }
 

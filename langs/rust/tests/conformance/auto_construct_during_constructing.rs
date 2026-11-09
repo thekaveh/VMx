@@ -210,8 +210,14 @@ trait Container {
     /// through a test-only probe for a group, which has no selector.
     #[cfg(feature = "test-seams")]
     fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>);
+    /// Runs `hook` after the construct walk's commit step wrote
+    /// `Constructed` and before the container publishes it.
+    #[cfg(feature = "test-seams")]
+    fn after_seal(&self, hook: Arc<dyn Fn() + Send + Sync>);
     /// Whether the container's reconstruct command can execute now.
     fn reconstruct_can_execute(&self) -> bool;
+    #[cfg(feature = "test-seams")]
+    fn dispose(&self) -> VmxResult<()>;
 }
 
 impl Container for CompositeVm<Node> {
@@ -248,8 +254,16 @@ impl Container for CompositeVm<Node> {
             None
         });
     }
+    #[cfg(feature = "test-seams")]
+    fn after_seal(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        self.set_seal_probe_for_testing(move || hook());
+    }
     fn reconstruct_can_execute(&self) -> bool {
         Command::can_execute(&self.reconstruct_command())
+    }
+    #[cfg(feature = "test-seams")]
+    fn dispose(&self) -> VmxResult<()> {
+        CompositeVm::dispose(self)
     }
 }
 
@@ -286,6 +300,14 @@ impl Container for GroupVm<Node> {
     #[cfg(feature = "test-seams")]
     fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>) {
         self.set_last_scan_probe_for_testing(move || hook());
+    }
+    #[cfg(feature = "test-seams")]
+    fn after_seal(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        self.set_seal_probe_for_testing(move || hook());
+    }
+    #[cfg(feature = "test-seams")]
+    fn dispose(&self) -> VmxResult<()> {
+        GroupVm::dispose(self)
     }
 }
 
@@ -955,7 +977,7 @@ where
     constructed_after_late(&log, &at_constructed);
 }
 
-fn late_child_failing_its_add_construct_fails_add_and_rolls_back<C>()
+fn late_child_failing_its_add_construct_fails_add_and_container_constructs<C>()
 where
     C: Container + Clone + Send + Sync + 'static,
 {
@@ -969,12 +991,13 @@ where
     assert_eq!(late.parent_handle().map(|_| ()), None);
     assert_eq!(late.constructs(), 1);
     assert_eq!(late.status(), ConstructionStatus::Destructed);
-    assert_eq!(container.status(), ConstructionStatus::Destructed);
+    // The undo is a removal: the walk ignores the child (ADR-0186).
+    assert_eq!(container.status(), ConstructionStatus::Constructed);
     assert_eq!(
         *log.lock().unwrap(),
         vec![
             ConstructionStatus::Constructing,
-            ConstructionStatus::Destructed
+            ConstructionStatus::Constructed
         ]
     );
 }
@@ -1140,17 +1163,17 @@ fn group_walk_joins_late_child_its_add_is_constructing() {
 }
 
 /// A late child whose add-started construct fails while a composite's walk
-/// waits on it fails the add, which is undone, and rolls the composite back.
+/// waits on it fails the add, which is undone, and the composite constructs.
 #[test]
-fn composite_late_child_failing_its_add_construct_fails_add_and_rolls_back() {
-    late_child_failing_its_add_construct_fails_add_and_rolls_back::<CompositeVm<Node>>();
+fn composite_late_child_failing_its_add_construct_fails_add_and_composite_constructs() {
+    late_child_failing_its_add_construct_fails_add_and_container_constructs::<CompositeVm<Node>>();
 }
 
 /// A late child whose add-started construct fails while a group's walk waits
-/// on it fails the add, which is undone, and rolls the group back.
+/// on it fails the add, which is undone, and the group constructs.
 #[test]
-fn group_late_child_failing_its_add_construct_fails_add_and_rolls_back() {
-    late_child_failing_its_add_construct_fails_add_and_rolls_back::<GroupVm<Node>>();
+fn group_late_child_failing_its_add_construct_fails_add_and_group_constructs() {
+    late_child_failing_its_add_construct_fails_add_and_container_constructs::<GroupVm<Node>>();
 }
 
 /// A child added while auto-construct-on-add was off is not awaited by a
@@ -1302,6 +1325,147 @@ fn group_waits_for_child_added_after_last_scan_on_the_walk_thread() {
 #[test]
 fn group_waits_for_child_added_after_last_scan_from_another_thread() {
     add_after_last_scan::<GroupVm<Node>>(true);
+}
+
+/// What a commit-step window probe saw: the container's status, whether its
+/// reconstruct command could execute, and the result of its add.
+#[cfg(feature = "test-seams")]
+type WindowProbe = Arc<Mutex<Option<(ConstructionStatus, bool, VmxResult<()>)>>>;
+
+/// An add in the commit-step window, after the walk's commit step wrote
+/// `Constructed` and before the publication, follows the
+/// add-after-`Constructed` rule (spec/02 §2.4, ADR-0186, #1374). The add reads
+/// `Constructed`, registers no start record, and starts the background child
+/// at once; the container publishes `Constructed` once without waiting for it.
+#[cfg(feature = "test-seams")]
+fn add_in_commit_step_window_follows_add_after_constructed<C>()
+where
+    C: Container + Clone + Send + Sync + 'static,
+{
+    let (hub, container, anchor, log, _subscription) = constructing::<C>(true);
+    let late = Node::new(true);
+    let (at_constructed, _watch) = watch_constructed(&hub, container.id(), &late);
+    let seen: WindowProbe = Arc::default();
+    {
+        let target = container.clone();
+        let late = late.clone();
+        let seen = Arc::clone(&seen);
+        container.after_seal(Arc::new(move || {
+            if seen.lock().unwrap().is_some() {
+                return;
+            }
+            let status = target.status();
+            let can_reconstruct = target.reconstruct_can_execute();
+            let added = target.add(late.clone());
+            *seen.lock().unwrap() = Some((status, can_reconstruct, added));
+        }));
+    }
+
+    within_timeout("settle the original child", BOUND, {
+        let anchor = anchor.clone();
+        move || anchor.finish(ConstructionStatus::Constructed)
+    });
+
+    assert_eq!(
+        *seen.lock().unwrap(),
+        Some((ConstructionStatus::Constructed, false, Ok(()))),
+        "the window reads Constructed with the transition still in flight"
+    );
+    assert_eq!(
+        *at_constructed.lock().unwrap(),
+        vec![(ConstructionStatus::Constructing, 1)],
+        "the add started the child, and the container did not wait for it"
+    );
+    assert_eq!(container.status(), ConstructionStatus::Constructed);
+    late.finish(ConstructionStatus::Constructed);
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed
+        ]
+    );
+}
+
+#[test]
+#[cfg(feature = "test-seams")]
+fn composite_add_in_commit_step_window_follows_add_after_constructed() {
+    add_in_commit_step_window_follows_add_after_constructed::<CompositeVm<Node>>();
+}
+
+#[test]
+#[cfg(feature = "test-seams")]
+fn group_add_in_commit_step_window_follows_add_after_constructed() {
+    add_in_commit_step_window_follows_add_after_constructed::<GroupVm<Node>>();
+}
+
+/// A walk that disposal stopped commits nothing (ADR-0186, #1374): a
+/// dispose before the commit step (`before_seal`) or in the commit-step
+/// window leaves the container `Disposed`, and it never publishes
+/// `Constructed`.
+#[cfg(feature = "test-seams")]
+fn disposal_during_the_seal_commits_nothing<C>(before_seal: bool)
+where
+    C: Container + Clone + Send + Sync + 'static,
+{
+    let (_hub, container, anchor, log, _subscription) = constructing::<C>(true);
+    let disposed: Arc<Mutex<Option<VmxResult<()>>>> = Arc::default();
+    {
+        let target = container.clone();
+        let disposed = Arc::clone(&disposed);
+        let hook: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            if disposed.lock().unwrap().is_some() {
+                return;
+            }
+            let result = target.dispose();
+            *disposed.lock().unwrap() = Some(result);
+        });
+        if before_seal {
+            container.after_last_scan(hook);
+        } else {
+            container.after_seal(hook);
+        }
+    }
+
+    within_timeout("settle the original child", BOUND, {
+        let anchor = anchor.clone();
+        move || anchor.finish(ConstructionStatus::Constructed)
+    });
+
+    assert_eq!(*disposed.lock().unwrap(), Some(Ok(())));
+    assert_eq!(container.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Disposed
+        ],
+        "the stopped walk publishes no Constructed"
+    );
+}
+
+#[test]
+#[cfg(feature = "test-seams")]
+fn composite_disposal_before_the_commit_step_commits_nothing() {
+    disposal_during_the_seal_commits_nothing::<CompositeVm<Node>>(true);
+}
+
+#[test]
+#[cfg(feature = "test-seams")]
+fn composite_disposal_in_the_commit_step_window_commits_nothing() {
+    disposal_during_the_seal_commits_nothing::<CompositeVm<Node>>(false);
+}
+
+#[test]
+#[cfg(feature = "test-seams")]
+fn group_disposal_before_the_commit_step_commits_nothing() {
+    disposal_during_the_seal_commits_nothing::<GroupVm<Node>>(true);
+}
+
+#[test]
+#[cfg(feature = "test-seams")]
+fn group_disposal_in_the_commit_step_window_commits_nothing() {
+    disposal_during_the_seal_commits_nothing::<GroupVm<Node>>(false);
 }
 
 /// While a sealed construct waits to publish Constructed, its state already

@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
+  membership change during another open membership transaction fails at once
+  and changes nothing. TypeScript already behaved this way.
 - `ModeledCrudCommandsOptions.currentChanged`, an optional observable
   (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
   Update and Delete commands, so their `canExecuteChanged` fires when the
@@ -118,6 +121,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   GRP-014 and COMP-046.
 
 ### Changed
+
+- The construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back, and
+  the walk does not construct a snapshot child removed before it reaches it.
+  `COMP-047` and `GRP-015` cover the four removal cases.
 
 - The `ForwardingCompositeVM` selection command getters now return
   `RelayCommand` instead of `ICommand` (#1272, ADR-0213). `RelayCommand`

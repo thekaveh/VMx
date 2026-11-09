@@ -70,16 +70,19 @@ enum ContainerSupport {
                 return late
             },
             seal: { [weak container] in
-                guard let container else { return nil }
+                guard let container else { return .abandoned }
                 // Commit or keep walking (spec/06 §5.1): with no late child
-                // left, flip the state in this same gate section, so a later
-                // add reads `.constructed`, and end the walk's scope.
-                return gate.withLock {
-                    if let late = pullLocked() { return late }
-                    container._flipConstructedForSeal()
+                // left, the commit step writes `.constructed` in this same
+                // gate section, so a later add reads `.constructed`, and ends
+                // the walk's scope. An abandoned walk writes nothing.
+                let outcome: LateChildSeal = gate.withLock {
+                    if let late = pullLocked() { return .late(late.child, late.record) }
+                    let committed = container._flipConstructedForSeal()
                     starts.endWalk(scope)
-                    return nil
+                    return committed ? .sealed : .abandoned
                 }
+                if case .sealed = outcome { starts.probe(container, .sealed) }
+                return outcome
             },
             willSeal: { [weak container] in
                 guard let container else { return }
@@ -109,7 +112,10 @@ enum ContainerSupport {
     /// record is marked done right after the attempt, before the add
     /// publishes anything. Without one, the child starts only when the
     /// container is `Constructed`: one attached before the walk's snapshot is
-    /// constructed by the walk (spec/06 §5.1).
+    /// constructed by the walk (spec/06 §5.1). When the construct fails, the
+    /// record stays open: the add undoes the attach and then calls
+    /// `record.finish()`, so a walk that waits on the record sees a
+    /// non-member and ignores the child (ADR-0186).
     static func autoConstructAttached(
         _ child: ComponentVMBase,
         in container: ComponentVMBase,
@@ -124,27 +130,15 @@ enum ContainerSupport {
             return nil
         }
         starts.probe(child, .attached)
-        defer {
-            starts.finish(child, record, constructing: container.status == .constructing)
+        if child.status == .destructed {
+            do { try child.construct() } catch { return error }
         }
-        guard child.status == .destructed else { return nil }
-        do { try child.construct() } catch { return error }
+        starts.finish(child, record, constructing: container.status == .constructing)
         return nil
-    }
-
-    /// Enters a membership transaction for either container: `tryEnter` opens
-    /// or joins it, or records a wait for another thread's open transaction
-    /// and returns that transaction's completion, which this waits for before
-    /// trying again (spec/06 §4, spec/07).
-    static func enterMembershipTransaction(
-        _ tryEnter: () throws -> DispatchGroup?
-    ) rethrows {
-        while let completion = try tryEnter() {
-            awaitMembershipTransaction(completion)
-        }
     }
 }
 
 /// The inner error of `ContainerOwnershipError.attachmentFailed` when a
-/// container refuses a membership wait that would close a cycle.
+/// membership change finds the container's membership transaction in
+/// progress, on this thread (ADR-0118) or on another thread (ADR-0187).
 struct ContainerMembershipTransactionError: Error {}

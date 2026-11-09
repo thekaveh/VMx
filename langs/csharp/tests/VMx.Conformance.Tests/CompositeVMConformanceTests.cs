@@ -1974,12 +1974,42 @@ public class CompositeVMConformanceTests
             .Children(() => Array.Empty<ComponentVM<string>>()).Build();
         using var unrelatedDone = new ManualResetEventSlim();
         Thread? bulkWorker = null;
+        Exception? bulkError = null;
         var callbackObservedProgress = false;
+
+        // The first transfer releases the child's ownership when it commits,
+        // before firstDestination's membership transaction ends. A population
+        // that meets that open transaction fails at once and rolls back
+        // (ADR-0187), so the worker retries until the transaction has ended.
+        void ConstructBulkDestination()
+        {
+            var deadline = DateTime.UtcNow + HangGuard;
+            while (true)
+            {
+                try
+                {
+                    bulkDestination.Construct();
+                    return;
+                }
+                catch (InvalidOperationException error) when (
+                    error.Message.Contains("membership transaction is already in progress",
+                        StringComparison.Ordinal) &&
+                    DateTime.UtcNow < deadline)
+                {
+                    Thread.Sleep(1);
+                }
+                catch (Exception error)
+                {
+                    bulkError = error;
+                    return;
+                }
+            }
+        }
 
         oldParent.CollectionChanged += (_, args) =>
         {
             if (args.Action != NotifyCollectionChangedAction.Remove || bulkWorker is not null) return;
-            bulkWorker = new Thread(bulkDestination.Construct);
+            bulkWorker = new Thread(ConstructBulkDestination);
             bulkWorker.Start();
             bulkFactoryEntered.Wait(HangGuard).Should().BeTrue();
             SpinWait.SpinUntil(
@@ -2000,6 +2030,7 @@ public class CompositeVMConformanceTests
 
         bulkWorker.Should().NotBeNull();
         bulkWorker!.Join(HangGuard).Should().BeTrue();
+        bulkError.Should().BeNull();
         callbackObservedProgress.Should().BeTrue();
         bulkDestination.Should().ContainSingle().Which.Should().BeSameAs(child);
         unrelatedOld.Should().BeEmpty();

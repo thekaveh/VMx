@@ -29,7 +29,9 @@ internal static class ContainerConstructWalk
     /// whose add registered a start record in this <paramref name="walk"/> is
     /// added to <paramref name="joined"/>: the walk waits for the add's start
     /// attempt, then joins it, so one whose own construction failed rolls the
-    /// container back. A late child without a record was not started by an
+    /// container back while it is still a member. A failed add undoes its
+    /// attach before the walk sees the attempt end, so its child is not
+    /// counted (ADR-0186). A late child without a record was not started by an
     /// add, so the walk skips it. The scope stays open after the last scan:
     /// <see cref="SealOrNextLate"/> joins a child added after it, and
     /// commits the Constructed state under the membership gate.
@@ -75,6 +77,7 @@ internal static class ContainerConstructWalk
         Action commit)
         where VM : class, IComponentVM
     {
+        walk.ProbeSealing();
         lock (gate)
         {
             foreach (var child in members)
@@ -183,17 +186,13 @@ internal static class ContainerMembership
         }
         // The construct walk never starts a late child; it waits for this
         // attempt, then joins the child (spec/06 §5.1). The record is done
-        // before this add publishes or ends its transaction.
-        try
-        {
-            lateStarts.Probe(item, LateChildStage.Attached);
-            if (item.Status == ConstructionStatus.Destructed) item.Construct();
-        }
-        finally
-        {
-            record.MarkDone();
-            if (container.Status != ConstructionStatus.Constructing) lateStarts.Remove(item, record);
-        }
+        // before this add publishes or ends its transaction. A failed attempt
+        // leaves it to the add's rollback, which marks it done after it undid
+        // the attach (LateChildStarts.Remove), so the walk sees no member.
+        lateStarts.Probe(item, LateChildStage.Attached);
+        if (item.Status == ConstructionStatus.Destructed) item.Construct();
+        record.MarkDone();
+        if (container.Status != ConstructionStatus.Constructing) lateStarts.Remove(item, record);
     }
 }
 
@@ -303,6 +302,12 @@ internal enum LateChildStage
 
     /// <summary>A construct walk ended its scope (the probe's child is the container).</summary>
     WalkEnded,
+
+    /// <summary>
+    /// The commit step is about to take the membership gate (the probe's child
+    /// is the container).
+    /// </summary>
+    Sealing,
 }
 
 /// <summary>
@@ -401,25 +406,32 @@ internal sealed class LateChildStarts
             _owner.Probe(_container, LateChildStage.WalkEnded);
         }
 
+        /// <summary>Test-only probe: the commit step is about to take the membership gate.</summary>
+        internal void ProbeSealing() => _owner.Probe(_container, LateChildStage.Sealing);
+
         /// <summary>
         /// The walk's join of a joined child: a late child is joined after its
-        /// add's start attempt; a population child is joined at once.
+        /// add's start attempt, unless it is no longer a member then
+        /// (ADR-0186); a population child is joined at once.
         /// </summary>
-        internal Task Join(IComponentVM child)
+        internal Task Join(IComponentVM child, Func<IComponentVM, bool> isMember)
             => _taken.TryGetValue(child, out var record)
-                ? JoinAfterAttemptAsync(child, record)
+                ? JoinAfterAttemptAsync(child, record, isMember)
                 : child.JoinConstructAsync();
 
-        private Task JoinAfterAttemptAsync(IComponentVM child, Record record)
+        private Task JoinAfterAttemptAsync(IComponentVM child, Record record, Func<IComponentVM, bool> isMember)
         {
-            if (record.Attempted.IsCompleted) return child.JoinConstructAsync();
+            if (record.Attempted.IsCompleted)
+                return isMember(child) ? child.JoinConstructAsync() : Task.CompletedTask;
             _owner.Probe(child, LateChildStage.WalkWaitingOnAdd);
-            return JoinAfterPendingAttemptAsync(child, record);
+            return JoinAfterPendingAttemptAsync(child, record, isMember);
         }
 
-        private static async Task JoinAfterPendingAttemptAsync(IComponentVM child, Record record)
+        private static async Task JoinAfterPendingAttemptAsync(
+            IComponentVM child, Record record, Func<IComponentVM, bool> isMember)
         {
             await record.Attempted.ConfigureAwait(false);
+            if (!isMember(child)) return;
             await child.JoinConstructAsync().ConfigureAwait(false);
         }
     }
@@ -453,9 +465,15 @@ internal sealed class LateChildStarts
         }
     }
 
-    /// <summary>Removes <paramref name="record"/> from its scope if it is still <paramref name="child"/>'s.</summary>
+    /// <summary>
+    /// Removes <paramref name="record"/> from its scope if it is still
+    /// <paramref name="child"/>'s, and marks the add's start attempt done. A
+    /// failed add calls it after it undid its attach, so the walk then finds
+    /// the child gone (ADR-0186).
+    /// </summary>
     internal void Remove(IComponentVM child, Record? record)
     {
+        record?.MarkDone();
         if (record?.Scope is not { } scope) return;
         lock (_gate) scope.RemoveLocked(child, record);
     }
@@ -1296,6 +1314,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // stays open until the commit step, which ends it.
         var lateWalk = _lateStarts.BeginWalk(this);
         var visited = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
+        var commit = ConstructCommitForRunningHook();
         var walk = TransitionChildrenAsync(
             ContainerConstructWalk.Enumerate(
                 () => Snapshot().ToArray(), _autoConstructOnAdd, joined, visited, lateWalk),
@@ -1308,8 +1327,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 if (initial is not null) ApplySelectorResult(initial);
             },
             joined: joined,
-            join: lateWalk.Join,
-            seal: _autoConstructOnAdd ? () => SealOrNextLate(joined, visited, lateWalk) : null);
+            join: child => lateWalk.Join(child, IsMember),
+            seal: _autoConstructOnAdd ? () => SealOrNextLate(joined, visited, lateWalk, commit) : null,
+            isMember: IsMember);
         // A failed or abandoned walk ends its own scope; a committed one already did.
         _ = walk.ContinueWith(
             _ => lateWalk.End(),
@@ -1320,9 +1340,15 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     }
 
     private IComponentVM? SealOrNextLate(
-        ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk)
+        ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk, Action commit)
         => ContainerConstructWalk.SealOrNextLate(
-            _membershipGate, _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
+            _membershipGate, _children, joined, visited, lateWalk, commit);
+
+    /// <summary>Whether <paramref name="child"/> is a member now (the construct walk's check).</summary>
+    private bool IsMember(IComponentVM child)
+    {
+        lock (_membershipGate) return _children.Exists(candidate => ReferenceEquals(candidate, child));
+    }
 
     /// <summary>Constructs all current children sequentially.</summary>
     protected void ConstructChildren()

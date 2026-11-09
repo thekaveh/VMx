@@ -663,6 +663,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <paramref name="join"/> (default: join only) and its settled status is
     /// final, so it is never restarted. The set is read live, so a lazy
     /// <paramref name="children"/> walk may add to it.
+    /// <para>
+    /// A container's construct walk passes <paramref name="isMember"/>: it
+    /// counts members only (spec/06 §5.1, ADR-0186). The walk skips a child
+    /// that is no longer a member before it starts or joins it, and ignores
+    /// the result of a child that is no longer a member when it settles.
+    /// </para>
     /// </summary>
     private protected static async Task TransitionChildrenAsync(
         IEnumerable<IComponentVM> children,
@@ -670,8 +676,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         Action? after,
         ISet<IComponentVM>? joined,
         Func<IComponentVM, Task>? join = null,
-        Func<IComponentVM?>? seal = null)
+        Func<IComponentVM?>? seal = null,
+        Func<IComponentVM, bool>? isMember = null)
     {
+        bool Removed(IComponentVM child) => construct && isMember is not null && !isMember(child);
+
         // Captured synchronously while the owner's lifecycle hook runs, before
         // the first await, so the walk can return to the owner's foreground.
         var scope = t_lifecycleHookScope;
@@ -711,29 +720,43 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // further children, matching Python and TypeScript; nor does a walk
             // whose owner was disposed, as TypeScript abandons it on dispose.
             if (WalkStopped(scope)) return;
+            // A child removed before the walk reaches it is never started.
+            if (Removed(child)) continue;
             // A Disposed child is skipped: the walk calls no lifecycle
             // operation on it and does not fail (spec/02 §6, ADR-0189).
             if (child.Status == ConstructionStatus.Disposed) continue;
             Task pending;
-            if (construct)
+            try
             {
-                var isJoined = joined is not null && joined.Contains(child);
-                pending = !isJoined
-                    ? child.ConstructOrJoinAsync()
-                    : join is not null ? join(child) : child.JoinConstructAsync();
+                if (construct)
+                {
+                    var isJoined = joined is not null && joined.Contains(child);
+                    pending = !isJoined
+                        ? child.ConstructOrJoinAsync()
+                        : join is not null ? join(child) : child.JoinConstructAsync();
+                }
+                else
+                {
+                    // A child already Destructing is joined, never destructed a
+                    // second time (spec/02 §6, #754).
+                    pending = child.DestructOrJoinAsync();
+                }
             }
-            else
+            catch when (Removed(child))
             {
-                // A child already Destructing is joined, never destructed a
-                // second time (spec/02 §6, #754).
-                pending = child.DestructOrJoinAsync();
+                pending = Task.CompletedTask;
             }
             var resumes = !pending.IsCompleted;
-            await pending.ConfigureAwait(false);
+            // The walk keeps waiting on a child removed meanwhile, and ignores
+            // its result (ADR-0186).
+            var removed = false;
+            try { await pending.ConfigureAwait(false); }
+            catch when (Removed(child)) { removed = true; }
+            removed = removed || Removed(child);
             // A child that reached Disposed while the walk waited settles the
             // wait as a success (spec/02 §6, ADR-0189).
             var settled = child.Status;
-            if (construct && settled is not ConstructionStatus.Constructed and not ConstructionStatus.Disposed)
+            if (!removed && construct && settled is not ConstructionStatus.Constructed and not ConstructionStatus.Disposed)
                 throw new InvalidOperationException(
                     $"Child '{child.Name}' did not reach Constructed.");
             if (!construct && settled is not ConstructionStatus.Destructed and not ConstructionStatus.Disposed)
@@ -765,15 +788,29 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// as Rule 4 describes for a call superseded by Disposed.
     /// </para>
     /// </summary>
-    private protected void MarkConstructedBeforePublication()
+    private void MarkConstructedBeforePublication(LifecycleHookScope? scope)
     {
         lock (_gate)
         {
             // Once disposal has started, nothing but Disposed commits (ADR-0175).
-            if (_status != ConstructionStatus.Constructing || !_inFlight || _childTransitionAbandoned) return;
+            // A walk that disposal stopped, or that its raising hook abandoned,
+            // commits nothing; the hook marks it under this lock (ADR-0186).
+            if (_status != ConstructionStatus.Constructing || !_inFlight || _childTransitionAbandoned ||
+                scope?.Abandoned == true) return;
             _status = ConstructionStatus.Constructed;
             _constructPublicationPending = true;
         }
+    }
+
+    /// <summary>
+    /// The container commit step of the construct walk that the running
+    /// lifecycle hook starts (see MarkConstructedBeforePublication). Call it
+    /// from that hook, so the step knows the walk's scope.
+    /// </summary>
+    private protected Action ConstructCommitForRunningHook()
+    {
+        var scope = t_lifecycleHookScope;
+        return () => MarkConstructedBeforePublication(scope);
     }
 
     private static bool WalkStopped(LifecycleHookScope? scope)
@@ -864,7 +901,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             hookFailed = true;
             // Mark the walk abandoned before the hook's lease is released, so a
-            // child settling on another thread drives no further child.
+            // child settling on another thread drives no further child. The
+            // mark is taken under _gate, so the commit step, which checks it
+            // under _gate, commits nothing after it (ADR-0186).
             AbandonHookDeferral(scope);
             throw;
         }
@@ -903,7 +942,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// </summary>
     private void AbandonHookDeferral(LifecycleHookScope scope)
     {
-        scope.Abandoned = true;
+        lock (_gate) scope.Abandoned = true;
         var abandoned = TakeDeferredLifecycleTask();
         _ = abandoned?.ContinueWith(
             static completed => _ = completed.Exception,
@@ -2316,6 +2355,15 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// container whose Constructed state is committed but not yet published.
     /// </summary>
     internal bool HasInFlightLifecycleForTesting => HasInFlightLifecycle();
+
+    /// <summary>
+    /// Test-only: the number of callers that wait for this VM's current
+    /// transition, for example a container walk that joined it.
+    /// </summary>
+    internal int LifecycleWaiterCountForTesting
+    {
+        get { lock (_gate) return _lifecycleWaiters.Count; }
+    }
 
     /// <summary>
     /// Test-only: runs on the hook's thread after a construct or destruct hook

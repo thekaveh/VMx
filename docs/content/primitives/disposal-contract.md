@@ -315,10 +315,10 @@ flavor unless the exceptions below say otherwise.
 - A VM sends one `Disposed` message. It releases children, LIFO owned
   registrations, and its property-change stream. Illegal lifecycle calls return
   `VmxError::InvalidLifecycleTransition` from `Disposed` (ADR-0203).
-- Composite and group `add`, `insert`, `remove`, `remove_at`, `replace`, and
-  `move_item` return `VmxError::Disposed`. Composite `set_current` returns
-  `VmxError::Disposed` for every value, `None` and the child that is already
-  current included. `clear()` makes no change.
+- Composite and group `add`, `insert`, `remove`, `remove_at`, `replace`,
+  `move_item` and `clear` return `VmxError::Disposed` and make no change
+  (ADR-0187). Composite `set_current` returns `VmxError::Disposed` for every
+  value, `None` and the child that is already current included.
 - `MessageHub` claims disposal under its state mutex. It removes subscribers and
   drops queued messages instead of completing a stream.
 - `Subscription` and `PropertyChangedSubscription` are the hub subscription

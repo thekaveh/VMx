@@ -498,7 +498,10 @@ pub trait VmCollection<T: VmNode> {
     /// Replaces and returns the child at `index`.
     fn replace(&self, index: usize, item: T) -> VmxResult<T>;
     /// Removes all children.
-    fn clear(&self);
+    ///
+    /// Returns [`VmxError::OwnershipTransactionInProgress`] and changes
+    /// nothing while a membership transaction is open (ADR-0187).
+    fn clear(&self) -> VmxResult<()>;
     /// Moves a child between valid indices.
     fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()>;
     /// Coalesces notifications produced by `action`.
@@ -1410,16 +1413,17 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     /// Clears all children, ownership links, and current selection.
-    pub fn clear(&self) {
-        if self.reject_if_disposed().is_err() {
-            return;
-        }
-        let Ok(_transaction) = begin_membership_transaction(
+    ///
+    /// Returns [`VmxError::Disposed`] after disposal. Returns
+    /// [`VmxError::OwnershipTransactionInProgress`] at once, and changes
+    /// nothing, while a membership transaction of this composite is open on
+    /// any thread (spec/06 §4.2, ADR-0187).
+    pub fn clear(&self) -> VmxResult<()> {
+        self.reject_if_disposed()?;
+        let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
-        ) else {
-            return;
-        };
+        )?;
         let (removed, cleared) = {
             let _gate = lock(&self.membership_gate);
             for item in self.items() {
@@ -1443,13 +1447,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         // the gate, as in the other flavors. No removed child's flag is
         // written after the gate: another composite may already have adopted
         // and selected it (spec/06 §4.3 rule 2).
-        let _ = self.publish_current(cleared);
+        let published = self.publish_current(cleared);
         // Removed children are dropped after the membership gate is released.
         let changed = !removed.is_empty();
         drop(removed);
         if changed {
             self.items.publish_reset();
         }
+        published.and(transaction.finish())
     }
 
     /// Returns the current child, if selected.
@@ -1524,6 +1529,19 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         } else {
             Ok(())
         }
+    }
+
+    /// Test-only seam: runs `probe` after each construct walk's commit step
+    /// wrote `Constructed` and before the composite publishes it. Production
+    /// code never calls it. Only the non-default `test-seams` feature
+    /// exports it.
+    #[cfg(feature = "test-seams")]
+    #[doc(hidden)]
+    pub fn set_seal_probe_for_testing<F>(&self, probe: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.late_starts.set_seal_probe(Arc::new(probe));
     }
 
     /// Controls construction of additions to a constructed composite.
@@ -1855,8 +1873,8 @@ impl<T: VmNode, D: Dispatcher> VmCollection<T> for CompositeVm<T, D> {
     fn replace(&self, index: usize, item: T) -> VmxResult<T> {
         CompositeVm::replace(self, index, item)
     }
-    fn clear(&self) {
-        CompositeVm::clear(self);
+    fn clear(&self) -> VmxResult<()> {
+        CompositeVm::clear(self)
     }
     fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
         CompositeVm::move_item(self, from_index, to_index)

@@ -1186,12 +1186,12 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(group.at(0) === groupChild)
     }
 
-    func testPopulationWaitsForAnotherThreadsOpenTransactionOnTheOldParent() throws {
+    func testPopulationFailsAtOnceDuringAnotherThreadsOpenTransactionOnTheOldParent() throws {
         // The old parent commits its child's transfer, releasing the child's
         // reservation, then publishes `added` while its membership transaction
         // is still open. A population on another thread that moves the child
-        // must wait for that transaction to end, as C# does, instead of failing
-        // to detach it (#551).
+        // fails at once: the old parent refuses the detach, and the transfer
+        // rolls back (ADR-0187). After the transaction ends, it succeeds.
         let addedEntered = DispatchSemaphore(value: 0)
         let releaseAdded = DispatchSemaphore(value: 0)
         let child = try leaf("child")
@@ -1233,17 +1233,28 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             destinationDone.signal()
         }
 
-        XCTAssertEqual(
-            destinationDone.wait(timeout: .now() + 0.2), .timedOut,
-            "the destination must wait for the open transaction: \(errors.errors)"
-        )
+        let destinationFinished = destinationDone.wait(timeout: .now() + 2)
+        XCTAssertEqual(destinationFinished, .success, "the destination must not wait for the open transaction")
+        XCTAssertEqual(errors.errors.count, 1, "\(errors.errors)")
+        XCTAssertTrue(errors.errors.allSatisfy(isMembershipTransactionInProgress), "\(errors.errors)")
+        XCTAssertEqual(destination.status, .destructed)
+        XCTAssertEqual(destination.count, 0)
         releaseAdded.signal()
         XCTAssertEqual(oldParentDone.wait(timeout: .now() + hangGuard), .success)
-        XCTAssertEqual(destinationDone.wait(timeout: .now() + hangGuard), .success)
-        XCTAssertTrue(errors.errors.isEmpty, "\(errors.errors)")
+        if destinationFinished != .success { _ = destinationDone.wait(timeout: .now() + hangGuard) }
+        XCTAssertEqual(oldParent.count, 1)
+        XCTAssertTrue(child._parent != nil && child._parent !== destination)
+
+        try destination.construct()
         XCTAssertEqual(oldParent.count, 0)
         XCTAssertEqual(destination.count, 1)
-        XCTAssertTrue(destination.at(0) === child)
+        XCTAssertTrue(destination.snapshot().first === child)
+    }
+
+    /// Whether `error` is the "membership transaction in progress" refusal.
+    private func isMembershipTransactionInProgress(_ error: Error) -> Bool {
+        guard case ContainerOwnershipError.attachmentFailed(let inner) = error else { return false }
+        return inner is ContainerMembershipTransactionError
     }
 
     func testMembershipWaitGraphRefusesTheEdgeThatClosesACycle() {
@@ -1318,7 +1329,10 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         }
 
         XCTAssertEqual(done.wait(timeout: .now() + hangGuard * 2), .success)
-        XCTAssertTrue(errors.errors.isEmpty, "\(errors.errors)")
+        // The second population either finds the first one's transaction
+        // ended and moves both children, or fails at once (ADR-0187).
+        XCTAssertLessThanOrEqual(errors.errors.count, 1, "\(errors.errors)")
+        XCTAssertTrue(errors.errors.allSatisfy(isMembershipTransactionInProgress), "\(errors.errors)")
         XCTAssertEqual([destinationA.count, destinationB.count].sorted(), [0, 2])
         XCTAssertEqual(
             destinationA.snapshot().filter { $0 === first || $0 === second }.count

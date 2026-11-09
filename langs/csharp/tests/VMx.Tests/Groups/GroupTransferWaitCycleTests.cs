@@ -10,10 +10,10 @@ namespace VMx.Tests.Groups;
 
 /// <summary>
 /// Cross-thread membership transactions on <see cref="GroupVM{VM}"/> (#718).
-/// A group waits for another thread's transaction, unless that wait would
-/// close a wait-for cycle: then the add is refused with
-/// <see cref="InvalidOperationException"/> and changes nothing. A wait for a
-/// child's ownership gate joins the same graph (#1047).
+/// A membership change never waits for another thread's transaction: it is
+/// refused at once with <see cref="InvalidOperationException"/> and changes
+/// nothing (ADR-0187). A wait for a child's ownership gate joins the wait-for
+/// graph (#1047).
 /// </summary>
 public class GroupTransferWaitCycleTests
 {
@@ -111,9 +111,18 @@ public class GroupTransferWaitCycleTests
             var (firstError, secondError) = await CompleteWithinHangGuard(
                 first, second, $"opposing adds must not deadlock (iteration {iteration})");
 
-            (firstError is not null && secondError is not null)
-                .Should().BeFalse("only the wait that closes the cycle is refused");
-            if (firstError is null && secondError is null)
+            if (firstError is not null && secondError is not null)
+            {
+                // Each add found the other group's transaction open: both are
+                // refused at once and change nothing (ADR-0187).
+                ShouldBeRefusal(firstError);
+                ShouldBeRefusal(secondError);
+                ShouldBeOwnedBy(a, g1, g2);
+                ShouldBeOwnedBy(b, g2, g1);
+                g1.Count.Should().Be(1);
+                g2.Count.Should().Be(1);
+            }
+            else if (firstError is null && secondError is null)
             {
                 ShouldBeOwnedBy(b, g1, g2);
                 ShouldBeOwnedBy(a, g2, g1);
@@ -196,7 +205,9 @@ public class GroupTransferWaitCycleTests
     }
 
     // (b) + (c): both threads hold their group's transaction inside a construct
-    // hook, then add to the other group. One wait closes the cycle every time.
+    // hook, then add to the other group. Neither waits (ADR-0187): a hook add
+    // that finds the other transaction open is refused at once, and its outer
+    // add fails and is undone. A hook add that runs after that undo succeeds.
     [Fact]
     public async Task Opposing_Adds_From_Construct_Hooks_Complete_And_Refusal_Changes_Nothing()
     {
@@ -227,9 +238,18 @@ public class GroupTransferWaitCycleTests
             var (firstError, secondError) = await CompleteWithinHangGuard(
                 first, second, $"opposing hook adds must not deadlock (iteration {iteration})");
 
-            ((firstError is null) ^ (secondError is null))
-                .Should().BeTrue("exactly one wait closes the cycle and is refused");
-            if (secondError is not null)
+            (firstError is not null || secondError is not null)
+                .Should().BeTrue("the first hook add finds the other transaction open");
+            if (firstError is not null && secondError is not null)
+            {
+                ShouldBeRefusal(firstError);
+                ShouldBeRefusal(secondError);
+                g1.Snapshot().Should().Equal(a);
+                g2.Snapshot().Should().Equal(b);
+                foreach (var child in new[] { x, y, p, q })
+                    ShouldBeUnowned(child, g1, g2);
+            }
+            else if (secondError is not null)
             {
                 ShouldBeRefusal(secondError);
                 g1.Snapshot().Should().Equal(a, x);
@@ -254,11 +274,11 @@ public class GroupTransferWaitCycleTests
         }
     }
 
-    // (d): a cross-thread add that closes no cycle waits, then succeeds. The
-    // thread that ended the awaited transaction can then add to the waiter's
-    // group at once: the waiter's finished wait no longer counts (#736).
+    // (d): a cross-thread transfer out of a group whose transaction is open
+    // fails at once and changes nothing; it never waits (ADR-0187). After the
+    // transaction ends, the same add succeeds.
     [Fact]
-    public async Task Cross_Thread_Add_Without_Cycle_Waits_Then_Succeeds()
+    public async Task Cross_Thread_Add_Fails_At_Once_And_Changes_Nothing()
     {
         for (var iteration = 0; iteration < 20; iteration++)
         {
@@ -282,18 +302,19 @@ public class GroupTransferWaitCycleTests
             }));
             (await Task.Run(() => entered.Wait(HangGuard))).Should().BeTrue();
 
-            var waiter = Task.Run(() => Attempt(() => g1.Add(b)));
-            (await Task.WhenAny(waiter, Task.Delay(TimeSpan.FromMilliseconds(100))))
-                .Should().NotBeSameAs(waiter, "g2's transaction is still open on another thread");
+            var refused = Task.Run(() => Attempt(() => g1.Add(b)));
+            (await Task.WhenAny(refused, Task.Delay(HangGuard)))
+                .Should().BeSameAs(refused, "the add does not wait for g2's open transaction");
+            ShouldBeRefusal(await refused);
+            holder.IsCompleted.Should().BeFalse("g2's transaction is still open");
             g1.Count.Should().Be(0);
+            ShouldBeOwnedBy(b, g2, g1);
 
             release.Set();
-            var (holderError, waiterError) = await CompleteWithinHangGuard(
-                holder, waiter, $"the waiter must resume (iteration {iteration})");
+            (await holder.WaitAsync(HangGuard)).Should().BeNull();
+            g1.Add(b);
 
-            holderError.Should().BeNull();
-            waiterError.Should().BeNull();
-            g1.Count.Should().Be(2);
+            g1.Snapshot().Should().Equal(f, b);
             g2.Snapshot().Should().Equal(y);
             ShouldBeOwnedBy(b, g1, g2);
             ShouldBeOwnedBy(f, g1, g2);
@@ -301,11 +322,11 @@ public class GroupTransferWaitCycleTests
         }
     }
 
-    // #1047: T1 holds b's ownership gate and waits for g2's transaction; T2
-    // owns that transaction and waits for b's ownership gate. The gate wait
-    // joins the wait graph, so the wait that closes the cycle is refused.
+    // #1047, ADR-0187: T1 holds b's ownership gate while it detaches b from
+    // g2, whose transaction T2 holds. T1 no longer waits for that transaction,
+    // so no cycle can form: its transfer is refused at once.
     [Fact]
-    public async Task Ownership_Gate_Wait_That_Closes_A_Cycle_With_A_Group_Transaction_Is_Refused()
+    public async Task Transfer_Out_Of_A_Group_With_An_Open_Transaction_Is_Refused_Without_A_Wait()
     {
         var b = Child("b");
         var g1 = Group("g1", autoConstructOnAdd: true);
@@ -315,15 +336,12 @@ public class GroupTransferWaitCycleTests
         g3.Construct();
         g2.Construct();
         using var hookEntered = new ManualResetEventSlim(false);
-        var firstThread = 0;
+        using var firstDone = new ManualResetEventSlim(false);
         var y = Child("y", onConstruct: () =>
         {
             // The hook runs inside g2's transaction on the second thread.
             hookEntered.Set();
-            SpinWait.SpinUntil(
-                () => Volatile.Read(ref firstThread) != 0 &&
-                    WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref firstThread)),
-                HangGuard).Should().BeTrue("the first thread waits for g2's transaction");
+            firstDone.Wait(HangGuard).Should().BeTrue("the first transfer does not wait for g2");
             g3.Add(b);
         });
 
@@ -331,20 +349,17 @@ public class GroupTransferWaitCycleTests
         hookEntered.Wait(HangGuard).Should().BeTrue();
         var first = Task.Run(() =>
         {
-            Volatile.Write(ref firstThread, Environment.CurrentManagedThreadId);
-            return Attempt(() => g1.Add(b));
+            try { return Attempt(() => g1.Add(b)); }
+            finally { firstDone.Set(); }
         });
         var (firstError, secondError) = await CompleteWithinHangGuard(
-            first, second, "the gate wait and the group transaction must not deadlock");
+            first, second, "the transfer and the group transaction must not deadlock");
 
-        new[] { firstError, secondError }.Should().Contain(error => error is InvalidOperationException);
-        foreach (var error in new[] { firstError, secondError })
-            if (error is not null) error.Should().BeOfType<InvalidOperationException>();
-        var owner = ((IComponentVMInternals)b).Parent;
-        owner.Should().BeOneOf(g1, g2, g3);
-        foreach (var group in new[] { g1, g2, g3 })
-            group.Snapshot().Count(item => ReferenceEquals(item, b))
-                .Should().Be(ReferenceEquals(owner, group) ? 1 : 0, $"b has exactly one parent ({group.Name})");
+        ShouldBeRefusal(firstError);
+        // The hook's own transfer out of g2 is a same-thread re-entrant change.
+        ShouldBeRefusal(secondError);
+        ShouldBeOwnedBy(b, g2, g1, g3);
+        ShouldBeUnowned(y, g1, g2, g3);
     }
 
     // #1047: a cycle through two children's ownership gates only. T1 holds aa

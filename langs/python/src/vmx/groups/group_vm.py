@@ -13,6 +13,7 @@ See spec/07-group-vm.md.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
+from functools import partial
 from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar
 
@@ -34,6 +35,8 @@ from vmx.components._container_helpers import (
     emit_collection_changed,
     enter_batch,
     exit_batch,
+    finish_failed_add_start,
+    is_member,
     join_if_pending,
     maybe_auto_construct,
     seal_or_next_late,
@@ -225,6 +228,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     old._set_parent(parent)
                     value._set_parent(None)
                 self._late_starts.remove(value, record)
+            finish_failed_add_start(record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and value.status is ConstructionStatus.CONSTRUCTED
@@ -313,6 +317,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     self._children.remove(item)
                     item._set_parent(None)
                 self._late_starts.remove(item, record)
+            finish_failed_add_start(record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and item.status is ConstructionStatus.CONSTRUCTED
@@ -377,6 +382,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     self._children.remove(item)
                     item._set_parent(None)
                 self._late_starts.remove(item, record)
+            finish_failed_add_start(record)
             if (
                 original_status is ConstructionStatus.DESTRUCTED
                 and item.status is ConstructionStatus.CONSTRUCTED
@@ -514,9 +520,13 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         return construct_walk(self, joined, visited, walk)
 
     def _seal_or_next_late(
-        self, joined: list[VM], visited: dict[int, VM], walk: _LateWalk
+        self,
+        joined: list[VM],
+        visited: dict[int, VM],
+        walk: _LateWalk,
+        commit: Callable[[], None],
     ) -> VM | None:
-        return seal_or_next_late(self, joined, visited, walk)
+        return seal_or_next_late(self, joined, visited, walk, commit)
 
     def _validate_move_index(self, index: int) -> None:
         _reject_bool_index(index)
@@ -538,18 +548,23 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         finally:
             self._population_joined = None
         # This walk's scope of start records, begun before its snapshot.
-        walk = self._late_starts.begin_walk(self)
+        # The walk counts members only (ADR-0186).
+        member = partial(is_member, self)
+        walk = self._late_starts.begin_walk(self, member)
         visited: dict[int, VM] = {}
+        # The commit step is bound to this hook's walk (ADR-0186, #1374).
+        commit = self._construct_commit_for_running_hook()
         walking = self._transition_container_children(
             self._construct_walk(joined, visited, walk),
             construct=True,
             joined=joined,
             join=walk.join,
             seal=(
-                (lambda: self._seal_or_next_late(joined, visited, walk))
+                (lambda: self._seal_or_next_late(joined, visited, walk, commit))
                 if self._auto_construct_on_add
                 else None
             ),
+            is_member=member,
         )
 
         # A failed walk ends its own scope when it fails, not at a later GC.

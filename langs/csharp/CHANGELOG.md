@@ -14,6 +14,26 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [3.30.0] — unreleased source version
 
+- Changed: the construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back, and
+  the walk does not construct a snapshot child removed before it reaches it.
+  `COMP-047` and `GRP-015` cover the four removal cases.
+
+- Fixed: a construct hook that raises after it started the container walk no
+  longer lets the walk's commit step set `Status` to `Constructed` (ADR-0186,
+  spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
+  walk under the lock that writes the status.
+
+- Changed: a container membership change never waits for another thread's
+  membership transaction (ADR-0187, spec/06 §4.2, #1314). While any thread
+  holds the transaction, add, insert, index replacement, population, transfer
+  detach, remove, `RemoveAt` and `Clear` fail at once with the "membership
+  transaction in progress" error and change nothing. Disposal still waits.
+  `COMP-048` and `GRP-016` cover the rule. Before, a `GroupVM` waited for an
+  add.
+
 - Fixed: A null child from code that suppresses the nullable warning no longer
   causes a `NullReferenceException` in the composite selection calls (#1467).
   `CanSelectComponent(null)` returns false, `SelectComponent(null)` throws its

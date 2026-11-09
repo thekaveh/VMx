@@ -135,6 +135,25 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Changed
 
+- The construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back, and
+  the walk does not construct a snapshot child removed before it reaches it.
+  `COMP-047` and `GRP-015` cover the four removal cases.
+- A container membership change never waits for another thread's membership
+  transaction (ADR-0187, spec/06 §4.2, #1314). While any thread holds the
+  transaction, add, insert, index replacement, population, transfer detach,
+  remove, `removeAt` and `clear` fail at once with the "membership
+  transaction in progress" error and change nothing. Disposal still waits.
+  `COMP-048` and `GRP-016` cover the rule. Before, `CompositeVM` and
+  `GroupVM` waited. The result forms return
+  `ContainerOwnershipError.attachmentFailed`, `remove(_:)` returns `false`,
+  and `removeAt(_:)` and `clear()` return with no change. A refused
+  `add(_:)` now traps in a debug build, where it waited and succeeded
+  before. In a release build, `add(_:)`, `insert(_:at:)` and
+  `replace(at:with:)` return with no change and no signal. Use `addResult`,
+  `insertResult` or `replaceResult` to see the refusal.
 - **Source-breaking:** `ObservableDictionary.keys1` and `keys2` now return a
   read-only `ReadOnlyObservableList<TKey>` (#1316, ADR-0193, `COL-070`). The
   view reads and notifies as before, but it has no mutator and no batch
@@ -164,6 +183,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   decision and its version consequence.
 
 ### Fixed
+
+- A construct hook that raises after it started the container walk no longer
+  lets the walk's commit step set `status` to `.constructed` (ADR-0186,
+  spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
+  walk under the lock that writes the status. An abandoned walk now commits
+  nothing.
 
 - While disposal of a composite is requested or deferred, `setCurrent(_:)` on
   a non-member, or on a disposed child, now throws the `.disposing`

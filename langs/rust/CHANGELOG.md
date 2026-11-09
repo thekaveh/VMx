@@ -334,6 +334,32 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Changed
 
+- Breaking: `CompositeVm::clear()`, `GroupVm::clear()`,
+  `ForwardingCompositeVm::clear()` and `VmCollection::clear()` now return
+  `VmxResult<()>`, so a refused clear is reported. A container membership
+  change never waits for another thread's membership transaction (ADR-0187,
+  spec/06 §4.2, #1314). While any thread holds the transaction, add, insert,
+  index replacement, population, transfer detach, remove, `remove_at` and
+  `clear` fail at once with `VmxError::OwnershipTransactionInProgress` and
+  change nothing. Disposal still waits. `COMP-048` and `GRP-016` cover the
+  rule. Before, a refused `clear()` returned with no change and no error. It
+  now also returns `VmxError::Disposed` after disposal.
+
+- The construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back,
+  and the walk does not construct a snapshot child removed before it reaches
+  it. `COMP-047` and `GRP-015` cover the four removal cases. A failed add now
+  ends its start attempt only after it undid the attach, so the walk sees a
+  non-member.
+
+- The test-only seams, `vmx::wait_registered_for_testing`,
+  `vmx::container_wait_registered_for_testing`,
+  `GroupVm::set_last_scan_probe_for_testing` and the
+  `set_seal_probe_for_testing` seam of `GroupVm` and `CompositeVm`, now need
+  the non-default `test-seams` Cargo feature (#1294). A default build no longer exports them.
+
 - **Breaking:** `ObservableList::new(owner_id, hub)` is now
   `ObservableList::new(owner_id)`, which has no hub, and
   `ObservableMultiDictionary::new(owner_id, hub)` is now

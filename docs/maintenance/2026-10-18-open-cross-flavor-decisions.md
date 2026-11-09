@@ -104,40 +104,61 @@ a no-op (ADR-0165, ADR-0173).
 
 ### 2.8. Removing a child during the construct walk
 
-Every flavor walks a fixed snapshot of the members present when construct
-starts, then (with auto-construct on) members added later. A snapshot child
-removed during the walk is still constructed, and a removed background child
-is still awaited: if it then fails, the container rolls back although it no
-longer owns that child. A late child removed before the walk reaches it is
-skipped. The spec does not say which behavior is intended.
+**Decided by ADR-0186** (2026-11-09, under the owner's delegation). The item
+stays here so that the section numbers do not change. Chapter 06 §5.1 now
+states the rule for every flavor:
+
+- The construct walk counts members only. It checks membership before it
+  starts or joins a child, and again after the child settles.
+- A child that a removal takes out during the walk does not roll the
+  container back, whether it is a snapshot child or a late child. The walk
+  does not construct a snapshot child removed before it reaches it.
+- A failed add undoes its attach, so its child is removed too. The add fails,
+  and the container does not roll back.
+
+Before ADR-0186, every flavor constructed a removed snapshot child and waited
+on a removed background child. A failure of that child rolled the container
+back. Only a late child removed before the walk reached it was skipped.
 
 ### 2.10. Cross-thread membership admission
 
-When another thread holds a container's membership transaction, a new
-admission either waits for it to end or fails. Admission here means an add,
-insert, replace or population, and the detach from the old parent when a child
-moves. Chapter 06 defines a cross-thread wait for disposal, not for admission.
+**Decided by ADR-0187** (2026-11-09, under the owner's delegation). The item
+stays here so that the section numbers do not change. Chapter 06 §4.2 and
+chapter 07 §1.1 now state the rule for every flavor:
 
-| Flavor | Composite                                                                                                                                                                                | Group                                                                                                                                                         |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C#     | Fails with `InvalidOperationException` ([`CompositeVMBase.cs`](../../langs/csharp/src/VMx/Composites/CompositeVMBase.cs), `BeginMembershipTransactionLocked` and `EnsureChildAdmission`) | Waits, and refuses a wait that would close a cycle ([`GroupVMBase.cs`](../../langs/csharp/src/VMx/Groups/GroupVMBase.cs), `BeginMembershipTransactionLocked`) |
-| Python | Raises `RuntimeError` ([`composite_vm.py`](../../langs/python/src/vmx/composites/composite_vm.py), `_require_child_admission`)                                                           | Raises `RuntimeError` ([`group_vm.py`](../../langs/python/src/vmx/groups/group_vm.py), `_require_child_admission`)                                            |
-| Rust   | Returns `OwnershipTransactionInProgress` ([`runtime.rs`](../../langs/rust/src/runtime.rs), `begin_membership_transaction`)                                                               | Returns `OwnershipTransactionInProgress` (same function)                                                                                                      |
-| Swift  | Waits, and refuses a wait that would close a cycle ([`CompositeVM.swift`](../../langs/swift/Sources/VMx/Composites/CompositeVM.swift), `enterMembershipTransaction`)                     | Waits, with the same refusal ([`GroupVM.swift`](../../langs/swift/Sources/VMx/Groups/GroupVM.swift), `enterMembershipTransaction`)                            |
+- A membership change never waits for another thread's membership
+  transaction. The changes are add, insert, index replacement, population,
+  transfer detach, `remove`, `removeAt` and `clear`.
+- While any thread holds the transaction, each change fails before mutation
+  with the "membership transaction in progress" error of a re-entrant change
+  (ADR-0118).
+- Rust `clear()` returns `VmxResult<()>` and reports the refusal. Swift
+  `removeAt(_:)` and `clear()` cannot throw and return with no change (§3).
+- Disposal from another thread still waits for the transaction boundary
+  (ADR-0122, ADR-0153).
 
-TypeScript runs on one thread, so the case does not arise. In every flavor, a
-second transaction on the same thread is rejected (ADR-0118). A population that
-waits and succeeds in Swift or a C# group fails in a C# composite, in Python and
-in Rust.
-
-Removal differs again. Swift `remove`, `removeAt` and `clear` also wait for
-another thread's transaction. In C# composites and groups and in Python, these
-calls fail instead.
+Before ADR-0187, Swift containers and C# groups waited for the other
+transaction, and refused only a wait that would close a cycle. C# composites,
+Python and Rust failed at once. Rust `clear()` returned with no change and no
+error.
 
 ## 3. Swift signatures that cannot throw
 
-None open. ADR-0184 closed the CMDD-010, CMDD-013 and FORM-035/036 snapshotter
-gaps (§6). Other Swift operations that trap instead of throwing are listed under
+ADR-0184 closed the CMDD-010, CMDD-013 and FORM-035/036 snapshotter gaps
+(§6).
+
+Swift `CompositeVM.removeAt(_:)`, `CompositeVM.clear()`, `GroupVM.removeAt(_:)`
+and `GroupVM.clear()` cannot throw. A call refused because a membership
+transaction is open returns with no change, so the caller cannot see the
+refusal (ADR-0187). The other flavors raise or return an error.
+
+Swift `add(_:)`, `insert(_:at:)` and `replace(at:with:)` on `CompositeVM` and
+`GroupVM` cannot throw either. A refused `add(_:)` traps in a debug build. In
+a release build, each refused call returns with no change and no signal. Since
+ADR-0187, another thread's open transaction refuses them at once. Callers use
+`addResult`, `insertResult` and `replaceResult` to see the refusal.
+
+Other Swift operations that trap instead of throwing are listed under
 ADR-0009, ADR-0037 and ADR-0053.
 
 ## 4. Tests parked as known defects

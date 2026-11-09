@@ -1091,7 +1091,7 @@ export abstract class ComponentVMBase {
     after?: () => void,
   ): void {
     this.#requireOwnLifecycleHook();
-    this.#walkChildren(children, construct, after, undefined);
+    this.#walkChildren(children, construct, after, undefined, undefined);
   }
 
   /**
@@ -1100,15 +1100,19 @@ export abstract class ComponentVMBase {
    * `joined` already started this transition (factory population): it is
    * joined and its settled status is final, so it is never restarted.
    * `joined` is read live, so a container can extend its walk while it runs.
+   * With `isMember`, the walk counts members only (spec/06 §5.1, ADR-0186): it
+   * skips a child that is not a member before it starts or joins it, and a
+   * child that is no longer a member when it settles does not fail the walk.
    */
   protected _transitionChildrenJoining(
     children: Iterable<ComponentVMBase>,
     construct: boolean,
     after: (() => void) | undefined,
     joined: ReadonlySet<ComponentVMBase>,
+    isMember?: (child: ComponentVMBase) => boolean,
   ): void {
     this.#requireOwnLifecycleHook();
-    this.#walkChildren(children, construct, after, joined);
+    this.#walkChildren(children, construct, after, joined, isMember);
   }
 
   #requireOwnLifecycleHook(): void {
@@ -1124,7 +1128,10 @@ export abstract class ComponentVMBase {
     construct: boolean,
     after: (() => void) | undefined,
     joined: ReadonlySet<ComponentVMBase> | undefined,
+    isMember: ((child: ComponentVMBase) => boolean) | undefined,
   ): void {
+    // A child that is no longer a member does not change this VM (ADR-0186).
+    const removed = (child: ComponentVMBase): boolean => isMember?.(child) === false;
     const target = construct ? ConstructionStatus.Constructed : ConstructionStatus.Destructed;
     const transient = construct
       ? ConstructionStatus.Constructing
@@ -1162,8 +1169,9 @@ export abstract class ComponentVMBase {
         if (cancelled) return;
         // Read the status now, not at the settle: a joined reconstructing
         // child is Constructed again by its release (spec/02 §6). A child
-        // that reached Disposed meanwhile counts as settled (ADR-0189).
-        if (!reachedTargetOrDisposed(child)) {
+        // that reached Disposed meanwhile counts as settled (ADR-0189), and
+        // one that is no longer a member does not change this VM (ADR-0186).
+        if (!reachedTargetOrDisposed(child) && !removed(child)) {
           // The child rolled back and surfaced its own failure.
           settle({
             failed: true,
@@ -1208,6 +1216,7 @@ export abstract class ComponentVMBase {
     const advance = (): boolean => {
       for (let next = iterator.next(); next.done !== true; next = iterator.next()) {
         const child = next.value;
+        if (removed(child)) continue;
         // A Disposed child is skipped: no lifecycle call (spec/02 §6, ADR-0189).
         if (child.status === ConstructionStatus.Disposed) continue;
         if (
@@ -1223,7 +1232,7 @@ export abstract class ComponentVMBase {
           return true;
         }
         // A child disposed during its own transition counts as settled.
-        if (!reachedTargetOrDisposed(child)) {
+        if (!reachedTargetOrDisposed(child) && !removed(child)) {
           const message = `Child '${child.name}' did not reach ${targetName}`;
           // A joined child already surfaced its own failure.
           throw joined?.has(child) === true ? new JoinedChildFailure(message) : new Error(message);

@@ -330,7 +330,7 @@ def test_walk_joins_a_late_child_its_add_is_starting(kind: str) -> None:
 
 
 @KINDS
-def test_failed_add_started_late_child_undoes_the_add_and_rolls_back(kind: str) -> None:
+def test_failed_add_started_late_child_undoes_the_add_and_root_constructs(kind: str) -> None:
     bg, child, _first, root = _setup(kind)
     root.construct()
     runs: list[None] = []
@@ -348,7 +348,8 @@ def test_failed_add_started_late_child_undoes_the_add_and_rolls_back(kind: str) 
 
     assert [str(error) for error in errors] == ["late failed"], "the add's own construct failed"
     assert all(member is not late for member in root.snapshot()), "the failed add is undone"
-    assert root.status is S.DESTRUCTED, "the walk waited on the failing child"
+    # The undo counts as a removal: the walk ignores the child (ADR-0186).
+    assert root.status is S.CONSTRUCTED, "the walk waited on the add, then skipped its child"
     assert late.status is S.DESTRUCTED
     assert waiting == [S.CONSTRUCTING]
     assert len(runs) == 1

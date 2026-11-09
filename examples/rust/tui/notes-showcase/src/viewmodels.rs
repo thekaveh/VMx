@@ -377,7 +377,7 @@ impl NotesViewVm {
     }
 
     pub fn reload(&self) {
-        self.source.clear();
+        let _ = self.source.clear();
         let notebook_id = lock(&self.notebook_id).clone();
         for note in self.repository.notes_for_notebook(&notebook_id) {
             let _ = self.source.add(NoteVm::new(note, self.core.hub()));

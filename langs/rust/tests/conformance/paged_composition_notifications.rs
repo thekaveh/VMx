@@ -160,7 +160,7 @@ fn pager_follows_a_composite_source_until_disposed() {
 
     pages.dispose();
     pages.dispose();
-    source.clear();
+    source.clear().unwrap();
     pages.set_page_size(1);
     pages.push(c);
     assert!(take(&seen).is_empty(), "nothing is published after dispose");
