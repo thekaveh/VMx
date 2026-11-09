@@ -269,4 +269,14 @@ describe("CompositeVM – a null child in the selection calls (#1467)", () => {
     expect(() => composite.deselectComponent(absent)).not.toThrow();
     expect(composite.current).toBeNull();
   });
+
+  it("deselectComponent(undefined) matches deselectComponent(null)", () => {
+    const { composite, a } = setupPair();
+    const undef = undefined as unknown as ComponentVM;
+    expect(() => composite.deselectComponent(undef)).not.toThrow();
+    expect(composite.current).toBeNull();
+    composite.current = a;
+    expect(() => composite.deselectComponent(undef)).toThrow(/not the current selection/);
+    expect(composite.current).toBe(a);
+  });
 });

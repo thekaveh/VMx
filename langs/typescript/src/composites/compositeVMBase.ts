@@ -270,7 +270,9 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     // every selection call fails with the transaction error (spec/06 §4.3,
     // #1422).
     if (this.#uncommitted) throw transactionInProgress();
-    if (this.#current !== vm) {
+    // An absent `vm` (`null` or `undefined`) matches only an empty selection
+    // (#1467).
+    if (this.#current !== (isAbsent(vm) ? null : vm)) {
       throw new Error(
         `Cannot deselect '${nameOf(vm)}': it is not the current selection.`,
       );

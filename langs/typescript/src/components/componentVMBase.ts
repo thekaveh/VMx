@@ -265,9 +265,10 @@ function recoverDropped(scheduler: SchedulerLike, run: () => void): void {
 }
 
 /**
- * The lifecycle actions that VMx queued on a scheduler and that have not run
- * yet (#1053). These are the completions on the foreground, and the background
- * actions of `construct()` and `destruct()`.
+ * The actions that VMx queued on a scheduler and that have not run yet
+ * (#1053). These are the lifecycle completions on the foreground, the
+ * background actions of `construct()` and `destruct()`, and the asynchronous
+ * selection deliveries of a composite (#1421).
  */
 interface CountedActions {
   pending: number;
@@ -296,7 +297,8 @@ function countedActionsOf(scheduler: SchedulerLike): CountedActions {
  * the action as dropped and runs `work`, so the VM still settles (#1052).
  * VMx never unsubscribes these actions itself. A custom scheduler that cancels
  * queued work by unsubscribing it should therefore expect VMx lifecycle work
- * to run unless it is VMx's own `ManualDispatcher`, which marks itself.
+ * and asynchronous selection deliveries to run unless it is VMx's own
+ * `ManualDispatcher`, which marks itself.
  * `schedule` returns null when it cannot give the action's subscription, such
  * as for an override of `_scheduleForeground`.
  */
@@ -1540,6 +1542,7 @@ export abstract class ComponentVMBase {
   }
 
   /**
+   * @internal Unsupported: not part of the public API; containers only.
    * Queue `work` through `_scheduleForeground` as a counted foreground
    * action (#1053). A flush error from other work, also work that
    * VMx did not queue, does not drop it: its finalizer runs it (#1052). A
