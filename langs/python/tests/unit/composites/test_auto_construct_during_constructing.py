@@ -412,3 +412,43 @@ def test_failed_walk_never_clears_the_next_walks_records(kind: str) -> None:
     bg.run_all()
     assert late.status is S.CONSTRUCTED
     assert root.status is S.CONSTRUCTED
+
+
+@KINDS
+def test_constructed_publishes_after_the_late_add_ends_its_transaction(kind: str) -> None:
+    """A walk that a late add resumes publishes Constructed after that add (#1371).
+
+    The add ends its start attempt only after it ends its membership
+    transaction (ADR-0218), so a Constructed subscriber can add a child.
+    """
+    bg, child, _first, root, statuses = _setup_recorded(kind)
+    container: Any = root
+    container.on_collection_changed.subscribe(
+        lambda event: statuses.append(f"root:collection:{event.action}")
+    )
+    extra = child("extra")
+    extra_errors: list[BaseException] = []
+
+    def add_extra(name: str) -> None:
+        if name != "status" or root.status is not S.CONSTRUCTED or extra_errors:
+            return
+        if any(member is extra for member in root.snapshot()):
+            return
+        try:
+            root.add(extra)
+        except BaseException as error:
+            extra_errors.append(error)
+
+    container.property_changed.subscribe(add_extra)
+    root.construct()
+    late = child("late")
+    pause = _Pause()
+    _pause_add_after_attach(root, late, pause)
+
+    errors = _add_while_walk_pulls(bg, root, late, pause)
+
+    assert errors == []
+    assert extra_errors == []
+    assert any(member is extra for member in root.snapshot())
+    assert statuses.index("root:CONSTRUCTED") > statuses.index("root:collection:add")
+    _assert_constructed_after_late(root, late, statuses)

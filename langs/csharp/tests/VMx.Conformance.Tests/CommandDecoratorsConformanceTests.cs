@@ -415,9 +415,10 @@ public class CommandDecoratorsConformanceTests
         composite.Dispose();
         decorator.Dispose();
         confirmation.Dispose();
+        relayed.Should().Be(6, "each wrapper notifies its own handlers once at disposal (spec §8.4)");
         inner.RaiseCanExecuteChanged();
 
-        relayed.Should().Be(3, "disposed wrappers no longer relay the inner event");
+        relayed.Should().Be(6, "disposed wrappers no longer relay the inner event");
         direct.Should().Be(2, "the inner command's own subscribers are unaffected");
     }
 

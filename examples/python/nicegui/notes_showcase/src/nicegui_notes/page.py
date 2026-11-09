@@ -1,4 +1,5 @@
-"""The Notes page: notebooks, the note list, and the editor, bound to a shared workspace.
+"""The Notes page: notebooks, the note list, the editor, and the notifications,
+bound to a shared workspace.
 
 The page holds no state of its own. Every element reads from a view-model, and
 every event forwards to one. Bindings are released when NiceGUI deletes the
@@ -7,13 +8,17 @@ page's client.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from nicegui import ui
 from notes_showcase.viewmodels.note_vm import NoteVM
 from notes_showcase.viewmodels.notebook_vm import NotebookVM
 from notes_showcase.viewmodels.notebooks_root_vm import NotebooksRootVM
 from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
+from notes_showcase.viewmodels.notifications_vm import NotificationsVM
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
 from reactivex.abc import DisposableBase
+from vmx.notifications import NotificationVM
 
 from nicegui_notes.adapter import (
     bind_command,
@@ -45,6 +50,21 @@ def _dirty_text(is_dirty: object) -> str:
 
 def _error_text(error: object) -> str:
     return str(error) if error else ""
+
+
+def _notifications_text(visible: Iterable[NotificationVM]) -> str:
+    """One line per active notification, as in the Textual strip."""
+    return "\n".join(vm.notification.message for vm in visible)
+
+
+def notifications_strip(notifications: NotificationsVM) -> DisposableBase:
+    """Show the workspace notifications, such as the save message, one per line.
+
+    The strip binds ``notifications.visible``. Every tab binds the same
+    workspace, so a notification shows in each open tab.
+    """
+    strip = ui.label().classes("whitespace-pre-line").mark("notifications")
+    return bind_property(strip, "text", notifications, "visible", _notifications_text)
 
 
 def _notebooks_pane(workspace: WorkspaceVM) -> DisposableBase:
@@ -125,5 +145,6 @@ async def build_page(host: NotesHost) -> None:
     with ui.row().classes("w-full no-wrap"):
         bindings = [_notebooks_pane(workspace), *_notes_pane(workspace), *_editor_pane(workspace)]
     bindings.append(bind_derived_property(status, "text", workspace.status_bar.note_count_text))
+    bindings.append(notifications_strip(workspace.notifications))
     host.adopt(release_on_delete(*bindings))
     # docs-snippet:end nicegui-page

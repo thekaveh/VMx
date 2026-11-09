@@ -392,10 +392,7 @@ public sealed class NotesViewVM
             {
                 if (_showStarredOnlyField && !n.Model.Starred) continue;
                 if (_filter is not null && !_filter(n)) continue;
-                if (!string.IsNullOrEmpty(term)
-                    && !n.Title.Contains(term, StringComparison.OrdinalIgnoreCase)
-                    && !n.Body.Contains(term, StringComparison.OrdinalIgnoreCase)
-                    && !n.Tags.Any(t => t.Contains(term, StringComparison.OrdinalIgnoreCase))) continue;
+                if (!NoteSearch.Matches(n.Model, term)) continue;
                 _filtered.Add(n);
             }
             _paged.CurrentPageIndex = pageIndex;

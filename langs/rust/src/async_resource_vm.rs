@@ -640,6 +640,10 @@ where
         self.inner.component.core.when_settled(callback)
     }
 
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.inner.component.core.background_errors())
+    }
+
     fn is_current(&self) -> bool {
         self.inner.component.core.is_selected()
     }

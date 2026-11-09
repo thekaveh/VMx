@@ -76,11 +76,12 @@ public class InitialCurrentForeignTransactionTests
             IEnumerable<ComponentVM> children,
             TestHub hub,
             IDispatcher dispatcher,
+            bool autoConstructOnAdd = true,
             Action<ComponentVM?>? onCurrent = null)
         {
             Vm = CompositeVM<ComponentVM>.Builder()
                 .Name("root").Services(hub, dispatcher).Children(() => children)
-                .AutoConstructOnAdd(true)
+                .AutoConstructOnAdd(autoConstructOnAdd)
                 .Current(kids => kids.FirstOrDefault())
                 .OnCurrentChanged(value =>
                 {
@@ -179,7 +180,10 @@ public class InitialCurrentForeignTransactionTests
         var dispatcher = new QueueDispatcher();
         var first = Child(hub, dispatcher, "first", background: true);
         var late = Child(hub, dispatcher, "late", background: true);
-        using var root = new Root([first], hub, dispatcher);
+        // Without auto-construct, the late add registers no start record, so
+        // the walk never waits for it: its transaction stays foreign to the
+        // walk (ADR-0218 rule 4).
+        using var root = new Root([first], hub, dispatcher, autoConstructOnAdd: false);
         var main = Environment.CurrentManagedThreadId;
         using var inHandler = new ManualResetEventSlim(false);
         using var release = new ManualResetEventSlim(false);
@@ -254,7 +258,10 @@ public class InitialCurrentForeignTransactionTests
         var dispatcher = new QueueDispatcher();
         var first = Child(hub, dispatcher, "first", background: true);
         var late = Child(hub, dispatcher, "late", background: true);
-        using var root = new Root([first], hub, dispatcher);
+        // Without auto-construct, the late add registers no start record, so
+        // the walk never waits for it: its transaction stays foreign to the
+        // walk (ADR-0218 rule 4).
+        using var root = new Root([first], hub, dispatcher, autoConstructOnAdd: false);
         var main = Environment.CurrentManagedThreadId;
         using var inHandler = new ManualResetEventSlim(false);
         using var release = new ManualResetEventSlim(false);
@@ -294,7 +301,10 @@ public class InitialCurrentForeignTransactionTests
         var late = Child(hub, dispatcher, "late", background: true);
         var seen = new List<ConstructionStatus>();
         Root? root = null;
-        root = new Root([first], hub, dispatcher, onCurrent: _ =>
+        // Without auto-construct, the late add registers no start record, so
+        // the walk never waits for it: its transaction stays foreign to the
+        // walk (ADR-0218 rule 4).
+        root = new Root([first], hub, dispatcher, autoConstructOnAdd: false, onCurrent: _ =>
         {
             ((IDisposable)root!.Vm).Dispose();
             lock (seen) seen.Add(root.Vm.Status);

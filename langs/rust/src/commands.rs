@@ -1478,6 +1478,58 @@ impl Command for CompositeCommand {
     }
 }
 
+/// The change hub of a wrapper command that relays an inner command's hub.
+///
+/// It forwards each inner change message, sent as the wrapper, and sends one
+/// more message when the wrapper is disposed. A subscriber of the inner hub
+/// receives no disposal message (spec `04-commands.md` §8.4). When the inner
+/// hub completes, for example because the inner command was disposed, the
+/// relay hub completes too, so the completion still reaches a wrapper
+/// subscriber.
+#[derive(Clone)]
+struct RelayedChangeHub {
+    hub: MessageHub,
+    subscription: Arc<Mutex<Option<Subscription>>>,
+    sender_name: &'static str,
+}
+
+impl RelayedChangeHub {
+    fn new(source: &MessageHub, sender_name: &'static str) -> Self {
+        let hub = MessageHub::new();
+        let target = hub.clone();
+        let completed = hub.clone();
+        let subscription = source.subscribe_with_completion(
+            move |_| target.send(can_execute_changed_message(sender_name)),
+            move || completed.dispose(),
+        );
+        Self {
+            hub,
+            subscription: Arc::new(Mutex::new(Some(subscription))),
+            sender_name,
+        }
+    }
+
+    fn hub(&self) -> MessageHub {
+        self.hub.clone()
+    }
+
+    /// Releases the inner subscription, notifies once, and disposes the hub.
+    fn close(&self) {
+        let subscription = lock(&self.subscription).take();
+        drop(subscription);
+        self.hub.send(can_execute_changed_message(self.sender_name));
+        self.hub.dispose();
+    }
+}
+
+fn can_execute_changed_message(sender_name: &str) -> Message {
+    Message::Custom {
+        sender_id: 0,
+        sender_name: sender_name.to_string(),
+        name: "can_execute_changed".to_string(),
+    }
+}
+
 #[derive(Clone)]
 /// A command decorator with optional additional predicate and side actions.
 pub struct DecoratorCommand<C: Command + Clone> {
@@ -1485,6 +1537,7 @@ pub struct DecoratorCommand<C: Command + Clone> {
     predicate: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pre: Option<Arc<dyn Fn() + Send + Sync>>,
     post: Option<Arc<dyn Fn() + Send + Sync>>,
+    can_execute_changed: RelayedChangeHub,
     disposed: Arc<AtomicBool>,
 }
 
@@ -1501,11 +1554,14 @@ impl<C: Command + Clone> DecoratorCommand<C> {
         FPost: Fn() + Send + Sync + 'static,
         FPred: Fn() -> bool + Send + Sync + 'static,
     {
+        let can_execute_changed =
+            RelayedChangeHub::new(&inner.can_execute_changed(), "DecoratorCommand");
         Self {
             inner,
             predicate: predicate.map(|p| Arc::new(p) as Arc<dyn Fn() -> bool + Send + Sync>),
             pre: pre.map(|p| Arc::new(p) as Arc<dyn Fn() + Send + Sync>),
             post: post.map(|p| Arc::new(p) as Arc<dyn Fn() + Send + Sync>),
+            can_execute_changed,
             disposed: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -1513,9 +1569,13 @@ impl<C: Command + Clone> DecoratorCommand<C> {
     /// Makes the decorator inert (spec §8.4, ADR-0134).
     ///
     /// Idempotent and shared by clones. The inner command stays owned by its
-    /// creator, and the decorator's change hub remains the inner command's.
+    /// creator. The decorator releases its subscription to the inner change
+    /// hub, announces the change once on its own hub, and completes that hub.
+    /// Subscribers of the inner command receive nothing.
     pub fn dispose(&self) {
-        self.disposed.store(true, Ordering::SeqCst);
+        if !self.disposed.swap(true, Ordering::SeqCst) {
+            self.can_execute_changed.close();
+        }
     }
 
     fn is_disposed(&self) -> bool {
@@ -1560,8 +1620,10 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
         }
     }
 
+    /// Returns the decorator's own change hub. It relays the inner command's
+    /// changes and adds one message at disposal (spec §8.4).
     fn can_execute_changed(&self) -> MessageHub {
-        self.inner.can_execute_changed()
+        self.can_execute_changed.hub()
     }
 }
 
@@ -1591,6 +1653,7 @@ pub struct ConfirmationDecoratorCommand<C: Command + Clone> {
     confirm: Arc<dyn Fn() -> AsyncValue<bool> + Send + Sync>,
     errors: MessageHub,
     error_stream: CommandErrorStream,
+    can_execute_changed: RelayedChangeHub,
     disposed: Arc<AtomicBool>,
 }
 
@@ -1663,11 +1726,14 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
     where
         F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
     {
+        let can_execute_changed =
+            RelayedChangeHub::new(&inner.can_execute_changed(), "ConfirmationDecoratorCommand");
         Self {
             inner,
             confirm: Arc::new(confirm),
             errors: MessageHub::new(),
             error_stream: CommandErrorStream::new(),
+            can_execute_changed,
             disposed: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -1759,8 +1825,13 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
     }
 
     /// Makes the decorator inert and disposes its error hub and stream.
+    ///
+    /// The decorator also releases its subscription to the inner change hub,
+    /// announces the change once on its own hub, and completes that hub
+    /// (spec §8.4). Subscribers of the inner command receive nothing.
     pub fn dispose(&self) {
         if !self.disposed.swap(true, Ordering::SeqCst) {
+            self.can_execute_changed.close();
             self.errors.dispose();
             self.error_stream.dispose();
         }
@@ -1818,8 +1889,10 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
         });
     }
 
+    /// Returns the decorator's own change hub. It relays the inner command's
+    /// changes and adds one message at disposal (spec §8.4).
     fn can_execute_changed(&self) -> MessageHub {
-        self.inner.can_execute_changed()
+        self.can_execute_changed.hub()
     }
 
     /// Returns the awaitable entry point: each call runs the same flow as

@@ -109,6 +109,30 @@ private func buildAndBind(
     return (vm, repo)
 }
 
+/// The two notes of the cross-flavor search-rule tests (#1330): note A is
+/// "Auth migration plan" (tags security, q2) and note B is "Standup notes"
+/// (no tags), with their seed bodies, both in "nb-reviews".
+func searchRuleRepository() -> InMemoryNoteRepository {
+    let seed = SeedData.build()
+    let picked = seed.notes
+        .filter { $0.id == "note-02" || $0.id == "note-08" }
+        .map { $0.with(notebookId: "nb-reviews") }
+    return InMemoryNoteRepository(
+        seed: (seed.notebooks, picked),
+        loadAllDelay: 0,
+        loadNotesDelay: 0
+    )
+}
+
+/// Each query of the search-rule tests and the titles it matches. The term is
+/// trimmed, an empty term matches every note, and a note matches when its
+/// title, its body or one tag contains the term, ignoring case.
+let searchRuleCases: [(query: String, titles: [String])] = [
+    ("plan ", ["Auth migration plan"]),
+    ("  ", ["Auth migration plan", "Standup notes"]),
+    ("notes (seed", []),
+]
+
 // MARK: - NotesViewVMTests
 
 final class NotesViewVMTests: XCTestCase {
@@ -230,6 +254,19 @@ final class NotesViewVMTests: XCTestCase {
 
         XCTAssertEqual(1, vm.filteredItems.count)
         XCTAssertTrue(vm.filteredItems[0].title.contains("Q1"))
+    }
+
+    func testSearch_usesTheSharedRule() async throws {
+        let vm = try buildVM(repo: searchRuleRepository())
+        try vm.construct()
+        await vm.bindTo(notebookId: "nb-reviews")
+        defer { vm.dispose() }
+
+        for (query, titles) in searchRuleCases {
+            vm.searchTerm = query
+            vm.search()
+            XCTAssertEqual(titles, vm.filteredItems.map(\.title), "query \(query.debugDescription)")
+        }
     }
 
     func testSearch_empty_term_restores_all() async throws {

@@ -44,28 +44,37 @@ private final class GlobalSearchResultOwner: @unchecked Sendable {
 /// Tracks search requests so that a load can find a refresh that it discarded.
 private final class SearchRequests: @unchecked Sendable {
     private let lock = NSLock()
-    private var term: String?
     private var fetches = 0
     private var lastFetchFailed = false
+    /// The page that the latest first-page fetch returned, once it returns:
+    /// its term and the ids of its notes.
+    private var firstPage: (term: String, ids: [String])?
     private var overlap = false
     private var rerunSearch: (() -> Void)?
 
-    /// The term of the latest `searchNow()` call or first-page fetch.
-    var requestedTerm: String? { lock.withLock { term } }
     var firstPageFetches: Int { lock.withLock { fetches } }
     var lastFirstPageFetchFailed: Bool { lock.withLock { lastFetchFailed } }
 
-    func record(_ requested: String) {
-        lock.withLock { term = requested }
-    }
-
-    func recordFirstPageFetch(_ requested: String) {
+    /// Records a first-page fetch that starts and returns its number.
+    func recordFirstPageFetch() -> Int {
         lock.withLock {
-            term = requested
             fetches += 1
             lastFetchFailed = false
+            firstPage = nil
+            return fetches
         }
     }
+
+    /// Records the page that fetch `fetch` returned, when no later first-page
+    /// fetch has started.
+    func recordFirstPage(fetch: Int, term: String, ids: [String]) {
+        lock.withLock {
+            if fetch == fetches { firstPage = (term, ids) }
+        }
+    }
+
+    /// The page that the latest first-page fetch returned, if it returned.
+    var latestFirstPage: (term: String, ids: [String])? { lock.withLock { firstPage } }
 
     func recordFirstPageFailure() {
         lock.withLock { lastFetchFailed = true }
@@ -144,7 +153,7 @@ public final class GlobalSearchVM: ComponentVMBase {
                 // The first page uses the current term. A later page uses the term in
                 // the cursor, so "Load more" continues the term of the loaded pages.
                 let term = cursor?.term ?? search.searchTerm
-                if cursor == nil { searchRequests.recordFirstPageFetch(term) }
+                let fetch = cursor == nil ? searchRequests.recordFirstPageFetch() : nil
                 let page: (items: [NoteModel], nextToken: String?)
                 do {
                     page = try await repoRef.searchNotes(
@@ -155,6 +164,11 @@ public final class GlobalSearchVM: ComponentVMBase {
                 } catch {
                     if cursor == nil { searchRequests.recordFirstPageFailure() }
                     throw error
+                }
+                if let fetch {
+                    searchRequests.recordFirstPage(
+                        fetch: fetch, term: term, ids: page.items.map(\.id)
+                    )
                 }
                 let items = try page.items.map { model in
                     resultOwner.track(
@@ -253,23 +267,28 @@ public final class GlobalSearchVM: ComponentVMBase {
     /// term when it starts, so the latest term always wins. Several calls
     /// made during one fetch cause one more fetch.
     public func searchNow() {
-        searchRequests.record(search.searchTerm)
         search.search()
         pendingSearchLock.withLock { searchPending = true }
         runPendingSearch()
     }
 
     /// After a load that overlapped a refresh, search again if that refresh was
-    /// lost. The results then show an older term than the latest request. A
-    /// failed first-page fetch is not run again.
+    /// lost. A committed refresh leaves results that start with the page it
+    /// fetched, and an empty page leaves no results. The check compares the
+    /// notes and their term, so a lost refresh for the unchanged term also
+    /// runs again. A failed first-page fetch is not run again.
     private func searchAgainIfDiscarded() {
         guard !refreshCommand.isExecuting, !paged.loadMoreCommand.isExecuting else { return }
         guard searchRequests.takeOverlap() else { return }
-        let shown = paged.items.first.flatMap { resultOwner.term(of: $0) }
-        guard let shown,
-              let requested = searchRequests.requestedTerm,
-              shown != requested,
-              !searchRequests.lastFirstPageFetchFailed else { return }
+        guard !searchRequests.lastFirstPageFetchFailed,
+              let firstPage = searchRequests.latestFirstPage else { return }
+        let shown = paged.items
+        let startsWithFirstPage = shown.count >= firstPage.ids.count
+            && zip(shown, firstPage.ids).allSatisfy { result, id in
+                result.model.id == id && resultOwner.term(of: result) == firstPage.term
+            }
+        let committed = startsWithFirstPage && (!firstPage.ids.isEmpty || shown.isEmpty)
+        guard !committed else { return }
         searchNow()
     }
 

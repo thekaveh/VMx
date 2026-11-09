@@ -1603,3 +1603,80 @@ fn composite_sealed_construct_still_publishing_admits_no_lifecycle_operation() {
 fn group_sealed_construct_still_publishing_admits_no_lifecycle_operation() {
     sealed_construct_still_publishing_admits_no_lifecycle_operation::<GroupVm<Node>>();
 }
+
+/// What a hub subscriber saw, in order: the container's collection adds and
+/// its `Constructed`.
+#[derive(Clone, Debug, PartialEq)]
+enum Seen {
+    Added,
+    Constructed,
+}
+
+/// A walk that waited on a late add resumes only after that add ended its
+/// membership transaction (spec/06 §5.1, ADR-0218 rule 4, #1371). So the
+/// container publishes `Constructed` after the add's collection change, and a
+/// `Constructed` subscriber can add a child.
+fn constructed_subscriber_adds_after_late_add_resumes_walk<C>()
+where
+    C: Container + Clone + Send + Sync + 'static,
+{
+    let (hub, container, anchor, log, _subscription) = constructing::<C>(true);
+    let late = Node::new(false);
+    let extra = Node::new(false);
+    let (at_constructed, _watch) = watch_constructed(&hub, container.id(), &late);
+    let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
+    let extra_added: Arc<Mutex<Option<VmxResult<()>>>> = Arc::default();
+    let _subscriber = {
+        let target = container.clone();
+        let container_id = container.id();
+        let extra = extra.clone();
+        let seen = Arc::clone(&seen);
+        let extra_added = Arc::clone(&extra_added);
+        hub.subscribe(move |message| match message {
+            Message::CollectionChanged(change) if change.sender_id == container_id => {
+                seen.lock().unwrap().push(Seen::Added);
+            }
+            Message::ConstructionStatusChanged(change)
+                if change.sender_id == container_id
+                    && change.status == ConstructionStatus::Constructed =>
+            {
+                seen.lock().unwrap().push(Seen::Constructed);
+                *extra_added.lock().unwrap() = Some(target.add(extra.clone()));
+            }
+            _ => {}
+        })
+    };
+
+    let added = add_paused_while_walk_pulls(&container, &anchor, &late, PauseAt::Status, || {});
+
+    assert_eq!(added, Ok(()));
+    assert_eq!(late.status(), ConstructionStatus::Constructed);
+    assert_eq!(
+        *extra_added.lock().unwrap(),
+        Some(Ok(())),
+        "a Constructed subscriber can add a child"
+    );
+    assert_eq!(container.len(), 3, "the anchor, the late child and extra");
+    assert_eq!(
+        seen.lock().unwrap().first().cloned(),
+        Some(Seen::Added),
+        "the late add's collection change comes before Constructed: {:?}",
+        seen.lock().unwrap()
+    );
+    assert_eq!(container.status(), ConstructionStatus::Constructed);
+    constructed_after_late(&log, &at_constructed);
+}
+
+/// A composite that a late add resumes publishes `Constructed` outside that
+/// add's membership transaction (ADR-0218 rule 4, #1371).
+#[test]
+fn composite_constructed_subscriber_adds_after_late_add_resumes_walk() {
+    constructed_subscriber_adds_after_late_add_resumes_walk::<CompositeVm<Node>>();
+}
+
+/// A group that a late add resumes publishes `Constructed` outside that
+/// add's membership transaction (ADR-0218 rule 4, #1371).
+#[test]
+fn group_constructed_subscriber_adds_after_late_add_resumes_walk() {
+    constructed_subscriber_adds_after_late_add_resumes_walk::<GroupVm<Node>>();
+}

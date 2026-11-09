@@ -3,14 +3,14 @@
 //! Spec: `spec/06-composite-vm.md`.
 
 use super::{
-    begin_membership_transaction, begin_parent_transfer, catch_unwind, finish_with_first_error,
-    lock, replace_locked, resume_unwind, retain_first_error, retain_first_failure,
-    retain_parent_transfer_commit, Arc, AssertUnwindSafe, AtomicBool, ChildOrder, ComponentCore,
-    ConstructionStatus, Dispatcher, HashSet, LateStarts, LifecycleOperation,
-    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
-    MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
-    ParentTransfer, PropertyChangedStream, PublicationLease, RelayCommand, StartAttempt, TreeNode,
-    TreeNodeRef, ViewModelType, VmNode, VmxError, VmxResult,
+    begin_membership_transaction, begin_parent_transfer, catch_unwind, compensate_auto_start,
+    finish_with_first_error, lock, replace_locked, resume_unwind, retain_first_error,
+    retain_first_failure, retain_parent_transfer_commit, rollback_error, Arc, AssertUnwindSafe,
+    AtomicBool, ChildOrder, ComponentCore, ConstructionStatus, Dispatcher, HashSet, LateStarts,
+    LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl,
+    MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher, ObservableList, Ordering,
+    ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream, PublicationLease,
+    RelayCommand, StartAttempt, TreeNode, TreeNodeRef, ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 use crate::{Message, Subscription, ValueStream};
@@ -996,17 +996,15 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             // Destruct after releasing the gate: its messages can reach a
             // subscriber that disposes this container (#1066).
             drop(_gate);
-            let compensation_error = if original_status == ConstructionStatus::Destructed
-                && item.status() == ConstructionStatus::Constructed
-            {
-                item.destruct().err()
-            } else {
-                None
-            };
+            let compensation_error = compensate_auto_start(&item, original_status);
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
-            return Err(compensation_error.unwrap_or(error));
+            // The start attempt ends after the transaction, so a walk waiting
+            // on it resumes outside it (ADR-0218 rule 4).
+            drop(transaction);
+            drop(late_start);
+            return Err(rollback_error(error, compensation_error));
         }
         let mut commit_error = None;
         let mut commit_panic = None;
@@ -1021,6 +1019,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         }
         self.items.publish_add(index);
         retain_first_error(&mut commit_error, transaction.finish());
+        // The start attempt ends after the transaction (ADR-0218 rule 4).
+        drop(late_start);
         if let Some(payload) = commit_panic {
             resume_unwind(payload);
         }
@@ -1092,24 +1092,22 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 .take(transfers.len())
                 .rev()
             {
-                if *original_status == ConstructionStatus::Destructed
-                    && child.status() == ConstructionStatus::Constructed
-                {
-                    if let Err(error) = child.destruct() {
-                        compensation_error.get_or_insert(error);
-                    }
-                }
+                // Detached first, so a deferred compensation finds no parent
+                // (ADR-0218 rule 7).
                 if child
                     .parent_handle()
                     .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
                 {
                     child.set_parent_handle(None);
                 }
+                if let Some(error) = compensate_auto_start(child, *original_status) {
+                    compensation_error.get_or_insert(error);
+                }
             }
             for transfer in transfers.into_iter().rev().flatten() {
                 let _ = transfer.rollback();
             }
-            return Err(compensation_error.unwrap_or(error));
+            return Err(rollback_error(error, compensation_error));
         }
 
         let mut commit_error = None;
@@ -1199,17 +1197,15 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             // Destruct after releasing the gate: its messages can reach a
             // subscriber that disposes this container (#1066).
             drop(_gate);
-            let compensation_error = if original_status == ConstructionStatus::Destructed
-                && item.status() == ConstructionStatus::Constructed
-            {
-                item.destruct().err()
-            } else {
-                None
-            };
+            let compensation_error = compensate_auto_start(&item, original_status);
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
-            return Err(compensation_error.unwrap_or(error));
+            // The start attempt ends after the transaction, so a walk waiting
+            // on it resumes outside it (ADR-0218 rule 4).
+            drop(transaction);
+            drop(late_start);
+            return Err(rollback_error(error, compensation_error));
         }
         let mut commit_error = None;
         let mut commit_panic = None;
@@ -1224,6 +1220,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         }
         self.items.publish_add(index);
         retain_first_error(&mut commit_error, transaction.finish());
+        // The start attempt ends after the transaction (ADR-0218 rule 4).
+        drop(late_start);
         if let Some(payload) = commit_panic {
             resume_unwind(payload);
         }
@@ -1350,17 +1348,15 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             staged.admit();
             drop(_gate);
-            let compensation_error = if original_status == ConstructionStatus::Destructed
-                && item.status() == ConstructionStatus::Constructed
-            {
-                item.destruct().err()
-            } else {
-                None
-            };
+            let compensation_error = compensate_auto_start(&item, original_status);
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
-            return Err(compensation_error.unwrap_or(error));
+            // The start attempt ends after the transaction, so a walk waiting
+            // on it resumes outside it (ADR-0218 rule 4).
+            drop(transaction);
+            drop(late_start);
+            return Err(rollback_error(error, compensation_error));
         }
         let mut commit_error = None;
         let mut commit_panic = None;
@@ -1384,6 +1380,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         retain_first_error(&mut commit_error, self.publish_current(cleared));
         self.items.publish_replace(index);
         retain_first_error(&mut commit_error, transaction.finish());
+        // The start attempt ends after the transaction (ADR-0218 rule 4).
+        drop(late_start);
         if let Some(payload) = commit_panic {
             resume_unwind(payload);
         }
@@ -1516,9 +1514,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     /// The add's auto-construct of `item`. With a start record, it constructs
-    /// a Destructed child and marks the record done, which lets a construct
-    /// walk waiting on it join the child. Without one, it constructs only for
-    /// a Constructed container.
+    /// a Destructed child; the add marks the record done after it ends its
+    /// membership transaction, which lets a construct walk waiting on it join
+    /// the child (ADR-0218 rule 4). Without one, it constructs only for a
+    /// Constructed container.
     fn auto_construct_attached(&self, start: Option<&mut StartAttempt>, item: &T) -> VmxResult<()> {
         if let Some(start) = start {
             return start.run(&self.core, item);
@@ -1956,6 +1955,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.core.when_settled(callback)
+    }
+
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.core.background_errors())
     }
 
     fn lifecycle_publication_pending(&self) -> bool {
@@ -2860,6 +2863,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> VmN
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.inner.core.when_settled(callback)
+    }
+
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.inner.core.background_errors())
     }
 
     fn lifecycle_publication_pending(&self) -> bool {

@@ -19,3 +19,12 @@ VMx.Services.DelayedTask.DelayedTask(System.Reactive.Concurrency.IScheduler! sch
 VMx.Services.DelayedTask.Dispose() -> void
 VMx.Services.DelayedTask.IsPending.get -> bool
 VMx.Services.DelayedTask.Schedule(System.TimeSpan delay, System.Action! action) -> void
+override VMx.Collections.ServicedObservableCollection<T>.InsertItem(int index, T item) -> void
+override VMx.Collections.ServicedObservableCollection<T>.OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs! e) -> void
+override VMx.Collections.ServicedObservableCollection<T>.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+override VMx.Collections.ServicedObservableCollection<T>.RemoveItem(int index) -> void
+override VMx.Collections.ServicedObservableCollection<T>.SetItem(int index, T item) -> void
+VMx.Forwarding.ForwardingComponentVM<M>.NotifyPropertyChanged(string! propertyName) -> void
+VMx.Forwarding.ForwardingComponentVM<M>.RaisePropertyChanged(string! propertyName) -> void
+VMx.Forwarding.ForwardingCompositeVM<VM>.NotifyPropertyChanged(string! propertyName) -> void
+VMx.Forwarding.ForwardingCompositeVM<VM>.RaisePropertyChanged(string! propertyName) -> void

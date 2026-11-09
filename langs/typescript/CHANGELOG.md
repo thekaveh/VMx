@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `isPending` reports it, and disposal cancels it
   (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+- `COMP-053` conformance tests (ADR-0218, #1312). The selector receives the
+  live membership. This flavor already behaved this way.
+- `COMP-040` tests now assert that the rollback error carries the original and
+  the first compensation failure (ADR-0218, #1305). This flavor already
+  behaved this way.
 - `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
   membership change during another open membership transaction fails at once
   and changes nothing. TypeScript already behaved this way.
@@ -211,6 +216,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `HierarchicalVMBuilder`. `@thekaveh/vmx` 4.0 requires them (ADR-0009, #665).
 
 ### Fixed
+
+- A failed add, insert, replacement or population that started a background
+  child now returns that child to `Destructed` once its construct settles
+  `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372, `COMP-054`,
+  `GRP-017`). Before, the child reached `Constructed` with no parent.
+
+- The `_notifyPropertyChanged` and `_raisePropertyChanged` helpers of a
+  `ForwardingComponentVM` or `ForwardingCompositeVM` subclass now act on the
+  wrapped VM (#1352). Before, they emitted on the decorator's own subject,
+  which no `propertyChanged` subscriber could see, and the hub message named
+  the decorator. Now the hub message names the wrapped VM, and the decorator's
+  `propertyChanged` emits the name once. When a `ForwardingComponentVM` wraps
+  an `IComponentVMOf` that is not a VMx `ComponentVMBase`, both helpers throw a
+  `TypeError` that names the property-change helper.
 
 - An `asyncSelection` delivery queued behind a throw from work that VMx did
   not queue, in one flush of the shared `queueScheduler`, now commits (#1421).

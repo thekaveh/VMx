@@ -1268,6 +1268,8 @@ fn failed_population_rolls_back_as_one_transaction() {
     assert_eq!(destination.len(), 2);
 }
 
+/// COMP-040 — a failed population whose compensation also fails reports
+/// the original failure and the first compensation failure (ADR-0218).
 #[test]
 fn failed_population_surfaces_lifecycle_compensation_failure() {
     let first = child("first");
@@ -1292,7 +1294,10 @@ fn failed_population_surfaces_lifecycle_compensation_failure() {
 
     assert_eq!(
         destination.construct(),
-        Err(VmxError::Other("compensation failed".to_string()))
+        Err(VmxError::ContainerRollback {
+            original: Box::new(VmxError::Other("construction failed".to_string())),
+            compensation: Box::new(VmxError::Other("compensation failed".to_string())),
+        })
     );
     assert_eq!(first.status(), ConstructionStatus::Constructed);
     assert!(destination.is_empty());
@@ -2271,5 +2276,73 @@ mod reentrant_selection {
         let worker = composite.clone();
         let result: VmxResult<()> = within_timeout("destruct", BOUND, move || worker.destruct());
         assert_eq!(result, Ok(()));
+    }
+}
+
+/// The rollback error when compensation also fails (ADR-0218 rule 1): the
+/// disposal that failed the change, and the failing destruct of the child.
+fn rollback_of_disposal() -> VmxError {
+    VmxError::ContainerRollback {
+        original: Box::new(VmxError::Disposed),
+        compensation: Box::new(VmxError::Other("compensation failed".to_string())),
+    }
+}
+
+/// A child whose construct disposes `container` and whose destruct fails.
+fn disposing_child(
+    name: &'static str,
+    dispose: impl Fn() -> vmx::VmxResult<()> + Send + Sync + 'static,
+) -> Child {
+    let item = child(name);
+    item.on_construct(dispose);
+    item.on_destruct(|| Err(VmxError::Other("compensation failed".to_string())));
+    item
+}
+
+/// COMP-040 — when a composite add, insert or replacement fails and its
+/// compensation also fails, the error carries the original failure and the
+/// first compensation failure (ADR-0218).
+#[test]
+fn comp_040_composite_rollback_error_carries_both_failures() {
+    for change in ["add", "insert", "replace"] {
+        let composite = vmx::CompositeVm::new("composite");
+        composite.set_auto_construct_on_add(true);
+        composite.add(child("member")).unwrap();
+        composite.construct().unwrap();
+        let target = composite.clone();
+        let item = disposing_child("item", move || target.dispose());
+
+        let result = match change {
+            "add" => composite.add(item.clone()),
+            "insert" => composite.insert(0, item.clone()),
+            _ => composite.replace(0, item.clone()).map(|_| ()),
+        };
+
+        assert_eq!(result, Err(rollback_of_disposal()), "{change}");
+        assert!(item.parent_handle().is_none(), "{change}");
+        assert_eq!(composite.status(), ConstructionStatus::Disposed);
+    }
+}
+
+/// COMP-040 — the same holds for a group add, insert and replacement.
+#[test]
+fn comp_040_group_rollback_error_carries_both_failures() {
+    for change in ["add", "insert", "replace"] {
+        let group = vmx::GroupVm::new("group");
+        group.set_auto_construct_on_add(true);
+        group.add(child("member")).unwrap();
+        group.construct().unwrap();
+        let target = group.clone();
+        let item = disposing_child("item", move || target.dispose());
+
+        let result = match change {
+            "add" => group.add(item.clone()),
+            "insert" => group.insert(0, item.clone()),
+            _ => group.replace(0, item.clone()).map(|_| ()),
+        };
+
+        assert_eq!(result, Err(rollback_of_disposal()), "{change}");
+        assert!(item.parent_handle().is_none(), "{change}");
+        assert_eq!(group.status(), ConstructionStatus::Disposed);
     }
 }

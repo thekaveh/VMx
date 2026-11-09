@@ -1,5 +1,6 @@
 //
-// CommandWrapperDisposalTests — conformance tests CMDD-011, CMDD-012, CMDD-013.
+// CommandWrapperDisposalTests — conformance tests CMDD-011, CMDD-012, CMDD-013,
+// plus the wrapper disposal notification (#1459).
 //
 // Disposed CompositeCommand, DecoratorCommand, and ConfirmationDecoratorCommand
 // are inert, and disposal during execution or a pending confirmation admits no
@@ -368,5 +369,47 @@ final class CommandWrapperDisposalTests: XCTestCase {
         decorator?.execute()
 
         XCTAssertEqual(recorder.entries, ["pre", "post"])
+    }
+
+    // MARK: - Disposal notification (#1459)
+
+    private func assertDisposalNotifiesOnce(
+        _ wrapper: Command,
+        inner: RelayCommand,
+        dispose: () -> Void
+    ) {
+        var wrapperSeen = 0
+        var innerSeen = 0
+        let wrapperCancel = wrapper.canExecuteChanged.sink {
+            wrapperSeen += 1
+            XCTAssertFalse(wrapper.canExecute())
+        }
+        let innerCancel = inner.canExecuteChanged.sink { innerSeen += 1 }
+
+        dispose()
+        dispose()
+
+        XCTAssertEqual(wrapperSeen, 1)
+        XCTAssertEqual(innerSeen, 0)
+        wrapperCancel.cancel()
+        innerCancel.cancel()
+    }
+
+    /// Disposing a live wrapper notifies the wrapper's
+    /// `canExecuteChanged` subscribers once; a second dispose and the inner
+    /// command's subscribers receive nothing.
+    func testWrapperDisposalNotifiesWrapperSubscribersOnce() {
+        let recorder = Recorder()
+        let compositeInner = makeCommand(label: "c", into: recorder)
+        let composite = CompositeCommand(compositeInner)
+        assertDisposalNotifiesOnce(composite, inner: compositeInner) { composite.dispose() }
+
+        let decoratorInner = makeCommand(label: "d", into: recorder)
+        let decorator = DecoratorCommand(decoratorInner)
+        assertDisposalNotifiesOnce(decorator, inner: decoratorInner) { decorator.dispose() }
+
+        let confirmationInner = makeCommand(label: "f", into: recorder)
+        let confirmation = ConfirmationDecoratorCommand(confirmationInner) { true }
+        assertDisposalNotifiesOnce(confirmation, inner: confirmationInner) { confirmation.dispose() }
     }
 }

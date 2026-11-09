@@ -461,6 +461,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for Forwarding
         self.inner().core.when_settled(callback)
     }
 
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.inner().core.background_errors())
+    }
+
     fn is_current(&self) -> bool {
         self.is_current()
     }
@@ -842,6 +846,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for ForwardingCompositeVm<T, D> {
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         VmNode::when_lifecycle_settled(&self.inner, callback)
+    }
+
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        VmNode::background_failure_stream(&self.inner)
     }
 
     fn lifecycle_publication_pending(&self) -> bool {

@@ -8,7 +8,7 @@ import {
 } from "@thekaveh/vmx";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
-import type { NoteModel } from "../../src/models/noteModel.js";
+import { type NoteModel, noteMatches } from "../../src/models/noteModel.js";
 import { buildSeed } from "../../src/models/seed.js";
 import { NotesViewVM } from "../../src/viewmodels/notesViewVM.js";
 
@@ -508,8 +508,7 @@ class HeldSearchRepository extends InMemoryNoteRepository {
 }
 
 function matchesTerm(note: { model: NoteModel }, term: string): boolean {
-  const { title, body, tags } = note.model;
-  return `${title} ${body} ${tags.join(" ")}`.toLowerCase().includes(term);
+  return noteMatches(note.model, term);
 }
 
 describe("Global search token paging", () => {
@@ -686,6 +685,63 @@ describe("Global search token paging", () => {
     );
     expect(sharedTerms, `results ${ids} mix two terms`).not.toEqual([]);
     expect(sharedTerms, `results ${ids}`).toEqual(["plan"]);
+    vm.dispose();
+  });
+});
+
+// One search rule across flavors (#1330). Note A is "Auth migration plan"
+// (tags security, q2) and note B is "Standup notes" (no tags), with their seed
+// bodies. The term is trimmed, an empty term matches every note, and a note
+// matches when its title, its body or one tag contains the term, ignoring case.
+const SEARCH_RULE_CASES: readonly (readonly [string, readonly string[]])[] = [
+  ["plan ", ["Auth migration plan"]],
+  ["  ", ["Auth migration plan", "Standup notes"]],
+  ["notes (seed", []],
+];
+
+function searchRuleRepository(): InMemoryNoteRepository {
+  const { notebooks, notes } = buildSeed();
+  const picked = notes
+    .filter((note) => note.id === "note-02" || note.id === "note-08")
+    .map((note) => ({ ...note, notebookId: "nb-reviews" }));
+  return new InMemoryNoteRepository(
+    { notebooks, notes: picked },
+    { loadAllDelayMs: 0, loadNotesDelayMs: 0 },
+  );
+}
+
+describe("One search rule", () => {
+  it.each(SEARCH_RULE_CASES)("the notes list matches %j", async (query, expected) => {
+    const vm = NotesViewVM.builder()
+      .name("notes")
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .repository(searchRuleRepository())
+      .searchDebounceMs(0)
+      .build();
+    vm.construct();
+    await vm.bindToAsync("nb-reviews");
+
+    vm.searchTerm = query;
+    vm.search();
+
+    expect(vm.filteredItems.map((note) => note.title)).toEqual(expected);
+    vm.dispose();
+  });
+
+  it.each(SEARCH_RULE_CASES)("the global search matches %j", async (query, expected) => {
+    const { GlobalSearchVM } = await import("../../src/viewmodels/globalSearchVM.js");
+    const vm = GlobalSearchVM.builder()
+      .name("global-search")
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .repository(searchRuleRepository())
+      .pageSize(5)
+      .searchDebounceMs(0)
+      .build();
+
+    vm.searchTerm = query;
+    await vm.refreshCommand.executeAsync();
+
+    expect(vm.results.map((note) => note.model.title)).toEqual(expected);
     vm.dispose();
   });
 });

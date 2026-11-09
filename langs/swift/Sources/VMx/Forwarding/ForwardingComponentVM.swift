@@ -66,6 +66,19 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
         _wrapped.propertyChanged
     }
 
+    /// Raises `propertyName` on the wrapped VM's local channel only. The
+    /// decorator's `propertyChanged` is the wrapped VM's publisher, so the
+    /// helper acts on the wrapped VM (#1352).
+    public override func _raisePropertyChanged(_ propertyName: String) {
+        _wrapped._raisePropertyChanged(propertyName)
+    }
+
+    /// Publishes through the wrapped VM: the hub message names the wrapped VM
+    /// as its sender, and its `propertyChanged` emits once (#1352).
+    public override func _notifyPropertyChanged(_ propertyName: String) {
+        _wrapped._notifyPropertyChanged(propertyName)
+    }
+
     override func _setIsCurrent(_ value: Bool) {
         _wrapped._setIsCurrent(value)
     }

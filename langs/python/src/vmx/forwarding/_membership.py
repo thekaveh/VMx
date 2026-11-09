@@ -158,6 +158,20 @@ class _ForwardingMembership(_ComponentVMBase):
             return None
         return _WrappedParent(wrapped_parent, self)
 
+    def _raise_property_changed(self, property_name: str) -> None:
+        """Raise *property_name* on the wrapped VM's local channel only.
+
+        The decorator's ``property_changed`` is the wrapped VM's stream, so the
+        helper acts on the wrapped VM (#1352).
+        """
+        self._wrapped_component._raise_property_changed(property_name)
+
+    def _notify_property_changed(self, property_name: str) -> None:
+        """Publish through the wrapped VM: its hub message names the wrapped VM
+        as sender, and its ``property_changed`` emits once (#1352).
+        """
+        self._wrapped_component._notify_property_changed(property_name)
+
     def _set_is_current(self, value: bool) -> None:
         self._wrapped_component._set_is_current(value)
 
@@ -175,3 +189,6 @@ class _ForwardingMembership(_ComponentVMBase):
 
     def _join_transition_future(self, *, construct: bool) -> Future[None]:
         return self._wrapped_component._join_transition_future(construct=construct)
+
+    def _join_raced_transition(self, *, construct: bool) -> Future[None] | None:
+        return self._wrapped_component._join_raced_transition(construct=construct)

@@ -551,3 +551,127 @@ fn a_disposed_component_walk_skips_later_members_and_then() {
     assert_eq!(then_runs.load(Ordering::SeqCst), 0);
     assert_eq!(parent.status(), ConstructionStatus::Disposed);
 }
+
+/// A built container whose construct hook a foreign `dispose()` superseded:
+/// the hook blocks, `dispose()` runs on another thread, and the hook returns.
+/// Checks that the factory was not called, that nothing was attached and that
+/// the container published `Constructing` and then `Disposed`. Returns the
+/// `construct()` result.
+fn superseded_construct_skips_population<C, B>(build: B) -> VmxResult<()>
+where
+    C: Container + HasChildren,
+    B: FnOnce(&MessageHub, Arc<AtomicUsize>) -> C,
+{
+    let hub = MessageHub::new();
+    let recorder = hub.record(256);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let container = build(&hub, Arc::clone(&calls));
+    let (entered, entered_rx) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    container.on_construct({
+        let release_rx = Mutex::new(release_rx);
+        move || {
+            entered.send(()).unwrap();
+            let _ = release_rx.lock().unwrap().recv_timeout(BOUND);
+            Ok(())
+        }
+    });
+    let constructor = thread::spawn({
+        let container = container.clone();
+        move || container.construct()
+    });
+    entered_rx
+        .recv_timeout(BOUND)
+        .expect("the construct hook ran");
+    let disposer = thread::spawn({
+        let container = container.clone();
+        move || container.dispose()
+    });
+    thread::sleep(Duration::from_millis(100));
+    release.send(()).unwrap();
+    let constructed = constructor.join().unwrap();
+    assert_eq!(disposer.join().unwrap(), Ok(()));
+
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "the factory is not called");
+    assert_eq!(container.child_count(), 0, "nothing is attached");
+    assert_eq!(container.status(), ConstructionStatus::Disposed);
+    let published: Vec<ConstructionStatus> = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConstructionStatusChanged(changed) => Some(changed.status),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        published,
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Disposed
+        ]
+    );
+    constructed
+}
+
+/// The child count of a container under test.
+trait HasChildren {
+    fn child_count(&self) -> usize;
+}
+
+impl HasChildren for CompositeVm<ComponentVm> {
+    fn child_count(&self) -> usize {
+        self.len()
+    }
+}
+
+impl HasChildren for GroupVm<ComponentVm> {
+    fn child_count(&self) -> usize {
+        self.len()
+    }
+}
+
+/// LIFE-015 — a built `CompositeVm` whose construct hook a foreign
+/// `dispose()` superseded does not call its children factory, and its
+/// `construct()` returns without an error (ADR-0218 rule 5).
+#[test]
+fn superseded_composite_construct_calls_no_factory() {
+    let result = superseded_construct_skips_population(|hub, calls| {
+        let child_hub = hub.clone();
+        CompositeVm::<ComponentVm>::builder()
+            .name("container")
+            .services(hub.clone(), NullDispatcher::new())
+            .children(move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                vec![ComponentVm::with_services(
+                    "child",
+                    child_hub.clone(),
+                    NullDispatcher::new(),
+                )]
+            })
+            .build()
+            .unwrap()
+    });
+    assert_eq!(result, Ok(()));
+}
+
+/// LIFE-015 — the same for a built `GroupVm` (ADR-0218 rule 5).
+#[test]
+fn superseded_group_construct_calls_no_factory() {
+    let result = superseded_construct_skips_population(|hub, calls| {
+        let child_hub = hub.clone();
+        GroupVm::<ComponentVm>::builder()
+            .name("container")
+            .services(hub.clone(), NullDispatcher::new())
+            .children(move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                vec![ComponentVm::with_services(
+                    "child",
+                    child_hub.clone(),
+                    NullDispatcher::new(),
+                )]
+            })
+            .build()
+            .unwrap()
+    });
+    assert_eq!(result, Ok(()));
+}

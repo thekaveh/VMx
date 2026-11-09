@@ -6,6 +6,7 @@ mod conformance {
     mod async_value;
     mod auto_construct_during_constructing;
     mod background_child_settle;
+    mod background_rollback_compensation;
     mod bounded_wait;
     mod builder_population;
     mod builders;
@@ -21,11 +22,13 @@ mod conformance {
     mod composite_selection_disposal;
     mod composite_vm;
     mod confirmation_async_inner;
+    mod construct_start_race;
     mod construct_walk_membership;
     mod container_disposal_wait_cycle;
     mod container_hook_disposal;
     mod container_members;
     mod cross_thread_membership;
+    mod current_selector_live_membership;
     mod delayed_task;
     mod derived_properties;
     mod dialogs;
@@ -108,4 +111,5 @@ mod conformance {
     mod user_equality_reentry;
     mod value_stream;
     mod vm_collection_move;
+    mod walk_foreground_resumption;
 }

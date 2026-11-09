@@ -164,7 +164,12 @@ public class SubscriberFailureDeliveryTests
 
         a.Should().Be(3);
         b.Should().Be(3);
-        ((IDisposable)wrapper).Dispose();
+
+        // Disposal notifies every handler once, then rethrows the failure
+        // (spec/04 §8.4).
+        wrapper.Invoking(w => ((IDisposable)w).Dispose()).Should().Throw<SubscriberFailure>();
+        a.Should().Be(4);
+        b.Should().Be(4);
     }
 
     [Fact]

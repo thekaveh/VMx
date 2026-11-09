@@ -141,6 +141,15 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Changed
 
+- **Breaking:** when a failed container change also fails its lifecycle
+  compensation, the reported error now carries the original failure and the
+  first compensation failure (ADR-0218, spec/06 §4.2, #1305, `COMP-040`).
+  Swift returns
+  `ContainerOwnershipError.attachmentFailed(ContainerRollbackError)`, with
+  `originalError` and `compensationError`. Before, the payload was the
+  compensation error. A caller that casts the `attachmentFailed` payload to
+  its own error type must now unwrap
+  `ContainerRollbackError.compensationError` or `originalError`.
 - The construct walk of a composite or group now counts members only
   (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
   joins a child, and again after the child settles. A child that a removal or
@@ -189,6 +198,41 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   decision and its version consequence.
 
 ### Fixed
+
+- A container walk that waited for a background child or for a late add now
+  continues on the container's own foreground dispatcher (ADR-0218, spec/02
+  §6, #1326). Before, later sibling starts, the `Current` change and consumer
+  callbacks ran on the dispatcher of the child that settled last. A walk whose
+  children settle at once still finishes on the caller.
+
+- An add now ends its start attempt after it ends its membership transaction
+  (ADR-0218, spec/06 §5.1, #1371). A container that a late add resumes
+  publishes `Constructed` outside that add's transaction, so a `Constructed`
+  subscriber can add a child.
+
+- A container whose construct hook a foreign `dispose()` superseded no longer
+  calls its children factory, and its `construct()` returns without an error
+  (ADR-0218, spec/02 §2.4, #1369). An `add()` during disposal still fails.
+
+- A walk or an auto-construct add no longer fails when another thread starts
+  the same child between its status check and its start call (ADR-0218,
+  spec/02 §6, spec/06 §5.1, #1370, #1375). The walk joins that transition,
+  and the add leaves it to the walk.
+
+- A failed add, insert, replacement or population that started a background
+  child now returns that child to `Destructed` once its construct settles
+  `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372, `COMP-054`,
+  `GRP-017`). Before, the child reached `Constructed` with no parent.
+
+- `Current(selector)` now receives the live membership, so it can pick a late
+  child (ADR-0218, spec/06 §3.2, #1312, `COMP-053`).
+
+- The `_notifyPropertyChanged` and `_raisePropertyChanged` helpers of a
+  `ForwardingComponentVM` or `ForwardingCompositeVM` now act on the wrapped VM
+  (#1352). Before, they sent on the decorator's own subject, which no
+  `propertyChanged` subscriber could see, and the hub message named the
+  decorator. Now the hub message names the wrapped VM, and the decorator's
+  `propertyChanged` emits the name once.
 
 - A construct hook that raises after it started the container walk no longer
   lets the walk's commit step set `status` to `.constructed` (ADR-0186,

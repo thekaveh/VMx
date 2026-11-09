@@ -135,6 +135,11 @@ fn join_within_guard<R>(worker: std::thread::JoinHandle<R>, what: &str) -> R {
 /// not admitted it. The selector's `late` is not a committed member, and the
 /// adding thread is inside its own uncommitted transaction, so the assignment
 /// is a silent no-op.
+///
+/// The add does not start `late`: a walk waits for an add that starts its
+/// child until that add ends its transaction (ADR-0218 rule 4). Here the
+/// walk resumes in the old parent's remove handler, which the transfer commit
+/// runs before the add admits `late`.
 fn walk_skips_unadmitted_child(attach: impl FnOnce(&Root, Leaf) -> Result<(), VmxError>) {
     let dispatcher = ManualDispatcher::new();
     let root = root("root", &dispatcher);
@@ -142,14 +147,21 @@ fn walk_skips_unadmitted_child(attach: impl FnOnce(&Root, Leaf) -> Result<(), Vm
     root.add(first.clone()).unwrap();
     root.add(leaf("second")).unwrap();
     let late = leaf("late");
+    let source_hub = MessageHub::new();
+    let source: Root = CompositeVm::with_services("source", source_hub.clone(), dispatcher.clone());
+    source.add(late.clone()).unwrap();
     let selected = late.clone();
     root.set_current_selector(move |_| Some(selected.clone()));
-    root.set_auto_construct_on_add(true);
     let log = record_current_changes(&root);
     let drain = dispatcher.clone();
-    late.on_construct(move || {
-        drain.drain();
-        Ok(())
+    let drained = AtomicBool::new(false);
+    let source_id = source.id();
+    let _remove = source_hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            if change.sender_id == source_id && !drained.swap(true, Ordering::SeqCst) {
+                drain.drain();
+            }
+        }
     });
 
     root.construct().unwrap();
@@ -160,7 +172,6 @@ fn walk_skips_unadmitted_child(attach: impl FnOnce(&Root, Leaf) -> Result<(), Vm
     assert!(root.items().contains(&late));
     assert_eq!(root.current(), None);
     assert!(!late.is_current());
-    assert_eq!(late.status(), ConstructionStatus::Constructed);
     assert!(!entries(&log).contains(&"late".to_string()));
 }
 
@@ -304,7 +315,8 @@ fn walk_under_foreign_transaction(dispose_from_callback: bool) {
     root.add(first.clone()).unwrap();
     let selected = first.clone();
     root.set_current_selector(move |_| Some(selected.clone()));
-    root.set_auto_construct_on_add(true);
+    // The worker's add does not start `y`: a walk waits for an add that
+    // starts its child until that add ends its transaction (ADR-0218 rule 4).
     let callback: DisposalLog = Arc::default();
     if dispose_from_callback {
         let (disposer, sink) = (root.clone(), Arc::clone(&callback));
