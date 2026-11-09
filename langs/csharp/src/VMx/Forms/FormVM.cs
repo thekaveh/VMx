@@ -676,9 +676,16 @@ public sealed class FormVM<TM> : IDisposable
                 // returns, and hands the run to this call's awaiter.
                 var start = nestedStart = new TaskCompletionSource<Task>();
                 var captured = current;
+                var approval = new NestedApproval(
+                    () => start.TrySetResult(RunAdmittedAsync(captured, replayFailure)),
+                    () => start.TrySetResult(Task.CompletedTask));
                 var own = new Notices();
-                own.AddAfterScope(RaiseCanExecuteChanged);
-                own.Starts.Add(() => start.TrySetResult(RunAdmittedAsync(captured, replayFailure)));
+                own.AddAfterScope(() =>
+                {
+                    approval.Announced = true;
+                    RaiseCanExecuteChanged();
+                });
+                own.Starts.Add(approval);
                 _ = TakeNoticesLocked(own, caller);
             }
             else
@@ -991,8 +998,9 @@ public sealed class FormVM<TM> : IDisposable
     // The other notifications follow in queue order, and the persister
     // starts of nested approvals run last. A notification that a nested call
     // queued is dropped once the form is disposed. An observer failure stops
-    // the remaining notifications and is returned; the scopes still close
-    // and the admitted approvals still start, so none stays in flight.
+    // the remaining notifications and is returned. The scopes still close,
+    // and the nested approvals are released without calling the persister,
+    // because their admission notification may not have gone out (§5.3).
     private ExceptionDispatchInfo? Deliver(Notices? notices, int caller, out QueuedUpdate[] replay)
     {
         replay = [];
@@ -1021,9 +1029,32 @@ public sealed class FormVM<TM> : IDisposable
         }
         finally
         {
-            foreach (var start in notices.Starts) start();
+            foreach (var approval in notices.Starts)
+            {
+                if (failure is null) approval.Run();
+                else ReleaseNestedApproval(approval);
+            }
         }
         return failure;
+    }
+
+    // Releases a nested approval that an observer failure stopped before its
+    // start. The persister never runs. As for a failed top-level admission
+    // (#732), observers that saw the admission edge get the release edge.
+    private void ReleaseNestedApproval(NestedApproval approval)
+    {
+        bool notify;
+        lock (_stateGate)
+        {
+            _approvalInFlight = false;
+            notify = approval.Announced && !_disposed;
+        }
+        if (notify)
+        {
+            try { RaiseCanExecuteChanged(); }
+            catch { /* The delivery failure is the one the caller sees. */ }
+        }
+        approval.Abandon();
     }
 
     // Sends the error maps of a delivery in commit order. An ErrorsChanged
@@ -1216,8 +1247,8 @@ public sealed class FormVM<TM> : IDisposable
     // it releases _stateGate (spec/20 §5.4, ADR-0180). Each error map has an
     // update scope, kept as the enclosing pre-publishing flag for ExitScope.
     // A notification queued by a nested call is marked, so the delivery drops
-    // it once the form is disposed. Starts complete nested approvals'
-    // admissions.
+    // it once the form is disposed. Starts hold the admitted nested
+    // approvals.
     private sealed class Notices
     {
         public List<(Dictionary<string, string> Map, bool Nested)> Errors { get; } = [];
@@ -1226,7 +1257,7 @@ public sealed class FormVM<TM> : IDisposable
 
         public List<(Action Send, bool Nested)> AfterScope { get; } = [];
 
-        public List<Action> Starts { get; } = [];
+        public List<NestedApproval> Starts { get; } = [];
 
         public bool IsEmpty => Errors.Count == 0 && Scopes.Count == 0 && AfterScope.Count == 0 && Starts.Count == 0;
 
@@ -1245,6 +1276,19 @@ public sealed class FormVM<TM> : IDisposable
             foreach (var (send, wasNested) in other.AfterScope) AfterScope.Add((send, wasNested || nested));
             Starts.AddRange(other.Starts);
         }
+    }
+
+    // An approval admitted by a nested call (spec/20 §5.4, ADR-0180). Run
+    // starts its persister after the outermost update's notifications.
+    // Abandon completes its awaiter without a persister call. Announced
+    // records that its admission notification was sent.
+    private sealed class NestedApproval(Action run, Action abandon)
+    {
+        public bool Announced { get; set; }
+
+        public void Run() => run();
+
+        public void Abandon() => abandon();
     }
 
     // The first replay failure of one approval call.

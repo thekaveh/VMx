@@ -671,6 +671,53 @@ public class FormVMTests
         form.Snapshot.Should().Be(new Model("ok", 0));
     }
 
+    // spec/20 §5.3, ADR-0180: a nested approval whose admission observer
+    // throws never calls the persister, as a top-level admission does (#732).
+    // The failure reaches the outermost update's caller, the in-flight mark is
+    // released, and observers that saw the admission edge see a release edge.
+    [Fact]
+    public void A_Nested_Approval_Whose_Admission_Observer_Throws_Never_Persists()
+    {
+        var persisted = 0;
+        var canExecuteCalls = 0;
+        var nested = false;
+        FormVM<Model>? form = null;
+        using var hub = new MessageHub();
+        form = new FormVM<Model>(
+            new Model("x", 0),
+            _ =>
+            {
+                persisted++;
+                return Task.CompletedTask;
+            },
+            hub: hub,
+            snapshotter: model => model,
+            validators: new Dictionary<string, Func<Model, string?>>
+            {
+                ["Name"] = model =>
+                {
+                    if (model.Name == "a" && !nested)
+                    {
+                        nested = true;
+                        form!.ApproveCommand.Execute(null);
+                    }
+                    return null;
+                },
+            });
+        using var owned = form;
+        form.ApproveCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (++canExecuteCalls == 1) throw new InvalidOperationException("admission observer");
+        };
+
+        var act = () => form.SetModel(new Model("a", 0));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("admission observer");
+        persisted.Should().Be(0);
+        canExecuteCalls.Should().Be(2, "the release edge follows the failed admission edge");
+        form.ApproveCommand.CanExecute(null).Should().BeTrue("the in-flight mark is released");
+    }
+
     // ── Test double helpers ───────────────────────────────────────────────────
 
     private sealed class LambdaPersister<TM>(Func<TM, Task> action) : IFormPersister<TM>
