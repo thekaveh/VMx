@@ -162,9 +162,16 @@ The await primitive for a consumer-defined background wrapper is the
 terminal-status subscription above; the hub does not replay the last status to a
 late subscriber. Every flavor's containers wait at the status level for
 background children to settle (chapter 02 §6). In Rust, a container waits for a
-child node that forwards `VmNode::when_lifecycle_settled`; a third-party node
-that does not forward it is accepted while still in flight. C# alone ships
-first-class outcome tasks for it (`ConstructAsync` / `DestructAsync`); those
+child node that forwards `VmNode::when_lifecycle_settled`. For a node that does
+not forward it, the container observes its own message hub (ADR-0205). When the
+container starts the node and, by the time the start call returns, the hub
+delivered or queued the node's transient status, the container waits for the
+node's next status on that hub, and a node that settles anywhere else rolls the
+container back. In every other case (the node publishes on another hub, or the
+container joins a node already in flight), the container accepts the node while
+it is still in flight rather than wait without limit. C# alone ships
+first-class outcome tasks for awaiting a transition (`ConstructAsync` /
+`DestructAsync`); those
 tasks preserve hook and child-cascade failures per ADR-0109. Equivalent async
 lifecycle entry points remain deliberately absent from the other flavors under
 ADR-0008/ADR-0009 rather than an active parity requirement.

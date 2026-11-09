@@ -1330,12 +1330,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         };
         // `is_current` is published after the membership gate is released: a
         // subscriber may dispose this composite, which takes the gate (#749).
-        // Clearing the selection first means it sees no current, as in the
-        // other flavors; the loop then only covers a stale flag.
+        // The detach clear committed the previous current child's flag under
+        // the gate, as in the other flavors. No removed child's flag is
+        // written after the gate: another composite may already have adopted
+        // and selected it (spec/06 §4.3 rule 2).
         let _ = self.publish_current(cleared);
-        for item in &removed {
-            item.set_current_flag(false);
-        }
         // Removed children are dropped after the membership gate is released.
         let changed = !removed.is_empty();
         drop(removed);

@@ -83,8 +83,13 @@ settle. Thus a container `construct`, `destruct`, or `reconstruct` call can
 return `Ok` while the container is still transient. A child failure rolls the
 container back and arrives on the container's `background_errors()` stream.
 Wrapper nodes should forward `VmNode::when_lifecycle_settled`. If a node does
-not forward `when_lifecycle_settled`, the container accepts that node while it
-is still in flight instead of failing.
+not forward it, the container watches its own message hub instead. The
+container waits when it started the node and, by the time the start call
+returned, the hub delivered or queued the node's Constructing or Destructing
+status. A node that then settles at another status rolls the container back.
+Otherwise, for example when the node publishes on another hub, the container
+accepts the node while it is still in flight, so it never waits without limit
+(ADR-0205).
 
 An admitted `AsyncRelayCommand` execution runs on one worker thread, and a
 rejected `execute()` starts none. A rejected `execute_async()` still returns a
