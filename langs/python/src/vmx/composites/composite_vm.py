@@ -16,6 +16,7 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx._indexes import _reject_bool_index
+from vmx._subscriber_failures import FanOutSubject
 from vmx._wait_for_graph import WAITS
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
@@ -120,7 +121,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._destruct_order: ChildOrder = destruct_order
         self._children: list[VM] = []
         self._current: VM | None = None
-        self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
+        self._collection_changed_subject: Subject[CollectionChangedEvent] = FanOutSubject()
         self._populated: bool = False
         # Collects the children population started constructing (see _on_construct).
         self._population_joined: list[VM] | None = None

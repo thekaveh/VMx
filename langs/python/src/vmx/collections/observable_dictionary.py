@@ -13,6 +13,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps
+from vmx._subscriber_failures import FanOutSubject
 from vmx.collections._delivery import deliver_then_publish
 from vmx.collections.observable_list import ObservableList, ReadOnlyObservableList
 from vmx.messages.collection_changed import CollectionChangedMessage
@@ -84,10 +85,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._keys2_view: ReadOnlyObservableList[TKey2] = ReadOnlyObservableList(self._keys2)
 
         # Event subjects
-        self._added_subject: Subject[tuple[TKey1, TKey2, TValue]] = Subject()
-        self._removed_subject: Subject[tuple[TKey1, TKey2, TValue]] = Subject()
-        self._replaced_subject: Subject[tuple[TKey1, TKey2, TValue, TValue]] = Subject()
-        self._reset_subject: Subject[None] = Subject()
+        self._added_subject: Subject[tuple[TKey1, TKey2, TValue]] = FanOutSubject()
+        self._removed_subject: Subject[tuple[TKey1, TKey2, TValue]] = FanOutSubject()
+        self._replaced_subject: Subject[tuple[TKey1, TKey2, TValue, TValue]] = FanOutSubject()
+        self._reset_subject: Subject[None] = FanOutSubject()
 
     # ── Observable properties ─────────────────────────────────────────────────
     # Each Subject is sealed behind ``as_observable`` so external subscribers can
