@@ -156,8 +156,7 @@ Chapter 03 §3.6 states these rules.
   and on a direct raise.
 - `COL-069` covers two local collection subscribers when the first fails.
 
-The catalog grows from 451 to 456 library IDs (461 in total), together with
-`AGCH-011` from ADR-0192.
+These four IDs join the catalog together with `AGCH-011` from ADR-0192.
 
 ## 5. Consequences
 

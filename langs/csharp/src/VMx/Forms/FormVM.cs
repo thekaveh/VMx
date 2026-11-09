@@ -15,7 +15,12 @@ namespace VMx.Forms;
 ///
 /// See spec/20-form-vm.md and ADR-0030.
 /// </summary>
-/// <typeparam name="TM">Domain model type. Record types are recommended for structural equality.</typeparam>
+/// <typeparam name="TM">
+/// Domain model type. Record types are recommended for structural equality, but a
+/// record's synthesized equality compares a collection field by reference. Under the
+/// default snapshotter such a form is dirty at once, so override <c>Equals</c> and
+/// <c>GetHashCode</c> to compare the collection element by element.
+/// </typeparam>
 public sealed class FormVM<TM> : IDisposable
     where TM : notnull
 {
@@ -225,7 +230,10 @@ public sealed class FormVM<TM> : IDisposable
 
     /// <summary>
     /// <c>true</c> when <see cref="Model"/> is structurally not equal to <see cref="Snapshot"/>.
-    /// Uses <see cref="object.Equals(object?, object?)"/>; record types provide structural equality.
+    /// Uses <see cref="object.Equals(object?, object?)"/>; record types provide structural
+    /// equality, except that a record's synthesized equality compares a collection field by
+    /// reference. The default snapshotter makes a new collection, so such a form is dirty at
+    /// once unless the model overrides <c>Equals</c> to compare the collection element by element.
     /// </summary>
     public bool IsDirty { get { lock (_stateGate) return !Equals(_model, _snapshot); } }
 

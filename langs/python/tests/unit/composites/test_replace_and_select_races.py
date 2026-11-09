@@ -316,18 +316,19 @@ def test_async_select_delivery_drops_a_member_destructed_after_the_call() -> Non
     assert not a.is_current
 
 
-def test_select_refuses_a_member_destructed_after_the_entry_check() -> None:
+def test_select_of_a_member_destructed_after_the_entry_check_changes_nothing() -> None:
+    # A refused child select() changes nothing and raises nothing, also when
+    # the check fails only at the commit (spec/05 §6, ADR-0188, #1424).
     composite, vm = _armed_scenario()
 
-    with pytest.raises(ValueError, match="can_select_component"):
-        vm.select()
+    vm.select()
 
     assert vm.status is S.DESTRUCTED, "the seam destructed vm before the commit"
     assert composite.current is None
     assert not vm.is_current
 
 
-def test_select_on_a_destructed_member_still_raises_inside_the_callers_transaction() -> None:
+def test_select_on_a_destructed_member_is_silent_inside_the_callers_transaction() -> None:
     a = _leaf("a")
     composite = _composite([a])
     composite.construct()
@@ -343,8 +344,7 @@ def test_select_on_a_destructed_member_still_raises_inside_the_callers_transacti
     composite.add(_leaf("b"))
     composite[1] = _leaf("replacement", hook)
 
-    assert len(caught) == 1
-    assert "transaction" in str(caught[0])
+    assert caught == []
     assert composite.current is None
 
 

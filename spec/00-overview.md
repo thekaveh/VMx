@@ -85,20 +85,20 @@ in multiple language flavors with semantically equivalent behavior.
 
 ## 3. Glossary
 
-| Term               | Definition                                                                                                                                                                   |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **VM**             | viewmodel — an instance of one of the VMx types.                                                                                                                             |
-| **model**          | the domain object a VM wraps (optional; `Readonly*` and `*Of[M]` variants attach a typed model).                                                                             |
-| **parent**         | the composite that owns a VM (a child can have at most one parent).                                                                                                          |
-| **current**        | the child currently selected within a composite (at most one per composite).                                                                                                 |
-| **predicate**      | a `() -> bool` (or `(T) -> bool`) function deciding whether a command can execute.                                                                                           |
-| **trigger**        | an `IObservable<Unit>` whose emissions raise a command's `CanExecuteChanged`, so consumers re-read `CanExecute`.                                                             |
-| **hub**            | the `IMessageHub` instance every VM publishes to and any subscriber can observe.                                                                                             |
-| **builder**        | an immutable fluent object that accumulates configuration and produces a VM (or command) via `Build()`.                                                                      |
-| **dispatcher**     | `IDispatcher` exposes a foreground and a background Rx scheduler; VMs use them to dispatch property-change events and lifecycle work.                                        |
-| **foreground**     | the Rx scheduler reserved for events that subscribers expect on the UI thread (e.g., `PropertyChanged`, collection notifications).                                           |
-| **background**     | the Rx scheduler used for VM construction/destruction work that should not block the foreground.                                                                             |
-| **conformance ID** | a stable `XXX-NNN` identifier in `12-conformance.md`; all five library suites implement the 456 library IDs, while `THEME-00x` IDs apply to UI-backed flagship applications. |
+| Term               | Definition                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **VM**             | viewmodel — an instance of one of the VMx types.                                                                                                                          |
+| **model**          | the domain object a VM wraps (optional; `Readonly*` and `*Of[M]` variants attach a typed model).                                                                          |
+| **parent**         | the composite that owns a VM (a child can have at most one parent).                                                                                                       |
+| **current**        | the child currently selected within a composite (at most one per composite).                                                                                              |
+| **predicate**      | a `() -> bool` (or `(T) -> bool`) function deciding whether a command can execute.                                                                                        |
+| **trigger**        | an `IObservable<Unit>` whose emissions raise a command's `CanExecuteChanged`, so consumers re-read `CanExecute`.                                                          |
+| **hub**            | the `IMessageHub` instance every VM publishes to and any subscriber can observe.                                                                                          |
+| **builder**        | an immutable fluent object that accumulates configuration and produces a VM (or command) via `Build()`.                                                                   |
+| **dispatcher**     | `IDispatcher` exposes a foreground and a background Rx scheduler; VMs use them to dispatch property-change events and lifecycle work.                                     |
+| **foreground**     | the Rx scheduler reserved for events that subscribers expect on the UI thread (e.g., `PropertyChanged`, collection notifications).                                        |
+| **background**     | the Rx scheduler used for VM construction/destruction work that should not block the foreground.                                                                          |
+| **conformance ID** | a stable `XXX-NNN` identifier in `12-conformance.md`; all five library suites implement every library ID, while `THEME-00x` IDs apply to UI-backed flagship applications. |
 
 ## 4. Audience
 

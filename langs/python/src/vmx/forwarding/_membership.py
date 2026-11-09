@@ -44,6 +44,9 @@ class _ForwardingParent(_ParentCompositeVM):
     def deselect_child(self, vm: _ComponentVMBase) -> None:
         self._parent.deselect_child(self._wrapper)
 
+    def _child_disposed(self, vm: _ComponentVMBase) -> None:
+        self._parent._child_disposed(self._wrapper)
+
     def contains_child(self, vm: _ComponentVMBase) -> bool:
         return self._parent.contains_child(self._wrapper)
 
