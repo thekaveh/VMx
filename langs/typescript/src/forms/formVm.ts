@@ -66,6 +66,27 @@ type QueuedUpdate<TM> =
   | { readonly kind: "set"; readonly model: TM }
   | { readonly kind: "deny" };
 
+/**
+ * The notifications of one or more updates or approval admissions, in the
+ * order they are sent (§5.4, ADR-0180): every error map first, then the other
+ * notifications, then the persister starts of nested approvals.
+ */
+interface Notices {
+  readonly errors: Array<() => void>;
+  readonly afterScope: Array<() => void>;
+  readonly starts: Array<() => void>;
+}
+
+function noNotices(): Notices {
+  return { errors: [], afterScope: [], starts: [] };
+}
+
+function appendNotices(target: Notices, source: Notices): void {
+  target.errors.push(...source.errors);
+  target.afterScope.push(...source.afterScope);
+  target.starts.push(...source.starts);
+}
+
 function hasReachableEnumerableAccessor(
   value: unknown,
   seen = new Set<object>(),
@@ -494,6 +515,17 @@ export class FormVM<TM> {
   // every update queued during approval publication (§5.3). A preparation that
   // finishes under a newer generation is stale.
   #generation = 0;
+  // Nested updates (§5.4, ADR-0180): the setModel and deny frames that are
+  // running their preparation or committing. A call nested in one of them
+  // queues its notifications in #pendingNotices for the outermost frame.
+  #preparationDepth = 0;
+  #pendingNotices = noNotices();
+  // True while the outermost update sends its error maps. An update made from
+  // an errorsChanged observer then queues its notifications in
+  // #scopedNotices; its error maps follow the current ones, and the rest
+  // follows the outer update's notifications.
+  #deliveringErrors = false;
+  #scopedNotices = noNotices();
 
   readonly #onApproved = new Subject<TM>();
   readonly #approveErrors = new Subject<unknown>();
@@ -657,6 +689,11 @@ export class FormVM<TM> {
    * observer is queued (§5.3, ADR-0174). It runs the same preparation first,
    * so a failure still reaches the caller, but it commits and publishes
    * nothing until it replays after `onApproved`.
+   *
+   * A call made from a preparation callback of another `setModel` or deny,
+   * or from an `errorsChanged` observer of one, commits at once but returns
+   * before its notifications. The outermost update sends them before it
+   * returns, and drops them once the form is disposed (§5.4, ADR-0180).
    */
   setModel(model: TM): void {
     if (this.#disposed) return;
@@ -665,32 +702,38 @@ export class FormVM<TM> {
     if (model === null || model === undefined) {
       throw new Error("model must not be null or undefined");
     }
-    this.#beginSyncOperation();
-    try {
-      // Preparation: every consumer callback runs before any commit.
-      const generation = this.#generation;
-      const unchanged = this.#equals(this.#model, model);
-      if (this.#approvalPrePublishing) {
-        // §5.3: prepare at call time so a failure reaches this caller. An
-        // equal candidate is still queued, because an earlier queued update
-        // can change the model before this one replays. The replay prepares
-        // again, so the result here is discarded.
-        this.#prepare(model);
-        this.#enqueue(generation, { kind: "set", model });
-        return;
-      }
-      if (unchanged) return;
-      const update = this.#prepare(model);
-      if (this.#isStale(generation)) return;
+    this.#runUpdate((own) => this.#applySetModel(model, own));
+  }
 
-      // Commit in one step, then publish; no consumer callback runs between.
-      const errorsChanged = this.#commit(update);
-      if (errorsChanged) this.#errorsChanged.next({ ...update.errors });
-      if (this.#approveStateChanged(update)) this.#canExecuteTrigger.next();
-      this.#hub.send(PropertyChangedMessage.create(this, "FormVM", "model"));
-    } finally {
-      this.#endSyncOperation();
+  #applySetModel(model: TM, own: Notices): void {
+    // Preparation: every consumer callback runs before any commit.
+    const generation = this.#generation;
+    const unchanged = this.#equals(this.#model, model);
+    if (this.#approvalPrePublishing) {
+      // §5.3: prepare at call time so a failure reaches this caller. An
+      // equal candidate is still queued, because an earlier queued update
+      // can change the model before this one replays. The replay prepares
+      // again, so the result here is discarded.
+      this.#prepare(model);
+      this.#enqueue(generation, { kind: "set", model });
+      return;
     }
+    if (unchanged) return;
+    const update = this.#prepare(model);
+    if (this.#isStale(generation)) return;
+
+    // Commit in one step, then queue the notifications; no consumer callback
+    // runs between.
+    const errorsChanged = this.#commit(update);
+    if (errorsChanged) {
+      const errors = { ...update.errors };
+      own.errors.push(() => this.#errorsChanged.next(errors));
+    }
+    if (this.#approveStateChanged(update)) {
+      own.afterScope.push(() => this.#canExecuteTrigger.next());
+    }
+    const message = PropertyChangedMessage.create(this, "FormVM", "model");
+    own.afterScope.push(() => this.#hub.send(message));
   }
 
   // ── Async core ─────────────────────────────────────────────────────────────
@@ -705,6 +748,12 @@ export class FormVM<TM> {
    * replays after `onApproved` (or after a failed commit's settlement). If a
    * replay throws, the later ones still run, and the first replay failure is
    * thrown here after the last one, unless the approval already failed.
+   *
+   * A call made from a preparation callback of a `setModel` or deny, or from
+   * an `errorsChanged` observer of one, is admitted at once. Its
+   * `canExecuteChanged` and its persister call wait for the outermost update
+   * (§5.4, ADR-0180). A `dispose()` before the persister starts prevents the
+   * call, and the returned promise then resolves (§10).
    */
   async approveAsync(): Promise<void> {
     // A disposed form is a full no-op — the persister must not be invoked
@@ -719,11 +768,30 @@ export class FormVM<TM> {
     // persister call, then announce the disabled command once.
     this.#approvalInFlight = true;
     const current = this.#model;
+    if (this.#isNested()) {
+      // §5.4: the outermost update sends the admission notification, then
+      // calls the persister after the rest of its queue.
+      await new Promise<void>((resolve, reject) => {
+        this.#takeNotices({
+          errors: [],
+          afterScope: [() => this.#canExecuteTrigger.next()],
+          starts: [() => {
+            void this.#runAdmitted(current).then(resolve, reject);
+          }],
+        });
+      });
+      return;
+    }
     this.#raiseApproveCanExecuteChanged();
-    // An admission observer may dispose the form reentrantly; a disposed form
-    // never invokes the persister. The analyzer narrows #disposed from the
-    // entry guard, but the notification is a genuine interleaving point.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    await this.#runAdmitted(current);
+  }
+
+  /**
+   * Runs an admitted approval: calls the persister, then commits and settles.
+   * A form disposed since admission, by an admission observer or before a
+   * nested approval's start, never calls the persister (§10).
+   */
+  async #runAdmitted(current: TM): Promise<void> {
     if (this.#disposed) return;
 
     try {
@@ -885,32 +953,120 @@ export class FormVM<TM> {
 
   #deny(): void {
     if (this.#disposed) return;
-    this.#beginSyncOperation();
-    try {
-      // Preparation (§5.4): the snapshotter, validators, and equality
-      // comparisons all run before any commit.
-      const generation = this.#generation;
-      const reverted = this.#takeSnapshot(this.#snapshot, "deny/revert");
-      const update = this.#prepare(reverted);
-      if (this.#approvalPrePublishing) {
-        // §5.3: prepared at call time, committed when it replays.
-        this.#enqueue(generation, { kind: "deny" });
-        return;
-      }
-      if (this.#isStale(generation)) return;
+    this.#runUpdate((own) => this.#applyDeny(own));
+  }
 
-      const errorsChanged = this.#commit(update);
-      if (errorsChanged) this.#errorsChanged.next({ ...update.errors });
-
-      this.#hub.send(new FormRevertedMessage(this, "FormVM"));
-      this.#hub.send(
-        PropertyChangedMessage.create(this, "FormVM", "model"),
-      );
-
-      if (this.#approveStateChanged(update)) this.#canExecuteTrigger.next();
-    } finally {
-      this.#endSyncOperation();
+  #applyDeny(own: Notices): void {
+    // Preparation (§5.4): the snapshotter, validators, and equality
+    // comparisons all run before any commit.
+    const generation = this.#generation;
+    const reverted = this.#takeSnapshot(this.#snapshot, "deny/revert");
+    const update = this.#prepare(reverted);
+    if (this.#approvalPrePublishing) {
+      // §5.3: prepared at call time, committed when it replays.
+      this.#enqueue(generation, { kind: "deny" });
+      return;
     }
+    if (this.#isStale(generation)) return;
+
+    const errorsChanged = this.#commit(update);
+    if (errorsChanged) {
+      const errors = { ...update.errors };
+      own.errors.push(() => this.#errorsChanged.next(errors));
+    }
+    const revertedMessage = new FormRevertedMessage(this, "FormVM");
+    const modelMessage = PropertyChangedMessage.create(this, "FormVM", "model");
+    own.afterScope.push(() => this.#hub.send(revertedMessage));
+    own.afterScope.push(() => this.#hub.send(modelMessage));
+    if (this.#approveStateChanged(update)) {
+      own.afterScope.push(() => this.#canExecuteTrigger.next());
+    }
+  }
+
+  /**
+   * Runs one `setModel` or deny frame (§5.4, ADR-0180). `apply` prepares,
+   * commits, and adds the update's notifications to `own`. A frame nested in
+   * another update queues them for the outermost one, which sends the whole
+   * queue before it returns. A failure of `apply` propagates after that.
+   */
+  #runUpdate(apply: (own: Notices) => void): void {
+    this.#beginSyncOperation();
+    const own = noNotices();
+    let failure: { readonly error: unknown } | undefined;
+    this.#preparationDepth += 1;
+    try {
+      apply(own);
+    } catch (error: unknown) {
+      failure = { error };
+    }
+    this.#preparationDepth -= 1;
+    const delivery = this.#takeNotices(own);
+    const deliveryFailure = delivery === undefined ? undefined : this.#deliver(delivery);
+    this.#endSyncOperation();
+    const routed = failure ?? deliveryFailure;
+    if (routed !== undefined) throw routed.error;
+  }
+
+  /** True when a call comes from a nested window of an update (§5.4). */
+  #isNested(): boolean {
+    return this.#preparationDepth > 0 || this.#deliveringErrors;
+  }
+
+  /**
+   * Adds `own` to the queue. A nested call's notifications are dropped once
+   * the form is disposed. Returns the queue to send when the caller is the
+   * outermost update, or undefined when the caller is nested.
+   */
+  #takeNotices(own: Notices): Notices | undefined {
+    if (this.#isNested()) {
+      const nested = {
+        errors: own.errors.map((send) => this.#unlessDisposed(send)),
+        afterScope: own.afterScope.map((send) => this.#unlessDisposed(send)),
+        starts: own.starts,
+      };
+      appendNotices(this.#preparationDepth > 0 ? this.#pendingNotices : this.#scopedNotices, nested);
+      return undefined;
+    }
+    const delivery = this.#pendingNotices;
+    this.#pendingNotices = noNotices();
+    appendNotices(delivery, own);
+    return delivery;
+  }
+
+  #unlessDisposed(send: () => void): () => void {
+    return () => {
+      if (!this.#disposed) send();
+    };
+  }
+
+  /**
+   * Sends a queue (§5.4): every error map, including those that updates made
+   * from an errorsChanged observer add meanwhile, then the other
+   * notifications, then the persister starts of nested approvals. A failing
+   * send does not stop the later ones. Returns the first failure.
+   */
+  #deliver(notices: Notices): { readonly error: unknown } | undefined {
+    let failure: { readonly error: unknown } | undefined;
+    const run = (send: () => void): void => {
+      try {
+        send();
+      } catch (error: unknown) {
+        failure ??= { error };
+      }
+    };
+    this.#deliveringErrors = true;
+    for (let sent = 0; sent < notices.errors.length;) {
+      run(notices.errors[sent] as () => void);
+      sent += 1;
+      if (sent === notices.errors.length) {
+        appendNotices(notices, this.#scopedNotices);
+        this.#scopedNotices = noNotices();
+      }
+    }
+    this.#deliveringErrors = false;
+    for (const send of notices.afterScope) run(send);
+    for (const start of notices.starts) run(start);
+    return failure;
   }
 
   /**

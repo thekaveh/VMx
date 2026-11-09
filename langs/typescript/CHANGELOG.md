@@ -95,6 +95,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVM` call nested in a preparation callback or an `errorsChanged`
+  observer of `setModel` or deny now returns before its notifications
+  (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,
+  `approveAsync` and `approveCommand.execute()`. The outermost update sends
+  them before it returns: error maps first, in commit order, then the other
+  notifications. A nested approval calls its persister after that. Queued
+  notifications are dropped once the form is disposed.
 - `setAt` keeps the replaced child owned until the commit (#1219). The
   commit now frees the child and clears `current` in one step. Before,
   `setAt` freed the child first and cleared `current` only at the commit. A
