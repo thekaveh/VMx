@@ -172,7 +172,7 @@ describe("COL-067", () => {
         if (channel === "keys1") expect(state.keys1).toBe(final.keys1);
         else expect(state.keys2).toBe(final.keys2);
       }
-      // The dictionary event and the hub message see both views updated.
+      // The dictionary event and the hub message see the final state of both views.
       for (const [, state] of seen.slice(views)) expect(state).toEqual(final);
     });
   }

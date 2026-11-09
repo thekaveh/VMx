@@ -95,7 +95,7 @@ final class DictionaryKeyViewOrderTests: XCTestCase {
                 XCTAssertEqual(state.keys2, final.keys2, mutation)
             }
         }
-        // The dictionary event and the hub message see both views updated.
+        // The dictionary event and the hub message see the final state of both views.
         for (_, state) in seen.dropFirst(views) {
             XCTAssertEqual(state, final, mutation)
         }

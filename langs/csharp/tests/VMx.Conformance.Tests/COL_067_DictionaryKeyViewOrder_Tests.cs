@@ -104,7 +104,7 @@ public class COL_067_DictionaryKeyViewOrder_Tests
                 .Should().Be(channel == "keys1" ? final.Keys1 : final.Keys2);
         }
 
-        // The dictionary events and the hub message see both views updated.
+        // The dictionary events and the hub message see the final state of both views.
         foreach (var (_, state) in seen.Skip(changed.Length))
             state.Should().Be(final);
     }

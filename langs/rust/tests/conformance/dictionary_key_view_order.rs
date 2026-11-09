@@ -35,7 +35,7 @@ fn read(dictionary: &Dictionary) -> Snapshot {
 
 /// COL-067 — the hub subscriber reads the updated entries, count and key snapshots
 #[test]
-fn dictionary_hub_message_follows_both_key_view_updates() {
+fn dictionary_hub_message_follows_the_key_view_updates() {
     let added: Snapshot = (
         vec![("a", 1, "one"), ("b", 2, "two"), ("c", 3, "three")],
         3,

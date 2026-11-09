@@ -118,6 +118,6 @@ def test_COL_067_dictionary_events_and_hub_message_follow_the_key_views(mutation
         assert (keys1 if channel == "keys1" else keys2) == (
             final[2] if channel == "keys1" else final[3]
         )
-    # The dictionary event and the hub message see both views updated.
+    # The dictionary event and the hub message see the final state of both views.
     for _, state in seen[views:]:
         assert state == final
