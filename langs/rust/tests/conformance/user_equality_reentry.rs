@@ -16,6 +16,7 @@ use vmx::{
 #[cfg(feature = "notifications")]
 use vmx::{
     ConfirmationVm, NotificationHub, NotificationReaction, NotificationType, NotificationVm,
+    VirtualTimeScheduler,
 };
 
 /// The bound on every wait in this file.
@@ -433,12 +434,18 @@ fn token_paged_refresh_eq_may_read_the_pager() {
 #[cfg(feature = "notifications")]
 #[test]
 fn notification_clock_saturates_instead_of_overflowing() {
+    let scheduler = VirtualTimeScheduler::new();
     let hub = NotificationHub::new();
     let notification = hub.post(NotificationType::Notification, "info");
-    let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+    let vm = NotificationVm::with_scheduler(
+        notification.clone(),
+        hub.clone(),
+        scheduler.clone(),
+        10_000,
+    );
 
-    vm.advance_by_ms(1);
-    vm.advance_by_ms(u64::MAX);
+    scheduler.advance_by(Duration::from_millis(1));
+    scheduler.advance_by(Duration::MAX);
 
     assert_eq!(vm.remaining_time_ms(), 0);
     assert!(vm.is_resolved());
@@ -448,12 +455,13 @@ fn notification_clock_saturates_instead_of_overflowing() {
 #[cfg(feature = "notifications")]
 #[test]
 fn confirmation_clock_saturates_instead_of_overflowing() {
+    let scheduler = VirtualTimeScheduler::new();
     let hub = NotificationHub::new();
     let notification = hub.post(NotificationType::Confirmation, "confirm?");
-    let vm = ConfirmationVm::with_hub(notification, hub);
+    let vm = ConfirmationVm::with_scheduler(notification, hub, scheduler.clone(), 300_000);
 
-    vm.advance_by_ms(1);
-    vm.advance_by_ms(u64::MAX);
+    scheduler.advance_by(Duration::from_millis(1));
+    scheduler.advance_by(Duration::MAX);
 
     assert_eq!(vm.remaining_time_ms(), 0);
     assert_eq!(vm.opacity(), 0.0);
