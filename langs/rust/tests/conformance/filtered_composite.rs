@@ -429,15 +429,22 @@ fn changed_notifies_once_for_each_source_mutation() {
     let source = source_with(&[1, 2]);
     let filtered =
         FilteredCompositeVm::new(source.clone(), |vm: &ComponentVm<i32>| vm.model() != 2);
-    let (seen, _, _subscription) = record_changes(&filtered);
+    let count = Arc::new(Mutex::new(0));
+    let sink = Arc::clone(&count);
+    let _counter = filtered
+        .changed()
+        .subscribe(move |()| *sink.lock().unwrap() += 1);
 
-    let added = child(3);
-    source.add(added.clone()).unwrap();
-    assert_eq!(*seen.lock().unwrap(), vec![(vec![1, 3], Some(1))]);
+    let first = source.items()[0].clone();
+    source.add(child(3)).unwrap();
+    assert_eq!(*count.lock().unwrap(), 1);
+    source.remove(&first).unwrap();
+    assert_eq!(*count.lock().unwrap(), 2);
 
-    source.remove(&source.items()[0].clone()).unwrap();
-    assert_eq!(seen.lock().unwrap().len(), 2);
-    assert_eq!(seen.lock().unwrap()[1], (vec![3], Some(3)));
+    let (seen, _, _recorder) = record_changes(&filtered);
+    source.add(child(4)).unwrap();
+    assert_eq!(*count.lock().unwrap(), 3);
+    assert_eq!(*seen.lock().unwrap(), vec![(vec![3, 4], Some(3))]);
 }
 
 /// Spec/06 §9 `Changed`: disposal completes the stream, and later calls send
