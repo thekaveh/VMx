@@ -200,7 +200,7 @@ call's notifications before it returns. The implementation PRs name each one.
   calls the persister, queued notifications are dropped, and a `Dispose()`
   before a scheduled persister start prevents the call.
 
-The catalog grows from 448 to 450 library IDs (455 in total).
+The catalog grows from 449 to 451 library IDs (456 in total).
 
 ## 5. Consequences
 

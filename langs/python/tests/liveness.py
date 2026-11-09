@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import time
+from concurrent.futures import Future, wait
+from typing import TypeVar
+
+_T = TypeVar("_T")
+
 HANG_GUARD: float = 30.0
 """The bound, in seconds, for a wait that is expected to succeed (#546, #1074).
 
@@ -21,3 +27,20 @@ A negative window asserts that something did *not* happen, such as
 ``assert not done.wait(0.05)``. It keeps its short span, because its full
 duration elapses on every passing run.
 """
+
+
+def future_result(future: Future[_T]) -> _T:
+    """Return ``future.result()`` once the future finishes within ``HANG_GUARD``.
+
+    ``Future.result(timeout)`` can return early on macOS. There, CPython times
+    the wait against the wall clock, and a clock step on a CI runner ends the
+    wait before the future finishes. This helper checks a monotonic
+    deadline and waits again until that deadline passes.
+    """
+    deadline = time.monotonic() + HANG_GUARD
+    while not future.done():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        wait([future], timeout=remaining)
+    return future.result(timeout=0)

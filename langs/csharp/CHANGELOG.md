@@ -8,6 +8,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Added: `COL-067` conformance tests (#1176, ADR-0177). An
+  `ObservableDictionary` mutation changes the entries and `Count` first. Then
+  it updates each key view that changes, raises the dictionary events and
+  sends the hub message. The order of the two key-view notifications is not
+  specified. C# already behaved this way.
 - Fixed: a `FormVM` call nested in a preparation callback or an
   `ErrorsChanged` observer of `SetModel` or deny now returns before its
   notifications (ADR-0180, spec/20 §5.4, #1173). This covers `SetModel`, deny,

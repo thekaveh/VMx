@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
+  mutation changes the entries and `size` first. Then it updates each key view
+  that changes, emits the dictionary events and sends the hub message. The
+  order of the two key-view notifications is not specified. Swift already
+  behaved this way.
 - `COL-066` conformance tests: Swift local collection publishers cannot fail,
   so each committed change reaches the hub once (#1051, ADR-0171).
 - `TreeSelection<TModel, TVM>`, an opt-in helper that tracks one current

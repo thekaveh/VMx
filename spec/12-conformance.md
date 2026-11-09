@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 450 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 451 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -2485,7 +2485,8 @@ Each COL-NNN test verifies a collection primitive from `spec/21-collections.md`.
 See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionary`),
 ADR-0026 (`ObservableList<T>`), ADR-0023 (`PagedComposition<TVM>`), and
 ADR-0096 (serviced collection parity), ADR-0097 (keyed serviced
-collection), and ADR-0171 (failing local subscribers).
+collection), ADR-0171 (failing local subscribers), and ADR-0177 (dictionary
+key-view order).
 
 ### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
 
@@ -3188,6 +3189,23 @@ is sent after the local delivery
 **And** C# and Python rethrow the local failure after publication, while
 TypeScript, Swift, and Rust return normally (Swift subscribers cannot fail;
 Swift asserts this structurally)
+
+### COL-067 — dictionary events and the hub message follow both key-view updates
+
+**Given** an `ObservableDictionary` with a hub and the entries `("a", 1)` and
+`("b", 2)`
+**And** subscribers on `Keys1`, `Keys2`, the dictionary's own events, and the
+hub, each of which records the entries, `Count`, `Keys1`, and `Keys2`
+**When** `Add`, an indexer or `set` insert, `Remove`, or `Clear` occurs
+**Then** each key-view subscriber sees the updated entries, the updated
+`Count`, and its own updated view
+**And** the dictionary events and the hub message arrive after both key-view
+notifications
+**And** the dictionary-event and hub subscribers see the updated entries,
+`Count`, `Keys1`, and `Keys2`
+**And** the test does not check the order of the two key-view notifications
+**And** Rust, whose `keys1()` and `keys2()` return snapshots and which has no
+local event, checks the hub subscriber only
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
