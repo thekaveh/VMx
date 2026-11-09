@@ -114,10 +114,11 @@ final class HubCollectionChangesTests: XCTestCase {
 
     /// COMP-042 — each local composite event is followed by exactly one hub
     /// message sent by the composite, with the same action, positions, and
-    /// items; replacement keeps the local Remove + Add decomposition.
+    /// items; replacement keeps the local Remove + Add decomposition. Each
+    /// message carries the composite's name (ADR-0194).
     func testCOMP042PublishesOneHubMessageAfterEachLocalEvent() throws {
         let hub = MessageHub()
-        let parent = composite(hub)
+        let parent = composite(hub, "people")
         let a = child(hub, "a")
         let b = child(hub, "b")
         let c = child(hub, "c")
@@ -138,7 +139,7 @@ final class HubCollectionChangesTests: XCTestCase {
         let messages = recorder.messages
         XCTAssertEqual(messages.count, 9)
         XCTAssertTrue(messages.allSatisfy { $0.senderObject === parent })
-        XCTAssertTrue(messages.allSatisfy { $0.senderName == parent.name })
+        XCTAssertTrue(messages.allSatisfy { $0.senderName == "people" })
         XCTAssertEqual(
             messages.map(\.action),
             [.add, .add, .move, .remove, .add, .remove, .remove, .add, .reset]
@@ -381,10 +382,11 @@ final class HubCollectionChangesTests: XCTestCase {
 
     /// GRP-012 — each local group event is followed by exactly one hub message
     /// sent by the group, with the same action and positions; a mutation that
-    /// raises no local event publishes nothing.
+    /// raises no local event publishes nothing. Each message carries the
+    /// group's name (ADR-0194).
     func testGRP012PublishesOneHubMessageAfterEachLocalEvent() throws {
         let hub = MessageHub()
-        let peers = group(hub)
+        let peers = group(hub, "team")
         let a = child(hub, "a")
         let b = child(hub, "b")
         let c = child(hub, "c")
@@ -404,6 +406,7 @@ final class HubCollectionChangesTests: XCTestCase {
         assertHubFollowsEachLocalEvent(log.entries, localEvents: 7)
         XCTAssertEqual(recorder.messages.count, 7)
         XCTAssertTrue(recorder.messages.allSatisfy { $0.senderObject === peers })
+        XCTAssertTrue(recorder.messages.allSatisfy { $0.senderName == "team" })
         XCTAssertEqual(
             recorder.messages.map(\.action),
             [.add, .add, .move, .remove, .add, .remove, .reset]

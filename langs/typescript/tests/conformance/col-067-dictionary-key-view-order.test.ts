@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { ObservableDictionary } from "../../src/collections/observableDictionary.js";
-import type { ObservableList } from "../../src/collections/observableList.js";
+import type { ReadOnlyObservableList } from "../../src/collections/readOnlyObservableList.js";
 import { MessageHub } from "../../src/services/messageHub.js";
 
 type Dictionary = ObservableDictionary<string, number, string>;
@@ -70,7 +70,7 @@ describe("COL-067", () => {
       dictionary.itemAdded.subscribe(record("dictionary"));
       dictionary.itemRemoved.subscribe(record("dictionary"));
       dictionary.reset.subscribe(record("dictionary"));
-      const watch = <T>(channel: string, view: ObservableList<T>): void => {
+      const watch = <T>(channel: string, view: ReadOnlyObservableList<T>): void => {
         view.itemAdded.subscribe(record(channel));
         view.itemRemoved.subscribe(record(channel));
         view.reset.subscribe(record(channel));

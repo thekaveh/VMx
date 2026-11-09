@@ -4,7 +4,8 @@
 :class:`CollectionChangedEvent` with exactly one
 :class:`~vmx.messages.collection_changed.CollectionChangedMessage` sent to
 their own hub, with the container as sender and the same action, positions,
-and items (spec ch. 01 §1.4, ch. 21 §2.4, ADR-0142).
+and items (spec ch. 01 §1.4, ch. 21 §2.4, ADR-0142). The message carries the
+container's name as its sender name (ADR-0194).
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from vmx.messages.collection_changed import CollectionChangedMessage
 
 
 def collection_changed_message_for(
-    sender: object, event: CollectionChangedEvent
+    sender: object, sender_name: str, event: CollectionChangedEvent
 ) -> CollectionChangedMessage[object]:
     """Map one local container event to its hub message.
 
@@ -31,4 +32,5 @@ def collection_changed_message_for(
         index=index,
         old_index=event.old_index,
         new_index=event.new_index,
+        sender_name=sender_name,
     )

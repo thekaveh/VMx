@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.36.0] — unreleased source version
 
+0.36.0 is the first `vmx-rs` release on crates.io. Versions 0.1.0 to 0.35.0
+were not published to a registry, so this package also contains the changes in
+the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
+3.30.0.
+
 ### Added
 
 - A regression test for a cycle-deferred disposal failure (ADR-0200,
@@ -23,6 +28,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `post_notification`, `resolve`, `pending` and `pending_stream`.
   `NotificationHub`, `NullNotificationHub` and `Arc<H>` for every implementer
   `H` implement it, so `Arc<dyn NotificationHubApi>` works.
+- `COL-070` conformance tests (#1316, ADR-0193). An edit to a `keys1()` or
+  `keys2()` snapshot does not change the dictionary. Rust already behaved this
+  way.
+- The `COMP-042` and `GRP-012` tests now assert that each container message
+  carries the container's name (#1309, ADR-0194). Rust already behaved this
+  way.
 - `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
   `ComponentVm::own_member` contract and rejects the container itself with
@@ -124,6 +135,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Breaking: `walk`, `walk_expanded` and `find` no longer panic when they reach a
+  `HierarchicalVm` whose lazy children factory returns invalid output (#1060,
+  ADR-0170, spec/13 §6.1). `walk` and `walk_expanded` now return
+  `VmxResult<Vec<T>>` and `find` returns `VmxResult<Option<T>>`, with the
+  `try_children` error. They read children through the new provided method
+  `TreeNode::try_children_nodes`, which defaults to `Ok(children_nodes())`.
+  The node keeps no children cache, and a later walk retries the factory.
+  `children` and `is_leaf` still panic on such output. Migration: handle or
+  propagate the `VmxResult` at each call site (#1413).
+
 - Breaking: `NullNotificationHub` functions are instance methods that mirror
   `NotificationHub` (ADR-0211, #1264): `new`, `post_notification`, `post`,
   `post_with_waiter`, `resolve` (no effect), `pending` (always empty) and
@@ -134,14 +155,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `NullNotificationHub.pending_stream()`, and the removed
   `NullNotificationHub::post_message(message)` becomes
   `NullNotificationHub.post_with_waiter(NotificationType::Notification, message)`.
+
 - `make_confirm` accepts any `NotificationHubApi + Clone + 'static` hub, such
   as a `NullNotificationHub`, whose predicate completes with `true` at once
   (ADR-0211, #1264). A `NotificationHub` argument works as before.
+
 - `NotificationHub` keeps no history of committed pending snapshots
   (ADR-0211, #1275). Before, each post, resolve and dispose kept a full copy
   of the pending list for the life of the hub, and `dispose()` did not clear
   them. One pending notification and 100,000 post and resolve pairs kept
   200,001 snapshots.
+
 - Breaking: the fire-and-forget `execute()` of `ConfirmationDecoratorCommand`
   no longer runs the inner command inside its own call when the confirmation
   is already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner
@@ -151,6 +175,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   waits for it, or waits for the inner command. The post hook of an outer
   `wrap_with` decorator and a `succeed_with` successor now run before a
   confirmed inner command.
+
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default
@@ -158,9 +183,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   The conformance tests that call them run with `--all-features`. This is not
   a breaking change: the seams are hidden test-only API, and no published
   release exported them.
+
 - Breaking: `GroupVmOptions` and `CompositeVmOptions` have a new
   `destruct_order` field, so code that builds them with a struct literal must
   now set it (#662).
+
 - The `reconstruct_command()` of `CompositeVm` and `GroupVm` now calls
   `reconstruct()`, as the aggregates' command does, instead of repeating its
   steps. A later fix to the walk therefore reaches the command too. The
@@ -170,6 +197,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   command table and its parent registration weakly. A command handle that
   outlives every handle to its container therefore does nothing, and it does
   not keep that container registered as its children's parent (#799).
+
 - `ServicedObservableCollection`, `KeyedServicedObservableCollection`,
   `ObservableDictionary` and `ObservableMultiDictionary` now share one stored
   snapshot between concurrent readers, which run `PartialEq` on it (#765).
@@ -177,9 +205,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   types are `Sync` as well as `Send`. Before, `Send` items and keys were
   enough. `VmNode` types are already `Sync`, so collections of view-models are
   not affected.
+
 - Implements spec 3.30.0. Forwarding decorators already registered owned
   resources on the wrapped component; `FWD-005` now covers it, including
   nested decorators and registration after disposal (ADR-0151) (#650).
+
 - `CompositeVm` selection opens no membership transaction (spec/06 §4.3,
   ADR-0173, #1145). `set_current`, `select_component`, `deselect_component`
   and a child's `select` and `deselect` commit `current` and both current flags
@@ -198,17 +228,20 @@ project adheres to [Semantic Versioning](https://semver.org/).
   disposal requested on another thread while a selection publishes returns at
   once and runs when the publication ends. The two `COMP-026` tests that were
   ignored for this gap run again.
+
 - `VmNode` has two hidden methods with defaults, `commit_current_flag` and
   `publish_current_flag`. A container commits the current flag under its gate
   and publishes it afterwards, so two concurrent selections leave the flags
   in commit order. Wrapper nodes should forward both methods; the defaults
   keep the old behavior through `set_current_flag`.
+
 - `NotificationVm::dismiss_command()`, `ConfirmationVm::approve_command()`,
   `reject_command()` and `dismiss_command()` return a clone of one command
   that the view model owns, not a new command for each call (#1067,
   ADR-0178). Clones of the view model share the commands. A command holds
   only the shared notification state, so a kept command makes no reference
   cycle.
+
 - Breaking: `TokenPagedComposition` requires
   `Token: Clone + Send + Sync + 'static` and runs `Token::clone` with no pager
   lock held (#1278, ADR-0202). Clones of one stored token no longer take
@@ -251,6 +284,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   exactly once when it changes validity, or dirty state in strict mode
   (ADR-0196, spec/20 §5.2, #1327, `FORM-043`). Before, Rust raised it only
   when the computed eligibility flipped, and never during an approval.
+- `ObservableMultiDictionary` and `ObservableDictionary` Remove and Replace hub
+  messages now carry the entry's position in enumeration order (#1316,
+  ADR-0193, `COL-068`). Remove sends `old_index: Some(position)` and
+  `new_index: None`. Replace sends `Some(position)` in both fields. Before,
+  both sent `None`.
 - Breaking: a `CompositeVm` or `GroupVm` from the builder or from
   `create(options)` has no children until its first `construct()` (#1255,
   ADR-0204, spec/06 §1, spec/07 §3). That construct calls the `children`
@@ -396,14 +434,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
   disposed before `Disposed`. A leaf without members disposes as before. The
   background construct and destruct paths and `reconstruct()` check closed
   hook admission, as `transition_with_body` already did.
-- `walk`, `walk_expanded` and `find` no longer panic when they reach a
-  `HierarchicalVm` whose lazy children factory returns invalid output (#1060,
-  ADR-0170, spec/13 §6.1). `walk` and `walk_expanded` now return
-  `VmxResult<Vec<T>>` and `find` returns `VmxResult<Option<T>>`, with the
-  `try_children` error. They read children through the new provided method
-  `TreeNode::try_children_nodes`, which defaults to `Ok(children_nodes())`.
-  The node keeps no children cache, and a later walk retries the factory.
-  `children` and `is_leaf` still panic on such output.
 - `TokenPagedComposition`: a load that finds a terminal token when it starts now
   fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
   terminal token after the load command admitted the run. The load then
@@ -795,6 +825,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   failure, skips the remaining child steps, and publishes one rollback status
   when the action returns. The failure goes to `background_errors()`, the same
   as a child that fails after the action returns.
+
 - With `auto_construct_on_add(true)`, a child added to a `CompositeVm` or
   `GroupVm` while it is Constructing is no longer left Destructed while the
   container reaches Constructed (spec/02 §6). The add now constructs a
@@ -806,12 +837,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
   If a child added during the walk fails, the container rolls back once and
   reports the failure. A child added after the walk ends is constructed but
   not awaited. Nothing changes with auto-construct off.
+
 - Disposing a `MessageHub` subscription, dropping it, or disposing the hub no
   longer deadlocks when a subscriber's handler owns the last reference to
   another subscription on the same hub. Removed handlers, completions, and
   queued messages are now dropped after the hub's lock is released. The same
   applies to `ValueStream` subscriptions and disposal, and to the
   `property_changed()` stream.
+
 - A user value or closure whose `Drop` reads or mutates its owner no longer
   deadlocks when VMx replaces, discards, or clears it. Replaced form field
   validators and disposed form validators, invalidated hierarchical children
@@ -821,30 +854,37 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `PagedComposition` sources, replaced `ValueStream` and `DerivedProperty`
   values, and replaced `AsyncResourceVm` states are now dropped after the
   owning lock is released.
+
 - A hub subscriber disposed by an earlier subscriber while a message is being
   delivered no longer receives that message, as in C#, Python, and
   TypeScript. A subscriber that disposes itself still finishes the message it
   is handling.
+
 - Every published lifecycle status change (construct, destruct, reconstruct,
   dispose, and rollbacks) now raises the local `status` and then
   `is_constructed` notifications on `property_changed()` after the hub
   `ConstructionStatusChanged`, as the other flavors do (spec/01 §1, spec/02
   §6). They are local only; no hub `PropertyChanged` is sent for them.
   Before, Rust raised neither.
+
 - `AggregateVm1` to `AggregateVm6` `reconstruct_command()` runs
   `reconstruct()`, so slot factories re-run and replaced children are
   disposed (spec/05 §5, spec/08 §4). Before, the command destructed and
   constructed the current slots in place.
+
 - Fixed aggregates reject a factory candidate that is the aggregate itself or
   one of its ancestors with `VmxError::OwnershipCycle` before any slot commits
   (spec/08 §2, §4). Before, the aggregate became its own slot and parent,
   failed with `ConcurrentOperation`, and every later construct failed with
   `InconsistentParent`.
+
 - `ObservableDictionary` and `ObservableMultiDictionary` hub `Add` messages
   carry the insertion index in `new_index`, as the other flavors do
   (spec/21 §2.4). Before, every action sent `None`.
+
 - `DerivedProperty::set_value` reports a disposed property and a rejected value
   with separate messages. Before, both said "derived property is read-only".
+
 - `FormVm::dispose` no longer publishes `ConstructionStatusChanged`
   (`Disposed`) on the form's hub. The hub carries only the spec/20 §8
   messages, the model `PropertyChanged` and `FormReverted`, as in the other
@@ -853,10 +893,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - `Reconstructable::reconstruct` does nothing outside Constructed, as the
   lifecycle rule and `can_reconstruct()` say. Before, it constructed a
   Destructed node (spec/14 §2.3).
+
 - `reconstruct()` on a component, composite, group, or aggregate returns
   `ConcurrentOperation` during another transition and `Disposed` after
   disposal, as the lifecycle core does (spec/02 §2.1, LIFE-008). Before, these
   wrappers returned `InvalidLifecycleTransition` for both.
+
 - `CompositeVm`, `GroupVm`, `ModeledCompositeVm`, and `AggregateVm1` to
   `AggregateVm6` stay Constructing or Destructing until every background child
   settles. Then they publish their own terminal status (spec/02 §6). Children
@@ -868,6 +910,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   that returns `Ok` but is not at the target status now fails the container,
   as in C# and TypeScript (for example, an observer that destructs the child
   from its Constructed message).
+
 - User `PartialEq` code no longer runs while a VMx mutex is held, so an `eq`
   that reads its owner returns instead of deadlocking. These operations now
   compare copies outside the lock: `ComponentVm::set_model`, serviced and keyed
@@ -877,6 +920,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   and searches again if the state changed. Replaced and removed values are
   dropped after the lock is released. Semantics and emission order do not
   change.
+
 - User `Drop` code no longer runs while a VMx mutex is held, so a value whose
   `drop` reads its owner returns instead of deadlocking.
   `DiscriminatorVm::clear_modals` and `dispose` release saved modal keys, and
@@ -885,31 +929,40 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `replace`, `remove_at`, and `remove_key`, and `ObservableList::clear` and
   `replace_all` release old items and captured keys, only after the lock is
   released. Emission order is unchanged.
+
 - `NotificationVm::advance_by_ms` and `ConfirmationVm::advance_by_ms`
   saturate the elapsed clock. A large advance used to overflow: a panic in
   debug builds, and in release builds a wrapped clock that left the
   notification undismissed.
+
 - `HierarchicalVm::try_children` returns an error when the children factory
   re-enters materialization on its receiver (for example through `is_leaf`),
   instead of panicking.
+
 - Documented the panics of `HierarchicalVm::children`, `is_leaf`, `is_first`,
   `is_last`, and `TreeNode::children_nodes` (the fail-fast accessor of spec/18
   §4 and ADR-0127; `try_children` is the fallible one), and of
   `DerivedProperty::from_sources` and `from_sources_with_write_back` on an
   empty source list.
+
 - `SearchableState::search` announces the projection on `filtered_changed`, as
   the pushed filtered output of the other flavors does, including after the
   source signal is disposed (SRCH-005).
+
 - `DecoratorCommand` runs its post-action once when the inner command panics,
   then continues the panic (CMDD-013, spec/04 §8.4).
+
 - `FormVm::with_validator` keys each registration's errors separately, so a
   second whole-model validator no longer replaces the first one's errors, and
   a registration after dispose is inactive (spec/20 §10).
+
 - `HierarchicalVmBuilder` defaults an unset hint to `Some("")`, like the other
   builders (spec/10).
+
 - Rustdoc for `AsyncRelayCommand::with_can_execute` (it replaces the predicate)
   and for `ValueStream` subscriptions on a hot stream (no replay) now matches
   the behavior.
+
 - `CompositeVm` and `GroupVm` membership for `AggregateChangeStream` now comes
   from a local children stream that precedes the hub and is not deferred by a
   hub batch. Before, a member added and changed inside `hub.batch` lost its
@@ -917,64 +970,82 @@ project adheres to [Semantic Versioning](https://semver.org/).
   container's ownership transaction in a hub batch too, so an observer that
   mutates the container from that pulse gets
   `Err(OwnershipTransactionInProgress)`, as it already did outside a batch.
+
 - A panic in a fire-and-forget `AsyncRelayCommand::execute()` run reaches
   `error_stream()` as `VmxError::Other("command panicked: …")`, as for
   `ConfirmationDecoratorCommand` (spec/04 §10.4, ADR-0137). Before, it was
   lost on the worker thread.
+
 - `FilteredCompositeVm::current()` reconciles the selection when the source's
   membership changed since the last reconciliation, so a current item that
   the source removed or cleared follows the cursor policy (COMP-032,
   COMP-033). An explicit `set_current(None)` stays cleared until the next
   source change. `move_next_visible()` after such a removal now starts from
   the reconciled item, as in the subscribed flavors.
+
 - `CompositeVm` and `GroupVm` collection and `Count` messages carry the
   container's name as `sender_name` instead of `"ObservableList"` (ADR-0120).
+
 - An `AsyncRelayCommand` built with `trigger(...)` and dropped without
   `dispose()` is freed. Its trigger subscription captured a full clone of the
   command, so the trigger hub kept the command and its task alive. This also
   freed a dropped `TokenPagedComposition`.
+
 - `DerivedProperty::recompute` releases the value lock before it runs the
   transform, so a transform that reads `value()` no longer deadlocks.
+
 - A disposed `FilteredCompositeVm` ignores `set_predicate`, `set_current`,
   `set_cursor_policy`, `refresh`, `refresh_scores`, and the visible navigation
   methods, so it stays frozen as the disposal contract states (DISP-006).
   `dispose()` first applies an unread source change, and the cursor policy
   when the predicate now hides the current item, so the frozen current item
   is a member of the frozen projection.
+
 - A disposed `CompositeVm` or `GroupVm` returns `Err(VmxError::Disposed)` from
   `remove`, `remove_at`, and the selection methods, and `clear()` does
   nothing, as `add`, `insert`, and `replace` already did (and `move_item`
   now does, see below). An async selection queued before `dispose()` does
   not run afterwards.
+
 - `FormVm` validators registered after `dispose()` are inactive, as the type
   documentation states; before, they revalidated the disposed form.
+
 - A disposed view model ignores `expand`, `collapse`, and
   `toggle_expansion` (disposal contract).
+
 - An approval subscription disposed by an earlier subscriber during the same
   emission releases its captured state at once, not at the end of the
   emission (ADR-0139).
+
 - A post to a disposed `NotificationHub` returns a pending result without
   replacing a stored terminal reaction (DISP-004).
+
 - `NotificationHub` keeps pending notifications in post order. Before, it
   ordered them by creation identity (spec/16 §2.1).
+
 - `NotificationVm::is_resolved` reports a hub-side resolve that used the
   `Pending` reaction (NOTIF-015). Hub disposal neither resolves nor
   unresolves the VM.
+
 - `CompositeVm::move_item` and `GroupVm::move_item` return
   `Err(VmxError::Disposed)` after disposal instead of reordering the children.
+
 - A disposal deferred behind an admitted lifecycle hook (same-thread or
   cyclic) now disposes the commands of `ComponentVm`, `CompositeVm`,
   `GroupVm`, and `AggregateVm1..6` only after the hook, owned resources, and
   streams finish, as on the immediate path (spec/02 §2.4, §7). A second,
   concurrent disposer also leaves them to the thread that completes the
   disposal.
+
 - `FormVm::approve()` no longer calls the persister when an approve-command
   `can_execute_changed` handler disposes the form during admission. The
   approval is refused and its in-flight mark is cleared (spec/20 §5.3).
+
 - `ModalVm` keeps its first result: `open()` no longer re-arms a dismissed
   modal, so a later `dismiss` cannot replace the stored result. The claim and
   the stored result now share one lock, so `is_dismissed()` never reports a
   dismissal before `result()` holds it (DIA-012).
+
 - An eager `HierarchicalVm::construct()` now cascades into its children inside
   its own Constructing phase. A disposed or already-constructed parent
   constructs no child, a lazy factory failure returns an error instead of
@@ -1304,6 +1375,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   under the topology gate. `try_children()` reports duplicate, cyclic, or
   already-parented output without mutation and permits retry (HIER-031,
   ADR-0127).
+
 - Factory hydration now clears prewarmed path caches for every attached
   descendant and rejects same-receiver structural re-entry atomically
   (HIER-031/032, ADR-0127).
@@ -1312,6 +1384,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   required by the lifecycle fixture. The command, message-hub, and lifecycle
   fixture conformance tests now execute and assert every fixture scenario
   instead of merely loading those files beside marker-only examples.
+
 - Fixed aggregates now share the same atomic per-child ownership claim as
   mutable groups and composites, preventing concurrent constructors or lazy
   reconstruction from retaining the same child under two parents. A factory
@@ -1319,23 +1392,29 @@ project adheres to [Semantic Versioning](https://semver.org/).
   reconstruction also completes every validated slot swap, commits the new
   ownership registry, and publishes each slot change before returning the first
   prior-child disposal failure.
+
 - Forwarding components now delegate the complete component surface, support
   real nested decorator layers and idiomatic hint overrides, and retain one
   canonical transferable container identity (FWD-001/002/004, ADR-0124).
+
 - Composite transfers now finish old-remove and destination-add publication
   before resuming a failing old-current callback (COMP-041).
+
 - Messages now expose the canonical diagnostic `sender_name` alongside Rust's
   ownership-safe `sender_id`, and async-resource replacement cleanup can start
   a newer reload without publishing the superseded completion afterward.
+
 - Component selection now delegates through the owning selectable parent and
   exposes stable baseline commands with automatic lifecycle eligibility
   triggers; lifecycle capabilities apply to every VM node without implicitly
   opting core components into selection or expansion.
+
 - Lifecycle publication and message-hub disposal now remain ordered and
   deadlock-free under opposing callbacks, queued completion versus disposal,
   and re-entrant terminal work. Cross-hub coordination now escapes only actual
   wait cycles and supports borrowed cyclic batches without weakening unrelated
   synchronous delivery.
+
 - Async-resource loading revalidates its admitted operation after cleanup and
   notification. Composite/group admission, transfer rollback, population, and
   disposal snapshots share one transaction guard so concurrent/re-entrant
@@ -1344,13 +1423,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
   transfers release their claim. Commits recheck destination disposal after
   auto-construction, and failed lifecycle compensation is returned instead of
   being hidden by the initiating population error.
+
 - Packed crates now include the repository's byte-identical Apache-2.0
   `LICENSE` and `NOTICE` files.
+
 - Hierarchy structural messages now include the mutation kind, affected child
   identity, and index, and parent-change notifications use Rust's `parent`
   property spelling.
+
 - Children whose previous weak owner has been dropped can be attached to a new
   composite or group instead of retaining an unusable expired ownership handle.
+
 - Serviced collections now serialize mutation commit with delivery admission,
   so concurrent Add positions publish in committed order without weakening
   same-thread re-entrant delivery or caller-thread hub publication.
