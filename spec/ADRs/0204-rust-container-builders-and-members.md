@@ -38,24 +38,32 @@ cross-flavor behavior and the simplest Rust surface.
 1. **Construct-time population.** A `CompositeVm` or `GroupVm` from the
    builder, or from `create(options)`, has no children after `build()`. Its
    first `construct()` calls the factory once and attaches the result
-   atomically, before the construct walk. A population that is refused, for
-   example `VmxError::DuplicateChild`, fails that `construct()`. It attaches
-   nothing, leaves the status unchanged, and keeps the factory for the next
-   construct, as the C# `_populated` guard does. A later `reconstruct()` or
-   construct does not call the factory again. A disposed container never calls
-   it. `ModeledCompositeVm` is unchanged.
+   atomically. The population runs inside the admitted construct transition,
+   after the construct hook and before the construct walk, at the point where
+   C# `OnConstruct` and TypeScript `_onConstruct` populate. So the construct
+   hook of the first construct sees no children, and a construct that starts
+   while the factory runs fails with `VmxError::ConcurrentOperation`
+   (LIFE-008). A population that is refused, for example
+   `VmxError::DuplicateChild`, is a failed construct: the container publishes
+   `Constructing` and rolls back to `Destructed`. It attaches nothing and keeps
+   the factory for the next construct, as the C# `_populated` guard does. The
+   factory leaves its slot only when the population commits, so a factory
+   that panics also runs again on the next construct. A later `reconstruct()`
+   or construct does not call the factory again. A disposed container never
+   calls it. `ModeledCompositeVm` is unchanged.
 1. **Raw destruct order.** `CompositeVm::with_destruct_order` and
    `GroupVm::with_destruct_order` become public. They take a name, a hub, a
    dispatcher and a `ChildOrder`. Rust has no optional arguments, so a named
    constructor is the idiomatic form (ADR-0006). `new` and `with_services`
    keep `ChildOrder::Insertion`.
 1. **Container members.** `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
-   `AggregateVm1` to `AggregateVm6` gain `own_member(&member) -> VmxResult<()>`, with the `ComponentVm::own_member` contract. The container
-   itself is rejected with `VmxError::OwnershipCycle`. The disposal takes the
-   registered members when it starts. It disposes the children and then the
-   members at the admitted-hook boundary, so both orders of ADR-0179 hold. A
-   member registered after the disposal started is disposed by its
-   registration.
+   `AggregateVm1` to `AggregateVm6` gain
+   `own_member(&member) -> VmxResult<()>`, with the `ComponentVm::own_member`
+   contract. The container itself is rejected with
+   `VmxError::OwnershipCycle`. The disposal takes the registered members when
+   it starts. It disposes the children and then the members at the
+   admitted-hook boundary, so both orders of ADR-0179 hold. A member
+   registered after the disposal started is disposed by its registration.
 1. **Command liveness.** The stored reconstruct command of `CompositeVm`,
    `GroupVm` and `AggregateVm1` to `AggregateVm6` holds the command table and
    the parent registration weakly. Its predicate checks the same two handles
@@ -70,6 +78,8 @@ cross-flavor behavior and the simplest Rust surface.
   `construct()` now reads an empty list. A duplicate child in the factory
   result fails the first `construct()`, not `build()`. The Rust 0.36.0
   CHANGELOG records this breaking change.
+- The population of a built container publishes its collection messages
+  after `Constructing`, as in C# and TypeScript.
 - The leaf `ComponentVm` reconstruct command is unchanged. It holds its core
   strongly and still runs after a drop.
 - Chapter 06 §1 and chapter 07 §3 no longer carry the Rust gap notes. No

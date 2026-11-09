@@ -165,10 +165,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Breaking: a `CompositeVm` or `GroupVm` from the builder or from
   `create(options)` has no children until its first `construct()` (#1255,
   ADR-0204, spec/06 §1, spec/07 §3). That construct calls the `children`
-  factory once and attaches the result before the construct walk; `build()`
-  no longer calls it. A refused population, such as
+  factory once, inside the construct transition and after the construct hook,
+  as in C# and TypeScript, and attaches the result before the construct walk;
+  `build()` no longer calls it. A construct that starts while the factory runs
+  fails with `VmxError::ConcurrentOperation`. A refused population, such as
   `VmxError::DuplicateChild`, now fails the first `construct()` instead of
-  `build()`, attaches nothing and keeps the factory for the next construct.
+  `build()`: the container publishes `Constructing`, rolls back to
+  `Destructed`, attaches nothing and keeps the factory for the next construct.
+  A factory that panics also keeps its slot.
 - A stored `reconstruct_command()` of `CompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` reports `can_execute()` false once every
   container handle dropped, as in Swift; its `execute()` stays inert (#1483,

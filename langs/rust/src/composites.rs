@@ -392,10 +392,17 @@ struct CompositeConstruct<T: VmNode> {
 }
 
 impl<T: VmNode> CompositeConstruct<T> {
-    /// Constructs the composite on `core`: each child, then the selector
-    /// once every child settled (spec/02 §6).
-    fn run<D: Dispatcher>(self, core: &ComponentCore<D>) -> VmxResult<()> {
+    /// Constructs the composite on `core`: runs `populate` inside the
+    /// admitted transition, after the construct hook, then constructs each
+    /// child, then runs the selector once every child settled (spec/02 §6,
+    /// spec/06 §1).
+    fn run<D: Dispatcher>(
+        self,
+        core: &ComponentCore<D>,
+        populate: impl FnOnce() -> VmxResult<()>,
+    ) -> VmxResult<()> {
         core.transition_with(LifecycleOperation::Construct, || {
+            populate()?;
             let members = self.selection.items.clone();
             let late = self.late.clone();
             core.construct_children(
@@ -1492,32 +1499,31 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Constructs children before completing the composite transition.
     ///
-    /// The first construct of a built composite first calls the builder's
-    /// children factory once and attaches its children (spec/06 §1). A
-    /// factory result that the population refuses, such as a duplicate
-    /// child, fails this call with that error, attaches nothing, and keeps
-    /// the factory for the next construct.
+    /// The first construct of a built composite calls the builder's children
+    /// factory once, inside the construct transition and after the construct
+    /// hook, and attaches its children before the construct walk (spec/06
+    /// §1). A factory result that the population refuses, such as a
+    /// duplicate child, fails this construct, which rolls back to
+    /// Destructed. It attaches nothing and keeps the factory for the next
+    /// construct. So does a factory that panics.
     pub fn construct(&self) -> VmxResult<()> {
-        self.populate()?;
-        self.construct_parts().run(&self.core)
+        self.construct_parts().run(&self.core, || self.populate())
     }
 
-    /// Attaches the children factory's result once, before the first
-    /// construct transition (spec/06 §1, ADR-0204). The factory is taken
-    /// first, so a re-entrant or concurrent construct does not run it again;
-    /// a refused population puts it back.
+    /// Attaches the children factory's result once (spec/06 §1, ADR-0204).
+    /// It runs inside the admitted construct transition, so a concurrent or
+    /// re-entrant construct fails with [`VmxError::ConcurrentOperation`]
+    /// instead of running it again. The factory leaves its slot only when
+    /// the population commits.
     fn populate(&self) -> VmxResult<()> {
         if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
             return Ok(());
         }
-        let Some(factory) = lock(&self.population).take() else {
+        let Some(factory) = lock(&self.population).clone() else {
             return Ok(());
         };
-        let result = self.attach_population(factory(), false, || {});
-        if result.is_err() {
-            lock(&self.population).get_or_insert(factory);
-        }
-        result
+        let population = Arc::clone(&self.population);
+        self.attach_population(factory(), false, move || *lock(&population) = None)
     }
 
     /// The parts a construct walk needs besides the core.
@@ -1650,10 +1656,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.destruct()?;
         // The deferred construct holds only the parts it needs, never the
         // composite's core or commands, so it cannot keep the composite
-        // alive (#750).
+        // alive (#750). Only a Constructed composite reconstructs, so its
+        // population is already attached and the construct skips it.
         let parts = self.construct_parts();
         self.core
-            .construct_after_destruct(move |core| parts.run(core))
+            .construct_after_destruct(move |core| parts.run(core, || Ok(())))
     }
 
     /// Reports whether the composite is constructed.

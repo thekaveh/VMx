@@ -47,8 +47,10 @@ fn construct_group<T: VmNode, D: Dispatcher>(
     core: &ComponentCore<D>,
     items: &ObservableList<T>,
     late: &LateStarts,
+    populate: impl FnOnce() -> VmxResult<()>,
 ) -> VmxResult<()> {
     core.transition_with(LifecycleOperation::Construct, || {
+        populate()?;
         let members = items.clone();
         core.construct_children(
             Arc::new(move || members.to_vec()),
@@ -865,34 +867,35 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Constructs the group and each current child in collection order.
     ///
-    /// The first construct of a built group first calls the builder's
-    /// children factory once and attaches its children (spec/07 §3). A
-    /// factory result that the population refuses, such as a duplicate
-    /// child, fails this call with that error, attaches nothing, and keeps
-    /// the factory for the next construct.
+    /// The first construct of a built group calls the builder's children
+    /// factory once, inside the construct transition and after the construct
+    /// hook, and attaches its children before the construct walk (spec/07
+    /// §3). A factory result that the population refuses, such as a
+    /// duplicate child, fails this construct, which rolls back to
+    /// Destructed. It attaches nothing and keeps the factory for the next
+    /// construct. So does a factory that panics.
     pub fn construct(&self) -> VmxResult<()> {
-        self.populate()?;
-        construct_group(&self.core, &self.items, &self.late_starts)
+        construct_group(&self.core, &self.items, &self.late_starts, || {
+            self.populate()
+        })
     }
 
-    /// Attaches the children factory's result once, before the first
-    /// construct transition (spec/07 §3, ADR-0204). The factory is taken
-    /// first, so a re-entrant or concurrent construct does not run it again;
-    /// a refused population puts it back.
+    /// Attaches the children factory's result once (spec/07 §3, ADR-0204).
+    /// It runs inside the admitted construct transition, so a concurrent or
+    /// re-entrant construct fails with [`VmxError::ConcurrentOperation`]
+    /// instead of running it again. The factory leaves its slot only when
+    /// the population commits.
     fn populate(&self) -> VmxResult<()> {
         if self.dispose_requested.load(Ordering::Acquire)
             || self.status() == ConstructionStatus::Disposed
         {
             return Ok(());
         }
-        let Some(factory) = lock(&self.population).take() else {
+        let Some(factory) = lock(&self.population).clone() else {
             return Ok(());
         };
-        let result = self.attach_population(factory(), false, || {});
-        if result.is_err() {
-            lock(&self.population).get_or_insert(factory);
-        }
-        result
+        let population = Arc::clone(&self.population);
+        self.attach_population(factory(), false, move || *lock(&population) = None)
     }
 
     /// Destructs the group and each current child, in collection order or,
@@ -998,10 +1001,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         self.destruct()?;
         // The deferred construct holds only the parts it needs, never the
         // group's core or commands, so it cannot keep the group alive (#750).
+        // Only a Constructed group reconstructs, so its population is
+        // already attached and the construct skips it.
         let items = self.items.clone();
         let late = self.late_starts.clone();
         self.core
-            .construct_after_destruct(move |core| construct_group(core, &items, &late))
+            .construct_after_destruct(move |core| construct_group(core, &items, &late, || Ok(())))
     }
 
     /// Reports whether the group is constructed.
