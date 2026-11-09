@@ -3,14 +3,17 @@
 //! it records the intent, and the transaction owner disposes the container
 //! when its transaction ends (ADR-0153, ADR-0167, #1058).
 
-use std::sync::mpsc;
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Barrier};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use vmx::{
     AggregateVm1, ComponentVm, CompositeVm, ConstructionStatus, GroupVm, Message, MessageHub,
     MessageRecorder, NullDispatcher, VmxError, VmxResult,
 };
+
+// The one-sided cases observe the wait-for graph through a test seam.
+#[cfg(feature = "test-seams")]
+use std::sync::{mpsc, Mutex};
 
 const BOUND: Duration = Duration::from_secs(5);
 
@@ -143,6 +146,7 @@ fn opposing_disposals_complete<C: Container>() {
 
 /// No wait cycle: `z.dispose()` waits until `z`'s transaction on the other
 /// thread ends, then disposes `z`.
+#[cfg(feature = "test-seams")]
 fn one_sided_disposal_still_waits<C: Container>() {
     let hub = MessageHub::new();
     let x = C::make("x", &hub);
@@ -216,11 +220,13 @@ fn opposing_group_disposals_inside_transactions_complete() {
     opposing_disposals_complete::<GroupVm<Child>>();
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn one_sided_composite_disposal_still_waits_for_the_transaction() {
     one_sided_disposal_still_waits::<CompositeVm<Child>>();
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn one_sided_group_disposal_still_waits_for_the_transaction() {
     one_sided_disposal_still_waits::<GroupVm<Child>>();

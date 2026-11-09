@@ -53,6 +53,21 @@ def test_github_output_records_boolean_and_versions(tmp_path: Path) -> None:
     ]
 
 
+def test_github_output_appends_to_earlier_step_output(tmp_path: Path) -> None:
+    # #1471: GITHUB_OUTPUT is shared by the step, so earlier lines must survive.
+    _write_state(tmp_path, "3.22.0", "3.22.0")
+    output = tmp_path / "github-output"
+    output.write_text("prior=1\n", encoding="utf-8")
+
+    assert crps.main(["--root", str(tmp_path), "--github-output", str(output)]) == 0
+    assert output.read_text(encoding="utf-8").splitlines() == [
+        "prior=1",
+        "ready=true",
+        "source-version=3.22.0",
+        "published-version=3.22.0",
+    ]
+
+
 def test_release_workflow_gates_action_on_preflight() -> None:
     root = Path(__file__).resolve().parents[2]
     workflow = (root / ".github" / "workflows" / "release-please.yml").read_text(encoding="utf-8")
