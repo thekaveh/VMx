@@ -90,6 +90,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Breaking: the fire-and-forget `execute()` of `ConfirmationDecoratorCommand`
+  no longer runs the inner command inside its own call when the confirmation
+  is already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner
+  command now runs after `execute()` returns, or on another thread. A settled
+  confirmation now runs the inner command on a VMx worker thread. Migration:
+  code that needs the inner command to have run calls `execute_async()` and
+  waits for it, or waits for the inner command. The post hook of an outer
+  `wrap_with` decorator and a `succeed_with` successor now run before a
+  confirmed inner command.
 - Breaking: `GroupVmOptions` and `CompositeVmOptions` have a new
   `destruct_order` field, so code that builds them with a struct literal must
   now set it (#662).
@@ -149,11 +158,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
   spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet
   disposed reported true inside a disposal `can_execute_changed`
   notification, while its `execute` did nothing.
-- The fire-and-forget `execute()` of `ConfirmationDecoratorCommand` no longer
-  runs the inner command inside its own call when the confirmation is
-  already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner
-  command now runs after `execute()` returns, or on another thread. A settled
-  confirmation now runs the inner command on a VMx worker thread.
 - A fire-and-forget `AsyncRelayCommand` fault now reaches `error_stream()`
   after the completion `can_execute_changed` message (ADR-0195, spec/04
   §10.4, #1327, `CMD-020`). An error subscriber now reads `is_executing()` as

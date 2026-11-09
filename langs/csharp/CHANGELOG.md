@@ -8,12 +8,14 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
-- Fixed: the fire-and-forget `Execute()` of `ConfirmationDecoratorCommand` no
-  longer runs the inner command inside its own call when the confirmation is
-  already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner
-  command now runs after `Execute()` returns, or on another thread. A
-  completed confirmation now runs it on a thread-pool thread, not through the
-  caller's `SynchronizationContext`.
+- Changed: the fire-and-forget `Execute()` of `ConfirmationDecoratorCommand`
+  no longer runs the inner command inside its own call when the confirmation
+  is already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner
+  command now runs after `Execute()` returns, on a thread-pool thread, not
+  through the caller's `SynchronizationContext`. Migration: code that needs
+  the inner command to have run calls `ExecuteAsync()` and awaits it, or waits
+  for the inner command. The post hook of an outer decorator and a
+  `SucceedWith` successor now run before a confirmed inner command.
 - Added: `CMD-020` and `FORM-043` conformance tests (ADR-0195, ADR-0196,
   #1327). C# already behaved this way.
 - Changed: the README now states that a confirmed inner command, the

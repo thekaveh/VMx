@@ -252,7 +252,8 @@ ADR-0195). This holds also when `confirm()` returns a result that is already
 complete. The inner command then runs after `Execute()` returns, or on another
 thread. `Execute()` MAY call `confirm()` before it returns. The awaitable
 `ExecuteAsync()` path has no such rule. Chapter 11 §3.1 states the thread
-that runs the confirmed inner command.
+that runs the confirmed inner command. In C#, it can be a thread-pool thread,
+also when the caller has a `SynchronizationContext`.
 
 Because the synchronous `Execute` has already returned, a `confirm` delegate that
 rejects/raises and an `inner.Execute()` that throws have **no caller to propagate

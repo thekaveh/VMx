@@ -59,9 +59,12 @@ is the only uniform option: TypeScript and Python cannot run a continuation
 before the current call returns, because a resolved promise or a scheduled
 task always continues later.
 
-- C# defers the continuation when the confirmation is already complete, for
-  example with `await Task.Yield()`. `Task.Yield` posts to the caller's
-  `SynchronizationContext` when one exists, and to the thread pool otherwise.
+- C# moves the fire-and-forget flow to a thread-pool thread before it awaits
+  the confirmation. It uses an awaiter that does not capture the
+  `SynchronizationContext`. The move is unconditional, because another thread
+  can complete the confirmation between a completion check and the await. It
+  does not use `Task.Yield()`, because that posts to the caller's context
+  (§2.3).
 - Rust runs the continuation of an already settled confirmation on a VMx
   worker thread. A pending confirmation keeps its continuation on the thread
   that settles it, as before. The decorator still starts no task that
@@ -120,6 +123,9 @@ The catalog grows from 451 to 453 library IDs with this ADR.
 
 - A C# or Rust caller that relied on the inner command having run when
   `Execute()` returns must wait for it, or call `ExecuteAsync()`.
+- In C# and Rust, the post hook of an outer decorator and a successor command
+  (`SucceedWith` / `succeed_with`) now run before a confirmed inner command,
+  as in the other flavors.
 - Rust uses one short-lived worker thread for each fire-and-forget `execute()`
   whose confirmation is already settled.
 - A Rust `errors` subscriber now sees the command idle and can start the next

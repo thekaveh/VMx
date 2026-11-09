@@ -270,10 +270,10 @@ impl NotificationVm {
     ///
     /// The dismiss command, and every clone of it, becomes inert: its
     /// `can_execute` is `false` from the start of disposal and `execute` no
-    /// longer resolves the hub (spec/16 §6.2). The
-    /// lifespan clock stops, and a pending notification stays pending. A
-    /// first resolution stays authoritative, and a second call has no effect
-    /// (`DISP-004`). Disposal never disposes the hub.
+    /// longer resolves the hub (spec/16 §6.2). The lifespan clock stops, and
+    /// a pending notification stays pending. A first resolution stays
+    /// authoritative, and a second call has no effect (`DISP-004`). Disposal
+    /// never disposes the hub.
     pub fn dispose(&self) {
         if self.state.claim_dispose() {
             self.dismiss_command.dispose();
@@ -411,9 +411,10 @@ impl ConfirmationVm {
     /// The approve, reject and dismiss commands, and every clone of them,
     /// become inert: `can_execute` is `false` from the start of disposal,
     /// also inside the `can_execute_changed` notifications that disposal
-    /// raises, and `execute` no longer resolves the hub (spec/16 §6.2). A pending confirmation stays pending. A first
-    /// resolution stays authoritative, and a second call has no effect
-    /// (`DISP-004`). Disposal never disposes the hub.
+    /// raises, and `execute` no longer resolves the hub (spec/16 §6.2). A
+    /// pending confirmation stays pending. A first resolution stays
+    /// authoritative, and a second call has no effect (`DISP-004`). Disposal
+    /// never disposes the hub.
     pub fn dispose(&self) {
         if self.notification_vm.state.claim_dispose() {
             self.notification_vm.dismiss_command.dispose();
