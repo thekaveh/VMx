@@ -104,6 +104,21 @@ fn accepted(recorder: &MessageRecorder) -> Vec<Change> {
     recorder.messages().iter().filter_map(change_of).collect()
 }
 
+/// Sender names of the collection changes that `sender` publishes, in delivery
+/// order (spec/03 §1, ADR-0194).
+fn sender_names(hub: &MessageHub, sender: usize) -> (Arc<Mutex<Vec<String>>>, Subscription) {
+    let names = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&names);
+    let subscription = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            if change.sender_id == sender {
+                sink.lock().unwrap().push(change.sender_name.clone());
+            }
+        }
+    });
+    (names, subscription)
+}
+
 /// Runs one mutation and asserts it delivered exactly `expected` before
 /// returning.
 fn step(delivered: &Delivered, mutate: impl FnOnce(), expected: &[Change]) {
@@ -197,7 +212,7 @@ impl VmNode for Nested {
     }
 }
 
-/// COMP-042 — each effective composite mutation publishes one hub message sent by the composite
+/// COMP-042 — each effective composite mutation publishes one hub message sent by the composite, named by it
 #[test]
 fn comp_042_each_composite_mutation_publishes_one_hub_message() {
     let hub = MessageHub::new();
@@ -205,6 +220,7 @@ fn comp_042_each_composite_mutation_publishes_one_hub_message() {
     let id = parent.id();
     let [a, b, c, d] = ["a", "b", "c", "d"].map(|name| child(&hub, name));
     let delivered = Delivered::on(&hub);
+    let (names, _names) = sender_names(&hub, id);
 
     // Membership after each step is shown in the trailing comment.
     step(&delivered, || parent.add(a.clone()).unwrap(), &[add(id, 0)]); // [a]
@@ -233,6 +249,11 @@ fn comp_042_each_composite_mutation_publishes_one_hub_message() {
     step(&delivered, || parent.clear(), &[reset(id)]); // []
 
     assert_eq!(delivered.changes().len(), 8);
+    assert_eq!(
+        *names.lock().unwrap(),
+        vec!["parent"; 8],
+        "each message carries the container's name (ADR-0194)"
+    );
     assert!(parent.is_empty());
 }
 
@@ -464,7 +485,7 @@ fn comp_045_forwarding_wrapper_publishes_each_change_once() {
     assert!(parent.is_empty());
 }
 
-/// GRP-012 — each effective group mutation publishes one hub message sent by the group
+/// GRP-012 — each effective group mutation publishes one hub message sent by the group, named by it
 #[test]
 fn grp_012_each_group_mutation_publishes_one_hub_message() {
     let hub = MessageHub::new();
@@ -472,6 +493,7 @@ fn grp_012_each_group_mutation_publishes_one_hub_message() {
     let id = peers.id();
     let [a, b, c, d] = ["a", "b", "c", "d"].map(|name| child(&hub, name));
     let delivered = Delivered::on(&hub);
+    let (names, _names) = sender_names(&hub, id);
 
     // Membership after each step is shown in the trailing comment.
     step(&delivered, || peers.add(a.clone()).unwrap(), &[add(id, 0)]); // [a]
@@ -501,6 +523,11 @@ fn grp_012_each_group_mutation_publishes_one_hub_message() {
     step(&delivered, || peers.clear(), &[reset(id)]); // []
 
     assert_eq!(delivered.changes().len(), 8);
+    assert_eq!(
+        *names.lock().unwrap(),
+        vec!["peers"; 8],
+        "each message carries the container's name (ADR-0194)"
+    );
     assert!(peers.is_empty());
 }
 

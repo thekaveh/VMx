@@ -23,6 +23,8 @@ mod conformance {
     mod derived_properties;
     mod dialogs;
     mod dictionary_key_view_order;
+    mod dictionary_key_views_read_only;
+    mod dictionary_remove_replace_positions;
     mod discriminator;
     mod drop_reentry;
     mod expandable;
