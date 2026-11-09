@@ -78,6 +78,13 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._bind_subscription: DisposableBase | None = None
         # Inner approvals admitted so far; see ``_approve_form_async``.
         self._admissions = 0
+        # Save order (#1379): the number of the save each form runs, and the
+        # number of the latest save started for each note id. Only the latest
+        # save of a note refreshes its list row and rebinds the editor, so an
+        # older save that settles last never shows the older values.
+        self._saves_started = 0
+        self._form_saves: dict[FormVM[NoteModel], int] = {}
+        self._latest_saves: dict[str, int] = {}
         # Forms with an approval running, and forms already replaced by a
         # rebind whose disposal waits for that approval to settle. Disposing a
         # form mid-save suppresses its settlement (spec/20 §5.3), which would
@@ -404,9 +411,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
         if self._bind_subscription is not None:
             self._bind_subscription.dispose()
             self._bind_subscription = None
-        form = FormVM(
+        form: FormVM[NoteModel] = FormVM(
             initial=note,
-            persister=self._persist,
+            persister=lambda model: self._persist(form, model),
             hub=self._hub,
             strict=True,
             validators={"title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None},
@@ -528,8 +535,23 @@ class NoteFormVM(ComponentVM, IReconstructable):
 
     def _handle_approved(self, source: FormVM[NoteModel], model: NoteModel) -> None:
         self._emit_draft_changes()
+        if not self._settle_save(source, model.id):
+            # A newer save of this note started after this one. Its values
+            # are the ones the repository keeps, so this one shows nothing.
+            return
         self._on_saved.on_next(model)
         self._adopt_saved(source, model)
+
+    def _settle_save(self, source: FormVM[NoteModel], note_id: str) -> bool:
+        """Return ``True`` when *source* ran the latest save started for
+        *note_id*. Forget that save once it settles."""
+        save = self._form_saves.pop(source, None)
+        if save is None:
+            return True
+        if self._latest_saves.get(note_id) != save:
+            return False
+        del self._latest_saves[note_id]
+        return True
 
     def _adopt_saved(self, source: FormVM[NoteModel], saved: NoteModel) -> None:
         """Show a save that settled on a retired form (#761).
@@ -550,10 +572,18 @@ class NoteFormVM(ComponentVM, IReconstructable):
         if form is not None:
             form.deny_command.execute()
 
-    async def _persist(self, note: NoteModel) -> None:
+    async def _persist(self, form: FormVM[NoteModel], note: NoteModel) -> None:
         # The form calls its persister only for an admitted approval.
         self._admissions += 1
-        await self._repo.save_note(note)
+        self._saves_started += 1
+        self._form_saves[form] = self._saves_started
+        self._latest_saves[note.id] = self._saves_started
+        try:
+            await self._repo.save_note(note)
+        except BaseException:
+            # A failed save never settles, so it has no entry to keep.
+            self._form_saves.pop(form, None)
+            raise
 
     async def refresh_tag_suggestions_async(self) -> None:
         try:
