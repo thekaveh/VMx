@@ -633,6 +633,22 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static
     }
 
     /// Appends one page from an ad hoc loader and updates continuation state.
+    ///
+    /// This call does not check [`has_more()`](Self::has_more). The caller
+    /// supplies the loader, so the call calls it with the current
+    /// continuation token also when `has_more()` is false, and appends the
+    /// page that it returns (ADR-0169). The gated path is
+    /// [`load_more_command()`](Self::load_more_command) and
+    /// [`load_next()`](Self::load_next): a run of that command checks
+    /// `has_more()` when its load starts, and a run that finds a terminal
+    /// token fetches nothing and supersedes nothing.
+    ///
+    /// Each call starts a new operation. That operation supersedes every load
+    /// and refresh that started before it and is still in flight: their
+    /// results are discarded and do not commit. A load or refresh that starts
+    /// after this call supersedes it in the same way.
+    ///
+    /// After [`dispose()`](Self::dispose), the call does nothing.
     pub fn load_more<F>(&self, loader: F)
     where
         F: FnOnce(Option<Token>) -> (Vec<T>, Option<Token>),

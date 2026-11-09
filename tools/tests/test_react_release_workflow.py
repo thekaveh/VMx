@@ -307,7 +307,7 @@ def test_real_adapter_changelog_extracts_current_package_version(tmp_path: Path)
 def test_release_notes_remain_after_public_verification() -> None:
     assert "    needs: react-verify-published\n" in _job("react-release-notes")
     verification = _job("react-verify-published")
-    assert "    needs: react\n" in verification
+    assert "    needs: react-publish\n" in verification
     assert 'react: ["18.3.1", "19.2.8"]' in verification
     assert "dist.attestations --json | grep -q" in verification
     assert "'provenance'" in verification
@@ -322,7 +322,9 @@ def test_release_notes_remain_after_public_verification() -> None:
 def _run_core_prerequisite(
     tmp_path: Path, package: dict[str, object], npm_exit: int = 0, tag_version: str = "0.2.0"
 ):
-    step = _job("react").split("      - name: Verify tag and public core prerequisite\n", 1)[1]
+    step = _job("react-build").split("      - name: Verify tag and public core prerequisite\n", 1)[
+        1
+    ]
     script = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n      - ", 1)[0])
     adapter = tmp_path / "packages/react"
     adapter.mkdir(parents=True)

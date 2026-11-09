@@ -101,10 +101,10 @@ def test_test_tsconfig_uses_es2022_without_raising_production_target() -> None:
 
 def _typescript_release_jobs() -> str:
     workflow = _workflow("release.yml")
-    jobs = workflow.split("\n  typescript:\n", maxsplit=1)[1].split("\n  rust-test:\n", maxsplit=1)[
-        0
-    ]
-    assert "\n  rust-test:\n" not in jobs
+    jobs = workflow.split("\n  typescript-build:\n", maxsplit=1)[1].split(
+        "\n  react-build:\n", maxsplit=1
+    )[0]
+    assert "\n  react-build:\n" not in jobs
     return jobs
 
 
@@ -131,10 +131,19 @@ def test_release_runs_every_gate_before_publish() -> None:
         "python3 tools/check-typescript-package.py",
         "python3 tools/smoke-npm-consumer.py",
     ]
-    publish_index = jobs.index("name: Publish initial package with bootstrap token")
+    pack_index = jobs.index("npm pack --pack-destination /tmp/npm-release")
+    publish_job_index = jobs.index("\n  typescript-publish:\n")
 
-    assert all(jobs.index(command) < publish_index for command in required)
+    assert all(jobs.index(command) < pack_index for command in required)
+    assert pack_index < publish_job_index
     assert "--package-dir langs/typescript" in jobs
+    # #1333: the publish job installs only the npm CLI and publishes the packed tarball.
+    publish_job = jobs[publish_job_index:].split("\n  typescript-verify-published:\n", 1)[0]
+    assert "needs: [typescript-build, release-metadata]" in publish_job
+    assert "name: typescript-release-${{ github.run_id }}" in publish_job
+    assert '"@thekaveh/vmx@${tag_version}"' in publish_job
+    for command in required:
+        assert command not in publish_job
 
 
 def test_release_has_mutually_exclusive_bootstrap_and_oidc_publish_steps() -> None:
@@ -142,10 +151,10 @@ def test_release_has_mutually_exclusive_bootstrap_and_oidc_publish_steps() -> No
 
     assert "if: steps.npm-auth.outputs.bootstrap == 'true'" in jobs
     assert "NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}" in jobs
-    assert "npm publish --access public --provenance" in jobs
+    assert 'npm publish "$TARBALL" --access public --provenance' in jobs
     assert "name: Publish with npm trusted publishing" in jobs
     assert "if: steps.npm-auth.outputs.bootstrap != 'true'" in jobs
-    assert "npm publish --access public" in jobs
+    assert 'npm publish "$TARBALL" --access public\n' in jobs
 
 
 def test_release_polls_public_package_and_provenance_on_supported_node_lines() -> None:

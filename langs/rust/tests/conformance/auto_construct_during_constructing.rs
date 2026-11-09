@@ -230,6 +230,7 @@ trait Container {
     /// Runs `hook` after the construct walk's last late scan and before the
     /// commit: through the selector for a composite, which runs there, and
     /// through a test-only probe for a group, which has no selector.
+    #[cfg(feature = "test-seams")]
     fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>);
     /// Whether the container's reconstruct command can execute now.
     fn reconstruct_can_execute(&self) -> bool;
@@ -262,6 +263,7 @@ impl Container for CompositeVm<Node> {
     fn len(&self) -> usize {
         CompositeVm::len(self)
     }
+    #[cfg(feature = "test-seams")]
     fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>) {
         self.set_current_selector(move |_| {
             hook();
@@ -303,6 +305,7 @@ impl Container for GroupVm<Node> {
     fn reconstruct_can_execute(&self) -> bool {
         Command::can_execute(&self.reconstruct_command())
     }
+    #[cfg(feature = "test-seams")]
     fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>) {
         self.set_last_scan_probe_for_testing(move || hook());
     }
@@ -1235,6 +1238,7 @@ fn group_walk_waits_for_late_child_its_add_is_still_attaching() {
 /// runs the walk (`cross_thread` false) or from another thread the hook joins.
 /// The container must reach `Constructed` only after `late` does
 /// (spec/02 §6, spec/06 §5.1); the hook runs once (spec/06 §3.2).
+#[cfg(feature = "test-seams")]
 fn add_after_last_scan<C>(cross_thread: bool)
 where
     C: Container + Clone + Send + Sync + 'static,
@@ -1298,21 +1302,25 @@ where
     constructed_after_late(&log, &at_constructed);
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn composite_waits_for_child_added_after_last_scan_on_the_walk_thread() {
     add_after_last_scan::<CompositeVm<Node>>(false);
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn composite_waits_for_child_added_after_last_scan_from_another_thread() {
     add_after_last_scan::<CompositeVm<Node>>(true);
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn group_waits_for_child_added_after_last_scan_on_the_walk_thread() {
     add_after_last_scan::<GroupVm<Node>>(false);
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn group_waits_for_child_added_after_last_scan_from_another_thread() {
     add_after_last_scan::<GroupVm<Node>>(true);
