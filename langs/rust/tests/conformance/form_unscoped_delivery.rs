@@ -5,6 +5,8 @@
 //!   eligibility change, or an `approve_errors` send. These open no scope, so
 //!   thread B's `dispose()` does not wait. It marks the form disposed and
 //!   returns, and the channels complete only after A's delivery returns.
+//! - #1292: when threads A and C both deliver outside a scope, the deferred
+//!   teardown runs on the thread whose delivery ends last.
 //! - #1231: a validator registration revalidates as an update. It waits for
 //!   another thread's publication scope and sends `errors_changed` in its own
 //!   scope.
@@ -256,6 +258,133 @@ fn a_dispose_from_an_update_eligibility_observer_completes_the_channels_when_it_
     form.set_model(-1);
     assert_eq!(*completed_in_observer.lock().unwrap(), Some(false));
     assert!(completion.all(), "the update completes the channels");
+}
+
+/// One thread's blocking point in an observer: it signals once the observer
+/// runs on that thread, then waits, bounded, until the test releases it.
+struct Gate {
+    thread: Mutex<Option<ThreadId>>,
+    entered: Mutex<Option<mpsc::Sender<()>>>,
+    release: Mutex<mpsc::Receiver<()>>,
+}
+
+impl Gate {
+    fn new() -> (Arc<Self>, mpsc::Receiver<()>, mpsc::Sender<()>) {
+        let (entered_tx, entered) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        let gate = Arc::new(Self {
+            thread: Mutex::new(None),
+            entered: Mutex::new(Some(entered_tx)),
+            release: Mutex::new(release_rx),
+        });
+        (gate, entered, release)
+    }
+
+    /// Blocks the first call on this gate's thread. Returns whether it did.
+    fn pass(&self) -> bool {
+        if *self.thread.lock().unwrap() != Some(thread::current().id()) {
+            return false;
+        }
+        let Some(entered) = self.entered.lock().unwrap().take() else {
+            return false;
+        };
+        entered.send(()).unwrap();
+        // A dropped sender also releases the thread.
+        let _ = self.release.lock().unwrap().recv_timeout(BOUND);
+        true
+    }
+}
+
+/// #1292 — thread A delivers an `approve_errors` send and thread C an
+/// update's eligibility change, each outside a scope, and thread B's
+/// `dispose()` defers its teardown. The teardown runs when no delivery
+/// remains on any thread, on the thread that ends the last one: when A
+/// returns first, no channel completes, and the channels complete on C when
+/// C returns. (A hub delivers one message at a time, so the two deliveries
+/// use two hubs.)
+#[test]
+fn a_deferred_teardown_runs_on_the_thread_that_ends_the_last_delivery() {
+    let form = form(|_| Err(VmxError::Other("persist failed".to_string())));
+    let completion = Completion::watch(&form);
+    let completed_on = Arc::new(Mutex::new(None::<ThreadId>));
+    let _completed_on = form.errors_changed().subscribe_with_completion(|_| {}, {
+        let completed_on = Arc::clone(&completed_on);
+        move || *completed_on.lock().unwrap() = Some(thread::current().id())
+    });
+    let (gate_a, entered_a, release_a) = Gate::new();
+    let (gate_c, entered_c, release_c) = Gate::new();
+    let completed_on_a_return = Arc::new(Mutex::new(None::<bool>));
+    let _approve_errors = form.approve_errors().subscribe({
+        let gate_a = Arc::clone(&gate_a);
+        let completed_on_a_return = Arc::clone(&completed_on_a_return);
+        let errors_changed = Arc::clone(&completion.errors_changed);
+        let approve_errors = Arc::clone(&completion.approve_errors);
+        move |_| {
+            if gate_a.pass() {
+                *completed_on_a_return.lock().unwrap() = Some(
+                    errors_changed.load(Ordering::SeqCst) || approve_errors.load(Ordering::SeqCst),
+                );
+            }
+        }
+    });
+    let _eligibility = form.approve_command().can_execute_changed().subscribe({
+        let gate_c = Arc::clone(&gate_c);
+        move |_| {
+            gate_c.pass();
+        }
+    });
+
+    let spawn_on = |gate: &Arc<Gate>, call: fn(&FormVm<i32>)| {
+        let (form, gate) = (form.clone(), Arc::clone(gate));
+        thread::spawn(move || {
+            *gate.thread.lock().unwrap() = Some(thread::current().id());
+            call(&form);
+            thread::current().id()
+        })
+    };
+    let a = spawn_on(&gate_a, |form| form.approve_command().execute());
+    entered_a
+        .recv_timeout(BOUND)
+        .expect("A's observer runs on A");
+    // The failed approval is no longer in flight, so C's update, which makes
+    // the model invalid, changes the approval eligibility.
+    let c = spawn_on(&gate_c, |form| form.set_model(-1));
+    entered_c
+        .recv_timeout(BOUND)
+        .expect("C's observer runs on C");
+
+    let deadline = Instant::now() + BOUND;
+    let b = thread::spawn({
+        let form = form.clone();
+        move || form.dispose()
+    });
+    join_by(b, deadline, "B's dispose()");
+    assert!(
+        !completion.any(),
+        "B's dispose() completed a channel during A's and C's deliveries"
+    );
+
+    drop(release_a);
+    join_by(a, deadline, "A");
+    assert_eq!(
+        *completed_on_a_return.lock().unwrap(),
+        Some(false),
+        "a channel completed before A's observer returned"
+    );
+    assert!(
+        !completion.any(),
+        "a channel completed when A returned while C still delivers"
+    );
+
+    drop(release_c);
+    let c_id = join_by(c, deadline, "C");
+    assert!(completion.all(), "the channels complete when C returns");
+    assert_eq!(
+        *completed_on.lock().unwrap(),
+        Some(c_id),
+        "the teardown runs on C, the thread that ends the last delivery"
+    );
+    assert_eq!(form.model(), -1, "C's update committed");
 }
 
 /// #1231 — thread A holds a settlement scope in an approval subscriber.

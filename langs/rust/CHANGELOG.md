@@ -144,6 +144,22 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The `FormVm::dispose()` rustdoc now states the deferred-teardown rule
+  (#1292). After a refused wait, or while a delivery outside a publication
+  scope is in progress, the teardown runs when no publication and no delivery
+  remains on any thread, on the thread that ends the last one. Before, the
+  rustdoc named the publishing or delivering thread that the disposal found.
+  It also lists a validator registration's notifications as a delivery
+  outside a scope. A new test keeps deliveries open on two threads and checks
+  that the channels complete on the thread whose delivery ends last. The code
+  does not change.
+- The `FormVm` rustdoc now states the limit of a re-entrant model `Clone`
+  (#1279). The form runs `M::clone` under the lock of the live model or the
+  snapshot, and these locks are not re-entrant. A model `Clone` that calls
+  `model()`, `snapshot()`, `is_dirty()` or `set_model()` on its own form and
+  thread never returns, and nor does `can_approve()` in strict mode. A model
+  `Clone` can read `is_valid()`, `errors()`, `error_map()` and
+  `field_error()`. The code does not change.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
