@@ -301,3 +301,55 @@ def test_builder_vm_factory_builds_subclass() -> None:
     )
     assert isinstance(node, _FactoryNode)
     assert node.model.tag == "root"
+
+
+# ---------------------------------------------------------------------------
+# Disposed nodes (spec/18 §7.1, ADR-0190)
+# ---------------------------------------------------------------------------
+
+
+class TestDisposedNodeRefusal:
+    def test_transfer_out_of_disposed_parent_does_not_materialize_the_receiver(self) -> None:
+        hub = make_hub()
+        child = leaf(hub, "child")
+        old = parent_of([child], hub)
+        _ = old.children
+        old.dispose()
+        calls: list[Node] = []
+        receiver = Node(children_factory=lambda node: calls.append(node) or [], hub=hub)
+
+        with pytest.raises(RuntimeError):
+            receiver.add_child(child)
+
+        assert calls == []
+        assert child.parent is old
+
+    def test_disposed_unmaterialized_node_refuses_invalidation_without_materializing(
+        self,
+    ) -> None:
+        calls: list[Node] = []
+        node = Node(children_factory=lambda vm: calls.append(vm) or [])
+        node.dispose()
+
+        with pytest.raises(RuntimeError):
+            node.invalidate_children()
+        with pytest.raises(RuntimeError):
+            node.invalidate_subtree()
+        with pytest.raises(RuntimeError):
+            node.remove_child(leaf())
+
+        assert calls == []
+
+    def test_live_parent_can_remove_and_invalidate_a_disposed_child(self) -> None:
+        hub = make_hub()
+        first, second = leaf(hub, "first"), leaf(hub, "second")
+        root = parent_of([first, second], hub)
+        _ = root.children
+        first.dispose()
+        second.dispose()
+
+        root.remove_child(first)
+        root.invalidate_children()
+
+        assert first.parent is None
+        assert second.parent is None
