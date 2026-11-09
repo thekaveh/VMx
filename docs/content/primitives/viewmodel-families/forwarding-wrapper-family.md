@@ -56,9 +56,9 @@ A decorator subclass reports a property change through the same identity. The
 dual-channel helper sends one hub message whose sender is the wrapped VM, and
 the decorator's property-changed stream, which is the wrapped VM's stream,
 emits the name once. The local-only raise primitive sends no hub message.
-After the wrapped VM is disposed, the dual-channel helper emits nothing. C#
+After the wrapped VM is disposed, neither helper emits anything. C#
 decorators expose protected `NotifyPropertyChanged` and `RaisePropertyChanged`
-(`FWD-006`, ADR-0221).
+(`FWD-006`, ADR-0221, ADR-0223).
 
 ## 6.2.7.3. Lifecycle And Messaging
 

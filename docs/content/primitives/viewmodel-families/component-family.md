@@ -296,7 +296,8 @@ current value. A call begun after disposal is inert, while a call admitted
 before disposal completes both channels even if a hub observer disposes the VM.
 Property names follow the flavor idiom (`ActiveTab`, `active_tab`, or
 `activeTab`). The lower-level local-only raise primitive stays available for
-framework lifecycle properties that deliberately do not publish to the hub.
+framework lifecycle properties that deliberately do not publish to the hub. A
+call to it after disposal is also a no-op (ADR-0223).
 
 Ordinary top-level delivery is observed hub first. Inside a hub transaction or
 re-entrant drain, the hub queues its delivery, so a local observer may run
