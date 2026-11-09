@@ -8,6 +8,8 @@ page's client.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from nicegui import ui
 from notes_showcase.viewmodels.note_vm import NoteVM
 from notes_showcase.viewmodels.notebook_vm import NotebookVM
@@ -16,6 +18,7 @@ from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
 from notes_showcase.viewmodels.notifications_vm import NotificationsVM
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
 from reactivex.abc import DisposableBase
+from vmx.notifications import NotificationVM
 
 from nicegui_notes.adapter import (
     bind_command,
@@ -49,9 +52,9 @@ def _error_text(error: object) -> str:
     return str(error) if error else ""
 
 
-def _notifications_text(visible: object) -> str:
+def _notifications_text(visible: Iterable[NotificationVM]) -> str:
     """One line per active notification, as in the Textual strip."""
-    return "\n".join(vm.notification.message for vm in visible)  # type: ignore[attr-defined]
+    return "\n".join(vm.notification.message for vm in visible)
 
 
 def notifications_strip(notifications: NotificationsVM) -> DisposableBase:
