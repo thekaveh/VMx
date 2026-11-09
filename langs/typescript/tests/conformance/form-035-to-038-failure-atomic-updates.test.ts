@@ -501,6 +501,7 @@ describe("FORM-037", () => {
     const hub = new MessageHub();
     const runs: string[] = [];
     const nestedModel = m("b");
+    const order: string[] = [];
     let reentered = false;
     let form: FormVM<Model>;
     form = new FormVM<Model>({
@@ -515,15 +516,19 @@ describe("FORM-037", () => {
           if (model.value === "a" && !reentered) {
             reentered = true;
             form.setModel(nestedModel);
+            order.push("nested returned");
           }
           return model.value === "b" ? "taken" : null;
         },
       },
     });
     const signals = record(form, hub);
+    form.errorsChanged.subscribe(() => order.push("errors"));
 
     form.setModel(m("a"));
 
+    // The nested call returns before its notifications (ADR-0180).
+    expect(order).toEqual(["nested returned", "errors"]);
     // The outer preparation ran on "a"; the nested call prepared and committed "b".
     expect(runs).toEqual(["initial", "a", "b"]);
     expect(form.model).toBe(nestedModel);

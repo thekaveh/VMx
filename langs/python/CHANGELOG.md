@@ -69,6 +69,18 @@ below for them.
 
 ### Fixed
 
+- A `FormVM` call nested in a preparation callback or an `errors_changed`
+  observer of `set_model` or deny now returns before its notifications
+  (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,
+  `approve_async` and `approve_command.execute()`. The outermost update sends
+  them before it returns, with no lock held: error maps first, in commit
+  order, then the other notifications. A nested approval schedules its
+  persister after that. A nested call no longer waits for another thread's
+  publication scope; it takes the refused-wait result. Queued notifications
+  are dropped once the form is disposed.
+- A `dispose()` after an approval is admitted, but before its scheduled
+  persister task starts, now prevents the persister call (ADR-0180, spec/20
+  §10, #1173). The approval settles silently.
 - `CompositeVM.__setitem__` keeps the replaced child owned until the commit
   (#1219). The commit now frees the child and clears `current` in one locked
   section. Before, the method freed the child first and cleared `current`

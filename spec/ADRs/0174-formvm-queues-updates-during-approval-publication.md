@@ -1,6 +1,6 @@
 # ADR 0174 — `FormVM` queues updates made during approval publication and replays them after `OnApproved`
 
-- **Status:** Accepted (Extended by ADR-0176)
+- **Status:** Accepted (Extended by ADR-0176 and ADR-0180)
 - **Date:** 2026-11-07
 - **Spec version:** 3.30.0 (chapter 20 §5.1, §5.3, and §5.4)
 

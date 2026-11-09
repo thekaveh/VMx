@@ -72,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVM` approval started from a preparation callback or an
+  `errorsChanged` sink of `setModel` or deny now starts its persister after
+  the outermost update sends all queued notifications (ADR-0180, spec/20
+  §5.4, #1173). Before, it started in queue order, before the outermost
+  update's own notifications. Queued notifications of nested calls are now
+  dropped once the form is disposed; before, they could arrive after
+  `dispose()`.
 - A `FormVM` call that waits for another thread's publication scope is now
   recorded in the one wait-for graph (ADR-0176, spec/20 §5.5, #1170). Before,
   a sink that sent on a hub while another thread drained it could hang both

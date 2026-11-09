@@ -33,6 +33,7 @@ mod conformance {
     mod form_approval_update_queue;
     mod form_failure_atomic_updates;
     mod form_model_hub_publication;
+    mod form_nested_update_notifications;
     mod form_publication_wait_cycle;
     mod form_reader_consistency;
     mod form_unscoped_delivery;

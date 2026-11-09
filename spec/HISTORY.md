@@ -690,6 +690,19 @@ changes the entries and `Count`, then the key views that change, then raises the
 dictionary events and sends the hub message. The order of the two key-view
 notifications is not specified, so a key-view handler must not rely on the
 other view (`COL-067`). No flavor changes behavior. The catalog now contains
-446 library IDs plus 5 scenario IDs.
+449 library IDs plus 5 scenario IDs.
 
 See ADR-0177 and chapter 21 §4.2.
+
+v3.30.0 also defines when a `FormVM` update nested in a form callback notifies.
+A `SetModel`, deny, or approve call made from a preparation callback, or from an
+`ErrorsChanged` observer of `SetModel` or deny, does its state work at once. It
+sends no notification before it returns. The outermost update on the thread
+sends the queue before it returns, with no form lock held: error maps first, in
+commit order, then the other notifications. A nested approval's persister
+starts after the queue. A nested call never waits for another thread's
+publication scope. Disposal drops queued notifications, and a `Dispose()`
+before a persister starts prevents the persister call (`FORM-041`,
+`FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
+
+See ADR-0180 and chapter 20 §5.4 and §10.

@@ -84,6 +84,7 @@ tests/conformance/filtered_composite.rs
 tests/conformance/form_approval_admission.rs
 tests/conformance/form_approval_update_queue.rs
 tests/conformance/form_model_hub_publication.rs
+tests/conformance/form_nested_update_notifications.rs
 tests/conformance/form_approval_subscription.rs
 tests/conformance/form_failure_atomic_updates.rs
 tests/conformance/form_publication_wait_cycle.rs

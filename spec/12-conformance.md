@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 449 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 451 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -4239,6 +4239,74 @@ Swift callbacks cannot fail, so a Swift test covers only the call-time
 equality and replay-order clauses.
 
 > Spec: `20-form-vm.md §5.3/§5.4`, ADR-0174.
+
+### FORM-041 — a nested update notifies after it returns
+
+**Given** a valid, non-strict `FormVM<TM>` whose validator rejects `b` and,
+when it first sees `a`, calls `SetModel(b)` and then logs `nested returned`
+**And** observers that log each `ErrorsChanged`,
+`ApproveCommand.CanExecuteChanged`, `FormRevertedMessage`, and model
+`PropertyChangedMessage`
+**When** `SetModel(a)` is called, and the test logs `outer returned` after it
+returns
+**Then** the log is `nested returned`, `ErrorsChanged`, `CanExecuteChanged`,
+the model message, `outer returned`
+**And** `Model == b`, and `Errors` holds the error for `b` (`FORM-037`)
+
+**Given** a non-strict form whose validator rejects `x` and, when it first sees
+`a`, calls `DenyCommand.Execute()` and then logs `nested returned`
+**And** `Model` was set to `x`, so the form is dirty and invalid
+**When** `SetModel(a)` is called, and the test logs `outer returned` after it
+returns
+**Then** the log is `nested returned`, `ErrorsChanged`, `FormRevertedMessage`,
+the model message, `CanExecuteChanged`, `outer returned`
+**And** `Model` equals `Snapshot`, and `IsValid == true`
+
+**Given** a valid, non-strict form whose validator rejects `a`, and an
+`ErrorsChanged` observer that, on the first map it receives, calls
+`SetModel(c)` and then logs `nested returned`
+**When** `SetModel(a)` is called, and the test logs `outer returned` after it
+returns
+**Then** the log is `ErrorsChanged`, `nested returned`, `ErrorsChanged`,
+`CanExecuteChanged`, the model message, `CanExecuteChanged`, the model
+message, `outer returned`
+**And** the first map holds the error for `a`, the second map is empty, and
+`Model == c`
+
+In Rust, `errors_changed` carries no map, so the test reads `error_map()` when
+the notification arrives.
+
+> Spec: `20-form-vm.md §5.2/§5.4/§5.5`, ADR-0180.
+
+### FORM-042 — disposal before the persister starts prevents the persister call
+
+**Given** a valid, non-strict `FormVM<TM>` whose persister counts its calls,
+with counters on `ErrorsChanged`, `ApproveCommand.CanExecuteChanged`, model
+`PropertyChangedMessage`, `OnApproved`, and `ApproveErrors`
+**And** a validator that, when it first sees `trigger`, calls
+`ApproveCommand.Execute()` and then `Dispose()`
+**When** `SetModel(trigger)` is called and the test then waits a bounded time
+**Then** the persister was never called
+**And** no counter changed
+
+**Given** the same form with a validator that, when it first sees `a`, calls
+`SetModel(b)` and then `Dispose()`
+**When** `SetModel(a)` is called
+**Then** no `ErrorsChanged`, `CanExecuteChanged`, or model message is
+delivered
+
+**Given** the same form without these validators
+**When** `ApproveCommand.Execute()` returns, the test reads the persister call
+count `n`, then calls `Dispose()`, and then waits a bounded time
+**Then** the persister call count is still `n`
+
+In C#, TypeScript, and Rust, the command path calls the persister before
+`Execute()` returns, so `n == 1`. Python and Swift start the persister in a
+scheduled task. Their test calls `Dispose()` before that task runs, so
+`n == 0`: Python in the same event-loop turn, with a running loop, and Swift
+with the task start held back until `dispose()` returns.
+
+> Spec: `20-form-vm.md §5.3/§5.4/§10`, ADR-0180.
 
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 

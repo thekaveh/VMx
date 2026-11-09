@@ -267,8 +267,12 @@ public final class FormVM<Model> {
     /// disposal waits until this call has committed. If a callback re-enters
     /// on this thread and disposes the form or commits another update, this
     /// call commits and publishes nothing, and the newest committed state
-    /// stands. The notifications of an update made from such a callback are
-    /// delivered after this call releases the form's state lock (#1057).
+    /// stands. An update or approval made from such a callback, or from an
+    /// `errorsChanged` sink of this call, returns before its notifications.
+    /// This call delivers them after it releases the form's state lock and
+    /// before it returns, then starts the persister of such an approval. Once
+    /// the form is disposed, those queued notifications are dropped (§5.4,
+    /// #1057, ADR-0180).
     ///
     /// Called on the approving thread from `resetOnApproved`, another
     /// callback of the approval's commit, or a settlement `errorsChanged` or
@@ -332,16 +336,16 @@ public final class FormVM<Model> {
         enterPublicationLocked()
         notices.scopes += 1
         if errorsChanged {
-            notices.errors.append(nextErrors)
+            notices.errors.append(Queued(nextErrors))
         }
         if canExecuteChanged {
-            notices.afterScope.append(.canExecuteChanged)
+            notices.afterScope.append(Queued(.canExecuteChanged))
         }
-        notices.afterScope.append(.message(PropertyChangedMessage(
+        notices.afterScope.append(Queued(.message(PropertyChangedMessage(
             sender: self,
             senderName: "FormVM",
             propertyName: "model"
-        )))
+        ))))
     }
 
     // ── Async core ────────────────────────────────────────────────────────────
@@ -469,14 +473,14 @@ public final class FormVM<Model> {
         enterPublicationLocked()
         notices.scopes += 1
         if errorsChanged {
-            notices.errors.append(nextErrors)
+            notices.errors.append(Queued(nextErrors))
         }
-        notices.afterScope.append(.message(FormRevertedMessage(senderObject: self, senderName: "FormVM")))
-        notices.afterScope.append(.message(
+        notices.afterScope.append(Queued(.message(FormRevertedMessage(senderObject: self, senderName: "FormVM"))))
+        notices.afterScope.append(Queued(.message(
             PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model")
-        ))
+        )))
         if canExecuteChanged {
-            notices.afterScope.append(.canExecuteChanged)
+            notices.afterScope.append(Queued(.canExecuteChanged))
         }
     }
 
@@ -489,14 +493,34 @@ public final class FormVM<Model> {
     /// because a sink that updates the form waits for an open scope. An
     /// approval's own settlement scope can still be open around it.
     private struct Notices {
-        var errors: [[String: String]] = []
+        var errors: [Queued<[String: String]>] = []
         var scopes = 0
-        var afterScope: [Notice] = []
+        var afterScope: [Queued<Notice>] = []
 
         mutating func append(_ other: Notices) {
             errors += other.errors
             scopes += other.scopes
             afterScope += other.afterScope
+        }
+
+        /// These notices, marked as queued by a nested call (§5.4).
+        func markedNested() -> Notices {
+            var marked = self
+            marked.errors = errors.map { Queued($0.value, nested: true) }
+            marked.afterScope = afterScope.map { Queued($0.value, nested: true) }
+            return marked
+        }
+    }
+
+    /// A notice and whether a nested call queued it. Once the form is
+    /// disposed, `deliver` drops the notices of nested calls (ADR-0180).
+    private struct Queued<Value> {
+        let value: Value
+        let nested: Bool
+
+        init(_ value: Value, nested: Bool = false) {
+            self.value = value
+            self.nested = nested
         }
     }
 
@@ -510,23 +534,33 @@ public final class FormVM<Model> {
     /// nested in an update on this thread queues `notices` for the outermost
     /// one and returns nothing. The outermost frame takes the whole queue.
     /// Inside the error-map phase of a delivery on this thread, the outermost
-    /// frame queues that queue for the delivery instead.
+    /// frame queues that queue for the delivery instead. Both cases mark the
+    /// queued notices as nested.
     private func takeNoticesLocked(_ notices: Notices) -> Notices {
+        guard preparationDepth == 0 else {
+            pendingNotices.append(notices.markedNested())
+            return Notices()
+        }
         pendingNotices.append(notices)
-        guard preparationDepth == 0 else { return Notices() }
         let delivery = pendingNotices
         pendingNotices = Notices()
         let caller = Self.currentThread
         guard !scopedDeliveryThreads.contains(caller) else {
-            scopedNotices[caller, default: Notices()].append(delivery)
+            scopedNotices[caller, default: Notices()].append(delivery.markedNested())
             return Notices()
         }
         return delivery
     }
 
     /// Delivers notifications taken by `takeNoticesLocked`, with `stateGate`
-    /// released. When this closes the thread's outermost scope, the updates
-    /// queued for this publisher replay after the last notification (§5.5).
+    /// released. Command-path approvals admitted by nested calls start their
+    /// persister tasks after the last notification (ADR-0180). When this
+    /// closes the thread's outermost scope, the updates queued for this
+    /// publisher replay after that (§5.5).
+    ///
+    /// Once the form is disposed, a notice that a nested call queued is
+    /// dropped, and its scopes still close. A dropped approval start settles
+    /// silently and never calls the persister (§10).
     private func deliver(_ notices: Notices) {
         var notices = notices
         let caller = Self.currentThread
@@ -534,7 +568,10 @@ public final class FormVM<Model> {
             withStateGate { _ = scopedDeliveryThreads.insert(caller) }
             var sent = 0
             while sent < notices.errors.count {
-                _errorsChanged.send(notices.errors[sent])
+                let errors = notices.errors[sent]
+                if !errors.nested || !isDisposed {
+                    _errorsChanged.send(errors.value)
+                }
                 sent += 1
                 if sent == notices.errors.count {
                     // An `errorsChanged` sink may have updated the form on
@@ -551,17 +588,33 @@ public final class FormVM<Model> {
         for _ in 0..<notices.scopes {
             deferred += exitPublication()
         }
+        var starts: [ApprovalAdmission] = []
         for notice in notices.afterScope {
-            switch notice {
+            if notice.nested, isDropped(notice.value) { continue }
+            switch notice.value {
             case .canExecuteChanged:
                 _approveCanExecSubject.send(())
             case .message(let message):
                 hub.send(message)
             case .startApproval(let admission):
-                startCommandApproval(admission)
+                starts.append(admission)
             }
         }
+        for admission in starts {
+            startCommandApproval(admission)
+        }
         replay(deferred)
+    }
+
+    /// `true` when the form is disposed, so a nested call's queued `notice`
+    /// is dropped (ADR-0180). A dropped approval start clears the in-flight
+    /// mark, as `runApproval` does on a disposed form.
+    private func isDropped(_ notice: Notice) -> Bool {
+        withStateGate {
+            guard _disposed else { return false }
+            if case .startApproval = notice { approvalInFlight = false }
+            return true
+        }
     }
 
     /// The committed state an update prepares against (§5.4). `queued`
@@ -661,7 +714,8 @@ public final class FormVM<Model> {
     ///
     /// The command path passes `startingCommandTask` to start its persister
     /// task after that notification. An admission nested in an update on
-    /// this thread queues both for the outermost update (#1057).
+    /// this thread queues both for the outermost update (#1057), which starts
+    /// the task after all its other notifications (ADR-0180).
     ///
     /// Admission waits while another thread holds a publication scope. A
     /// wait that would close a wait-for cycle is refused, and the call is
@@ -679,9 +733,9 @@ public final class FormVM<Model> {
         activeMutations += 1
         let admission = ApprovalAdmission(captured: _model)
         var notices = Notices()
-        notices.afterScope.append(.canExecuteChanged)
+        notices.afterScope.append(Queued(.canExecuteChanged))
         if startingCommandTask {
-            notices.afterScope.append(.startApproval(admission))
+            notices.afterScope.append(Queued(.startApproval(admission)))
         }
         let delivery = takeNoticesLocked(notices)
         stateGate.unlock()
@@ -690,10 +744,16 @@ public final class FormVM<Model> {
         return admission
     }
 
+    /// Starts the task of a command-path approval. Tests replace it to hold
+    /// the start back until `dispose()` returns (FORM-042).
+    internal var commandApprovalTaskStarter: (@escaping @Sendable () async -> Void) -> Void = { operation in
+        Task { await operation() }
+    }
+
     /// Runs a command-path approval; a failure surfaces on ``approveErrors``.
     private func startCommandApproval(_ admission: ApprovalAdmission) {
         let context = UncheckedSendableBox((self, admission))
-        Task { [context] in
+        commandApprovalTaskStarter { [context] in
             let (form, admitted) = context.value
             do {
                 try await form.runApproval(admitted)

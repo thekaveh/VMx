@@ -344,6 +344,7 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
     public void FORM_037_A_Nested_SetModel_From_A_Validator_Wins()
     {
         FormVM<Model>? form = null;
+        Probe<Model>? trace = null;
         var nestedCalls = 0;
         var validated = new List<string>();
         var validators = new Dictionary<string, Func<Model, string?>>
@@ -351,7 +352,11 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
             ["Value"] = model =>
             {
                 validated.Add(model.Value);
-                if (model.Value == "a" && nestedCalls++ == 0) form!.SetModel(new Model("b"));
+                if (model.Value == "a" && nestedCalls++ == 0)
+                {
+                    form!.SetModel(new Model("b"));
+                    trace!.Trace.Add("nested returned");
+                }
                 return model.Value == "b" ? "b is rejected" : null;
             },
         };
@@ -364,7 +369,7 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
             snapshotter: model => model,
             validators: validators);
         using var disposeForm = form;
-        using var probe = new Probe<Model>(form, hub);
+        using var probe = trace = new Probe<Model>(form, hub);
         validated.Clear();
 
         form.SetModel(new Model("a"));
@@ -374,8 +379,8 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         var nested = new FormState<Model>(new Model("b"), new Model("initial"), "Value=b is rejected", true, false, false);
         StateOf(form).Should().Be(nested, "the nested assignment is the newest committed state");
         probe.Trace.Should().Equal(
-            ["errors:Value=b is rejected", "can_execute", "model"],
-            "only the nested assignment commits and publishes; the outer call publishes nothing after it");
+            ["nested returned", "errors:Value=b is rejected", "can_execute", "model"],
+            "only the nested assignment commits and publishes, after it returns (ADR-0180); the outer call adds nothing");
         probe.Observed.Should().Equal(nested);
 
         // The form stays usable after the abandoned outer call.
@@ -385,10 +390,13 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         probe.Trace.Should().Equal("errors:", "can_execute", "model");
     }
 
-    // Deny and an approval commit made from a validator are also "another update
-    // committed during preparation" (spec/20 §5.4): the outer SetModel is stale.
+    // A deny made from a validator is also "another update committed during
+    // preparation" (spec/20 §5.4): the outer SetModel is stale. An approval
+    // started from a validator only admits there; its persister starts after
+    // the outer SetModel commits and notifies, so the approval races that
+    // assignment like any edit during persistence (§5.3, ADR-0180).
     [Fact]
-    public async Task A_Nested_Deny_Or_Approval_Commit_From_A_Validator_Also_Wins()
+    public async Task A_Nested_Deny_Wins_And_A_Nested_Approval_Races_The_Outer_Assignment()
     {
         FormVM<Model>? form = null;
         Action? reenter = null;
@@ -436,12 +444,12 @@ public sealed class FORM_035_to_038_FailureAtomicUpdates_Tests
         form.SetModel(new Model("a"));
         approval.Should().NotBeNull();
         await approval!;
-        StateOf(form).Should().Be(new FormState<Model>(new Model("edited"), new Model("edited"), "", false, true, true));
+        StateOf(form).Should().Be(new FormState<Model>(new Model("a"), new Model("edited"), "", true, true, true));
         persisted.Should().Equal(new Model("edited"));
         approved.Should().Equal(new Model("edited"));
         probe.Trace.Should().Equal(
-            ["can_execute", "can_execute"],
-            "approval admission and settlement each raise CanExecuteChanged; the stale SetModel publishes nothing");
+            ["can_execute", "model", "can_execute"],
+            "the admission CanExecuteChanged and the outer assignment's message come first, then the settlement");
     }
 
     // ── FORM-038 ──────────────────────────────────────────────────────────────

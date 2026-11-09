@@ -115,9 +115,18 @@ TypeScript, Swift, and Rust.
 
 The equality check uses the same configured or idiomatic equality as dirty
 tracking. An equal candidate is a complete no-op: VMx retains the current model
-and does not validate, invalidate commands, or publish. A re-entrant observer
-may assign another unequal value; each accepted call settles and publishes
-once before returning.
+and does not validate, invalidate commands, or publish. A re-entrant hub or
+`CanExecuteChanged` observer may assign another unequal value; each accepted
+call settles and publishes once before returning.
+
+A call made from a validator, an equality comparison, the deny snapshotter, or
+an `ErrorsChanged` observer of `SetModel` or deny is *nested* (spec chapter 20
+§5.4, ADR-0180). A nested `SetModel` or deny commits at once, but it returns
+before its notifications. The outermost update sends them, error maps first,
+before it returns. An approval started from a validator calls its persister
+only after that, so do not block on it inside the callback. If the callback
+then disposes the form, the queued notifications are dropped and the persister
+is never called.
 
 `DenyCommand` keeps its explicit ordered pair: one `FormRevertedMessage`, then
 one idiomatic model property message after the revert settles. A successful
