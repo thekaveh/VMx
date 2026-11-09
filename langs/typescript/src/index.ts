@@ -96,6 +96,7 @@ export { MessageHub } from "./services/messageHub.js";
 export type { IDispatcher } from "./services/dispatcher.js";
 export { RxDispatcher } from "./services/dispatcher.js";
 export { markSchedulerCancelled } from "./services/cancelledSchedulers.js";
+export { DelayedTask } from "./services/delayedTask.js";
 export { NullMessageHub } from "./services/nullMessageHub.js";
 export { NullDispatcher } from "./services/nullDispatcher.js";
 
