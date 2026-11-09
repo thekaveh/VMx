@@ -1074,8 +1074,9 @@ class _ComponentVMBase(ABC):
         registration order (spec/02 §7.1). With no construct or destruct hook
         of this VM running on another thread, every member reaches Disposed
         before this VM publishes Disposed. For a foreign dispose, this VM
-        publishes Disposed first, waits for the hook, and then disposes the
-        members before ``_on_dispose`` (LIFE-015, ADR-0179). Then disposes
+        publishes Disposed first, waits for the hook or defers to its
+        completion (ADR-0126), and then disposes the members before
+        ``_on_dispose`` (LIFE-015, ADR-0179). Then disposes
         commands and completes the status trigger / property_changed subjects.
         """
         self._dispose_at_hook_boundary(None)
@@ -1652,10 +1653,10 @@ class _ComponentVMBase(ABC):
         With no construct or destruct hook of this VM running on another
         thread, every member reaches ``Disposed`` before this VM publishes
         ``Disposed``. For a foreign dispose, this VM publishes ``Disposed``
-        first, waits for the hook, and then disposes the members
-        (LIFE-015, ADR-0179). Every member is attempted;
-        the first failure is raised after this VM's teardown finished
-        (ADR-0108). A member registered after this VM reached ``Disposed``
+        first, waits for the hook or defers to its completion (ADR-0126),
+        and then disposes the members (LIFE-015, ADR-0179). Every member is
+        attempted; the first failure is raised after this VM's teardown
+        finished (ADR-0108). A member registered after this VM reached ``Disposed``
         is disposed at once, and its failure is raised from this call.
 
         A member is not a container child: it gets no parent link and no

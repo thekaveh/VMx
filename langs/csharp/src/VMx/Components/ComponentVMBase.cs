@@ -2446,11 +2446,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// member reaches <see cref="ConstructionStatus.Disposed"/> before this VM
     /// publishes <see cref="ConstructionStatus.Disposed"/>. For a foreign
     /// disposal, this VM publishes <see cref="ConstructionStatus.Disposed"/>
-    /// first, waits for the hook, and then disposes the members before
-    /// <see cref="OnDispose"/> (LIFE-015, ADR-0179). Every member is attempted. The
-    /// first failure is rethrown after this VM's mandatory teardown. While the
-    /// members are disposed, a further <see cref="Dispose()"/> on any thread
-    /// returns at once and does nothing; the first call finishes the disposal.
+    /// first, waits for the hook or defers to its completion (ADR-0126), and
+    /// then disposes the members before <see cref="OnDispose"/> (LIFE-015,
+    /// ADR-0179). Every member is attempted. The first failure is rethrown
+    /// after this VM's mandatory teardown. While the members are disposed, a
+    /// further <see cref="Dispose()"/> on any thread returns at once and does
+    /// nothing; the first call finishes the disposal.
     /// A member registered after this VM's disposal started is disposed at once,
     /// and a failure from that disposal is thrown from this call.
     /// A member is not a container child: registration sets no parent link and
