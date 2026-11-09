@@ -210,7 +210,9 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         if (k1, k2) in self._data:
             old = self._data[(k1, k2)]
             self._data[(k1, k2)] = value
-            self._on_replaced(k1, k2, value, old)
+            # The position when the change commits (spec/21 §4.7, ADR-0193).
+            index = self._key_order.index((k1, k2))
+            self._on_replaced(k1, k2, value, old, index)
         else:
             self._internal_add(k1, k2, value)
 
@@ -242,7 +244,9 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
             return False
 
         value = self._data.pop((key1, key2))
-        self._key_order.remove((key1, key2))
+        # The pre-removal position (spec/21 §4.7, ADR-0193).
+        index = self._key_order.index((key1, key2))
+        del self._key_order[index]
         self._version += 1
 
         # Decide both axes before either key view notifies: drop a key only
@@ -259,7 +263,7 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
             if drop_key1:
                 self._remove_key1(key1)
 
-        self._on_removed(key1, key2, value)
+        self._on_removed(key1, key2, value, index)
         return True
 
     def __delitem__(self, key: tuple[TKey1, TKey2]) -> None:
@@ -453,18 +457,20 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         except ValueError:
             return -1
 
-    def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
+    def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue, index: int) -> None:
         if self._disposed:
             return
         # Local granular event first, then the hub (ADR-0171).
         deliver_then_publish(
             lambda: self._removed_subject.on_next((key1, key2, value)),
             lambda: self._publish_to_hub(
-                CollectionChangedMessage.for_remove(self, (key1, key2, value), -1)
+                CollectionChangedMessage.for_remove(self, (key1, key2, value), index)
             ),
         )
 
-    def _on_replaced(self, key1: TKey1, key2: TKey2, new_value: TValue, old_value: TValue) -> None:
+    def _on_replaced(
+        self, key1: TKey1, key2: TKey2, new_value: TValue, old_value: TValue, index: int
+    ) -> None:
         if self._disposed:
             return
         # Local granular event first, then the hub (ADR-0171).
@@ -472,7 +478,7 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
             lambda: self._replaced_subject.on_next((key1, key2, new_value, old_value)),
             lambda: self._publish_to_hub(
                 CollectionChangedMessage.for_replace(
-                    self, (key1, key2, new_value), (key1, key2, old_value), -1
+                    self, (key1, key2, new_value), (key1, key2, old_value), index
                 )
             ),
         )
