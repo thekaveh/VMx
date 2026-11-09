@@ -15,7 +15,11 @@ concrete classes that a consumer can instantiate directly or subclass. Swift shi
 `open class` decorators that subclass `ComponentVMOf` / `CompositeVM`. Rust has no
 subclass overrides: `ForwardingComponentVm` exposes the builder-style
 customization methods `with_hint_override` and `with_model_hint`, and
-`ForwardingCompositeVm` exposes no override hooks.
+`ForwardingCompositeVm` exposes no override hooks. Both TypeScript decorators
+derive from `ComponentVMBase` and expose the wrapped VM as the read-only
+`wrappedBase` getter. The wrapped VM sends every hub message that the decorator
+causes, so a view binding uses `wrappedBase` to match those messages to the
+decorator (ADR-0213).
 
 The generic `IComponentVM<M>` extends `IComponentVM` with a `Model : M` property (settable
 on the modeled component, read-only on the readonly component — see `05-component-vm.md`).
@@ -96,11 +100,9 @@ own the wrapped's lifetime.
 A forwarding composite used as a child of another container follows the §1
 ownership rules: one ownership identity with the wrapped composite, and
 transparent parent and current flags. Its owned-resource helper follows §1 in
-C#, Python, Swift, and Rust. Open gaps: the TypeScript
-`ForwardingCompositeVM` does not extend `ComponentVMBase`, and the Rust
-`ForwardingCompositeVm` does not implement `VmNode`, so neither can be added to
-a container; the type checker rejects the call. The TypeScript
-`ForwardingCompositeVM` also has no owned-resource helper.
+C#, Python, TypeScript, Swift, and Rust. Open gap: the Rust
+`ForwardingCompositeVm` does not implement `VmNode`, so it cannot be added to a
+container; the type checker rejects the call.
 
 ## 3. Conformance
 

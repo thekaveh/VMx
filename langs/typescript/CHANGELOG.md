@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `ForwardingCompositeVM` extends `ComponentVMBase`, so `CompositeVM.add` and
+  `GroupVM.add` accept it (#1272, ADR-0213). It shares the ownership identity
+  of the wrapped composite: adding it removes the wrapped composite from its
+  previous container, and selection and current flags reach the wrapped
+  composite (`FWD-004`). The inherited `own()` and `ownMember()` register on
+  the wrapped composite (`FWD-005`). Its selection command getters now return
+  `RelayCommand`, which implements `ICommand`.
+- `ForwardingCompositeVM.wrappedBase` returns the wrapped composite. The
+  existing `ForwardingComponentVM.wrappedBase` is now documented. The wrapped
+  VM sends every hub message a decorator causes, and `@thekaveh/vmx-react`
+  `useVm` uses this getter to re-render a component bound to a decorator
+  (#1350).
+
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
