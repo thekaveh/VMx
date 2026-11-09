@@ -9,8 +9,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.36.0] — unreleased source version
 
 0.36.0 is the first `vmx-rs` release on crates.io. Versions 0.1.0 to 0.35.0
-were not published to a registry, so this package contains every change listed
-below for them. It implements spec 3.30.0.
+were not published to a registry, so this package also contains the changes in
+the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
+3.30.0.
 
 ### Added
 

@@ -259,8 +259,11 @@ independently in SemVer. Every published package declares the spec version it
 implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
 `__minSpecVersion__` in TypeScript, `VMxVersion.minSpecVersion` in Swift,
 `MIN_SPEC_VERSION` in Rust). A
-spec major bump triggers a major bump in every active flavor; a spec minor bump
-is fully backwards compatible and ships in flavors as a minor bump.
+spec major bump triggers a major bump in every active flavor. A spec minor bump
+only adds or clarifies normative behavior, and each flavor ships it as a minor
+bump. A flavor also takes a major bump for its own source-breaking change, even
+when the spec bump is minor. ADR-0009 records the narrow 3.x exceptions that
+ship a source break in a minor version.
 
 ### 6.2 Spec and flavor compatibility
 

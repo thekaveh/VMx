@@ -9,13 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [4.0.0] — unreleased source version
 
 Swift 4.0.0 is a major release because one change below breaks existing
-callers: `walk(_:)`, `walkExpanded(_:)` and `find(_:where:)` now throw. The
-Swift flavor follows SemVer (README §6.1), and SemVer requires a major version
-for an incompatible public API change. Release 3.0.0 set the precedent when it
-made the lifecycle methods throwing. Swift 4.0.0 still implements spec 3.30.0,
-because a flavor major version does not need a spec major version. The last
-public Swift release is 3.24.0; this section also lists the changes of the
-unreleased source versions 3.25.0 to 3.31.0 below.
+callers: `walk(_:)`, `walkExpanded(_:)` and `find(_:where:)` now throw. README
+§6.1 requires a flavor major bump for the flavor's own source-breaking change,
+even when the spec bump is minor. Swift 4.0.0 still implements spec 3.30.0. The
+last public Swift release is 3.24.0. This package also contains the changes in
+the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
