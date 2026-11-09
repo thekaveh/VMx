@@ -4,10 +4,10 @@
 
 use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
-    ConstructionStatus, Expandable, ExpandableState, Hash, HashMap, HashSet, Message, MessageHub,
-    Mutex, NullDispatcher, OnceLock, ParentHandle, PropertyChangedMessage, PropertyChangedStream,
-    ThreadId, TreeNode, TreeNodeRef, TreeStructureChange, TreeStructureChangedMessage, VmNode,
-    VmxError, VmxResult, Weak, HIERARCHY_TOPOLOGY_GATE,
+    ConstructionStatus, Dispatcher, Expandable, ExpandableState, Hash, HashMap, HashSet, Message,
+    MessageHub, Mutex, NullDispatcher, OnceLock, ParentHandle, PropertyChangedMessage,
+    PropertyChangedStream, ThreadId, TreeNode, TreeNodeRef, TreeStructureChange,
+    TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak, HIERARCHY_TOPOLOGY_GATE,
 };
 
 type HierChildrenFactory<M, N> =
@@ -291,7 +291,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Returns this node's hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.inner.component.hint()
     }
 
@@ -318,6 +318,38 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         self.inner.component.notify_property_changed(property_name);
     }
 
+    /// Replaces the hook invoked during construction (spec/02 §2.2,
+    /// ADR-0203).
+    ///
+    /// The hook runs once in the `Constructing` phase, before an eager node
+    /// constructs its children. An `Err` (or a panic) rolls the node back to
+    /// `Destructed`, as for [`ComponentVm::on_construct`]. The hook must not
+    /// capture this node or a value that holds it (#750).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_construct(hook);
+    }
+
+    /// Replaces the hook invoked during destruction (spec/02 §2.2,
+    /// ADR-0203). The hook must not capture this node (#750).
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_destruct(hook);
+    }
+
+    /// Replaces the hook invoked during disposal (spec/02 §2.2, ADR-0203).
+    /// The hook must not capture this node (#750).
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_dispose(hook);
+    }
+
     /// Returns this node's parent, when attached.
     pub fn parent(&self) -> Option<Self> {
         let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
@@ -335,14 +367,26 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Adds or transfers `child` beneath this node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::Disposed`] when this node or the child's current
+    /// parent is disposed, also when the call would do nothing (spec/18 §7.1).
     pub fn add_child(&self, child: Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
+        self.reject_if_disposed()?;
         self.attach_child(&child, false)
     }
 
     /// Removes `child` from this node without disposing it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::Disposed`] when this node is disposed, also when
+    /// `child` is not a member (spec/18 §7.1).
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
+        self.reject_if_disposed()?;
         self.try_children()?;
         let removed = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
@@ -374,12 +418,23 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Transfers `child` from its current parent beneath this node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::Disposed`] when this node or the child's current
+    /// parent is disposed (spec/18 §7.1).
     pub fn reparent_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
+        self.reject_if_disposed()?;
         self.attach_child(child, true)
     }
 
     fn attach_child(&self, child: &Self, explicit_reparent: bool) -> VmxResult<()> {
+        // A disposed parent's child list is frozen, so a transfer out of it
+        // refuses before the receiver materializes (spec/18 §7.1).
+        if let Some(parent) = child.parent() {
+            parent.reject_if_disposed()?;
+        }
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
         let (reparented, index) = loop {
@@ -389,8 +444,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 if lock(&self.inner.children).is_none() {
                     None
                 } else {
-                    self.ensure_not_reparenting_cycle_unlocked(child)?;
                     let old_parent = child.parent_unlocked();
+                    // Check again: the parent can change during materialization.
+                    if let Some(parent) = &old_parent {
+                        parent.reject_if_disposed()?;
+                    }
+                    self.ensure_not_reparenting_cycle_unlocked(child)?;
                     if old_parent.as_ref() == Some(self) {
                         return Ok(());
                     }
@@ -437,6 +496,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Attaches an out-of-order batch by stable item and parent keys.
+    ///
+    /// When this node or its structural root is disposed, every item is
+    /// returned as an [`BatchAttachRejectionReason::AttachmentFailed`]
+    /// rejection and nothing is parked (spec/18 §7.1).
     pub fn attach_many<K, FKey, FParent>(
         &self,
         items: Vec<Self>,
@@ -449,7 +512,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         FKey: Fn(&Self) -> VmxResult<K>,
         FParent: Fn(&Self) -> VmxResult<Option<K>>,
     {
-        if let Err(error) = self.reject_structural_reentry() {
+        let refused = self.reject_structural_reentry().and_then(|()| {
+            self.reject_if_disposed()?;
+            self.tree_root().reject_if_disposed()
+        });
+        if let Err(error) = refused {
             return BatchAttachResult {
                 added: Vec::new(),
                 duplicates: Vec::new(),
@@ -747,8 +814,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Detaches materialized children so the factory runs on the next read.
+    ///
+    /// A disposed node returns without a change (spec/18 §7.1).
     pub fn invalidate_children(&self) {
-        if self.reject_structural_reentry().is_err() {
+        if self.reject_structural_reentry().is_err() || self.reject_if_disposed().is_err() {
             return;
         }
         let discarded = {
@@ -779,14 +848,25 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Invalidates this node and every currently materialized descendant.
+    ///
+    /// A disposed node returns without a change. A disposed descendant keeps
+    /// its cache, and its materialized children are still invalidated
+    /// (spec/18 §7.1).
     pub fn invalidate_subtree(&self) {
+        if self.reject_structural_reentry().is_err() || self.reject_if_disposed().is_err() {
+            return;
+        }
+        self.invalidate_subtree_from_live_ancestor();
+    }
+
+    fn invalidate_subtree_from_live_ancestor(&self) {
         if self.reject_structural_reentry().is_err() {
             return;
         }
         let materialized_children = lock(&self.inner.children).clone();
         if let Some(children) = materialized_children {
             for child in children {
-                child.invalidate_subtree();
+                child.invalidate_subtree_from_live_ancestor();
             }
             self.invalidate_children();
         }
@@ -1027,6 +1107,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         ready.notify_all();
     }
 
+    /// Refuses a structural call on a disposed node (spec/18 §7.1).
+    fn reject_if_disposed(&self) -> VmxResult<()> {
+        if self.status() == ConstructionStatus::Disposed {
+            return Err(VmxError::Disposed);
+        }
+        Ok(())
+    }
+
     fn reject_structural_reentry(&self) -> VmxResult<()> {
         let current = thread::current().id();
         let mut state = lock(&self.inner.materializing_children.0);
@@ -1158,7 +1246,7 @@ pub struct HierarchicalVmBuilder<
     model: Option<M>,
     node_data: N,
     children_factory: Option<HierChildrenFactory<M, N>>,
-    services: Option<(MessageHub, NullDispatcher)>,
+    hub: Option<MessageHub>,
     hint: Option<String>,
     eager_children: bool,
 }
@@ -1186,7 +1274,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
             model: None,
             node_data,
             children_factory: None,
-            services: None,
+            hub: None,
             hint: Some(String::new()),
             eager_children: false,
         }
@@ -1207,9 +1295,15 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
         self
     }
 
-    /// Sets the hub and null dispatcher services.
-    pub fn services(mut self, hub: MessageHub, dispatcher: NullDispatcher) -> Self {
-        self.services = Some((hub, dispatcher));
+    /// Sets the required hub and dispatcher services.
+    ///
+    /// It accepts any [`Dispatcher`], as the other builders do. The built
+    /// hierarchy keeps only the hub: it runs no dispatched work and has no
+    /// background option, so this method drops `dispatcher`, and every node
+    /// uses a [`NullDispatcher`] (ADR-0009, ADR-0206).
+    pub fn services<D: Dispatcher>(mut self, hub: MessageHub, dispatcher: D) -> Self {
+        drop(dispatcher);
+        self.hub = Some(hub);
         self
     }
 
@@ -1237,8 +1331,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
         let factory = self.children_factory.ok_or_else(|| {
             VmxError::BuilderValidation("children_factory is required".to_string())
         })?;
-        let (hub, _dispatcher) = self
-            .services
+        let hub = self
+            .hub
             .ok_or_else(|| VmxError::BuilderValidation("services are required".to_string()))?;
         let node_data = self.node_data;
         let node = HierarchicalVm::with_node_data(
@@ -1250,7 +1344,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
             hub,
         );
         if let Some(hint) = self.hint {
-            node.inner.component.core.set_hint(Some(hint));
+            node.inner.component.core.set_hint(hint);
         }
         Ok(node)
     }

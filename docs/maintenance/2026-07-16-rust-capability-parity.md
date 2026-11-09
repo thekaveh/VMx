@@ -1,8 +1,8 @@
 # 12. Rust Parity Status
 
-Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
-after closure: §12.7 to §12.11, plus the "Still open" notes in §12.4.7. §12.12
-was found after closure and is resolved (ADR-0207).
+Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Items found
+after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7. §12.8
+and §12.12 are now closed (ADR-0205, ADR-0207).
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -128,12 +128,15 @@ filtered projection through the concrete reusable helper.
 
 **Resolved.** `ExpandableState` provides collapsed, explicitly initialized,
 and initially-expanded construction. It implements `Expandable`,
-`Collapsible`, and `ExpansionTogglable`; `dispose` completes the owned hub and
-makes later mutation inert.
+`Collapsible`, and `ExpansionTogglable`. Its typed `expansion_changes()`
+stream sends the new value once per effective change and does not replay the
+current value (spec/05 §8, ADR-0206, #1254). `dispose` completes the owned hub
+and the typed stream and makes later mutation inert.
 
 Evidence: the expandable-support suite covers construction variants,
 capability dispatch, completion, idempotent disposal, and post-dispose no-op
-behavior.
+behavior. EXP-002, EXP-003, `expansion_changes_does_not_replay_the_current_value`
+and the dispose test in `expandable.rs` cover the typed stream.
 
 ### 12.3.7. SearchableState Post-Dispose Read
 
@@ -326,54 +329,36 @@ observable behavior covered by this review.
 The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
 parameter in §12.2.2 are the intentional flavor-specific shapes in this
 ledger. The §12.5 editorial note applies to all five flavors and is not a
-parity backlog. §12.7 to §12.11 record the open items and differences found
-after closure, and §12.12 records one that is now resolved. Future differences
-still require spec/ADR review. This record is evidence of the 0.27.0
-convergence for the original scope. It is not permission to add undocumented divergence.
+parity backlog. §12.7 to §12.12 record the items and differences found
+after closure; §12.8 and §12.12 are now closed. Future differences still require
+spec/ADR review. This record is evidence of the 0.27.0 convergence for the
+original scope. It is not permission to add undocumented divergence.
 
-## 12.7. Open Items: Background Child Settle
+## 12.7. Recorded Difference: Background Child Settle
 
 Containers (`CompositeVm`, `GroupVm`, the modeled composite, and the fixed
-aggregates) now stay transient until background children settle (spec/02 §6,
-LIFE-014). `HierarchicalVm` has no background option, so it never waits. Three
-Rust-specific items remain open:
+aggregates) stay transient until background children settle (spec/02 §6,
+LIFE-014). `HierarchicalVm` has no background option, so it never waits. The
+fixed aggregates join a slot child that is already Constructing, as the
+composite and group walks do (#1273). A node that does not forward
+`VmNode::when_lifecycle_settled` is watched on the container's own hub when
+the container started it and the hub delivered or queued its transient status. In every
+other case, the container accepts the node while it is in flight, so the
+container never waits without limit (spec/11 §4, ADR-0205, #1274).
 
-- **Container `background_errors()`.** A background child failure that rolls a
-  container back is reported on the container's `background_errors()` stream.
-  This is a Rust-only container surface; the other flavors route the same
-  failure through their background-hook error path.
-- **No join of an in-flight child in aggregates.** When `AggregateVm1`–
-  `AggregateVm6` construct a slot child that is already Constructing in the
-  background, Rust returns `ConcurrentOperation`. C# (`ConstructOrJoinAsync`),
-  Python, TypeScript, and Swift join the in-flight transition instead. The
-  `CompositeVm`, `ModeledCompositeVm`, and `GroupVm` construct walks join such a
-  child (#636).
-- **Nodes that do not forward the settle hook.** See the next paragraph.
+A background child failure that rolls a container back is reported on the
+container's `background_errors()` stream. This is a documented Rust container
+surface (spec/11 §2, ADR-0149); the other flavors route the same failure
+through their background-hook error path.
 
-Settle notification uses the documented `VmNode::when_lifecycle_settled` hook,
-which wrapper nodes should forward to the wrapped VM. A third-party node that
-keeps the default (`false`) is accepted while still Constructing/Destructing,
-matching the pre-settle-tracking behavior, so the container does not wait for
-it. A later failure of such a node therefore does not roll the container back:
-the container stays Constructed while the child ends Destructed. This is an open
-LIFE-014 gap for nodes that do not forward the hook. C# observes the child's
-status instead; Rust has no node-level hub accessor to do so without risking an
-unbounded wait on a child published elsewhere.
+## 12.8. Closed: Forwarding Composite as a Child
 
-## 12.8. Open Item: Forwarding Composite as a Child
-
-`ForwardingCompositeVm` does not implement `VmNode`, so it cannot be added to
-a composite, group, or aggregate. C#, Python, and Swift support a decorated
-composite as a child with one ownership identity (spec/09 §2). Adding the trait
-needs a forwarding `VmNode` implementation and its tests.
-
-`ForwardingCompositeVm` also forwards only part of the `CompositeVm` surface.
-It does not forward `is_current`, the selection methods and commands
-(`can_select`, `select`, `can_deselect`, `deselect`, `select_command`,
-`deselect_command`, `select_next_command`, `select_previous_command`,
-`reconstruct_command`), expansion (`expand`, `collapse`, `toggle_expansion`,
-`is_expanded`), the lifecycle hooks, `on_current_changed`, or
-`background_errors`. spec/09 §2 requires the same delegation as §1.
+`ForwardingCompositeVm` implements `VmNode`, `PartialEq`, and `Eq` by
+forwarding to the wrapped composite, so a composite, group, or aggregate
+accepts it as a child with one ownership identity (spec/09 §2, ADR-0205). It
+forwards the rest of the `CompositeVm` surface: selection, expansion, the
+commands, `on_current_changed`, `background_errors`, and the configuration
+setters (#1271). It forwards the lifecycle hooks (ADR-0203).
 
 ## 12.9. Open Item: FormVm Approval Completion
 

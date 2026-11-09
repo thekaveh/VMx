@@ -36,12 +36,16 @@ public sealed class ConfirmationVM : NotificationVM
         TimeSpan? tickInterval = null)
         : base(notification, hub, scheduler, lifespan ?? TimeSpan.FromSeconds(300), tickInterval)
     {
+        // Both commands report CanExecute false from the start of Dispose()
+        // (spec/16 §6.2, ADR-0196).
         ApproveCommand = RelayCommand.Builder()
             .Task(() => ResolveWith(NotificationReaction.Approve))
+            .Predicate(() => !IsDisposed)
             .Build();
 
         RejectCommand = RelayCommand.Builder()
             .Task(() => ResolveWith(NotificationReaction.Reject))
+            .Predicate(() => !IsDisposed)
             .Build();
     }
 

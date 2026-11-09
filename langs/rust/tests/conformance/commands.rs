@@ -225,8 +225,11 @@ fn imperative_raise_after_disposal_is_noop() {
     let relay = RelayCommand::noop();
     let parameterized = RelayCommandOf::<i32>::noop();
     let async_command = AsyncRelayCommand::noop();
-    // Subscribe before disposal: after disposal the eligibility hub hands out
-    // no-op subscriptions, so a later subscriber could never fail the check.
+    // Disposal disposes each eligibility hub, and a disposed hub delivers no
+    // later message. So the closed channel alone keeps a later raise from
+    // reaching these subscribers, with or without the disposed check.
+    // `raise_from_final_disposal_notification_publishes_nothing_more`
+    // observes the check itself.
     let fired = Arc::new(AtomicUsize::new(0));
     let subscriptions = [
         relay.can_execute_changed(),
@@ -253,6 +256,48 @@ fn imperative_raise_after_disposal_is_noop() {
 
     assert_eq!(fired.load(Ordering::SeqCst), 0);
     drop(subscriptions);
+}
+
+/// Counts the notifications of `hub` and raises once from the first one.
+fn raise_once_from_first_notification(
+    hub: &MessageHub,
+    raise: impl Fn() + Send + Sync + 'static,
+) -> (Arc<AtomicUsize>, vmx::Subscription) {
+    let fired = Arc::new(AtomicUsize::new(0));
+    let counter = fired.clone();
+    let subscription = hub.subscribe(move |_| {
+        if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+            raise();
+        }
+    });
+    (fired, subscription)
+}
+
+#[test]
+fn raise_from_final_disposal_notification_publishes_nothing_more() {
+    // `RelayCommand` and `RelayCommandOf` set the disposed flag, publish one
+    // final notification, then dispose the hub. A raise from that
+    // notification reaches the open hub, so only the disposed check drops it
+    // (#1341). `AsyncRelayCommand` publishes no final notification.
+    let relay = RelayCommand::noop();
+    let raiser = relay.clone();
+    let (relay_fired, relay_subscription) =
+        raise_once_from_first_notification(&relay.can_execute_changed(), move || {
+            raiser.raise_can_execute_changed()
+        });
+    relay.dispose();
+    assert_eq!(relay_fired.load(Ordering::SeqCst), 1);
+    drop(relay_subscription);
+
+    let parameterized = RelayCommandOf::<i32>::noop();
+    let raiser = parameterized.clone();
+    let (parameterized_fired, parameterized_subscription) =
+        raise_once_from_first_notification(&parameterized.can_execute_changed(), move || {
+            raiser.raise_can_execute_changed()
+        });
+    parameterized.dispose();
+    assert_eq!(parameterized_fired.load(Ordering::SeqCst), 1);
+    drop(parameterized_subscription);
 }
 
 #[test]
@@ -364,6 +409,47 @@ fn async_imperative_raise_while_in_flight_is_additive() {
     run.join().unwrap().unwrap();
 
     assert_eq!(fired.load(Ordering::SeqCst), 3);
+}
+
+/// CMD-020 — a fire-and-forget fault reaches `errors` after the completion notification
+#[test]
+fn fire_and_forget_fault_reaches_errors_after_the_completion_notification() {
+    #[derive(Debug, PartialEq)]
+    enum Entry {
+        Change,
+        Error(VmxError, bool),
+    }
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("task failed".into())));
+    let _changes = command.can_execute_changed().subscribe({
+        let log = log.clone();
+        move |_| log.lock().unwrap().push(Entry::Change)
+    });
+    let (delivered, deliveries) = mpsc::channel();
+    let _errors = command.error_stream().subscribe({
+        let log = log.clone();
+        let command = command.clone();
+        move |error| {
+            log.lock()
+                .unwrap()
+                .push(Entry::Error(error, command.is_executing()));
+            let _ = delivered.send(());
+        }
+    });
+
+    command.execute();
+
+    deliveries
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the fault reached the error stream");
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec![
+            Entry::Change,
+            Entry::Change,
+            Entry::Error(VmxError::Other("task failed".into()), false),
+        ]
+    );
 }
 
 #[test]
@@ -804,11 +890,14 @@ fn deprecated_errors_hub_still_announces_fire_and_forget_faults() {
     });
 
     command.execute();
-    while command.is_executing() {
+    // The fault follows the end of the execution (CMD-020), so wait for it.
+    let deadline = Instant::now() + ERROR_TIMEOUT;
+    while errors.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
         std::thread::yield_now();
     }
 
     assert_eq!(errors.load(Ordering::SeqCst), 1);
+    assert!(!command.is_executing());
 }
 
 #[test]

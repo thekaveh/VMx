@@ -544,9 +544,11 @@ fn a_saved_note_updates_its_row_search_delete_prompt_and_later_loads() {
     );
     workspace.set_search_term("");
 
-    // Paging away and back reloads the editor from the saved row.
-    workspace.next_page();
-    workspace.previous_page();
+    // Selecting another note and back reloads the editor from the saved row.
+    workspace
+        .select_note("release-channels")
+        .expect("note selects");
+    workspace.select_note("rust-parity").expect("note selects");
     assert_eq!(form.title(), "Rust VMx showcase");
 
     // The delete prompt names the saved title.
@@ -592,4 +594,124 @@ fn paging_searching_or_switching_notebooks_cancels_a_pending_delete() {
             "{name}: `y` deleted a note that left the screen"
         );
     }
+}
+
+fn marked_rows(workspace: &WorkspaceVm) -> Vec<String> {
+    workspace
+        .notes()
+        .visible_rows()
+        .into_iter()
+        .filter(|(_, selected)| *selected)
+        .map(|(title, _)| title)
+        .collect()
+}
+
+// ADR-0201 §2.1: a search or a page change never changes the current note,
+// and the editor keeps its draft while the note is hidden.
+#[test]
+fn a_search_that_hides_the_current_note_keeps_it_and_its_draft() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let form = workspace.form();
+    workspace
+        .select_note("release-channels")
+        .expect("note selects");
+    form.set_title("Release draft");
+
+    workspace.set_search_term("docs");
+    let current = workspace.notes().current_note().expect("a current note");
+    assert_eq!(current.id, "release-channels");
+    assert_eq!(form.title(), "Release draft");
+    assert!(form.is_dirty());
+    assert!(marked_rows(&workspace).is_empty());
+
+    workspace.set_search_term("");
+    let current = workspace.notes().current_note().expect("a current note");
+    assert_eq!(current.id, "release-channels");
+    assert_eq!(form.title(), "Release draft");
+    assert!(form.is_dirty());
+    assert_eq!(marked_rows(&workspace), vec!["Release channels"]);
+}
+
+#[test]
+fn a_page_change_keeps_the_current_note_and_its_draft() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let form = workspace.form();
+    form.set_title("Parity draft");
+
+    workspace.next_page();
+    let current = workspace.notes().current_note().expect("a current note");
+    assert_eq!(current.id, "rust-parity");
+    assert_eq!(form.title(), "Parity draft");
+    assert!(marked_rows(&workspace).is_empty());
+
+    workspace.previous_page();
+    assert_eq!(form.title(), "Parity draft");
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
+}
+
+// ADR-0201 §2.2: selecting another note discards the unsaved draft with no
+// prompt, and the repository keeps the stored values.
+#[test]
+fn selecting_another_note_discards_the_unsaved_draft() {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let form = workspace.form();
+    workspace.select_note("rust-parity").expect("note selects");
+    form.set_title("Unsaved draft");
+    assert!(form.is_dirty());
+
+    workspace
+        .select_note("release-channels")
+        .expect("note selects");
+    assert_eq!(form.title(), "Release channels");
+    assert!(!form.is_dirty());
+
+    workspace.select_note("rust-parity").expect("note selects");
+    assert_eq!(form.title(), "Rust flavor parity");
+    assert!(!form.is_dirty());
+    assert_eq!(
+        repository.note("rust-parity").expect("stored note").title,
+        "Rust flavor parity"
+    );
+}
+
+#[test]
+fn select_next_and_previous_note_stay_on_the_visible_page() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let form = workspace.form();
+    form.set_title("Parity draft");
+
+    // At the first row, the previous-note step keeps the selection and draft.
+    workspace.select_previous_note();
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
+    assert_eq!(form.title(), "Parity draft");
+
+    workspace.select_next_note();
+    assert_eq!(marked_rows(&workspace), vec!["Release channels"]);
+    assert_eq!(form.title(), "Release channels");
+
+    // At the last row, the next-note step keeps the selection.
+    workspace.select_next_note();
+    assert_eq!(marked_rows(&workspace), vec!["Release channels"]);
+
+    workspace.select_previous_note();
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
+    assert_eq!(form.title(), "Rust flavor parity");
+
+    // When the current note is not on the page, both steps select the first
+    // visible note.
+    workspace.next_page();
+    workspace.select_previous_note();
+    assert_eq!(marked_rows(&workspace), vec!["Documentation refresh"]);
+    assert_eq!(form.title(), "Documentation refresh");
+    workspace.previous_page();
+    workspace.select_next_note();
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
+
+    // With an empty page, both steps keep the selection.
+    workspace.set_search_term("no such note");
+    workspace.select_next_note();
+    workspace.select_previous_note();
+    let current = workspace.notes().current_note().expect("a current note");
+    assert_eq!(current.id, "rust-parity");
 }

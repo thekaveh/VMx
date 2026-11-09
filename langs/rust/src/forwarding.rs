@@ -31,17 +31,17 @@ enum ForwardingComponentInner<M: Clone + PartialEq + Send + 'static, D: Dispatch
 ///     NullDispatcher::new(),
 /// );
 /// let first = ForwardingComponentVm::new(inner)
-///     .with_hint_override(|| Some("OVERRIDE".to_string()));
+///     .with_hint_override(|| "OVERRIDE".to_string());
 /// let forwarding = ForwardingComponentVm::wrap(first);
 ///
-/// assert_eq!(forwarding.hint().as_deref(), Some("OVERRIDE"));
+/// assert_eq!(forwarding.hint(), "OVERRIDE");
 /// ```
 pub struct ForwardingComponentVm<
     M: Clone + PartialEq + Send + 'static,
     D: Dispatcher = NullDispatcher,
 > {
     inner: ForwardingComponentInner<M, D>,
-    hint_override: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
+    hint_override: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm<M, D> {
@@ -65,7 +65,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     /// every forwarding layer.
     pub fn with_model_hint<F>(self, hint: F) -> Self
     where
-        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+        F: Fn(&M) -> String + Send + Sync + 'static,
     {
         let Self {
             inner,
@@ -88,7 +88,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     /// Overrides only the presentation hint for this decorator layer.
     pub fn with_hint_override<F>(mut self, override_hint: F) -> Self
     where
-        F: Fn() -> Option<String> + Send + Sync + 'static,
+        F: Fn() -> String + Send + Sync + 'static,
     {
         self.hint_override = Some(Arc::new(override_hint));
         self
@@ -124,7 +124,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     }
 
     /// Returns the wrapped component's static hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.hint_override.as_ref().map_or_else(
             || match &self.inner {
                 ForwardingComponentInner::Component(inner) => inner.hint(),
@@ -135,7 +135,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     }
 
     /// Returns the wrapped component's model-derived hint.
-    pub fn modeled_hint(&self) -> Option<String> {
+    pub fn modeled_hint(&self) -> String {
         match &self.inner {
             ForwardingComponentInner::Component(inner) => inner.modeled_hint(),
             ForwardingComponentInner::Forwarding(inner) => inner.modeled_hint(),
@@ -509,7 +509,7 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
     }
 
     /// Returns the wrapped composite's hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.inner.hint()
     }
 
@@ -601,6 +601,31 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
         self.inner.batch_update(action);
     }
 
+    /// Replaces the wrapped composite's construction hook (spec/02 §2.2,
+    /// ADR-0203).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_construct(hook);
+    }
+
+    /// Replaces the wrapped composite's destruction hook.
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_destruct(hook);
+    }
+
+    /// Replaces the wrapped composite's disposal hook.
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_dispose(hook);
+    }
+
     /// Constructs the wrapped composite and its children.
     pub fn construct(&self) -> VmxResult<()> {
         self.inner.construct()
@@ -655,7 +680,181 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.inner.notify_property_changed(property_name);
     }
+
+    /// Returns the wrapped composite's deferred lifecycle error stream.
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.inner.background_errors()
+    }
+
+    /// Controls construction of additions to the constructed wrapped composite.
+    pub fn set_auto_construct_on_add(&self, enabled: bool) {
+        self.inner.set_auto_construct_on_add(enabled);
+    }
+
+    /// Controls whether the wrapped composite's selection uses the dispatcher.
+    pub fn set_async_selection(&self, enabled: bool) {
+        self.inner.set_async_selection(enabled);
+    }
+
+    /// Sets the wrapped composite's selector applied after children construct.
+    pub fn set_current_selector<F>(&self, selector: F)
+    where
+        F: Fn(Vec<T>) -> Option<T> + Send + Sync + 'static,
+    {
+        self.inner.set_current_selector(selector);
+    }
+
+    /// Sets the wrapped composite's callback for effective current changes.
+    pub fn on_current_changed<F>(&self, callback: F)
+    where
+        F: Fn(Option<T>) + Send + Sync + 'static,
+    {
+        self.inner.on_current_changed(callback);
+    }
+
+    /// Reports whether the wrapped composite can select itself through its parent.
+    pub fn can_select(&self) -> bool {
+        self.inner.can_select()
+    }
+
+    /// Selects the wrapped composite through its owning selectable parent.
+    pub fn select(&self) {
+        self.inner.select();
+    }
+
+    /// Reports whether the wrapped composite can deselect itself through its parent.
+    pub fn can_deselect(&self) -> bool {
+        self.inner.can_deselect()
+    }
+
+    /// Deselects the wrapped composite through its owning selectable parent.
+    pub fn deselect(&self) {
+        self.inner.deselect();
+    }
+
+    /// Reports whether the wrapped composite is current in its parent.
+    pub fn is_current(&self) -> bool {
+        self.inner.is_current()
+    }
+
+    /// Expands the wrapped composite.
+    pub fn expand(&self) {
+        self.inner.expand();
+    }
+
+    /// Collapses the wrapped composite.
+    pub fn collapse(&self) {
+        self.inner.collapse();
+    }
+
+    /// Toggles the wrapped composite's expansion state.
+    pub fn toggle_expansion(&self) {
+        self.inner.toggle_expansion();
+    }
+
+    /// Reports whether the wrapped composite is expanded.
+    pub fn is_expanded(&self) -> bool {
+        self.inner.is_expanded()
+    }
+
+    /// Returns the wrapped composite's selection command.
+    pub fn select_command(&self) -> RelayCommand {
+        self.inner.select_command()
+    }
+
+    /// Returns the wrapped composite's deselection command.
+    pub fn deselect_command(&self) -> RelayCommand {
+        self.inner.deselect_command()
+    }
+
+    /// Returns the wrapped composite's next-sibling selection command.
+    pub fn select_next_command(&self) -> RelayCommand {
+        self.inner.select_next_command()
+    }
+
+    /// Returns the wrapped composite's previous-sibling selection command.
+    pub fn select_previous_command(&self) -> RelayCommand {
+        self.inner.select_previous_command()
+    }
+
+    /// Returns the wrapped composite's reconstruction command.
+    pub fn reconstruct_command(&self) -> RelayCommand {
+        self.inner.reconstruct_command()
+    }
 }
+
+/// A forwarding composite is a transparent container child: every node method
+/// forwards to the wrapped composite, so the decorator and the composite share
+/// one ownership identity, current flag and lifecycle (spec/09 §2).
+impl<T: VmNode, D: Dispatcher> VmNode for ForwardingCompositeVm<T, D> {
+    fn id(&self) -> usize {
+        VmNode::id(&self.inner)
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        VmNode::construct(&self.inner)
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        VmNode::destruct(&self.inner)
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        VmNode::dispose(&self.inner)
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        VmNode::status(&self.inner)
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        VmNode::set_parent_id(&self.inner, parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        VmNode::parent_id(&self.inner)
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        VmNode::set_parent_handle(&self.inner, parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        VmNode::parent_handle(&self.inner)
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        VmNode::set_current_flag(&self.inner, is_current);
+    }
+
+    fn commit_current_flag(&self, is_current: bool) -> bool {
+        VmNode::commit_current_flag(&self.inner, is_current)
+    }
+
+    fn publish_current_flag(&self, is_current: bool) {
+        VmNode::publish_current_flag(&self.inner, is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        VmNode::is_current(&self.inner)
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        VmNode::when_lifecycle_settled(&self.inner, callback)
+    }
+
+    fn lifecycle_publication_pending(&self) -> bool {
+        VmNode::lifecycle_publication_pending(&self.inner)
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> PartialEq for ForwardingCompositeVm<T, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl<T: VmNode, D: Dispatcher> Eq for ForwardingCompositeVm<T, D> {}
 
 impl<T: VmNode, D: Dispatcher> IntoIterator for ForwardingCompositeVm<T, D> {
     type Item = T;

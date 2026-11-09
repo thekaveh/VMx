@@ -13,8 +13,6 @@ import Foundation
 import XCTest
 @testable import VMx
 
-private let staleEdgeTimeout: TimeInterval = 5
-
 private final class SharedValue<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: T
@@ -94,13 +92,13 @@ final class MembershipWaitStaleEdgeTests: XCTestCase {
         ThreadWaitGraph.shared.onMembershipWaitWokeForTesting = {
             guard ThreadWaitGraph.currentThread == threadA.value, holdA.value else { return }
             holdA.value = false
-            heldUntilBDecided.value = bDecided.wait(timeout: .now() + staleEdgeTimeout)
+            heldUntilBDecided.value = bDecided.wait(timeout: .now() + hangGuard)
         }
         yChanged.sink { _ in
             guard blockOnce.value else { return }
             blockOnce.value = false
             bInSink.signal()
-            _ = aWaiting.wait(timeout: .now() + staleEdgeTimeout)
+            _ = aWaiting.wait(timeout: .now() + hangGuard)
         }.store(in: &cancellables)
 
         Thread.detachNewThread {
@@ -112,15 +110,15 @@ final class MembershipWaitStaleEdgeTests: XCTestCase {
             operation()
             bDone.signal()
         }
-        XCTAssertEqual(bInSink.wait(timeout: .now() + staleEdgeTimeout), .success, file: file, line: line)
+        XCTAssertEqual(bInSink.wait(timeout: .now() + hangGuard), .success, file: file, line: line)
         Thread.detachNewThread {
             threadA.value = ThreadWaitGraph.currentThread
             _ = xAdd(c)
             aDone.signal()
         }
 
-        XCTAssertEqual(aDone.wait(timeout: .now() + staleEdgeTimeout), .success, "thread A hung", file: file, line: line)
-        XCTAssertEqual(bDone.wait(timeout: .now() + staleEdgeTimeout), .success, "thread B hung", file: file, line: line)
+        XCTAssertEqual(aDone.wait(timeout: .now() + hangGuard), .success, "thread A hung", file: file, line: line)
+        XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard), .success, "thread B hung", file: file, line: line)
         XCTAssertFalse(holdA.value, "thread A was held between its wake and its endWait", file: file, line: line)
         XCTAssertEqual(heldUntilBDecided.value, .success, "B's wait on X was decided while A was held",
                        file: file, line: line)

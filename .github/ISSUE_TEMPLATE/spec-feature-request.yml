@@ -1,23 +1,43 @@
 name: Spec — feature request
 description: Propose a behavior change that affects all language flavors.
-labels: [spec, enhancement]
+labels: [enhancement]
 body:
   - type: textarea
-    id: motivation
+    id: summary
     attributes:
-      label: Motivation
-      description: Why is this needed? What's the user-facing problem?
+      label: Summary
+      description: One or two sentences that say what should change and why.
     validations:
       required: true
   - type: textarea
-    id: proposal
+    id: context
     attributes:
-      label: Proposed change
-      description: What should the spec say? What new conformance IDs are needed?
+      label: Context
+      description: >-
+        The user-facing problem, the spec change that you propose (chapter,
+        new conformance IDs) and any flavor-specific constraints.
     validations:
       required: true
   - type: textarea
-    id: cross-language
+    id: acceptance
     attributes:
-      label: Cross-language considerations
-      description: Any language-specific constraints worth flagging upfront.
+      label: Acceptance criteria
+      description: >-
+        Checkable conditions that show the change is done, one checkbox per
+        condition.
+      placeholder: "- [ ] spec/NN-chapter.md states the new rule, and every flavor passes the new conformance ID."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >-
+        A `Location | What it shows` table. Each row names a spec section,
+        a file and line range or a link, and says in one sentence what it
+        shows.
+      value: |
+        | Location | What it shows |
+        |---|---|
+    validations:
+      required: false
