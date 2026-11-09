@@ -9,7 +9,9 @@ lookup with ``if let`` or ``guard let`` before reading the member instead
 
 The check is textual: it reports every ``]?.`` in a ``.swift`` file under
 ``langs/swift``, ``examples/swift`` and ``starters/swift-package``, and in the
-root ``Package.swift``, comments and strings included. Build directories
+root ``Package.swift``, comments and strings included. Whitespace and line
+breaks between ``]?`` and ``.`` do not hide the pattern, so a chain split over
+two lines is reported at the line of the ``]?``. Build directories
 (``.build``) are skipped.
 
 Exit codes: 0 when no file contains the pattern, 1 when one does.
@@ -18,11 +20,14 @@ Exit codes: 0 when no file contains the pattern, 1 when one does.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Iterator
 from pathlib import Path
 
 PATTERN = "]?."
+# ``]?`` then optional whitespace (line breaks included) then the member dot.
+_CHAIN = re.compile(r"\]\?\s*\.")
 SWIFT_DIRS = ("langs/swift", "examples/swift", "starters/swift-package")
 ROOT_FILES = ("Package.swift",)
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
@@ -40,13 +45,18 @@ def swift_files(root: Path) -> Iterator[Path]:
 
 
 def findings(root: Path) -> list[str]:
-    """Return ``path:line: text`` for each line that contains the pattern."""
+    """Return ``path:line: text`` for each line where a chain on a subscript starts."""
     result: list[str] = []
     for path in swift_files(root):
         text = path.read_text(encoding="utf-8")
-        for number, line in enumerate(text.splitlines(), start=1):
-            if PATTERN in line:
-                result.append(f"{path.relative_to(root).as_posix()}:{number}: {line.strip()}")
+        lines = text.splitlines()
+        reported: set[int] = set()
+        for match in _CHAIN.finditer(text):
+            number = text.count("\n", 0, match.start()) + 1
+            if number not in reported:
+                reported.add(number)
+                line = lines[number - 1].strip()
+                result.append(f"{path.relative_to(root).as_posix()}:{number}: {line}")
     return result
 
 

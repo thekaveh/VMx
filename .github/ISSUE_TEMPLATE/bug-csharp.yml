@@ -60,7 +60,7 @@ body:
       description: >-
         Checkable conditions that show the defect is fixed, one checkbox per
         condition.
-      placeholder: "- [ ] Calling `dispose()` twice raises no error."
+      placeholder: "- [ ] Calling `Dispose()` twice throws no exception."
     validations:
       required: true
   - type: textarea

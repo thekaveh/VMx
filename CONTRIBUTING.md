@@ -111,14 +111,15 @@ summary and the Swift-specific divergences.
 Do not chain a member access onto a dictionary lookup, as in
 `dict[key]?.field`. Apple Swift 6.4 (swiftlang-6.4.0.34.1) at `-Onone` can
 return a non-nil value from that expression when the key is missing; `-O`
-builds return `nil`. `swift build` and `swift test` use the debug
-configuration, which compiles at `-Onone`. Bind the lookup first, with
-`if let value = dict[key] { ... }` or
+builds return `nil`. `swift test`, and `swift build` without `-c release`,
+use the debug configuration, which compiles at `-Onone`. Bind the lookup
+first, with `if let value = dict[key] { ... }` or
 `guard let value = dict[key] else { ... }`, and then read the field. The
 `swift` workflow runs `python3 tools/check-swift-subscript-chains.py`, which
-fails on any `]?.` in the root `Package.swift` and in the Swift files under
-`langs/swift`, `examples/swift` and `starters/swift-package` (#1462). An
-upstream Swift report is not filed yet.
+fails on any `]?.`, also one split over two lines, in the root
+`Package.swift` and in the Swift files under `langs/swift`, `examples/swift`
+and `starters/swift-package` (#1462). An upstream Swift report is not filed
+yet.
 
 ### 2.5 Rust
 
@@ -188,23 +189,31 @@ npm run build
 
 Each flavor's CI compares the public API of its packages with a recorded
 baseline (#1365). The C#, Python and TypeScript checks fail on any
-difference from a tracked API listing, an added member included. The Rust and
-Swift checks build a recorded baseline revision and fail on a break.
+difference from a tracked API listing, an added member included. The
+TypeScript listing leaves out comments, so a doc-comment edit alone does not
+change it; it keeps the `private constructor()` and `#private` markers. The
+Rust and Swift checks build a recorded baseline revision and fail on a break.
 
 | Flavor | Baseline | CI check | Intended change |
 |---|---|---|---|
 | C# | `PublicAPI.Shipped.txt` and `PublicAPI.Unshipped.txt` next to each library project; `langs/csharp/src/VMx/PublicAPI/net8.0/` lists the members that only `net8.0` declares | `dotnet build` (PublicApiAnalyzers: RS0016 for a member that the files do not list, RS0017 for a listed member that is gone) | Add new members to `PublicAPI.Unshipped.txt` with the RS0016 code fix, or with `dotnet format analyzers VMx.sln --diagnostics RS0016 --severity warn` (run it again until the count stops changing). Delete or edit the line of a removed or changed member. |
 | Python | `langs/python/api/vmx.api.txt` | `tools/check-python-api.py` on Python 3.12 | In `langs/python`: `uv run --python 3.12 python ../../tools/check-python-api.py --update` |
 | TypeScript | `langs/typescript/api/vmx.api.txt` | `tools/check-typescript-api.py` after `npm run build` | In `langs/typescript`: `npm run build && python3 ../../tools/check-typescript-api.py --update` |
-| Rust | `langs/rust/api/baseline-revision` | `cargo semver-checks` 0.51.0 on Rust 1.99.1 | Bump the `Cargo.toml` version as SemVer requires; the tool then accepts the break. |
+| Rust | `langs/rust/api/baseline-revision` | `cargo semver-checks` 0.51.0 on Rust 1.99.1; in a pull request, `tools/check-rust-api-baseline.py` first checks that the baseline revision declares the same `Cargo.toml` version as the pull request's base | Bump the `Cargo.toml` version as SemVer requires; the tool then accepts the break. Keep the baseline revision in that pull request. |
 | Swift | `langs/swift/api/baseline-revision` and `langs/swift/api/breakage-allowlist.txt` | `swift package diagnose-api-breaking-changes` on the root package's `VMx` product | Add each reported `API breakage: ...` line to the allowlist. |
 
 Commit the updated baseline in the same PR as the API change, so that the
 review shows it. A removed or changed public member is a breaking change: it
 needs a major version bump, or a minor bump while the version is 0.x (as for
-`vmx-rs`). An added member needs a minor bump (README §6.1). After a Rust or
-Swift release, set that flavor's `baseline-revision` to the release commit and
-empty the Swift allowlist.
+`vmx-rs`). An added member needs a minor bump (SemVer).
+
+`cargo semver-checks` accepts any break once the `Cargo.toml` version has
+moved past the version at the Rust baseline revision. The first pull request
+after a `vmx-rs` version bump must therefore set
+`langs/rust/api/baseline-revision` to a `develop` commit with the new version,
+for example its own base commit; `tools/check-rust-api-baseline.py` fails
+until it does. After a Swift release, set `langs/swift/api/baseline-revision`
+to the release commit and empty the Swift allowlist.
 
 The local commands match CI:
 
@@ -213,6 +222,7 @@ The local commands match CI:
 (cd langs/python && uv run --python 3.12 python ../../tools/check-python-api.py)
 (cd langs/typescript && npm run build && python3 ../../tools/check-typescript-api.py)
 cargo install cargo-semver-checks --version 0.51.0 --locked
+python3 tools/check-rust-api-baseline.py --base-rev origin/develop
 cargo semver-checks check-release --manifest-path langs/rust/Cargo.toml \
     --baseline-rev "$(tr -d '[:space:]' < langs/rust/api/baseline-revision)" \
     --default-features

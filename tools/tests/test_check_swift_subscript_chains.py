@@ -34,10 +34,22 @@ def test_checks_the_root_manifest_and_skips_build_directories(tmp_path, capsys) 
     assert cssc.findings(tmp_path) == ["Package.swift:1: let v = m[0]?.name"]
 
 
+def test_reports_a_chain_split_over_two_lines(tmp_path) -> None:
+    _write(
+        tmp_path / "langs/swift/Tests/T.swift",
+        "let a = 1\nlet y = d[k]?\n    .x\nlet z = e[k]?  .y\n",
+    )
+    assert cssc.findings(tmp_path) == [
+        "langs/swift/Tests/T.swift:2: let y = d[k]?",
+        "langs/swift/Tests/T.swift:4: let z = e[k]?  .y",
+    ]
+
+
 def test_binding_forms_pass(tmp_path, capsys) -> None:
     _write(
         tmp_path / "langs/swift/Sources/A.swift",
-        "guard let e = d[k] else { return nil }\nlet y = d[k] ?? z\nlet w = a?.b\n",
+        "guard let e = d[k] else { return nil }\nlet y = d[k] ?? z\nlet w = a?.b\n"
+        "let t = c[k] ? .on : .off\n",
     )
     assert cssc.main(["--root", str(tmp_path)]) == 0
     assert "OK" in capsys.readouterr().out

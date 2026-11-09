@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import textwrap
 import uuid
 from pathlib import Path
 
 import check_python_api as cpa
+import check_rust_api_baseline as crab
 import check_typescript_api as cta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -224,6 +226,33 @@ def test_typescript_rejects_diverging_commonjs_and_unknown_files(tmp_path, capsy
     assert "neither an entry point nor a hashed chunk" in capsys.readouterr().err
 
 
+def test_typescript_render_ignores_comments(tmp_path) -> None:
+    rendered = cta.render_api(_dist(tmp_path), {"index"})
+    dist = tmp_path / "dist"
+    for path in dist.glob("shared-*"):
+        path.write_text(
+            "/** Doc. */\ndeclare class A {\n    /**\n     * Runs `it`.\n     */\n"
+            "    run(): void; // trailing\n    /* block */\n}\nexport { A };\n",
+            encoding="utf-8",
+        )
+    assert cta.render_api(dist, {"index"}) == rendered
+
+
+def test_typescript_comment_markers_inside_strings_stay() -> None:
+    text = "type A = '/* x */' | \"// y\"; /** gone */\n\ntype B = `a//b`;\n"
+    assert cta._strip_comments(text) == "type A = '/* x */' | \"// y\"; \n\ntype B = `a//b`;\n"
+
+
+def test_typescript_entry_points_skip_exports_without_types(tmp_path) -> None:
+    package_json = tmp_path / "package.json"
+    package_json.write_text(
+        '{"exports": {".": {"import": {"types": "./dist/index.d.ts"}},'
+        ' "./package.json": "./package.json", "./raw": {"default": "./raw.js"}}}',
+        encoding="utf-8",
+    )
+    assert cta.entry_points(package_json) == {"index"}
+
+
 def test_typescript_entry_points_follow_the_exports_map() -> None:
     entries = cta.entry_points(REPO_ROOT / "langs/typescript/package.json")
     assert entries == {"index", "notifications", "conformance", "testing", "devtools"}
@@ -273,10 +302,59 @@ def test_rust_check_compares_with_the_recorded_revision() -> None:
     assert SHA.fullmatch(revision.strip())
     job = _job("rust.yml", "public-api")
     assert "fetch-depth: 0" in job
-    assert "cargo install cargo-semver-checks --version" in job and "--locked" in job
+    assert "CSC_VERSION: 0.51.0" in job
+    assert "sha256sum --check --strict" in job
+    assert re.search(r"CSC_SHA256: [0-9a-f]{64}\n", job)
     assert "cargo semver-checks check-release" in job
     assert "langs/rust/api/baseline-revision" in job
     assert "public-api" in _job("rust.yml", "required")
+    # The baseline must carry the pull request base's version, checked before the
+    # comparison.
+    guard = job.index('run: python3 tools/check-rust-api-baseline.py --base-rev "$BASE_SHA"')
+    assert "BASE_SHA: ${{ github.event.pull_request.base.sha }}" in job
+    assert guard < job.index("cargo semver-checks check-release")
+    workflow = (WORKFLOWS / "rust.yml").read_text(encoding="utf-8")
+    assert '- "tools/check-rust-api-baseline.py"' in workflow
+
+
+def _git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True, timeout=60
+    )
+    return completed.stdout.strip()
+
+
+def _commit_version(repo: Path, version: str) -> str:
+    manifest = repo / "langs/rust/Cargo.toml"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(f'[package]\nname = "vmx-rs"\nversion = "{version}"\n', encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", version)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _set_baseline(repo: Path, revision: str) -> None:
+    path = repo / "langs/rust/api/baseline-revision"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(revision + "\n", encoding="utf-8")
+
+
+def test_rust_baseline_must_carry_the_base_version(tmp_path, capsys) -> None:
+    _git(tmp_path, "init", "-q")
+    old = _commit_version(tmp_path, "0.36.0")
+    _set_baseline(tmp_path, old)
+    # A pull request that bumps the version compares with the old version.
+    assert crab.main(["--root", str(tmp_path), "--base-rev", old]) == 0
+    # After the bump merges, a pull request on top of it needs a new baseline.
+    bumped = _commit_version(tmp_path, "0.37.0")
+    capsys.readouterr()
+    assert crab.main(["--root", str(tmp_path), "--base-rev", bumped]) == 1
+    captured = capsys.readouterr()
+    assert "declares vmx-rs 0.36.0" in captured.err
+    assert f"for example {bumped}" in captured.err
+    _set_baseline(tmp_path, bumped)
+    assert crab.main(["--root", str(tmp_path), "--base-rev", bumped]) == 0
+    assert crab.main(["--root", str(tmp_path), "--base-rev", "0" * 40]) == 2
 
 
 def test_swift_check_compares_with_the_recorded_revision() -> None:
@@ -302,5 +380,6 @@ def test_contributing_documents_how_to_update_each_baseline() -> None:
         "breakage-allowlist.txt",
         "major version bump",
         "minor bump while the version is 0.x",
+        "check-rust-api-baseline.py",
     ):
         assert needle in section, needle

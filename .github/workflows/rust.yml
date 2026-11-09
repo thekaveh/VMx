@@ -14,6 +14,7 @@ on:
       - ".github/workflows/rust.yml"
       - "tools/check-rust-package.py"
       - "tools/check-rust-doc-snippets.py"
+      - "tools/check-rust-api-baseline.py"
       - "tools/smoke-rust-consumer.py"
       - "docs/content/getting-started/rust.md"
       - "tools/check-conformance-coverage.py"
@@ -236,7 +237,26 @@ jobs:
           toolchain: 1.99.1
 
       - name: Install cargo-semver-checks
-        run: cargo install cargo-semver-checks --version 0.51.0 --locked
+        # The release binary, checked against the digest that GitHub records
+        # for the v0.51.0 asset. Compiling the tool takes several minutes.
+        env:
+          CSC_VERSION: 0.51.0
+          CSC_SHA256: cacadafaa5cd27ae6d05a74a103266917ebab4c5e43c898360e177d4fbf06a65
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$RUNNER_TEMP/csc.tar.gz" \
+            "https://github.com/obi1kenobi/cargo-semver-checks/releases/download/v${CSC_VERSION}/cargo-semver-checks-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${CSC_SHA256}  $RUNNER_TEMP/csc.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/csc.tar.gz" -C "$HOME/.cargo/bin" cargo-semver-checks
+          cargo semver-checks --version
+
+      - name: Check that the baseline revision carries the base version
+        # cargo-semver-checks accepts any break once the Cargo.toml version
+        # has moved past the baseline's version, so the baseline must declare
+        # the version of the pull request's base (CONTRIBUTING.md §2.8).
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 tools/check-rust-api-baseline.py --base-rev "$BASE_SHA"
 
       - name: Compare the public API with the baseline revision
         # Fails on a break that the Cargo.toml version does not allow
