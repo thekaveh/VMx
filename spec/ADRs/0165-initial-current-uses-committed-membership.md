@@ -1,6 +1,6 @@
 # ADR 0165 — The initial `Current` assignment uses committed membership and never waits
 
-- **Status:** Accepted
+- **Status:** Accepted (Extended by ADR-0173)
 - **Date:** 2026-10-30
 - **Spec version:** 3.30.0 (clarification of chapter 06 §3.2)
 
