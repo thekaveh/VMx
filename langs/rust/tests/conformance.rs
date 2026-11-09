@@ -62,6 +62,8 @@ mod conformance {
     #[cfg(feature = "test-seams")]
     mod multi_dictionary_delivery_wait_cycle;
     mod multi_dictionary_events;
+    // The notifications sub-package is a Cargo feature (ADR-0211).
+    #[cfg(feature = "notifications")]
     mod notifications;
     mod null_services;
     mod observable_list_events;
