@@ -104,7 +104,7 @@ uv --project langs/python run pytest tools/tests/
 Running ruff on `tools/` requires the project config: `--config langs/python/pyproject.toml`.
 
 ### 3.7 Pre-commit
-`pre-commit install` once. Hooks: ruff (Python only), mdformat (spec/ and docs/), `dotnet format --verify-no-changes` (C# only), eslint (TypeScript only), whitespace/EOL hygiene. mdformat is pinned to 0.7.x (1.0 is incompatible with `mdformat-gfm`).
+`pre-commit install` once. Hooks: ruff (Python only), mdformat (spec/, docs/, `langs/*/CHANGELOG.md` and `packages/react/CHANGELOG.md`), `dotnet format --verify-no-changes` (C# only), eslint (TypeScript only), whitespace/EOL hygiene. mdformat is pinned to 0.7.x (1.0 is incompatible with `mdformat-gfm`).
 
 ## 4. When changing behavior
 
