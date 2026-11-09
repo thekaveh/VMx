@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `FORM-044` conformance tests (#1415, ADR-0216). A failed send of an
+  update's queue stops the later sends and releases a nested approval
+  without calling its persister. Swift sinks cannot fail, so the test checks
+  the path without a failure.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -70,8 +74,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   change, and every child is still disposed before the container publishes
   `.disposed` (LIFE-013). The default, `.insertion`, keeps today's order.
 
+### Changed
+
+- `setModel` and deny open an update publication scope only when the commit
+  changes the error map (ADR-0215, spec/20 §5.5, #1426).
+- A non-strict `FormVM` update no longer compares the model with the
+  snapshot (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict
+  `setModel` runs the equality once, and a non-strict deny not at all.
+
 ### Fixed
 
+- `FormVM` no longer holds a lock while its equality, validators,
+  snapshotter or `resetOnApproved` run (ADR-0215, spec/20 §5.4, #1427). A
+  callback that waited for another thread that called the same form
+  deadlocked. Another thread's reads now return the committed state at once,
+  and its calls no longer wait for the callback. An update that another
+  thread's commit overtakes runs again as a new call.
+- A `setModel` or deny from another thread while an approval runs its
+  post-persist callbacks now commits at once, and a configured reset
+  overwrites it (ADR-0215, spec/20 §5.3, #1452). Before, it committed after
+  `onApproved`, and its model stood.
+- A `dispose()` whose wait for a publication scope is refused now wakes the
+  waiting calls at once, and they find the form disposed (ADR-0215, spec/20
+  §5.5, #1426). Before, they woke when the publisher's scope closed.
 - A `FormVM` approval started from a preparation callback or an
   `errorsChanged` sink of `setModel` or deny now starts its persister after
   the outermost update sends all queued notifications (ADR-0180, spec/20

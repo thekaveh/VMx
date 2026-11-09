@@ -302,7 +302,10 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         XCTAssertEqual(form.model, "next")
     }
 
-    func testAdmittedSetterCompletesBeforeQueuedDisposal() async throws {
+    // A disposal from another thread during a preparation marks the form
+    // disposed and returns; the admitted setter then commits nothing (§5.4,
+    // ADR-0215).
+    func testDisposalDuringAnAdmittedSetterReturnsAndTheSetterCommitsNothing() async throws {
         let validatorEntered = DispatchSemaphore(value: 0)
         let releaseValidator = DispatchSemaphore(value: 0)
         let hub = MessageHub()
@@ -338,13 +341,12 @@ final class FormVMResetOnApprovedTests: XCTestCase {
             disposeDone.signal()
         }
         XCTAssertEqual(disposeStarted.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(disposeDone.wait(timeout: .now()), .timedOut)
+        XCTAssertEqual(disposeDone.wait(timeout: .now() + 1), .success)
         releaseValidator.signal()
 
         await fulfillment(of: [setterDone], timeout: 1)
-        XCTAssertEqual(disposeDone.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(form.model, "accepted")
-        XCTAssertEqual(publishedModels, ["accepted"])
+        XCTAssertEqual(form.model, "initial")
+        XCTAssertEqual(publishedModels, [])
     }
 
     // Disposal by a callback during preparation makes the result stale (§5.4).

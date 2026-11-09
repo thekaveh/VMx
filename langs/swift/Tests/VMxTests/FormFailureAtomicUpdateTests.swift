@@ -15,9 +15,10 @@
 // what applies instead: callbacks run before anything is committed and see
 // the unchanged form, and every observer reads the committed result as one
 // consistent state. FORM-037 and FORM-038 (re-entrancy and disposal on the
-// preparing thread) apply to Swift as written. Updates stay serialized per
-// form, so another thread's update waits instead of making one stale; a
-// flavor-local test at the end covers that.
+// preparing thread) apply to Swift as written. The form holds no lock while
+// a callback runs, so another thread's update commits at once, and the
+// update it overtook runs again (ADR-0215); a flavor-local test at the end
+// covers that.
 //
 
 import Combine
@@ -511,13 +512,15 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
 
     // ── Serialization ─────────────────────────────────────────────────────────
 
-    // Updates are serialized per form (§5.4): another thread's setModel waits
-    // while an admitted update prepares, then commits after it, so neither
-    // edit is dropped. Staleness comes only from re-entry on the preparing
-    // thread (FORM-037, FORM-038).
-    func testAnotherThreadsSetModelWaitsForAPreparingUpdate() {
+    // Commits stay serialized, but the form holds no lock while a callback
+    // runs (§5.4, ADR-0215): another thread's setModel commits during an
+    // admitted update's preparation, and the overtaken update then runs again
+    // as a new call, so neither edit is dropped.
+    func testAnotherThreadsSetModelOvertakesAPreparingUpdateThatRunsAgain() {
         let validatorEntered = DispatchSemaphore(value: 0)
         let releaseValidator = DispatchSemaphore(value: 0)
+        let countLock = NSLock()
+        var firstPreparations = 0
         let hub = MessageHub()
         let form = FormVM(
             initial: "initial",
@@ -525,13 +528,18 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
             hub: hub,
             validators: ["name": { candidate in
                 if candidate == "first" {
-                    validatorEntered.signal()
-                    _ = releaseValidator.wait(timeout: .now() + 10)
+                    countLock.lock()
+                    firstPreparations += 1
+                    let isFirst = firstPreparations == 1
+                    countLock.unlock()
+                    if isFirst {
+                        validatorEntered.signal()
+                        _ = releaseValidator.wait(timeout: .now() + 10)
+                    }
                 }
                 return nil
             }]
         )
-        let countLock = NSLock()
         var published = 0
         let subscription = hub.messages.sink { message in
             guard (message as? PropertyChangedMessage)?.propertyName == "model" else { return }
@@ -554,17 +562,19 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
             secondDone.signal()
         }
         XCTAssertEqual(
-            secondDone.wait(timeout: .now() + 0.2), .timedOut,
-            "the second update waits for the first one's preparation"
+            secondDone.wait(timeout: .now() + 5), .success,
+            "the second update does not wait for the first one's preparation"
         )
+        XCTAssertEqual(form.model, "second")
         releaseValidator.signal()
 
         XCTAssertEqual(firstDone.wait(timeout: .now() + 10), .success)
-        XCTAssertEqual(secondDone.wait(timeout: .now() + 10), .success)
-        XCTAssertEqual(form.model, "second")
+        XCTAssertEqual(form.model, "first", "the overtaken update ran again")
         countLock.lock()
         let publishedCount = published
+        let preparations = firstPreparations
         countLock.unlock()
         XCTAssertEqual(publishedCount, 2, "each edit commits and publishes once")
+        XCTAssertEqual(preparations, 2, "the overtaken update prepared again")
     }
 }
