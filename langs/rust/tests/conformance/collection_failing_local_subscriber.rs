@@ -7,6 +7,11 @@
 //! sent. Rust local delivery catches a panicking subscriber, so the mutation
 //! returns normally (spec/01-concepts.md §1.4, spec/21-collections.md §2.5,
 //! ADR-0171, #1051).
+//!
+//! COL-069 — the panicking subscriber stays attached and a later local
+//! subscriber still receives each change (spec/03-messages.md §3.6, ADR-0191,
+//! #1311). The cases cover the serviced and keyed collections and the
+//! multi-key dictionary.
 
 use std::sync::{Arc, Mutex};
 
@@ -155,4 +160,77 @@ fn dictionary_publishes_once_despite_failing_local_subscriber() {
         assert_eq!(*actions.lock().unwrap(), vec![action], "{mutation}");
         assert_eq!(*order.lock().unwrap(), vec!["local", "hub"], "{mutation}");
     }
+}
+
+/// Subscribes A (panics on every delivery) then B on `local`; returns the
+/// per-subscriber change counts and keeps both subscriptions alive.
+fn record_two(local: &MessageHub) -> (Arc<Mutex<[usize; 2]>>, [vmx::Subscription; 2]) {
+    let seen = Arc::new(Mutex::new([0_usize; 2]));
+    let (a_seen, b_seen) = (seen.clone(), seen.clone());
+    let a = local.subscribe(move |_| {
+        a_seen.lock().unwrap()[0] += 1;
+        panic!("local subscriber A failed");
+    });
+    let b = local.subscribe(move |_| b_seen.lock().unwrap()[1] += 1);
+    (seen, [a, b])
+}
+
+/// COL-069 — a failing local subscriber does not stop the later local subscribers (serviced)
+#[test]
+fn serviced_collection_failing_local_subscriber_does_not_stop_later_subscriber() {
+    let hub = MessageHub::new();
+    let list = ServicedObservableCollection::with_hub(1, hub.clone());
+    let order: Order = Arc::new(Mutex::new(Vec::new()));
+    let (actions, _hub) = observe_hub(&hub, &order);
+    let (seen, _local) = record_two(&list.collection_changed());
+
+    list.push("a");
+    list.push("b");
+
+    assert_eq!(list.to_vec(), vec!["a", "b"]);
+    assert_eq!(*seen.lock().unwrap(), [2, 2]);
+    assert_eq!(
+        *actions.lock().unwrap(),
+        vec![CollectionChangeAction::Add, CollectionChangeAction::Add]
+    );
+}
+
+/// COL-069 — a failing local subscriber does not stop the later local subscribers (keyed)
+#[test]
+fn keyed_collection_failing_local_subscriber_does_not_stop_later_subscriber() {
+    let hub = MessageHub::new();
+    let list = KeyedServicedObservableCollection::with_hub(1, hub.clone(), |item: &&str| Ok(*item));
+    let order: Order = Arc::new(Mutex::new(Vec::new()));
+    let (actions, _hub) = observe_hub(&hub, &order);
+    let (seen, _local) = record_two(&list.collection_changed());
+
+    list.push("a").unwrap();
+    list.push("b").unwrap();
+
+    assert_eq!(list.to_vec(), vec!["a", "b"]);
+    assert_eq!(*seen.lock().unwrap(), [2, 2]);
+    assert_eq!(
+        *actions.lock().unwrap(),
+        vec![CollectionChangeAction::Add, CollectionChangeAction::Add]
+    );
+}
+
+/// COL-069 — a failing local subscriber does not stop the later local subscribers (dictionary)
+#[test]
+fn dictionary_failing_local_subscriber_does_not_stop_later_subscriber() {
+    let hub = MessageHub::new();
+    let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
+    let order: Order = Arc::new(Mutex::new(Vec::new()));
+    let (actions, _hub) = observe_hub(&hub, &order);
+    let (seen, _local) = record_two(&dictionary.collection_changed());
+
+    dictionary.add("a", 1, "one").unwrap();
+    dictionary.add("b", 2, "two").unwrap();
+
+    assert_eq!(dictionary.count(), 2);
+    assert_eq!(*seen.lock().unwrap(), [2, 2]);
+    assert_eq!(
+        *actions.lock().unwrap(),
+        vec![CollectionChangeAction::Add, CollectionChangeAction::Add]
+    );
 }

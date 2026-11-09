@@ -17,6 +17,12 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
+  tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
+  #1311). A failing subscriber does not stop the delivery to the other
+  subscribers or detach a subscription, and the subscribers of one
+  `AggregateChangeStream` envelope receive it in subscription order. Swift
+  subscribers cannot fail, so these tests assert the structure.
 - `NOTIF-020` conformance tests (#1476, ADR-0197). A `pending` subscription
   made after hub disposal receives completion only. Swift already behaved
   this way.
@@ -112,6 +118,10 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `try` at each call site, and handle or propagate the error.
 
 ### Fixed
+
+- `AggregateChangeStream` now delivers each envelope to its subscribers in
+  subscription order, for item, structural, final `Batch` and completion
+  delivery (ADR-0192, spec/21 §9.5, #1310, `AGCH-011`).
 
 - `NotificationVM` and `ConfirmationVM` keep `remaining` and `opacity` from
   their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306). Before,

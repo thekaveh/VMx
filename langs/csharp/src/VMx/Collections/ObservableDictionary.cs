@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 using VMx.Messages;
 using VMx.Services;
 
@@ -472,7 +473,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     {
         var entry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value);
         Notify(
-            () => ItemAdded?.Invoke(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value)),
+            () => FanOut.Raise(ItemAdded, handler => handler(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value))),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, entry),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForAdd(
                 this, entry, CurrentIndex(key1, key2, index)));
@@ -491,7 +492,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     {
         var entry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value);
         Notify(
-            () => ItemRemoved?.Invoke(this, new DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>(key1, key2, value)),
+            () => FanOut.Raise(ItemRemoved, handler => handler(this, new DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>(key1, key2, value))),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, entry),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(this, entry, index));
     }
@@ -503,7 +504,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         var newEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue);
         var oldEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue);
         Notify(
-            () => ItemReplaced?.Invoke(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue)),
+            () => FanOut.Raise(ItemReplaced, handler => handler(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue))),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, newEntry, oldEntry),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(
                 this, newEntry, oldEntry, _keyOrder.IndexOf((key1, key2))));
@@ -512,25 +513,25 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     private void OnReset()
     {
         Notify(
-            () => Reset?.Invoke(this, EventArgs.Empty),
+            () => FanOut.Raise(Reset, handler => handler(this, EventArgs.Empty)),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReset(this));
     }
 
     // Raises the granular event, then CollectionChanged, then sends the hub
     // message (if a hub is present). A throwing local handler skips neither the
-    // later local event nor the hub message for the committed change; the
-    // first failure is rethrown after publication (spec/01 §1.4, ADR-0171).
+    // later handlers, the later local event nor the hub message for the
+    // committed change; the first failure is rethrown after publication
+    // (spec/01 §1.4, spec/03 §3.6, ADR-0171, ADR-0191).
     private void Notify(
-        Action granular,
+        Func<ExceptionDispatchInfo?> granular,
         NotifyCollectionChangedEventArgs args,
         Func<CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>> message)
     {
-        ExceptionDispatchInfo? firstFailure = null;
-        try { granular(); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
-        try { CollectionChanged?.Invoke(this, args); }
-        catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+        ExceptionDispatchInfo? firstFailure = granular();
+        ExceptionDispatchInfo? collectionFailure =
+            FanOut.Raise(CollectionChanged, handler => handler(this, args));
+        firstFailure ??= collectionFailure;
         if (_hub is not null)
         {
             try { _hub.Send(message()); }

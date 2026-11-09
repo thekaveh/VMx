@@ -1539,3 +1539,57 @@ fn deferred_call_survives_disposal_of_the_outer_cloned_builder_command() {
     );
     slot.lock().unwrap().take();
 }
+
+/// Asserts CMD-021 for one command: A panics on every notification, B counts.
+/// Rust triggers are hubs, so the trigger has no operator form.
+fn assert_failing_handler_isolated(
+    trigger: &MessageHub,
+    can_execute_changed: MessageHub,
+    raise: impl Fn(),
+) {
+    let counts = Arc::new(Mutex::new([0_usize; 2]));
+    let (a_seen, b_seen) = (counts.clone(), counts.clone());
+    let _a = can_execute_changed.subscribe(move |_| {
+        a_seen.lock().unwrap()[0] += 1;
+        panic!("handler A failed");
+    });
+    let _b = can_execute_changed.subscribe(move |_| b_seen.lock().unwrap()[1] += 1);
+    let pulse = || {
+        trigger.send(Message::Custom {
+            sender_id: 0,
+            sender_name: "trigger".to_string(),
+            name: "trigger".to_string(),
+        });
+    };
+
+    // Each panic is caught per handler, so the trigger send returns normally.
+    pulse();
+    pulse();
+    assert_eq!(*counts.lock().unwrap(), [2, 2]);
+
+    raise();
+    assert_eq!(*counts.lock().unwrap(), [3, 3]);
+}
+
+/// CMD-021 — a failing CanExecuteChanged handler stops neither other handlers nor a trigger (RelayCommand)
+#[test]
+fn relay_failing_can_execute_changed_handler_is_isolated() {
+    let trigger = MessageHub::new();
+    let command = RelayCommand::builder().trigger(trigger.clone()).build();
+    assert_failing_handler_isolated(&trigger, command.can_execute_changed(), || {
+        command.raise_can_execute_changed();
+    });
+}
+
+/// CMD-021 — a failing CanExecuteChanged handler stops neither other handlers nor a trigger (AsyncRelayCommand)
+#[test]
+fn async_relay_failing_can_execute_changed_handler_is_isolated() {
+    let trigger = MessageHub::new();
+    let command = AsyncRelayCommand::builder()
+        .task(|_| Ok(()))
+        .trigger(trigger.clone())
+        .build();
+    assert_failing_handler_isolated(&trigger, command.can_execute_changed(), || {
+        command.raise_can_execute_changed();
+    });
+}

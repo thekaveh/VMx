@@ -3,6 +3,7 @@ using System.Reactive.Subjects;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -36,7 +37,8 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _confirm = confirm ?? throw new ArgumentNullException(nameof(confirm));
-        _innerHandler = (sender, args) => CanExecuteChanged?.Invoke(this, args);
+        _innerHandler = (sender, args) =>
+            FanOut.Raise(CanExecuteChanged, handler => handler(this, args))?.Throw();
         _inner.CanExecuteChanged += _innerHandler;
     }
 

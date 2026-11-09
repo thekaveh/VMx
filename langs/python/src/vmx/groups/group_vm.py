@@ -23,6 +23,7 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx._indexes import _reject_bool_index
+from vmx._subscriber_failures import FanOutSubject
 from vmx._wait_for_graph import WAITS
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components._container_helpers import (
@@ -133,7 +134,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._membership_condition = Condition(self._membership_gate)
 
         # Observable collection-change stream.
-        self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
+        self._collection_changed_subject: Subject[CollectionChangedEvent] = FanOutSubject()
 
         # Single cached parent adaptor reused for every child op (VMX-077):
         # a fresh _GroupParent per add/insert was wasteful and gave children an

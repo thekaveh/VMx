@@ -1,7 +1,8 @@
-"""Conformance tests for SearchableState source reactivity (SRCH-001..008)."""
+"""Conformance tests for SearchableState source reactivity (SRCH-001..009)."""
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
@@ -250,4 +251,57 @@ def test_SRCH_008_construction_starts_no_term_debounce() -> None:
     scheduler.advance_by(0.1)
     assert len(snapshots) == 3
     assert snapshots[-1] == ["one", "two"]
+    state.dispose()
+
+
+class PredicateError(Exception):
+    """Raised by the failing predicate."""
+
+
+class FilteredSubscriberError(Exception):
+    """Raised by the failing ``filtered`` subscriber."""
+
+
+@pytest.mark.conformance("SRCH-009")
+def test_SRCH_009_failing_predicate_or_filtered_subscriber_keeps_helper_live(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def predicate(item: str, term: str) -> bool:
+        if term == "boom":
+            raise PredicateError
+        return term in item
+
+    state = SearchableState(
+        items=lambda: ["apple", "banana"],
+        predicate=predicate,
+        debounce_seconds=0,
+    )
+    a_seen: list[list[str]] = []
+    b_seen: list[list[str]] = []
+
+    def failing(snapshot: list[str]) -> None:
+        a_seen.append(snapshot)
+        raise FilteredSubscriberError
+
+    with caplog.at_level(logging.ERROR):
+        state.filtered.subscribe(failing)
+        state.filtered.subscribe(b_seen.append)
+        a_seen.clear()
+        b_seen.clear()
+
+        state.search_term = "boom"
+        assert a_seen == []
+        assert b_seen == []
+
+        state.search_term = "an"
+        assert a_seen == [["banana"]]
+        assert b_seen == [["banana"]]
+
+        state.search()
+        assert a_seen == [["banana"], ["banana"]]
+        assert b_seen == [["banana"], ["banana"]]
+
+    failures = [r.exc_info[1] for r in caplog.records if r.exc_info is not None]
+    assert any(isinstance(error, PredicateError) for error in failures)
+    assert any(isinstance(error, FilteredSubscriberError) for error in failures)
     state.dispose()

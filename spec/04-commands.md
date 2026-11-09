@@ -52,6 +52,16 @@ Triggers do NOT carry data — only the fact that re-evaluation should happen. T
 typical pattern: derive a trigger from a property's change stream
 (`vm.Status.Where(s => s == Constructed).Select(_ => Unit.Default)`).
 
+**Failing handlers (spec v3.30, ADR-0191).** `CanExecuteChanged` follows
+chapter 03 §3.6. Each notification reaches every handler, even when an earlier
+handler fails. A failing handler detaches neither itself nor a trigger
+subscription, also for a trigger built with operators. A trigger emission is
+stream-fed: its failure never reaches the trigger's publisher. A
+`RaiseCanExecuteChanged` call is call-fed: C# and Python rethrow the first
+failure after every handler has run. `CompositeCommand` and the command
+decorators forward the event under the same rule. Rust triggers are hubs, so
+the operator form does not apply to Rust.
+
 ### 4.1 Recipe: trigger from a hub property change
 
 A common pattern is firing `CanExecuteChanged` whenever a specific ViewModel
@@ -554,7 +564,7 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 
 ## 11. Conformance
 
-`CMD-001` through `CMD-020` and `CMDD-001` through `CMDD-018` in
+`CMD-001` through `CMD-021` and `CMDD-001` through `CMDD-018` in
 `12-conformance.md` cover:
 
 - `Execute` invokes the configured task
@@ -577,6 +587,8 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 - `CMD-020` — a fire-and-forget `AsyncRelayCommand` fault reaches `errors`
   after the completion `CanExecuteChanged`, so an `errors` subscriber reads
   `IsExecuting == false` (§10.4, ADR-0195)
+- `CMD-021` — a failing `CanExecuteChanged` handler stops neither the other
+  handlers nor an operator-built trigger (§4, ADR-0191)
 - `CMDD-010` — `ConfirmationDecoratorCommand` surfaces a rejecting `confirm`
   delegate or a throwing inner command on its `errors` channel instead of
   swallowing it (§8.3.1, ADR-0049)

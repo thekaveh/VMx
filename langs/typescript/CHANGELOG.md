@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
+  tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
+  #1311). A failing subscriber does not stop the delivery to the other
+  subscribers or detach a subscription, and the subscribers of one
+  `AggregateChangeStream` envelope receive it in subscription order.
+  TypeScript already behaved this way.
 - `NOTIF-020` conformance tests (#1476, ADR-0197). A `pending` subscription
   made after hub disposal receives completion only. TypeScript already behaved
   this way.

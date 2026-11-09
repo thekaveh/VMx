@@ -15,6 +15,15 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
+  tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
+  #1311). A failing subscriber does not stop the delivery to the other
+  subscribers or detach a subscription, and the subscribers of one
+  `AggregateChangeStream` envelope receive it in subscription order. Rust
+  already behaved this way, also for the dictionary's local channel.
+  `SearchableState` is pull-based, so a failing predicate panics in the caller
+  of `filtered()`.
+
 - `NOTIF-019` conformance tests (#1306, ADR-0197). `remaining_time_ms()` and
   `opacity()` keep their values from the first resolution or disposal. Rust
   already behaved this way.

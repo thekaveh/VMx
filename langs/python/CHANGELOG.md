@@ -14,6 +14,12 @@ below for them.
 
 ### Added
 
+- `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
+  tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
+  #1311). A failing subscriber does not stop the delivery to the other
+  subscribers or detach a subscription, and the subscribers of one
+  `AggregateChangeStream` envelope receive it in subscription order. Python
+  already delivered `AggregateChangeStream` envelopes in subscription order.
 - `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
   cancellation restores the saved stable state. Python already behaved this
   way.
@@ -98,6 +104,16 @@ below for them.
 
 ### Fixed
 
+- A failing subscriber no longer stops the delivery to the other subscribers
+  or detaches a subscription (ADR-0191, spec/03 §3.6, #1304, #1311). This
+  covers the hub helpers, `DerivedProperty` value changes,
+  `SearchableState`, command `CanExecuteChanged` handlers and triggers, and the
+  local collection and container channels. A failure from a stream-fed delivery
+  no longer reaches the upstream publisher; it follows the hub's
+  subscriber-error route. Collection, container and raise-call failures are
+  still rethrown, after every subscriber has run. A failing `SearchableState`
+  predicate keeps the last snapshot (`HUB-007`, `DPROP-013`, `SRCH-009`,
+  `CMD-021`, `COL-069`).
 - `NotificationVM` and `ConfirmationVM` keep `remaining_time` and `opacity`
   from their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306).
   Before, both values kept decaying with the scheduler clock after resolution

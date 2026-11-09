@@ -1,4 +1,4 @@
-import { Observable, Subject, VirtualTimeScheduler } from "rxjs";
+import { config, Observable, Subject, VirtualTimeScheduler } from "rxjs";
 import { describe, expect, it, vi } from "vitest";
 
 import { SearchableState } from "../../src/index.js";
@@ -249,6 +249,65 @@ describe("SRCH-008", () => {
     expect(snapshots).toHaveLength(2);
     scheduler.flush();
     expect(snapshots).toHaveLength(3);
+    state.dispose();
+  });
+});
+
+/** Runs `act` with rxjs unhandled-error reports recorded, then drains them. */
+async function withUnhandledErrors(act: () => void): Promise<unknown[]> {
+  const unhandled: unknown[] = [];
+  const previous = config.onUnhandledError;
+  config.onUnhandledError = (error) => unhandled.push(error);
+  try {
+    act();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    config.onUnhandledError = previous;
+  }
+  return unhandled;
+}
+
+describe("SRCH-009", () => {
+  it("keeps the helper live after a failing predicate or Filtered subscriber", async () => {
+    const state = new SearchableState<string>({
+      items: () => ["apple", "banana"],
+      predicate: (item, term) => {
+        if (term === "boom") throw new Error("predicate failed");
+        return item.includes(term);
+      },
+      debounceMs: 0,
+    });
+    const a: (readonly string[])[] = [];
+    const b: (readonly string[])[] = [];
+    let afterBoom: { a: number; b: number } = { a: 0, b: 0 };
+    let afterTerm: { a: number; b: number } = { a: 0, b: 0 };
+
+    const unhandled = await withUnhandledErrors(() => {
+      state.filtered.subscribe((snapshot) => {
+        a.push(snapshot);
+        throw new Error("subscriber A failed");
+      });
+      state.filtered.subscribe((snapshot) => b.push(snapshot));
+      const start = { a: a.length, b: b.length };
+
+      expect(() => {
+        state.searchTerm = "boom";
+      }).not.toThrow();
+      afterBoom = { a: a.length, b: b.length };
+      expect(afterBoom).toEqual(start);
+
+      state.searchTerm = "an";
+      afterTerm = { a: a.length, b: b.length };
+      expect(a.slice(afterBoom.a)).toEqual([["banana"]]);
+      expect(b.slice(afterBoom.b)).toEqual([["banana"]]);
+
+      state.search();
+      expect(a.slice(afterTerm.a)).toEqual([["banana"]]);
+      expect(b.slice(afterTerm.b)).toEqual([["banana"]]);
+    });
+
+    // A's initial replay, the predicate failure, and A's two failures.
+    expect(unhandled).toHaveLength(4);
     state.dispose();
   });
 });
