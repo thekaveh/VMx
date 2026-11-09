@@ -11,6 +11,7 @@ import {
   ForwardingComponentVM,
   ForwardingCompositeVM,
   PropertyChangedMessage,
+  type IComponentVMOf,
 } from "../../src/index.js";
 
 function makeHub() { return new MessageHub(); }
@@ -85,4 +86,30 @@ describe("forwarding decorator notification helpers (#1352)", () => {
       expect(messages).toEqual([]);
     });
   }
+});
+
+describe("forwarding decorator helpers over a plain IComponentVMOf (#1352)", () => {
+  it("throw a TypeError that names the property-change helper", () => {
+    const inner = ComponentVMOf.builder<string>()
+      .name("inner")
+      .model("m")
+      .services(makeHub(), makeDisp())
+      .build();
+    // Delegates every member to `inner` but is not a VMx ComponentVMBase.
+    const plain = new Proxy(inner, {
+      getPrototypeOf: () => Object.prototype,
+      get(target, property) {
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as IComponentVMOf<string>;
+    const decorator = new NotifyingComponent(plain);
+
+    expect(() => decorator.notify("custom")).toThrow(
+      new TypeError("A forwarding decorator must wrap a VMx ComponentVMBase to report a property change"),
+    );
+    expect(() => decorator.raiseLocal("custom")).toThrow(
+      new TypeError("A forwarding decorator must wrap a VMx ComponentVMBase to report a property change"),
+    );
+  });
 });

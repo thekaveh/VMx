@@ -15,6 +15,14 @@ import { ComponentVMBase, type IOwningParentVM } from "../components/componentVM
 import { NullDispatcher } from "../services/nullDispatcher.js";
 import { forwardingParentOf, setForwardingParent } from "./forwardingParents.js";
 
+/** Return `wrapped` as a VMx `ComponentVMBase`, or throw a TypeError naming `action`. */
+function requireComponentVMBase(wrapped: unknown, action: string): ComponentVMBase {
+  if (!(wrapped instanceof ComponentVMBase)) {
+    throw new TypeError(`A forwarding decorator must wrap a VMx ComponentVMBase to ${action}`);
+  }
+  return wrapped;
+}
+
 export class ForwardingComponentVM<M> extends ComponentVMBase implements IComponentVMOf<M> {
   protected readonly _wrapped: IComponentVMOf<M>;
 
@@ -36,12 +44,29 @@ export class ForwardingComponentVM<M> extends ComponentVMBase implements ICompon
    * @throws TypeError when the wrapped object is not a VMx `ComponentVMBase`.
    */
   get wrappedBase(): ComponentVMBase {
-    if (!(this._wrapped instanceof ComponentVMBase)) {
-      throw new TypeError(
-        "A forwarding decorator must wrap a VMx ComponentVMBase to join a container or own resources",
-      );
-    }
-    return this._wrapped;
+    return requireComponentVMBase(this._wrapped, "join a container or own resources");
+  }
+
+  /**
+   * Emit `propertyName` on the wrapped VM's local stream, which this
+   * decorator exposes (#1352).
+   *
+   * @throws TypeError when the wrapped object is not a VMx `ComponentVMBase`.
+   */
+  protected override _raisePropertyChanged(propertyName: string): void {
+    requireComponentVMBase(this._wrapped, "report a property change");
+    super._raisePropertyChanged(propertyName);
+  }
+
+  /**
+   * Publish a property change through the wrapped VM: the hub message names
+   * the wrapped VM as its sender (#1352).
+   *
+   * @throws TypeError when the wrapped object is not a VMx `ComponentVMBase`.
+   */
+  protected override _notifyPropertyChanged(propertyName: string): void {
+    requireComponentVMBase(this._wrapped, "report a property change");
+    super._notifyPropertyChanged(propertyName);
   }
 
   override get _ownershipIdentity(): ComponentVMBase {
