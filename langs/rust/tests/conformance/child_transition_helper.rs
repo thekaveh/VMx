@@ -398,7 +398,7 @@ fn helper_destructs_in_caller_order() {
 }
 
 /// LIFE-020 — the helper joins a child that is already Constructing: no
-/// concurrent-operation error, the child's hook runs once, and the parent
+/// lifecycle transition error, the child's hook runs once, and the parent
 /// stays Constructing until the child settles.
 #[test]
 fn helper_joins_child_in_transit() {

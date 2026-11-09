@@ -367,7 +367,7 @@ fn wrapper_forwarding_settle_hook_makes_container_wait() {
 /// LIFE-008 — reconstruct during another transition raises the lifecycle
 /// transition error naming the transient status and `reconstruct`
 #[test]
-fn reconstruct_during_a_transition_reports_a_concurrent_operation() {
+fn reconstruct_during_a_transition_names_the_transient_status() {
     let hub = MessageHub::new();
     let dispatcher = ManualDispatcher::new();
     let child = background_child(&hub, &dispatcher, "child");

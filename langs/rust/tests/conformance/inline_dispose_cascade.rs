@@ -2,7 +2,8 @@
 //! ADR-0175, LIFE-021).
 //!
 //! A `construct()`, `destruct()`, or `reconstruct()` call that starts during
-//! the cascade returns `VmxError::Disposed` and publishes nothing. The check
+//! the cascade returns `VmxError::InvalidLifecycleTransition` from `Disposed`
+//! and publishes nothing. The check
 //! runs before the idempotent no-op and the legality check. Once the cascade
 //! has started, no status other than `Disposed` commits. A leaf's member
 //! cascade follows the same rules as a container's child cascade.
@@ -211,9 +212,9 @@ impl Container for AggregateVm1<ComponentVm> {
 }
 
 /// Puts `container` in `initial`, then disposes it while `c1`'s dispose hook
-/// calls `op` on it. The call fails with `VmxError::Disposed`, runs no
-/// container hook and no factory, and the container publishes only
-/// `Disposed`.
+/// calls `op` on it. The call fails with
+/// `VmxError::InvalidLifecycleTransition` from `Disposed`, runs no container
+/// hook and no factory, and the container publishes only `Disposed`.
 fn call_during_child_cascade<C: Container>(initial: ConstructionStatus, op: Op) {
     let hub = MessageHub::new();
     let call: Call = Arc::default();
@@ -294,7 +295,8 @@ fn every_call_during_child_cascade<C: Container>() {
 }
 
 /// LIFE-021 — a lifecycle call on a `CompositeVm` from its child's dispose
-/// hook fails with `VmxError::Disposed` and publishes nothing.
+/// hook fails with `VmxError::InvalidLifecycleTransition` from `Disposed`
+/// and publishes nothing.
 #[test]
 fn composite_refuses_lifecycle_calls_during_its_child_cascade() {
     every_call_during_child_cascade::<CompositeVm<ComponentVm>>();
@@ -513,8 +515,9 @@ fn call_during_member_cascade(background: bool, initial: ConstructionStatus, op:
 }
 
 /// LIFE-021 — a lifecycle call on a leaf from its member's dispose hook
-/// fails with `VmxError::Disposed`, runs no leaf hook, and the leaf
-/// publishes only `Disposed`; with and without `background(true)`.
+/// fails with `VmxError::InvalidLifecycleTransition` from `Disposed`, runs no
+/// leaf hook, and the leaf publishes only `Disposed`; with and without
+/// `background(true)`.
 #[test]
 fn leaf_refuses_lifecycle_calls_during_its_member_cascade() {
     use ConstructionStatus::{Constructed, Destructed};

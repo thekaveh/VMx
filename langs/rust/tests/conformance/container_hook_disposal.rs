@@ -463,7 +463,8 @@ fn foreign_dispose_during_the_post_hook_walk_starts_no_further_child() {
 
 /// LIFE-015 — no hook of the container is admitted while its child cascade
 /// runs. A `construct()` from a child's dispose hook fails with
-/// `VmxError::Disposed` and publishes nothing.
+/// `VmxError::InvalidLifecycleTransition` from `Disposed` and publishes
+/// nothing.
 #[test]
 fn no_container_hook_is_admitted_during_its_child_cascade() {
     let hub = MessageHub::new();
