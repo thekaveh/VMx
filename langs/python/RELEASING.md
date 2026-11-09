@@ -10,15 +10,18 @@ The release pipeline has two halves:
   `langs/python/CHANGELOG.md`. It creates no tag and no GitHub Release
   (`skip-github-release: true`). After the merge, the owner pushes the
   annotated `python-v<X.Y.Z>` tag, which fires the publish pipeline.
-- **Publish pipeline.** `.github/workflows/release.yml` runs five jobs on
+- **Publish pipeline.** `.github/workflows/release.yml` runs six jobs on
   the new tag: `release-metadata` (version, tag, and changelog preflight),
-  `python-test` (full pytest matrix gate), `python-build-and-publish`
-  (gated on the `pypi-python` GitHub environment for manual approval, then an
-  exact-backend build, metadata check, fresh-environment install/smoke of the
-  local wheel, and Trusted-Publishing-via-OIDC upload with Sigstore (PEP 740)
-  attestations),
+  `python-test` (full pytest matrix gate), `python-build` (exact-backend
+  build, metadata check, extracted-sdist tests, and fresh-environment
+  install/smoke of the local wheel, without `id-token: write`),
+  `python-publish` (gated on the `pypi-python` GitHub environment for manual
+  approval, then a Trusted-Publishing-via-OIDC upload of the `dist/` files
+  that `python-build` checked, with Sigstore (PEP 740) attestations; it
+  installs, builds, and tests nothing),
   `python-verify-published` (5-attempt fresh-venv `pip install` + smoke test),
-  and `python-release-notes` (CHANGELOG-extracted GitHub Release).
+  and `python-release-notes` (CHANGELOG-extracted GitHub Release, then the
+  release PR relabel).
 
 No API tokens. No Test PyPI. Trusted Publishing only.
 
@@ -75,17 +78,27 @@ Until the manifest is reconciled, release through
    `python-v<X.Y.Z>` tag on the merge commit as in
    [§2.2](#22-manual-tag-release-when-release-please-is-paused).
 5. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> — the publish pipeline fires on the tag.
-6. The `python-build-and-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy". Approve within 30 days: GitHub then fails the pending deployment, and the tag cannot be reused.
-7. Before upload, `python-build-and-publish` installs the exact wheel from
-   `dist/` into a fresh environment and runs the version/lifecycle smoke test.
-   A failure stops before the irreversible PyPI action.
+6. The `python-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy". Approve within 30 days: GitHub then fails the pending deployment, and the tag cannot be reused.
+7. Before upload, `python-build` installs the exact wheel from `dist/` into
+   a fresh environment and runs the version/lifecycle smoke test. A failure
+   stops before the irreversible PyPI action. `python-publish` uploads only
+   the files that job checked.
 8. `python-verify-published` independently installs `vmx==<X.Y.Z>` from PyPI in
    a fresh venv with retry-on-CDN-lag (5 attempts × 30s backoff) and runs the
    same smoke test.
 9. `python-release-notes` posts the matching CHANGELOG section as a GitHub Release.
-10. Relabel the merged release PR from `autorelease: pending` to
-    `autorelease: tagged`. While a merged release PR keeps
-    `autorelease: pending`, release-please opens no new release PR:
+10. The same job then runs `tools/release-please-labels.py relabel`, which
+    moves the merged release PR from `autorelease: pending` to
+    `autorelease: tagged`. release-please creates no Python release, so it
+    never relabels the PR itself, and while a merged release PR keeps
+    `autorelease: pending` it opens no new release PR. On each push to
+    `main`, the `release-please` workflow runs
+    `tools/release-please-labels.py check`. The check fails and names the PR
+    when a merged release PR keeps `autorelease: pending` after its GitHub
+    Release exists. A PR whose tag or GitHub Release does not exist yet
+    passes, because its release is still in progress.
+
+    Recovery only, when the relabel step failed: relabel the PR by hand.
 
     ```bash
     gh api -X DELETE "repos/thekaveh/VMx/issues/<PR>/labels/autorelease:%20pending"
@@ -114,7 +127,7 @@ git tag -a "python-v${version}" -m "vmx ${version}"
 git push origin "python-v${version}"
 ```
 
-The same five publish jobs run.
+The same six publish-pipeline jobs run.
 
 The `release-please` workflow pauses while the source version and
 `.release-please-manifest.json` disagree. The manifest records the last version
@@ -170,13 +183,14 @@ gh release view python-vX.Y.Z
 The publish never reaches the build job. Leave the failed tag immutable, fix
 the broken test on `main`, and release a new patch version with a new tag.
 
-### 4.2 `python-build-and-publish` approval declined
+### 4.2 `python-build` failed or `python-publish` approval declined
 
 The environment publishes nothing. Land the fix for the rejection cause on `main`, then release a new patch version with a new tag.
 
-The same job can also fail safely after approval but before upload if the pinned
-build backend, Twine metadata check, local wheel installation, or lifecycle smoke
-fails. No PyPI version exists for that tag; fix the defect on `main` and cut a new tag.
+`python-build` fails safely before any approval if the pinned build backend,
+Twine metadata check, extracted-sdist tests, local wheel installation, or
+lifecycle smoke fails. No PyPI version exists for that tag; fix the defect on
+`main` and cut a new tag.
 
 ### 4.3 Publish succeeded but the release is broken
 
@@ -194,6 +208,10 @@ for a transient failure when that tagged content is correct. If the tag itself
 has incomplete notes, use an audited manual GitHub Release recovery from the
 published version's notes or fix forward; a later `main` edit cannot change the
 tagged workflow input. The PyPI artifact is already live.
+
+If only the last step failed, the GitHub Release exists but the merged release
+PR keeps `autorelease: pending`. Relabel it with the recovery commands in
+§2.1 step 10.
 
 ## 5. Tag scheme and multi-flavor coexistence
 

@@ -119,6 +119,9 @@ _AWK_INVISIBLE_LINE_BREAKS = (
     "\u2028",
     "\u2029",
 )
+# The raw-line test that tools/extract-release-notes.awk uses for a section
+# boundary: "##" in column 0, then an ASCII awk [[:space:]] or the line end.
+_EXTRACTOR_BOUNDARY_RE = re.compile(r"##(?:[ \t\v\f\r]|$)", re.ASCII)
 _REACT_CHANGELOG_HEADING_RE = re.compile(
     r"^## \[([^\]\s]+)\](?:\([^)\s]*\))?(?:[ \t]+.*)?$", re.ASCII
 )
@@ -347,12 +350,30 @@ def _has_substantive_markdown(lines: list[str]) -> bool:
 def _parse_changelog_sections(
     changelog: Path, packages: tuple[str, ...] = ()
 ) -> tuple[dict[str, list[str]], list[str]]:
-    """Parse canonical bracketed H2 sections, rejecting ambiguous keys."""
+    """Parse canonical bracketed H2 sections, rejecting ambiguous keys.
+
+    Without C# ``packages``, the CHANGELOG feeds tools/extract-release-notes.awk,
+    which ends a section at every raw column-0 ``##`` line. A column-0 ``##``
+    line that CommonMark does not read as a heading (inside a fenced code block
+    or an HTML block) is then rejected, so the parser and the extractor agree on
+    the section boundaries (#1381). The C# release renders its notes from
+    CommonMark tokens, so its CHANGELOG keeps such lines.
+    """
     lines = changelog.read_text(encoding="utf-8").splitlines()
     starts: list[tuple[str, int]] = []
     seen: set[str] = set()
     issues: list[str] = []
-    for index, end, _ in _top_level_headings(lines, 2):
+    headings = _top_level_headings(lines, 2)
+    if not packages:
+        heading_starts = {index for index, _, _ in headings}
+        issues.extend(
+            f"  {changelog}: line {index + 1} {line!r} starts with '##' but is not a "
+            "CHANGELOG heading (it is inside a code block or HTML block); the "
+            "release-notes extractor would end the section there"
+            for index, line in enumerate(lines)
+            if _EXTRACTOR_BOUNDARY_RE.match(line) and index not in heading_starts
+        )
+    for index, end, _ in headings:
         line = lines[index]
         heading_line = line.lstrip(" ")
         if end != index + 1 or not heading_line.startswith("## ["):
@@ -512,6 +533,12 @@ def check_react_changelog_section(repo_root: Path) -> list[str]:
     version = str(json.loads(package_json.read_text(encoding="utf-8")).get("version", ""))
     if not version:
         return ["  react: packages/react/package.json has no version"]
+    if not _STABLE_SEMVER_RE.fullmatch(version):
+        # A key such as "Unreleased" would otherwise match a CHANGELOG section (#1401).
+        return [
+            f"  react: packages/react/package.json version={version!r} "
+            "is not exact stable SemVer (X.Y.Z)"
+        ]
     changelog = repo_root / "packages" / "react" / "CHANGELOG.md"
     if not changelog.is_file():
         return [f"  react: missing {changelog.relative_to(repo_root)}"]

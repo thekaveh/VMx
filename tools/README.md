@@ -91,7 +91,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-python-package.py` — Validates the exact VMx Python wheel and sdist contents before publication.
 - `check-react-package.py` — Fails when the React adapter's npm payload drifts from its allowlist.
 - `check-rust-doc-snippets.py` — Compiles every Rust fence in the public Rust getting-started guide.
-- `check-rust-package.py` — Verifies the exact allowlisted contents of the Rust crate package.
+- `check-rust-package.py` — Verifies that the Rust crate package holds exactly the fixed top-level and generated files plus each file Git tracks under `langs/rust/src` and `langs/rust/tests`. A new tracked file needs no edit to the tool.
 - `check-swift-package-sync.py` — Verifies that the root and nested SwiftPM manifests stay equivalent.
 - `check-typescript-package.py` — Verifies the exact allowlisted contents of the TypeScript npm package.
 - `check-typescript-schema-sync.py` — Asserts that TypeScript's tracked conformance schema copies match the spec.
@@ -103,6 +103,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `create-starter.py` — Generates an application starter from `starters/<channel>/` outside the checkout, installs the exact public package and runs its smoke test (channels: `typescript-node`, `python-console`, `swift-package`, `react-vite`). Each template directory has a file allowlist, so any stray file fails generation, including `__pycache__`, `.mypy_cache`, `node_modules` and `.build`. Remove ignored files with `git clean -fdX starters/` (list them first with `-n`). Run the Python channel with an interpreter outside the checkout, not `langs/python/.venv`.
 - `ensure-release-changelog-unreleased.py` — Restores the canonical Unreleased section after Release Please runs, and rewrites Release Please's `*` bullets and blank-line runs into the mdformat-clean form.
 - `extract-release-notes.awk` — Extracts one changelog section for a flavor's GitHub Release (Python, TypeScript, React, Rust, Swift).
+- `release-please-labels.py` — Moves a merged Python release PR to `autorelease: tagged` after its GitHub Release (`relabel`), and fails on one left at `autorelease: pending` (`check`).
 - `render-csharp-release-notes.py` — Renders C# GitHub Release notes from a selected-package manifest.
 - `smoke-npm-consumer.py` — Installs and verifies `@thekaveh/vmx` from a local tarball or the public npm registry.
 - `smoke-nuget-consumer.py` — Builds clean VMx consumers from local packages or the public NuGet feed.

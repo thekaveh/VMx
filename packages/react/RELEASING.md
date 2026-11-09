@@ -23,7 +23,9 @@ under 0.1.2.
 
 ## 2. Release gates
 
-The `react` job of `release.yml` checks these items before it publishes:
+The `react-build` job of `release.yml` checks these items without
+`id-token: write` or the publishing environment, then packs and uploads the
+release tarball:
 
 - The tag commit is on `main`, and the tag version equals `package.json`.
 - A published `@thekaveh/vmx` satisfies the adapter's `@thekaveh/vmx` peer
@@ -33,6 +35,9 @@ The `react` job of `release.yml` checks these items before it publishes:
   `typescript.yml` and every week by `security-audit.yml`.
 - Type-check, lint, tests, build, the package check, and packed React 18.3.1
   and 19.2.8 consumers pass.
+
+The `react-publish` job in `npm-react` installs only the pinned npm CLI, checks
+the tarball's name and version against the tag, and publishes that tarball.
 
 ## 3. Release procedure
 
@@ -75,7 +80,9 @@ rerun of the failed 0.1.2 job cannot publish: it uses the tag's own
 The release notes are the changelog body between the exact `## [X.Y.Z]`
 heading and the next level-two heading. The helper
 `tools/extract-release-notes.awk` compares the version literally.
-Level-three headings stay in the body. The workflow fails on empty notes and
+Level-three headings stay in the body. The helper ends a section at every
+column-0 `##` line, so the version check rejects such a line inside a code
+block or an HTML block. The workflow fails on empty notes and
 prints the extracted notes for review.
 
 Use this procedure only when the exact npm version, provenance, and both fresh

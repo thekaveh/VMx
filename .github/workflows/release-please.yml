@@ -9,9 +9,15 @@ name: release-please
 # release PR merges, the owner pushes the annotated `python-v<X.Y.Z>` tag
 # on the merge commit, as for every other flavor. The tag fires
 # `release.yml`, which creates the GitHub Release only after PyPI
-# verification. The owner then relabels the merged release PR from
-# `autorelease: pending` to `autorelease: tagged`; until then,
-# release-please opens no new release PR.
+# verification. Because release-please builds no release, it never moves
+# the merged release PR from `autorelease: pending` to `autorelease: tagged`,
+# and while a merged PR keeps the pending label it opens no new release PR.
+# The `python-release-notes` job of `release.yml` therefore relabels the PR
+# after it creates the GitHub Release (#1447). The "Check merged release PR
+# labels" step below fails and names a merged PR that still keeps the
+# pending label after its GitHub Release exists; a PR whose tag or GitHub
+# Release does not exist yet passes. langs/python/RELEASING.md §2.1 keeps
+# the manual relabel commands as a recovery step.
 
 on:
   push:
@@ -21,9 +27,10 @@ on:
 # against main. A repository secret backed by a fine-grained PAT or GitHub App
 # token is required because PRs created with the default GITHUB_TOKEN do not
 # trigger the required pull_request workflows. Every write uses that secret,
-# so the default token only reads the repository.
+# so the default token only reads the repository and its pull requests.
 permissions:
   contents: read
+  pull-requests: read
 
 # Serialize release-PR maintenance: concurrent runs both push to the release
 # branch / update the release PR and can conflict (the action recommends a
@@ -41,6 +48,10 @@ jobs:
       - name: Check release-please source and manifest state
         id: release-state
         run: python3 tools/check-release-please-state.py --github-output "$GITHUB_OUTPUT"
+      - name: Check merged release PR labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/release-please-labels.py check
       - name: Require RELEASE_PLEASE_TOKEN
         if: steps.release-state.outputs.ready == 'true'
         env:

@@ -105,16 +105,20 @@ Before publication, Rust 1.88 and stable jobs independently verify:
 - the tag commit is reachable from `origin/main` and tag/Cargo versions match;
 - `cargo fmt --check` and all-target/all-feature Clippy with warnings denied;
 - all-feature tests and warning-free documentation;
-- the exact package-content allowlist and Cargo's clean package build; and
+- the package contents (the fixed top-level and generated files plus every
+  Git-tracked file under `src/` and `tests/`) and Cargo's clean package
+  build; and
 - an extracted `.crate` consumer using the `vmx` namespace, exact version,
   lifecycle transitions, and command execution.
 
 A separate gate enforces 100% five-flavor conformance coverage and Rust fixture
 sync. Another runs `cargo audit --deny warnings` on `langs/rust/Cargo.lock`.
 The `release-metadata` preflight checks versions, tags, and release notes. The
-protected publish job waits for all of these jobs. It repeats ancestry,
-version, package, and local consumer checks before either bootstrap or OIDC
-authentication.
+protected publish job waits for all of these jobs. It repeats the ancestry,
+version, and package-content checks before either bootstrap or OIDC
+authentication. It does not rerun the local consumer check, which runs
+`cargo test` without `id-token: write` in `rust-test`. The `cargo publish`
+verification build still compiles the crate's dependencies in the publish job.
 
 After crates.io accepts the version, Rust 1.88 and stable consumers poll both
 crates.io and docs.rs, execute `cargo add vmx-rs@=X.Y.Z` in fresh projects, and
