@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
+  ADR-0222). `FWD-006` covers the #1352 fix below. TypeScript already met
+  `COL-072` and `CMDD-019`: rxjs reports a failing collection subscriber and
+  the mutation continues, and a disposed wrapper notifies its own subscribers
+  once.
 - `DelayedTask`: a disposable helper that holds at most one delayed action on an
   injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `isPending` reports it, and disposal cancels it

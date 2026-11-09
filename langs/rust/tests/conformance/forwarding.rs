@@ -539,8 +539,9 @@ fn record_property_messages(hub: &MessageHub) -> (PropertyMessages, vmx::Subscri
     (messages, subscription)
 }
 
-/// A component decorator's notification helper publishes through the wrapped
-/// VM, and nothing after the wrapped VM is disposed (#1352)
+/// FWD-006 — A component decorator's notification helper publishes through
+/// the wrapped VM, and nothing after the wrapped VM is disposed (#1352,
+/// ADR-0221)
 #[test]
 fn forwarding_component_notification_helper_publishes_through_the_wrapped_vm() {
     let inner = child("inner");
@@ -569,8 +570,8 @@ fn forwarding_component_notification_helper_publishes_through_the_wrapped_vm() {
     assert!(messages.lock().unwrap().is_empty());
 }
 
-/// A composite decorator's notification helper publishes through the wrapped
-/// composite, and nothing after it is disposed (#1352)
+/// FWD-006 — A composite decorator's notification helper publishes through
+/// the wrapped composite, and nothing after it is disposed (#1352, ADR-0221)
 #[test]
 fn forwarding_composite_notification_helper_publishes_through_the_wrapped_vm() {
     let inner = Wrapped::new("inner");

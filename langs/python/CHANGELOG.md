@@ -14,6 +14,9 @@ below for them.
 
 ### Added
 
+- `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
+  ADR-0222). They cover the #1367, #1430, #1352 and #1459 changes under
+  Changed and Fixed.
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `is_pending` reports it, and `dispose` cancels it

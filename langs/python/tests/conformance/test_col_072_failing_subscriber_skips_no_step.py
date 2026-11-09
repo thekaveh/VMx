@@ -1,10 +1,10 @@
-"""A failing subscriber does not skip the later notification steps (#1367, #1430).
+"""COL-072 — a failing subscriber skips no later notification step (#1367, #1430).
 
 ``ObservableList`` still sends ``Count`` after a raising granular or reset
 subscriber. ``ObservableDictionary`` still updates both key views, raises its
 own events and sends its hub message after a raising key-view subscriber. The
-first failure is re-raised to the caller after the last step (spec/21 §3.3,
-#1367, #1430).
+first failure is re-raised to the caller after the last step (spec/21 §2.5,
+§3.3, §4.6, ADR-0220).
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ _LIST_CASES: list[tuple[str, Callable[[ObservableList[int]], None], str, Any, in
 ]
 
 
+@pytest.mark.conformance("COL-072")
 @pytest.mark.parametrize(
     ("setup", "stream", "operation", "final_count"),
     [case[1:] for case in _LIST_CASES],
@@ -81,6 +82,7 @@ def test_observable_list_sends_count_after_a_raising_subscriber(
     assert len(later) == 1
 
 
+@pytest.mark.conformance("COL-072")
 def test_observable_list_replace_delivers_to_every_subscriber_then_raises() -> None:
     lst: ObservableList[int] = ObservableList()
     lst.append(1)
@@ -95,6 +97,7 @@ def test_observable_list_replace_delivers_to_every_subscriber_then_raises() -> N
     assert later == [(2, 1, 0)]
 
 
+@pytest.mark.conformance("COL-072")
 def test_observable_list_raising_count_subscriber_reaches_later_subscribers() -> None:
     lst: ObservableList[int] = ObservableList()
     names: list[str] = []
@@ -161,6 +164,7 @@ _DICT_CASES = [
 ]
 
 
+@pytest.mark.conformance("COL-072")
 @pytest.mark.parametrize("view", ["keys1", "keys2"])
 @pytest.mark.parametrize(
     ("operation", "event"),
@@ -189,6 +193,7 @@ def test_dictionary_raising_key_view_subscriber_skips_no_notification(
     _assert_views_match(dictionary)
 
 
+@pytest.mark.conformance("COL-072")
 def test_failed_keys2_add_still_lists_the_new_key1() -> None:
     dictionary: ObservableDictionary[str, int, str] = ObservableDictionary()
     subscription = dictionary.keys2.on_item_added.subscribe(_raise)

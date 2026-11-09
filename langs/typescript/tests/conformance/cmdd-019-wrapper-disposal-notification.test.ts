@@ -1,6 +1,6 @@
-// Disposing a live wrapper command notifies its own canExecuteChanged
-// subscribers once; a second dispose and the inner command's subscribers get
-// nothing. See spec/04-commands.md §8.4.
+// Conformance tests: CMDD-019 — disposing a live wrapper command notifies its
+// own canExecuteChanged subscribers once; a second dispose and the inner
+// command's subscribers get nothing. See spec/04-commands.md §8.4 and ADR-0222.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,7 +11,7 @@ import {
   type ICommand,
 } from "../../src/index.js";
 
-describe("wrapper disposal notification (#1459)", () => {
+describe("CMDD-019", () => {
   const wrappers: [string, (inner: ICommand) => ICommand & { dispose(): void }][] = [
     ["composite", (inner) => new CompositeCommand(inner)],
     ["decorator", (inner) => new DecoratorCommand(inner)],

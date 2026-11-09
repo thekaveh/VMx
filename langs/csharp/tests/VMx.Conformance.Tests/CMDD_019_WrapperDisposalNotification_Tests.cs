@@ -3,20 +3,21 @@ using FluentAssertions;
 using VMx.Commands;
 using Xunit;
 
-namespace VMx.Tests.Commands;
+namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Disposing a live wrapper command raises its own <c>CanExecuteChanged</c>
-/// exactly once (spec/04 §8.4, #1459). A second <c>Dispose()</c> raises
-/// nothing, and the inner command's handlers receive nothing.
+/// CMDD-019: disposing a live wrapper command raises its own
+/// <c>CanExecuteChanged</c> exactly once (spec/04 §8.4, ADR-0222, #1459). A
+/// second <c>Dispose()</c> raises nothing, and the inner command's handlers
+/// receive nothing.
 /// </summary>
-public class WrapperDisposalNotificationTests
+public class CMDD_019_WrapperDisposalNotification_Tests
 {
     public static TheoryData<string> Kinds() => new() { "composite", "decorator", "confirmation" };
 
-    [Theory]
+    [Theory, Trait("Conformance", "CMDD-019")]
     [MemberData(nameof(Kinds))]
-    public void Wrapper_Disposal_Notifies_Wrapper_Handlers_Once(string kind)
+    public void CMDD_019_Wrapper_Disposal_Notifies_Wrapper_Handlers_Once(string kind)
     {
         var inner = RelayCommand.Builder().Task(() => { }).Build();
         var innerSeen = 0;

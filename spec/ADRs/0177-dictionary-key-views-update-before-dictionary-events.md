@@ -1,6 +1,6 @@
 # ADR 0177 — Dictionary key views update before the dictionary events
 
-- **Status:** Accepted
+- **Status:** Accepted (Failing key-view note superseded by ADR-0220)
 - **Date:** 2026-11-08
 - **Spec version:** 3.30.0 (chapter 21 §4.2, §4.8 and `COL-067`)
 

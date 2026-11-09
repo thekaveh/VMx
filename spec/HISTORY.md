@@ -917,6 +917,19 @@ in every flavor. Swift `FilteredCompositeVM` gains the catchable
 
 See ADR-0217 and chapter 06 §3, §4.3 and §9.
 
+v3.30.0 also states three notification rules that the flavors already follow.
+A failing subscriber skips no later notification step of a committed
+collection change: `ObservableList` still sends `Count`, a failing key-view
+subscriber skips no dictionary event or hub message, and a throwing C# `Count`
+or `Item[]` handler waits until `CollectionChanged` and the hub send
+(`COL-072`). A forwarding decorator's notification helpers emit through the
+wrapped component, which is the hub message sender (`FWD-006`). Disposing a
+live command wrapper notifies its own `CanExecuteChanged` subscribers exactly
+once (`CMDD-019`).
+
+See ADR-0220, ADR-0221, ADR-0222, chapter 03 §3.6, chapter 04 §8.4, chapter 09
+§1, and chapter 21 §2.5, §3.3 and §4.6.
+
 v3.30.0 also settles seven container walk and rollback rules. A rollback
 error gives access to the original failure and to the first compensation
 failure; Swift adds `ContainerRollbackError` and Rust adds
@@ -945,4 +958,5 @@ See ADR-0219, chapter 06 §8, chapter 11 §6, and chapter 16 §6 and §8.1.
 
 See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
 ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204, ADR-0214, ADR-0215, ADR-0216,
+ADR-0217, ADR-0220, ADR-0221, ADR-0222 and the affected behavior chapters.
 ADR-0217, ADR-0218, ADR-0219 and the affected behavior chapters.

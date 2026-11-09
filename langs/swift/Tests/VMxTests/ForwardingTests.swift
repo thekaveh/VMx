@@ -626,9 +626,10 @@ final class ForwardingTests: XCTestCase {
         localCancel.cancel()
     }
 
-    /// A component decorator's notification helpers act on the wrapped VM
-    /// (#1352): one hub message with the wrapped VM as sender, one
-    /// `propertyChanged` emission, nothing after the wrapped VM is disposed.
+    /// FWD-006 — A component decorator's notification helpers act on the
+    /// wrapped VM (#1352, ADR-0221): one hub message with the wrapped VM as
+    /// sender, one `propertyChanged` emission, nothing after the wrapped VM is
+    /// disposed.
     func testComponentDecoratorHelpersPublishThroughWrapped() throws {
         let hub = MessageHub()
         let inner = try ComponentVMOf<String>.builder()
@@ -640,7 +641,8 @@ final class ForwardingTests: XCTestCase {
         assertHelpersPublishThroughWrapped(inner: inner, decorator: decorator, hub: hub)
     }
 
-    /// The composite decorator follows the same rule (#1352).
+    /// FWD-006 — The composite decorator follows the same rule (#1352,
+    /// ADR-0221).
     func testCompositeDecoratorHelpersPublishThroughWrapped() throws {
         let hub = MessageHub()
         let inner = try CompositeVM<ComponentVM>.builder()

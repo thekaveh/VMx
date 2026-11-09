@@ -37,6 +37,9 @@ The main operational rules:
   messages
 - a failing local collection subscriber does not suppress the hub message; C#
   and Python rethrow the first failure after the hub send (ADR-0171)
+- a failing subscriber skips no later notification step: `ObservableList`
+  still sends `Count`, and a failing key-view subscriber skips no dictionary
+  event or hub message (ADR-0220)
 - `KeyedServicedObservableCollection` adds a captured-key index without
   changing the ordered serviced message contract
 - `TokenPagedComposition` uses `null` as its first and last token, so a C#

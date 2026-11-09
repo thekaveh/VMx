@@ -1,10 +1,10 @@
-"""A wrapper command notifies its own subscribers once at disposal (#1459).
+"""CMDD-019 — a wrapper command notifies its own subscribers once at disposal (#1459).
 
 Disposing a live ``CompositeCommand``, ``DecoratorCommand`` or
 ``ConfirmationDecoratorCommand`` sends exactly one ``can_execute_changed``
 notification to the wrapper's subscribers. A second ``dispose()`` sends
 nothing, and a subscriber of the inner command receives nothing. Per
-spec/04-commands.md §8.4.
+spec/04-commands.md §8.4 and ADR-0222.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ _WRAPPERS: list[
 ]
 
 
+@pytest.mark.conformance("CMDD-019")
 @pytest.mark.parametrize("wrap", [w[1] for w in _WRAPPERS], ids=[w[0] for w in _WRAPPERS])
 def test_wrapper_disposal_notifies_wrapper_subscribers_once(
     wrap: Callable[[Command], CompositeCommand | DecoratorCommand | ConfirmationDecoratorCommand],
@@ -61,6 +62,7 @@ def test_wrapper_disposal_notifies_wrapper_subscribers_once(
     assert wrapper.can_execute() is False
 
 
+@pytest.mark.conformance("CMDD-019")
 @pytest.mark.parametrize("wrap", [w[1] for w in _WRAPPERS], ids=[w[0] for w in _WRAPPERS])
 def test_wrapper_stream_passes_the_inner_completion_through(
     wrap: Callable[[Command], CompositeCommand | DecoratorCommand | ConfirmationDecoratorCommand],

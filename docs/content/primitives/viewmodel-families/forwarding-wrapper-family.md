@@ -52,6 +52,14 @@ that disposal is released at once (`FWD-005`, ADR-0151). In C#, Python, and
 TypeScript, a decorator around a component that does not derive from the VMx
 base class cannot register resources; the call throws.
 
+A decorator subclass reports a property change through the same identity. The
+dual-channel helper sends one hub message whose sender is the wrapped VM, and
+the decorator's property-changed stream, which is the wrapped VM's stream,
+emits the name once. The local-only raise primitive sends no hub message.
+After the wrapped VM is disposed, the dual-channel helper emits nothing. C#
+decorators expose protected `NotifyPropertyChanged` and `RaisePropertyChanged`
+(`FWD-006`, ADR-0221).
+
 ## 6.2.7.3. Lifecycle And Messaging
 
 Forwarding decorators do not add their own lifecycle semantics. They inherit the

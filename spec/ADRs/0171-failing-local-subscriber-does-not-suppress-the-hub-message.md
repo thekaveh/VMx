@@ -1,6 +1,7 @@
 # ADR 0171 — A failing local subscriber does not suppress the hub message
 
-- **Status:** Accepted (Extended by ADR-0191)
+- **Status:** Accepted (Extended by ADR-0191 and ADR-0220; excluded paths
+  superseded by ADR-0220)
 - **Date:** 2026-11-07
 - **Spec version:** 3.30.0 (chapter 01 §1.4, chapter 21 §2.5, §4.6 and
   `COL-066`)

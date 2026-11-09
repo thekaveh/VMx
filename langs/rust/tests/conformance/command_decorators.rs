@@ -1156,8 +1156,9 @@ fn execute_never_runs_the_inner_command_inside_its_own_call() {
     );
 }
 
-/// Disposing a live wrapper notifies the wrapper's change-hub subscribers
-/// once; a second dispose and the inner subscribers get nothing (#1459)
+/// CMDD-019 — Disposing a live wrapper notifies the wrapper's change-hub
+/// subscribers once; a second dispose and the inner subscribers get nothing
+/// (#1459, ADR-0222)
 #[test]
 fn wrapper_disposal_notifies_wrapper_subscribers_once() {
     fn assert_once(wrapper: &dyn Command, inner: &RelayCommand, dispose: &dyn Fn()) {
@@ -1197,8 +1198,9 @@ fn wrapper_disposal_notifies_wrapper_subscribers_once() {
     assert_once(&confirming, &inner, &|| confirming.dispose());
 }
 
-/// Disposing the inner command completes a decorator's change hub, so a
-/// decorator subscriber still receives the inner completion (#1459)
+/// CMDD-019 — Disposing the inner command completes a decorator's change hub,
+/// so a decorator subscriber still receives the inner completion (#1459,
+/// ADR-0222)
 #[test]
 fn inner_disposal_completes_the_decorator_change_hub() {
     fn assert_completes(wrapper: &dyn Command, inner: &RelayCommand) {

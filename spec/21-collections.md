@@ -265,14 +265,25 @@ not skip the later local `CollectionChanged` event. TypeScript reports a local
 subscriber failure through rxjs, and the call returns normally. Rust catches a
 panicking local subscriber, and the call returns normally. Swift local
 subscribers cannot fail. A failing hub subscriber follows the hub's own delivery
-rules (chapter 03). The rule covers the local collection-change channel and the
-dictionary's granular events. It does not cover C# `PropertyChanged` handlers or
-subscribers of the dictionary's key views.
+rules (chapter 03).
+
+A failing subscriber also does not skip a later notification step of the same
+committed change (ADR-0220). The steps are the granular or `Reset` event, the
+C# `CollectionChanged` event, the `Count` and `Item[]` property notifications,
+the key-view notifications (§4.2), the dictionary's own events and the hub
+message. C# and Python rethrow the first failure after the last step. In C#,
+`ObservableCollection<T>` raises `PropertyChanged("Count")` and
+`PropertyChanged("Item[]")` before `CollectionChanged`. During a mutation, a
+throwing handler of one of these properties therefore waits until
+`CollectionChanged` and the hub send have run. A `PropertyChanged` that is
+raised outside a mutation, such as a subclass's own property, runs every
+handler and rethrows the first failure at once (`COL-072`).
 
 A failing local subscriber also does not stop the delivery to the later local
 subscribers of the same channel. Each of them receives the change once, the
 failing subscriber stays attached, and the first failure is rethrown only after
-the hub send (chapter 03 §3.6, ADR-0191, `COL-069`).
+the hub send (chapter 03 §3.6, ADR-0191, `COL-069`). The same holds for each
+later step of the change.
 
 Publication happens **on the same thread as the mutation**. The collection does
 not marshal to any scheduler and does not observe any `IDispatcher`. Consumers
@@ -295,8 +306,8 @@ Consumers that need lifecycle-cascading VM ownership should use `CompositeVM` /
 
 ### 2.7 Conformance
 
-`COL-001` through `COL-004`, `COL-048` through `COL-055`, `COL-066`, and
-`COL-069` in `12-conformance.md`.
+`COL-001` through `COL-004`, `COL-048` through `COL-055`, `COL-066`,
+`COL-069`, and `COL-072` in `12-conformance.md`.
 
 ### 2.8 `KeyedServicedObservableCollection<TKey, TItem>` shape
 
@@ -609,6 +620,16 @@ Bulk clears follow the same rule (clarified in v2.5.0 via ADR-0037): a
 changes nothing and emits nothing — neither the `Reset` event nor the `Count`
 notification (ADR-0037 §2.2, matching the empty-batch case).
 
+A failing subscriber does not skip the `Count` notification or, in C#, the
+`CollectionChanged` event (§2.5, ADR-0220). The list commits the change, and
+each later notification of the change reaches every subscriber once. C# and
+Python then rethrow the first failure. TypeScript reports the failure through
+rxjs, and Rust catches a panicking subscriber; in both, the call returns
+normally. Swift subscribers cannot fail. The rule covers every mutation in
+§3.2, whole-list replacement (§3.6) and the batch exit (§3.5). It also covers
+the dictionary's key views (§4.2), which are `ObservableList` instances behind
+a read-only facade (`COL-072`).
+
 ### 3.4 Platform compatibility
 
 Where the host platform defines `INotifyCollectionChanged` (C# / WPF / .NET),
@@ -652,8 +673,7 @@ If a batch body exits exceptionally, every entered scope MUST still close. With
 nonthrowing notification observers, if the body mutated the list, the outermost
 exit MUST publish the same Reset and optional `Count` sequence before the
 original failure propagates, and later mutations MUST behave outside that
-completed scope. Observer failures follow each flavor's normal event-delivery
-and exception model.
+completed scope. A failing observer of the exit notifications follows §3.3.
 
 ### 3.6 Whole-list replacement
 
@@ -680,8 +700,8 @@ Reset and cardinality-dependent `Count` notification defined in §3.5.
 
 ### 3.7 Conformance
 
-`COL-005` through `COL-009`, `COL-023`, and `COL-040` through `COL-047` in
-`12-conformance.md`.
+`COL-005` through `COL-009`, `COL-023`, `COL-040` through `COL-047`, and
+`COL-072` in `12-conformance.md`.
 
 ## 4. `ObservableDictionary`
 
@@ -812,6 +832,13 @@ If a hub is provided at construction time (following the same pattern as
 A failing local handler does not suppress the hub message (§2.5). Null-hub
 fallback applies.
 
+A failing `Keys1` or `Keys2` subscriber skips no later step of the mutation
+(§2.5, ADR-0220). The dictionary still updates the other key view, raises its
+own events and sends the hub message. When the call returns, both key views
+match the entries. A key view notifies before the dictionary's events, so in C#
+and Python its failure is the first failure, and the call rethrows it
+(`COL-072`).
+
 ### 4.7 Hub message element shape
 
 The `CollectionChangedMessage` element type carries the full dictionary entry —
@@ -854,7 +881,7 @@ positions.
 ### 4.8 Conformance
 
 `COL-010` through `COL-015`, `COL-022`, `COL-066`, `COL-067`, `COL-068`,
-`COL-069`, `COL-070`, and `COL-071` in `12-conformance.md`.
+`COL-069`, `COL-070`, `COL-071`, and `COL-072` in `12-conformance.md`.
 
 ## 5. Paging: `PagedComposition<TVM>`
 
@@ -1151,12 +1178,12 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-067`, `COL-069`, `COL-071`, `AGCH-001` through
-`AGCH-011`, and `AGCH-012` in `12-conformance.md`. Applicable ADRs:
-ADR-0024, ADR-0096, ADR-0097, ADR-0171, and ADR-0191 (§2), ADR-0026 and
-ADR-0089 (§3), ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 and ADR-0202
-(§6), and ADR-0085 (shared Move semantics), ADR-0098 and ADR-0192 (§9), and
-ADR-0214 (§2.10, §4.1, §9.4).
+`COL-001` through `COL-072`, and `AGCH-001` through `AGCH-012`, in
+`12-conformance.md`. Applicable ADRs:
+ADR-0024, ADR-0096, ADR-0097, ADR-0171, ADR-0191, and ADR-0220 (§2), ADR-0026,
+ADR-0089, and ADR-0220 (§3), ADR-0025, ADR-0177, and ADR-0220 (§4), ADR-0023
+(§5), ADR-0069 and ADR-0202 (§6), and ADR-0085 (shared Move semantics),
+ADR-0098 and ADR-0192 (§9), and ADR-0214 (§2.10, §4.1, §9.4).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public
 collection, paging, batch, aggregate, and projection helpers that expose

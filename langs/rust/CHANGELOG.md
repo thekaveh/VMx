@@ -16,6 +16,11 @@ the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `COL-072`, `FWD-006` and `CMDD-019` conformance tests (ADR-0220, ADR-0221,
+  ADR-0222). `CMDD-019` covers the #1459 change below. Rust already met
+  `COL-072` and `FWD-006`: each subscriber runs inside `catch_unwind`, and the
+  forwarding decorators' `notify_property_changed` already called the wrapped
+  VM's helper.
 - `DelayedTask`: a disposable helper that holds at most one delayed action on
   an injected scheduler. `schedule` replaces a pending action and restarts its
   delay, `cancel` stops it, `is_pending()` reports it, and disposal cancels it
