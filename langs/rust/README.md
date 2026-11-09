@@ -63,7 +63,6 @@ fn start_in_background(
 ) -> VmxResult<(ComponentVm<(), DefaultDispatcher>, ValueSubscription)> {
     let vm = ComponentVm::builder()
         .name("loader")
-        .model(())
         .background(true)
         .services(MessageHub::new(), DefaultDispatcher::new())
         .build()?;

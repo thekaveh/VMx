@@ -429,7 +429,7 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -768,7 +768,7 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -1089,7 +1089,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -1409,7 +1409,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -1779,7 +1779,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -2191,7 +2191,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
     ) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
         if let Some(hint) = hint {
-            core.set_hint(Some(hint));
+            core.set_hint(hint);
         }
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
@@ -2756,7 +2756,7 @@ macro_rules! impl_fixed_aggregate_baseline {
             }
 
             /// Returns the aggregate hint.
-            pub fn hint(&self) -> Option<String> {
+            pub fn hint(&self) -> String {
                 self.core.hint()
             }
 

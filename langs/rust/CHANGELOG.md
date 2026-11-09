@@ -15,6 +15,29 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `ComponentVmBuilder::on_model_changed` and the optional
+  `ComponentVmOptions::on_model_changed` field (#1252, ADR-0206). The callback
+  receives the accepted model after the `model` notification and any
+  `modeled_hint` notification. Equal assignments, assignments after
+  `dispose()`, and `republish_model()` do not run it. The new
+  `ModelChangedCallback<M>` type names the options field. Breaking: code that
+  builds `ComponentVmOptions` with a struct literal must now set
+  `on_model_changed`.
+- `ModeledCompositeVmBuilder::hint` and the inherent `ModeledCompositeVm::id`,
+  `name` and `hint` accessors (#1253, ADR-0206). An unset hint is `""`, as in
+  `CompositeVmBuilder`. `ComponentVmBuilder::build()` now supplies the model
+  `()` for an unmodeled `ComponentVm<()>`, so the builder needs only `name` and
+  `services`, and a missing hub reports `hub is required`.
+  `ReadonlyComponentVmBuilder` wraps that builder, so a
+  `ReadonlyComponentVm<()>` builder also needs no `model(())` call.
+- `ExpandableState::expansion_changes()`, a typed hot `ValueStream<bool>` for
+  spec/05 §8 `IsExpandedChanged` (#1254, ADR-0206). It sends the new value once
+  per effective change, does not replay the current value, and completes on
+  `dispose()`. The `expanded_changed()` hub stays as the command trigger.
+- `Localizer::localize_with_args(key, args: &[&dyn Display])`, the spec/17 §1
+  args form (#1266, ADR-0206). Its default implementation returns
+  `localize(key)`, so existing implementors compile unchanged and
+  `NullLocalizer` returns the key.
 - A regression test for a cycle-deferred disposal failure (ADR-0200,
   #1297). Rust already returned the failure from the hook thread's call.
 - The `notifications` Cargo feature, which `default` includes (ADR-0211,
@@ -134,6 +157,19 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   code that names `HierarchicalVm<M>` or `TreeSelection<M>` is unchanged.
 
 ### Changed
+
+- Breaking: every public `hint()` and `modeled_hint()` accessor now returns
+  `String` instead of `Option<String>` (#1251, ADR-0206). Direct constructors
+  report `""` instead of `None`, and the default modeled hinter returns `""`.
+  `with_model_hint` and both builder `model_hint` setters take
+  `Fn(&M) -> String`, and `ForwardingComponentVm::with_hint_override` takes
+  `Fn() -> String`. Optional `hint` builder and options inputs stay
+  `Option<String>`.
+
+- `HierarchicalVmBuilder::services` accepts any `Dispatcher` instead of only
+  `NullDispatcher` (#1268, ADR-0206). The built hierarchy keeps only the hub and
+  drops the dispatcher, because it runs no dispatched work; ADR-0009 records
+  the difference from C#. Existing `NullDispatcher` calls compile unchanged.
 
 - Breaking: `walk`, `walk_expanded` and `find` no longer panic when they reach a
   `HierarchicalVm` whose lazy children factory returns invalid output (#1060,

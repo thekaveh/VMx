@@ -473,6 +473,14 @@ here so audits don't reopen them prematurely:
   likewise build a private `NotificationHub`; `with_hub` takes the shared one.
   Removing the conveniences would break Rust callers and is not scheduled.
   Documented here so audits don't re-flag it as accidental drift.
+- **Rust `HierarchicalVmBuilder` keeps only the hub (ADR-0206).**
+  `HierarchicalVmBuilder::services(hub, dispatcher)` accepts any `Dispatcher`,
+  as the other Rust builders do, but the built hierarchy drops the dispatcher.
+  `HierarchicalVm<M>` has no dispatcher type parameter, and every node uses
+  `NullDispatcher`, because the hierarchy runs no dispatched work and has no
+  background option. C# `HierarchicalVM` passes the builder dispatcher to its
+  base class. No observable behavior differs today. Documented here so audits
+  don't re-flag it as accidental drift (#1268).
 - **Swift `TokenPagedComposition` default page-equality comparer.** Swift defaults
   `pagesEqual` to `{ _, _ in false }` — the unconstrained generic `TVM` cannot
   synthesize a universal equality — so a redundant `refresh()` of a byte-identical
