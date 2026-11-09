@@ -3,7 +3,7 @@
 
 use crossterm::event::KeyCode;
 use notes_showcase::app::handle_key;
-use notes_showcase::{views, WorkspaceVm};
+use notes_showcase::{views, InMemoryNoteRepository, WorkspaceVm};
 use ratatui::{backend::TestBackend, Terminal};
 
 fn press(workspace: &WorkspaceVm, keys: &str) {
@@ -44,19 +44,38 @@ fn deleting_every_note_leaves_an_empty_editor_that_saves_nothing() {
     assert_eq!(form.save(), Ok(()));
 }
 
+fn marked_rows(workspace: &WorkspaceVm) -> Vec<String> {
+    workspace
+        .notes()
+        .visible_rows()
+        .into_iter()
+        .filter(|(_, selected)| *selected)
+        .map(|(title, _)| title)
+        .collect()
+}
+
 #[test]
-fn paging_moves_the_selection_so_delete_targets_a_visible_note() {
-    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+fn paging_keeps_the_selection_and_j_selects_a_note_on_the_page() {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
 
     press(&workspace, "n");
     let screen_after_paging = screen(&workspace);
     assert!(
-        screen_after_paging.contains("> Documentation refresh"),
+        screen_after_paging.contains("Title: Rust flavor parity"),
         "{screen_after_paging}"
     );
+    assert!(marked_rows(&workspace).is_empty());
+
+    press(&workspace, "j");
+    let screen_after_j = screen(&workspace);
     assert!(
-        screen_after_paging.contains("Title: Documentation refresh"),
-        "{screen_after_paging}"
+        screen_after_j.contains("> Documentation refresh"),
+        "{screen_after_j}"
+    );
+    assert!(
+        screen_after_j.contains("Title: Documentation refresh"),
+        "{screen_after_j}"
     );
 
     press(&workspace, "d");
@@ -64,25 +83,42 @@ fn paging_moves_the_selection_so_delete_targets_a_visible_note() {
     assert_eq!(messages, vec!["Delete note 'Documentation refresh'?"]);
 
     press(&workspace, "y");
-    let screen_after_delete = screen(&workspace);
-    assert!(
-        !screen_after_delete.contains("Documentation refresh'?"),
-        "{screen_after_delete}"
-    );
-    assert!(screen_after_delete.contains("> "), "{screen_after_delete}");
+    assert!(repository.note("docs-refresh").is_none());
+    assert!(repository.note("rust-parity").is_some());
 }
 
 #[test]
-fn a_search_that_hides_the_selection_moves_it_to_a_visible_note() {
+fn a_search_that_hides_the_selection_keeps_it() {
     let workspace = WorkspaceVm::seeded().expect("workspace builds");
 
-    press(&workspace, "n/");
-    let screen = screen(&workspace);
-    let selected = screen
-        .lines()
-        .find_map(|line| line.split("> ").nth(1))
-        .map(|rest| rest.split('│').next().unwrap_or("").trim().to_string())
-        .expect("a visible note is marked");
-    assert_eq!(workspace.notes().current_title(), selected);
-    assert!(workspace.notes().visible_titles().contains(&selected));
+    press(&workspace, "j/");
+    let screen_after_search = screen(&workspace);
+    assert!(
+        screen_after_search.contains("Title: Release channels"),
+        "{screen_after_search}"
+    );
+    assert!(marked_rows(&workspace).is_empty());
+
+    press(&workspace, "x");
+    let screen_after_clear = screen(&workspace);
+    assert!(
+        screen_after_clear.contains("> Release channels"),
+        "{screen_after_clear}"
+    );
+    assert!(
+        screen_after_clear.contains("Title: Release channels"),
+        "{screen_after_clear}"
+    );
+}
+
+#[test]
+fn j_and_k_stop_at_the_ends_of_the_page() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+
+    press(&workspace, "k");
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
+    press(&workspace, "jj");
+    assert_eq!(marked_rows(&workspace), vec!["Release channels"]);
+    press(&workspace, "kk");
+    assert_eq!(marked_rows(&workspace), vec!["Rust flavor parity"]);
 }
