@@ -10,6 +10,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A regression test for a cycle-deferred disposal failure (ADR-0200,
+  #1297). Rust already returned the failure from the hook thread's call.
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
@@ -144,6 +146,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A current `AsyncResourceVm` loader that ends with its own cancellation now
+  restores the saved stable state, as `cancel` does, instead of installing
+  `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The cancellation can come
+  from any source, such as a shared request that another owner cancels. A
+  superseded loader's cancellation changes nothing. The signal is
+  `Err(VmxError::Cancelled)`.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
