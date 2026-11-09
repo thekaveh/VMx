@@ -70,12 +70,18 @@ public interface IComponentVM
     /// <summary>Returns true when this VM can be selected.</summary>
     bool CanSelect();
 
-    /// <summary>Selects this VM in its parent composite (spec: select()).</summary>
+    /// <summary>
+    /// Selects this VM in its parent composite (spec: select()). If the parent
+    /// refuses, the call changes nothing and throws nothing (ADR-0188).
+    /// </summary>
     void Select();
 
     /// <summary>Returns true when this VM can be deselected.</summary>
     bool CanDeselect();
 
-    /// <summary>Deselects this VM in its parent composite.</summary>
+    /// <summary>
+    /// Deselects this VM in its parent composite. If the parent refuses, the
+    /// call changes nothing and throws nothing (ADR-0188).
+    /// </summary>
     void Deselect();
 }

@@ -38,6 +38,7 @@ class ForwardingParent implements IOwningParentVM {
   }
   selectChild(_vm: ComponentVMBase): void { this.parent.selectChild(this.wrapper); }
   deselectChild(_vm: ComponentVMBase): void { this.parent.deselectChild(this.wrapper); }
+  childDisposed(_vm: ComponentVMBase): void { this.parent.childDisposed(this.wrapper); }
   containsChild(_vm: ComponentVMBase): boolean { return this.parent.containsChild(this.wrapper); }
   detachForTransfer(_vm: ComponentVMBase): ParentTransfer {
     const staged = this.parent.detachForTransfer(this.wrapper);
@@ -66,6 +67,7 @@ class WrappedParent implements IOwningParentVM {
   }
   selectChild(_vm: ComponentVMBase): void { this.parent.selectChild(this.wrapped); }
   deselectChild(_vm: ComponentVMBase): void { this.parent.deselectChild(this.wrapped); }
+  childDisposed(_vm: ComponentVMBase): void { this.parent.childDisposed(this.wrapped); }
   containsChild(_vm: ComponentVMBase): boolean { return this.parent.containsChild(this.wrapped); }
   detachForTransfer(_vm: ComponentVMBase): ParentTransfer {
     const retainedWrappers: ForwardingWrapper[] = [];
