@@ -60,7 +60,7 @@ def _config(rev: str) -> str:
         "  - repo: https://github.com/astral-sh/ruff-pre-commit\n"
         f"    rev: {rev}\n"
         "    hooks:\n"
-        "      - id: ruff\n"
+        "      - id: ruff-check\n"
     )
 
 

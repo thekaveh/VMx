@@ -18,7 +18,7 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.3
     hooks:
-      - id: ruff
+      - id: ruff-check
         # tools/ sits outside langs/python/, so ruff's auto-discovery would
         # never find langs/python/pyproject.toml when invoked on tools/ paths
         # from the repo root. Pass --config explicitly to apply the same
@@ -32,8 +32,8 @@ repos:
       # first-party and the published `vmx` is third-party. The same overrides
       # run in .github/workflows/conformance.yml. Ruff writes no file into the
       # template folder, so `template_files("python-console")` still passes.
-      - id: ruff
-        name: ruff (starters/python-console)
+      - id: ruff-check
+        name: ruff-check (starters/python-console)
         args:
           - "--fix"
           - "--config"
