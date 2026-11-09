@@ -9,7 +9,7 @@ spec/02 §6, spec/06 §5.1, spec/07).
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
@@ -53,8 +53,6 @@ class ChildContainer(Protocol[VM]):
     def _exit_batch(self) -> None: ...
 
     def _maybe_auto_construct(self, child: VM) -> None: ...
-
-    def _mark_constructed_before_publication(self) -> None: ...
 
 
 def emit_collection_changed(container: ChildContainer[VM], event: CollectionChangedEvent) -> None:
@@ -241,14 +239,16 @@ def seal_or_next_late(
     joined: list[VM],
     visited: dict[int, VM],
     walk: _LateWalk,
+    commit: Callable[[], None],
 ) -> VM | None:
     """The construct walk's commit step (spec/02 §6, spec/06 §5.1).
 
     Under the membership gate, return the next unvisited member that an
     add started (it has a start record in this walk's scope), which the
-    walk then joins. Without one, commit the Constructed state in the same
-    gated section, so an add reads either Constructing (and is joined) or
-    Constructed, then end the walk's scope.
+    walk then joins. Without one, ``commit`` the Constructed state in the
+    same gated section, so an add reads either Constructing (and is joined)
+    or Constructed, then end the walk's scope. ``commit`` is bound to the
+    hook that started this walk (ADR-0186).
     """
     container._late_starts.probe(container, _LateChildStage.SEALING)
     with container._membership_gate:
@@ -259,6 +259,6 @@ def seal_or_next_late(
             if walk.take(child):
                 joined.append(child)
                 return child
-        container._mark_constructed_before_publication()
+        commit()
     walk.end()
     return None

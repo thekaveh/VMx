@@ -471,3 +471,72 @@ def test_a_walk_its_raising_hook_abandoned_never_commits_constructed(kind: str) 
     assert after_seal == [S.CONSTRUCTING], "the abandoned walk did not commit CONSTRUCTED"
     assert root.status is S.DESTRUCTED
     assert "root:CONSTRUCTED" not in harness.statuses
+
+
+@pytest.mark.parametrize("kind", ["composite", "group"])
+def test_a_stale_walk_never_commits_the_next_transition(kind: str) -> None:
+    """The commit step is bound to its own walk (ADR-0186, #1374).
+
+    The hook raises while its walk waits at the commit step on another
+    thread. The raise rolls the root back, and a new ``construct()`` is
+    admitted. The stale walk then reaches its commit step. It must not write
+    CONSTRUCTED for the new transition, whose hook is still running.
+    """
+    harness = _create(kind)
+    root = harness.root
+    started = threading.Event()
+    raise_now = threading.Event()
+    second_admitted = threading.Event()
+    release_second = threading.Event()
+    after_seal: list[ConstructionStatus] = []
+    errors: list[BaseException] = []
+    start_walk = root._on_construct
+
+    def raising_hook() -> None:
+        start_walk()  # starts the walk and defers the hook's completion
+        started.set()
+        assert raise_now.wait(HANG_GUARD), "the walk reaches its commit step"
+        raise RuntimeError("hook raised after deferring")
+
+    def second_hook() -> None:
+        second_admitted.set()
+        assert release_second.wait(HANG_GUARD), "the stale commit step ran"
+
+    hooks = [raising_hook, second_hook]
+    root._on_construct = lambda: hooks.pop(0)()
+
+    def probe(_child: object, stage: _LateChildStage) -> None:
+        if stage is _LateChildStage.SEALING and not second_admitted.is_set():
+            # The stale walk is at its commit step; the hook raises, the root
+            # rolls back and the second construct() is admitted meanwhile.
+            raise_now.set()
+            assert second_admitted.wait(HANG_GUARD), "the second construct is admitted"
+
+    root._late_starts.probe_for_testing = probe
+
+    def construct_twice() -> None:
+        try:
+            root.construct()
+        except BaseException as error:
+            errors.append(error)
+        root.construct()
+
+    hook_thread = threading.Thread(target=construct_twice, daemon=True)
+    hook_thread.start()
+    try:
+        assert started.wait(HANG_GUARD), "the hook starts the walk"
+        harness.bg.run_all()  # the anchor's hook; its CONSTRUCTED goes to the foreground
+        harness.fg.run_all()  # the stale walk resumes here and runs its commit step
+        assert second_admitted.is_set(), "the stale walk reached its commit step"
+        after_seal.append(root.status)
+    finally:
+        raise_now.set()
+        release_second.set()
+        hook_thread.join(HANG_GUARD)
+    assert not hook_thread.is_alive()
+    _settle(harness)
+
+    assert [str(error) for error in errors] == ["hook raised after deferring"]
+    assert after_seal == [S.CONSTRUCTING], "the stale walk did not commit the new transition"
+    assert root.status is S.CONSTRUCTED
+    assert harness.statuses.count("root:CONSTRUCTED") == 1

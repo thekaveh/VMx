@@ -812,9 +812,13 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         return construct_walk(self, joined, visited, walk)
 
     def _seal_or_next_late(
-        self, joined: list[VM], visited: dict[int, VM], walk: _LateWalk
+        self,
+        joined: list[VM],
+        visited: dict[int, VM],
+        walk: _LateWalk,
+        commit: Callable[[], None],
     ) -> VM | None:
-        return seal_or_next_late(self, joined, visited, walk)
+        return seal_or_next_late(self, joined, visited, walk, commit)
 
     def _validate_move_index(self, index: int) -> None:
         _reject_bool_index(index)
@@ -862,6 +866,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         member = partial(is_member, self)
         walk = self._late_starts.begin_walk(self, member)
         visited: dict[int, VM] = {}
+        # The commit step is bound to this hook's walk (ADR-0186, #1374).
+        commit = self._construct_commit_for_running_hook()
         walking = self._transition_container_children(
             self._construct_walk(joined, visited, walk),
             construct=True,
@@ -869,7 +875,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             joined=joined,
             join=walk.join,
             seal=(
-                (lambda: self._seal_or_next_late(joined, visited, walk))
+                (lambda: self._seal_or_next_late(joined, visited, walk, commit))
                 if self._auto_construct_on_add
                 else None
             ),

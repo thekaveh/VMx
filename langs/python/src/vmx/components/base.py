@@ -219,6 +219,11 @@ class _LifecycleHookLease:
         self.owner_thread = threading.get_ident()
         self.completed = threading.Event()
         self.deferred_disposal: Callable[[], None] | None = None
+        # Set under the VM's lifecycle lock when the hook raises. The commit
+        # step of the walk that this hook started reads it under the same
+        # lock, so an abandoned walk never writes Constructed, even after a
+        # later hook was admitted (ADR-0186, #1374).
+        self.walk_abandoned = False
 
 
 class _Completion(Protocol):
@@ -462,11 +467,6 @@ class _ComponentVMBase(ABC):
         # success nor its rollback status (#755). A commit after a hook is
         # dropped the same way (#1167).
         self._child_transition_abandoned: bool = False
-        # Set under the lifecycle lock when a raising hook abandons its child
-        # walk, before the walk is cancelled. The walk's commit step reads it
-        # under the same lock, so an abandoned walk never writes Constructed
-        # (ADR-0186, #1374). Each admitted hook clears it.
-        self._child_walk_cancelled: bool = False
         # The deferred completion this VM waits for, so disposal can abandon it.
         self._pending_deferred_future: Future[None] | None = None
 
@@ -1304,7 +1304,6 @@ class _ComponentVMBase(ABC):
             WAITS.acquire(lease, lease.owner_thread)
             # Each hook starts with a fresh deferral slot.
             self._deferred_lifecycle_future = None
-            self._child_walk_cancelled = False
         try:
             with _lifecycle_hook_scope(self):
                 hook()
@@ -1314,11 +1313,12 @@ class _ComponentVMBase(ABC):
             # VM created is cancelled: it takes no further step, but an
             # ``after`` that has already started runs to its end (#745).
             # A future the subclass supplied is only dropped, not cancelled,
-            # because its owner may still resolve it. The flag is set under
-            # the lifecycle lock first, so a walk already at its commit step
-            # writes no Constructed (ADR-0186, #1374).
+            # because its owner may still resolve it. The hook's walk is
+            # marked abandoned under the lifecycle lock first, so a walk
+            # already at its commit step writes no Constructed (ADR-0186,
+            # #1374).
             with self._lifecycle_lock:
-                self._child_walk_cancelled = True
+                lease.walk_abandoned = True
             abandoned = self._take_deferred_lifecycle_future()
             if abandoned is not None and abandoned in _CHILD_WALK_FUTURES:
                 abandoned.cancel()
@@ -1798,7 +1798,16 @@ class _ComponentVMBase(ABC):
                 return waiter
         return self._start_lifecycle_future(self.construct)
 
-    def _mark_constructed_before_publication(self) -> None:
+    def _construct_commit_for_running_hook(self) -> Callable[[], None]:
+        """The commit step of the construct walk that the running hook starts.
+
+        Call it from that hook, so the step is bound to the hook's lease: a
+        stale walk never commits a later transition (ADR-0186, #1374).
+        """
+        lease = self._active_hook_lease
+        return lambda: self._mark_constructed_before_publication(lease)
+
+    def _mark_constructed_before_publication(self, lease: _LifecycleHookLease | None) -> None:
         """The container commit step: flip an in-flight construct to Constructed.
 
         The caller holds its membership gate, so an add reads either
@@ -1809,12 +1818,13 @@ class _ComponentVMBase(ABC):
         with self._lifecycle_lock:
             # Once disposal started, the commit is dropped (spec/02 §7.2), so
             # the state is not flipped either. A walk that its raising hook
-            # abandoned commits nothing (ADR-0186, #1374).
+            # abandoned commits nothing, even after a later hook was admitted
+            # (ADR-0186, #1374).
             if (
                 self._status is ConstructionStatus.CONSTRUCTING
                 and self._in_flight
                 and not self._child_transition_abandoned
-                and not self._child_walk_cancelled
+                and not (lease is not None and lease.walk_abandoned)
             ):
                 self._status = ConstructionStatus.CONSTRUCTED
                 self._construct_publication_pending = True

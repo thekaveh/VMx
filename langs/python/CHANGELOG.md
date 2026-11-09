@@ -84,7 +84,9 @@ below for them.
 - A construct hook that raises after it started the container walk no longer
   lets the walk's commit step set `status` to `CONSTRUCTED` (ADR-0186,
   spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
-  walk under the lock that writes the status.
+  walk under the lock that writes the status. The check is bound to the
+  hook that started the walk, so a stale walk never commits a later
+  `construct()`.
 - A `FormVM` call nested in a preparation callback or an `errors_changed`
   observer of `set_model` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,
