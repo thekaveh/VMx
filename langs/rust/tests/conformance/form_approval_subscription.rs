@@ -2,22 +2,32 @@
 //! registration is inert (ADR-0139, #357).
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc, Mutex, Weak};
-use std::thread::{self, JoinHandle, ThreadId};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, Weak};
 
-use vmx::{wait_registered_for_testing, ApprovalSubscription, FormVm};
+use vmx::{ApprovalSubscription, FormVm};
+
+// The cross-thread cases observe the wait-for graph through a test seam.
+#[cfg(feature = "test-seams")]
+use {
+    std::sync::mpsc,
+    std::thread::{self, JoinHandle, ThreadId},
+    std::time::{Duration, Instant},
+    vmx::wait_registered_for_testing,
+};
 
 /// The hang guard of every cross-thread wait in this file.
+#[cfg(feature = "test-seams")]
 const BOUND: Duration = Duration::from_secs(10);
 
 /// How long a test lets a thread run before it checks that the thread still
 /// waits.
+#[cfg(feature = "test-seams")]
 const SETTLE: Duration = Duration::from_millis(200);
 
 struct Capture;
 
 /// Polls `condition` until it holds or the bound passes.
+#[cfg(feature = "test-seams")]
 fn eventually(condition: impl Fn() -> bool) -> bool {
     let deadline = Instant::now() + BOUND;
     while !condition() {
@@ -31,6 +41,7 @@ fn eventually(condition: impl Fn() -> bool) -> bool {
 
 /// Joins `handle`, failing instead of hanging when it does not return by
 /// `deadline`.
+#[cfg(feature = "test-seams")]
 fn join_by<T>(handle: JoinHandle<T>, deadline: Instant, what: &str) -> T {
     while !handle.is_finished() {
         assert!(Instant::now() < deadline, "{what} did not return: deadlock");
@@ -250,6 +261,7 @@ fn disposal_during_an_emission_skips_the_callbacks_not_yet_invoked() {
 /// #1160 — a `dispose()` from another thread waits until the approval
 /// subscribers have run (spec/20 §5.5, ADR-0176). It records its wait in the
 /// wait-for graph, and every subscriber still receives the approval.
+#[cfg(feature = "test-seams")]
 #[test]
 fn another_threads_disposal_waits_for_the_approval_subscribers() {
     let form = approved_form();
@@ -737,8 +749,10 @@ fn a_panicking_nested_settlement_restores_the_outer_pre_publication() {
 }
 
 /// Records each model a validator sees and the thread it runs on.
+#[cfg(feature = "test-seams")]
 type Validated = Arc<Mutex<Vec<(i32, ThreadId)>>>;
 
+#[cfg(feature = "test-seams")]
 fn recording_form() -> (FormVm<i32>, Validated) {
     let validated: Validated = Arc::default();
     let form = FormVm::builder()
@@ -760,6 +774,7 @@ fn recording_form() -> (FormVm<i32>, Validated) {
 }
 
 /// The threads on which the validator saw `value`.
+#[cfg(feature = "test-seams")]
 fn validated_on(validated: &Validated, value: i32) -> Vec<ThreadId> {
     validated
         .lock()
@@ -771,6 +786,7 @@ fn validated_on(validated: &Validated, value: i32) -> Vec<ThreadId> {
 }
 
 /// Spawns `work` on a named thread.
+#[cfg(feature = "test-seams")]
 fn spawn_named<T: Send + 'static>(
     name: &str,
     work: impl FnOnce() -> T + Send + 'static,
@@ -783,6 +799,7 @@ fn spawn_named<T: Send + 'static>(
 
 /// Reports whether the thread `handle` runs waits in the wait-for graph and
 /// has not returned after [`SETTLE`].
+#[cfg(feature = "test-seams")]
 fn waits_in_the_graph<T>(handle: &JoinHandle<T>) -> bool {
     let id = handle.thread().id();
     let registered = eventually(|| wait_registered_for_testing(id));
@@ -795,6 +812,7 @@ fn waits_in_the_graph<T>(handle: &JoinHandle<T>) -> bool {
 /// thread's settlement-deferred edit prepares and replays on that thread. A
 /// replay can no longer follow another thread's later edit, because that edit
 /// waits for the scope, so the final edit only checks that no state is left.
+#[cfg(feature = "test-seams")]
 #[test]
 fn another_threads_approval_waits_and_replays_only_its_own_deferred_edit() {
     let (form, validated) = recording_form();
@@ -870,6 +888,7 @@ fn another_threads_approval_waits_and_replays_only_its_own_deferred_edit() {
 /// #1160 case 1 — another thread's approval waits until this thread's
 /// approval subscribers have run, so its settlement never replays this
 /// thread's deferred edit.
+#[cfg(feature = "test-seams")]
 #[test]
 fn another_threads_approval_waits_until_the_approval_subscribers_have_run() {
     let (form, validated) = recording_form();
@@ -934,6 +953,7 @@ fn another_threads_approval_waits_until_the_approval_subscribers_have_run() {
 /// #1160 case 2 — another thread's edit made during this thread's
 /// settlement waits until the approval subscribers have run. It is not
 /// deferred to this thread.
+#[cfg(feature = "test-seams")]
 #[test]
 fn another_threads_edit_waits_until_the_approval_subscribers_have_run() {
     let (form, validated) = recording_form();
@@ -982,6 +1002,7 @@ fn another_threads_edit_waits_until_the_approval_subscribers_have_run() {
 
 /// #1160 case 4 — another thread's revert during this thread's approval
 /// publication waits until the approval subscribers have run.
+#[cfg(feature = "test-seams")]
 #[test]
 fn another_threads_revert_waits_until_the_approval_subscribers_have_run() {
     let slot = Arc::new(Mutex::new(None::<FormVm<i32>>));
@@ -1045,6 +1066,7 @@ fn another_threads_revert_waits_until_the_approval_subscribers_have_run() {
 /// still waits while another thread holds a publication scope. Thread Y's
 /// reset callback edits the form while thread X's `errors_changed` subscriber
 /// runs. Y's edit waits for X's update scope, and only then joins Y's queue.
+#[cfg(feature = "test-seams")]
 #[test]
 fn a_pre_publication_edit_waits_for_another_threads_update_scope() {
     type FormSlot = Arc<Mutex<Option<FormVm<i32>>>>;
@@ -1123,6 +1145,7 @@ fn a_pre_publication_edit_waits_for_another_threads_update_scope() {
 /// scope. Thread X disposes the form from its own `errors_changed` subscriber
 /// and keeps running. Thread Y's waiting `set_model` returns at once and
 /// finds the form disposed, as in C# and Python.
+#[cfg(feature = "test-seams")]
 #[test]
 fn disposal_ends_another_threads_wait_for_a_publication_scope() {
     let form = FormVm::builder()

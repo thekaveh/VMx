@@ -2699,6 +2699,7 @@ impl LateStarts {
 
     /// Test-only seam: sets the callback a construct walk runs after its last
     /// late scan, outside the membership gate. Production code never sets it.
+    #[cfg(feature = "test-seams")]
     pub(crate) fn set_last_scan_probe(&self, probe: LastScanProbe) {
         *lock(&self.last_scan_probe) = Some(probe);
     }
