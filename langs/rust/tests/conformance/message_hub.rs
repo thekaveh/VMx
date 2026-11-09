@@ -715,6 +715,7 @@ fn unrelated_hub_callback_send_waits_for_target_batch_and_delivery() {
 /// the cycle, so its body runs as a borrowed scope during Q's subscriber call,
 /// and `h` delivers P's message once, after the scope exits (spec/03 §4,
 /// ADR-0119, ADR-0172).
+#[cfg(feature = "test-seams")]
 #[test]
 fn a_live_cross_hub_cycle_borrows_the_hub_and_delivers_once() {
     use std::sync::atomic::AtomicBool;
@@ -793,6 +794,7 @@ fn a_live_cross_hub_cycle_borrows_the_hub_and_delivers_once() {
 /// `h2`, which B batch-owns, so B's `h.batch` borrows `h`. B disposes `h` in
 /// the borrowed body and exits it while O's batch is still open. The borrowed
 /// exit leaves the disposal to O, and O's batch exit completes `h` on O.
+#[cfg(feature = "test-seams")]
 #[test]
 fn a_borrowers_dispose_is_finished_by_the_batch_owner_that_exits_last() {
     use std::sync::atomic::AtomicBool;
@@ -866,6 +868,7 @@ fn a_borrowers_dispose_is_finished_by_the_batch_owner_that_exits_last() {
 /// the borrowed body and exits it while D is still inside its handler. The
 /// borrowed exit leaves the disposal to D, whose drain completes `h` on D
 /// after the handler returns.
+#[cfg(feature = "test-seams")]
 #[test]
 fn a_borrowers_dispose_is_finished_by_the_drainer_that_is_still_delivering() {
     use std::sync::atomic::AtomicBool;
