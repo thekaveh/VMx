@@ -536,9 +536,18 @@ async def test_action_bar_save_with_an_invalid_draft_writes_nothing() -> None:
     stored_title = note.title
     ws.notes_view.current = note
     ws.note_form.title = ""
+    saved: list[str] = []
+    original_save = repo.save_note
+
+    async def _counting_save(model: NoteModel) -> None:
+        saved.append(model.id)
+        await original_save(model)
+
+    repo.save_note = _counting_save  # type: ignore[method-assign]
 
     await _save_action(ws).execute_async()
 
+    assert saved == []
     assert await _stored_title(repo, note.model.notebook_id, note.model.id) == stored_title
     assert ws.note_form.title == ""
     assert not any("Saved" in n.message for n in observed)

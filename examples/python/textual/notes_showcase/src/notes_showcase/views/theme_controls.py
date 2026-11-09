@@ -35,11 +35,11 @@ def _preset_button_id(name: str) -> str:
 def _step_font_scale(theme: ThemeVM, button_id: str | None) -> None:
     """Run ``set_font_scale`` with the current factor plus the button's step.
 
-    The sum is rounded to two decimals, so repeated steps stay on 0.1 marks.
+    ``ThemeVM`` clamps the sum, as in every flagship (ADR-0201 §2.4).
     """
     step = _FONT_SCALE_STEPS.get(button_id or "")
     if step is not None:
-        theme.set_font_scale.execute(round(theme.model.font_scale_factor + step, 2))
+        theme.set_font_scale.execute(theme.model.font_scale_factor + step)
 
 
 def _wire_bindings(view: ThemeControlsView) -> CompositeDisposable:
