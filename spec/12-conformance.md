@@ -3216,6 +3216,10 @@ local event, checks the hub subscriber only
 **When** the type is instantiated with a model and a children factory
 **Then** it compiles and constructs without generic-bound errors
 **And** per-flavor idiomatic naming applies (C#/Python/TypeScript/Swift/Rust conventions per ADR-0006)
+**And** Rust, which has no subclassing, binds a consumer node-data type `N` in
+`HierarchicalVm<M, N>` (ADR-0202): in a three-level tree, the nodes that
+`children()`, `parent()` and `path()` return expose their `N` through
+`node_data()`, with no downcast and no side table
 
 ### HIER-002 — `Parent` is null for root, non-null for non-root
 
