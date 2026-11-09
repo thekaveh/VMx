@@ -1,6 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use vmx::{walk_expanded, Command, ComponentVm, ExpandableState, Message, ValueSubscription};
+use vmx::{
+    walk_expanded, Command, ComponentVm, ExpandableState, HierarchicalVm, Message, TreeNodeRef,
+    ValueSubscription,
+};
 
 /// Records every value the typed expansion stream sends.
 fn record_expansion_changes(state: &ExpandableState) -> (Arc<Mutex<Vec<bool>>>, ValueSubscription) {
@@ -12,7 +15,21 @@ fn record_expansion_changes(state: &ExpandableState) -> (Arc<Mutex<Vec<bool>>>, 
     (values, subscription)
 }
 
-use super::expandable_support::ExpandableHierarchy;
+fn node(name: &str, expansion: Option<bool>) -> HierarchicalVm<String> {
+    let node = HierarchicalVm::new(name, name.to_string());
+    if let Some(expanded) = expansion {
+        node.compose_expansion(ExpandableState::with_initial(expanded))
+            .unwrap();
+    }
+    node
+}
+
+fn models(nodes: Vec<TreeNodeRef>) -> Vec<String> {
+    nodes
+        .iter()
+        .map(|node| node.downcast::<HierarchicalVm<String>>().unwrap().model())
+        .collect()
+}
 
 /// EXP-001 — ExpandableState defaults to collapsed
 #[test]
@@ -213,28 +230,20 @@ fn owner_recipe_forwards_expansion_changes_and_disposes_with_the_owner() {
 /// EXP-005 — walk_expanded skips descendants of collapsed nodes
 #[test]
 fn walk_expanded_skips_collapsed_descendants() {
-    let root = ExpandableHierarchy::expandable("root", true);
-    let a = ExpandableHierarchy::plain("a");
-    let b = ExpandableHierarchy::expandable("b", false);
-    b.add_child(ExpandableHierarchy::plain("b1"));
-    b.add_child(ExpandableHierarchy::plain("b2"));
-    root.add_child(a);
-    root.add_child(b.clone());
+    let root = node("root", Some(true));
+    let a = node("a", None);
+    let b = node("b", Some(false));
+    b.add_child(node("b1", None)).unwrap();
+    b.add_child(node("b2", None)).unwrap();
+    root.add_child(a).unwrap();
+    root.add_child(b.clone()).unwrap();
 
-    let names = walk_expanded(&root)
-        .unwrap()
-        .into_iter()
-        .map(|node| node.model())
-        .collect::<Vec<_>>();
+    let names = models(walk_expanded(&root).unwrap());
 
     assert_eq!(names, vec!["root", "a", "b"]);
 
     b.expansion().unwrap().expand();
-    let names = walk_expanded(&root)
-        .unwrap()
-        .into_iter()
-        .map(|node| node.model())
-        .collect::<Vec<_>>();
+    let names = models(walk_expanded(&root).unwrap());
     assert_eq!(names, vec!["root", "a", "b", "b1", "b2"]);
 }
 

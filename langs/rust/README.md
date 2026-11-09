@@ -10,7 +10,7 @@ library conformance ID. Rust has no UI scenario suite for the THEME IDs.
 The public surface and some behaviors are not fully aligned with the other
 flavors. See the
 [Rust parity ledger](https://github.com/thekaveh/VMx/blob/main/docs/maintenance/2026-07-16-rust-capability-parity.md)
-(original scope closed; open items and recorded differences in §12.4.7, §12.7 and §12.9–§12.12).
+(original scope closed; open items and recorded differences in §12.4.7, §12.7 and §12.9–§12.11).
 
 ## 2. Install
 

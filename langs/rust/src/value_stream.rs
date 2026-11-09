@@ -171,6 +171,14 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
         lock(&self.inner).current.clone()
     }
 
+    /// Replaces the retained value without publishing it. An owner calls it
+    /// at disposal so that a kept stream clone does not keep the last value
+    /// alive. The replaced value is dropped after the stream lock is released.
+    pub(crate) fn reset_value(&self, value: T) {
+        let replaced = std::mem::replace(&mut lock(&self.inner).current, value);
+        drop(replaced);
+    }
+
     #[cfg(test)]
     pub(crate) fn active_subscription_count(&self) -> usize {
         lock(&self.inner).subscribers.len()

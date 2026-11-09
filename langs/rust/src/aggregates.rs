@@ -8,7 +8,7 @@ use super::{
     ComponentCore, ConstructionStatus, Dispatcher, FirstFailure, HashSet, LifecycleOperation,
     MembershipDisposeDisposition, MembershipTransactionControl, MessageHub, Mutex, NullDispatcher,
     OnceLock, Ordering, OwnershipClaim, ParentHandle, ParentRegistration, PropertyChangedStream,
-    RelayCommand, ViewModelType, VmNode, VmxError, VmxResult,
+    RelayCommand, TreeNode, TreeNodeRef, ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -2536,6 +2536,53 @@ impl_fixed_aggregate_vm_node!(AggregateVm3, T1, T2, T3);
 impl_fixed_aggregate_vm_node!(AggregateVm4, T1, T2, T3, T4);
 impl_fixed_aggregate_vm_node!(AggregateVm5, T1, T2, T3, T4, T5);
 impl_fixed_aggregate_vm_node!(AggregateVm6, T1, T2, T3, T4, T5, T6);
+
+/// Lists an aggregate's present components in `component_1`,
+/// `component_2`, … order for the tree walks (spec/13 §2).
+macro_rules! impl_fixed_aggregate_tree_node {
+    ($name:ident, $(($component:ident, $accessor:ident)),+) => {
+        impl<$($component: TreeNode,)+ D: Dispatcher> TreeNode for $name<$($component,)+ D> {
+            fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+                let mut children = Vec::new();
+                $(children.extend(self.$accessor().map(TreeNodeRef::new));)+
+                Ok(children)
+            }
+        }
+    };
+}
+
+impl_fixed_aggregate_tree_node!(AggregateVm1, (T1, component_1));
+impl_fixed_aggregate_tree_node!(AggregateVm2, (T1, component_1), (T2, component_2));
+impl_fixed_aggregate_tree_node!(
+    AggregateVm3,
+    (T1, component_1),
+    (T2, component_2),
+    (T3, component_3)
+);
+impl_fixed_aggregate_tree_node!(
+    AggregateVm4,
+    (T1, component_1),
+    (T2, component_2),
+    (T3, component_3),
+    (T4, component_4)
+);
+impl_fixed_aggregate_tree_node!(
+    AggregateVm5,
+    (T1, component_1),
+    (T2, component_2),
+    (T3, component_3),
+    (T4, component_4),
+    (T5, component_5)
+);
+impl_fixed_aggregate_tree_node!(
+    AggregateVm6,
+    (T1, component_1),
+    (T2, component_2),
+    (T3, component_3),
+    (T4, component_4),
+    (T5, component_5),
+    (T6, component_6)
+);
 
 macro_rules! define_aggregate_builder {
     ($builder:ident, $aggregate:ident, $(($component:ident, $factory:ident, $setter:ident)),+) => {

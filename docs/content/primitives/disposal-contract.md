@@ -328,7 +328,8 @@ flavor unless the exceptions below say otherwise.
 - `TreeSelection` disposes its `current_changed` value stream once. Clones
   share the disposed state.
 - `FilteredCompositeVm` covers predicate and scored projections. It captures
-  the frozen projection once and releases projection tracking state.
+  the frozen projection once, releases its source subscription, and completes
+  its `changed()` stream.
 - `TokenPagedComposition` claims disposal through a shared disposed gate. Its
   owned commands enter a terminal disabled state. Late work cannot commit pager
   state.

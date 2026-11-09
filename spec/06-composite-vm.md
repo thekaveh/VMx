@@ -643,9 +643,6 @@ FilteredCompositeVM<VM>:
     Dispose()
 ```
 
-Open Rust gap: Rust's `FilteredCompositeVm` has no `Changed` stream, so a view
-reads `visible()` and `current()` on demand.
-
 The source composite remains the owner of child membership and lifecycle. The
 filtered view owns the visible projection and its own current slot in the visible
 domain. When the source mutates or the predicate changes, the projection is
@@ -654,6 +651,16 @@ recomputed and current is reconciled according to a cursor policy:
 - `SnapToFirst`: if current is filtered out, select the first visible item.
 - `Clear`: if current is filtered out, clear current.
 - `PreserveIfVisible`: keep current only if it remains visible, otherwise clear.
+
+The policy is a construction argument, `SnapToFirst` by default. It also sets
+the start state: a `SnapToFirst` view starts on the first visible item, and a
+`Clear` or `PreserveIfVisible` view starts with no current item.
+
+`Changed` fires once after each projection recompute (a source mutation, a
+predicate change, or a refresh), and once when `SetCurrent` or a visible move
+changes `Current`. A handler reads the new `Visible` and `Current`. `Dispose()`
+completes the stream where the flavor's stream completes, and later calls fire
+nothing (ADR-0207).
 
 `ScoredFilteredCompositeVM<VM>` filters out null/absent scores and orders visible
 items by descending score with source-order stable tie breaks. `RefreshScores()`

@@ -3096,28 +3096,164 @@ impl ChildObserver {
     }
 }
 
-/// A VM node that exposes recursive tree traversal state.
+/// A VM node that the tree walks can visit (spec/13, ADR-0207).
+///
+/// A container lists its members as type-erased [`TreeNodeRef`] handles, so
+/// a walk crosses containers whose children have other types: a
+/// [`CompositeVm`](crate::CompositeVm) or [`GroupVm`](crate::GroupVm) lists
+/// its children, an aggregate lists its present components in
+/// `component_1`, `component_2`, … order, and a
+/// [`HierarchicalVm`](crate::HierarchicalVm) lists its children. A leaf keeps
+/// the default, which lists no children.
 pub trait TreeNode: VmNode {
-    /// Returns child nodes in traversal order.
-    fn children_nodes(&self) -> Vec<Self> {
-        Vec::new()
-    }
-
-    /// Returns child nodes in traversal order, or the error that stops their
-    /// materialization.
+    /// Returns the node's children in traversal order, or the error that
+    /// stops their materialization.
     ///
     /// [`walk`](crate::walk), [`walk_expanded`](crate::walk_expanded) and
-    /// [`find`](crate::find) read children through this method, so a node
-    /// whose children can fail to load reports that failure to the caller
-    /// (spec/13 §6.1, ADR-0170). The default wraps
-    /// [`children_nodes`](Self::children_nodes) in `Ok`.
-    fn try_children_nodes(&self) -> VmxResult<Vec<Self>> {
-        Ok(self.children_nodes())
+    /// [`find`](crate::find) read children only through this method, so a
+    /// node whose children can fail to load reports that failure to the
+    /// caller (spec/13 §6.1, ADR-0170). The default returns no children.
+    fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        Ok(Vec::new())
     }
 
     /// Returns the node's opt-in expansion capability, when present.
+    /// [`walk_expanded`](crate::walk_expanded) does not descend into a node
+    /// whose capability reports collapsed.
     fn expandable(&self) -> Option<&dyn crate::Expandable> {
         None
+    }
+}
+
+/// The object-safe view of a [`TreeNode`] behind a [`TreeNodeRef`].
+trait ErasedTreeNode: Send + Sync {
+    fn node_id(&self) -> usize;
+    fn node_status(&self) -> ConstructionStatus;
+    fn node_children(&self) -> VmxResult<Vec<TreeNodeRef>>;
+    fn node_expandable(&self) -> Option<&dyn crate::Expandable>;
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn node_type_name(&self) -> &'static str;
+}
+
+impl<T: TreeNode> ErasedTreeNode for T {
+    fn node_id(&self) -> usize {
+        self.id()
+    }
+
+    fn node_status(&self) -> ConstructionStatus {
+        self.status()
+    }
+
+    fn node_children(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        self.try_children_nodes()
+    }
+
+    fn node_expandable(&self) -> Option<&dyn crate::Expandable> {
+        self.expandable()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn node_type_name(&self) -> &'static str {
+        std::any::type_name::<T>()
+    }
+}
+
+/// A type-erased handle to a [`TreeNode`], which the tree walks yield.
+///
+/// A handle shares the node it wraps, as a clone of the node does. It
+/// compares equal to another handle for the same node identity.
+/// [`downcast`](Self::downcast) returns the concrete node.
+///
+/// ```
+/// use vmx::{walk, ComponentVm, CompositeVm, TreeNodeRef};
+///
+/// let root = CompositeVm::new("root");
+/// let leaf = ComponentVm::new("leaf");
+/// root.add(leaf.clone()).unwrap();
+///
+/// let nodes = walk(&root).unwrap();
+/// assert_eq!(nodes, vec![TreeNodeRef::new(root.clone()), TreeNodeRef::new(leaf.clone())]);
+/// assert!(nodes[1].downcast::<ComponentVm>() == Some(leaf));
+/// assert!(nodes[0].downcast::<ComponentVm>().is_none());
+/// ```
+#[derive(Clone)]
+pub struct TreeNodeRef {
+    node: Arc<dyn ErasedTreeNode>,
+}
+
+impl TreeNodeRef {
+    /// Wraps `node`.
+    pub fn new<T: TreeNode>(node: T) -> Self {
+        Self {
+            node: Arc::new(node),
+        }
+    }
+
+    /// Returns the wrapped node's identity.
+    pub fn id(&self) -> usize {
+        self.node.node_id()
+    }
+
+    /// Returns the wrapped node's lifecycle status.
+    pub fn status(&self) -> ConstructionStatus {
+        self.node.node_status()
+    }
+
+    /// Returns the wrapped node's Rust type name, for diagnostics.
+    pub fn type_name(&self) -> &'static str {
+        self.node.node_type_name()
+    }
+
+    /// Reports whether the wrapped node is a `T`.
+    pub fn is<T: TreeNode>(&self) -> bool {
+        self.node.as_any().is::<T>()
+    }
+
+    /// Returns the wrapped node as a `T`, or `None` for another type.
+    pub fn downcast_ref<T: TreeNode>(&self) -> Option<&T> {
+        self.node.as_any().downcast_ref::<T>()
+    }
+
+    /// Returns a clone of the wrapped node as a `T`, or `None` for another
+    /// type.
+    pub fn downcast<T: TreeNode>(&self) -> Option<T> {
+        self.downcast_ref::<T>().cloned()
+    }
+
+    /// Returns the wrapped node's children, as
+    /// [`TreeNode::try_children_nodes`] does.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of [`TreeNode::try_children_nodes`].
+    pub fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        self.node.node_children()
+    }
+
+    /// Returns the wrapped node's expansion capability, when present.
+    pub fn expandable(&self) -> Option<&dyn crate::Expandable> {
+        self.node.node_expandable()
+    }
+}
+
+impl PartialEq for TreeNodeRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl Eq for TreeNodeRef {}
+
+impl std::fmt::Debug for TreeNodeRef {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TreeNodeRef")
+            .field("type", &self.type_name())
+            .field("id", &self.id())
+            .finish()
     }
 }
 

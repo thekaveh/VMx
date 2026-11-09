@@ -254,8 +254,8 @@ fn filtered_set_predicate_drop_may_read_the_projection() {
 }
 
 /// A filtered current item that the source removed drops after the current
-/// lock when a read reconciles the selection, so its `Drop` may read the
-/// projection.
+/// lock when the source change reconciles the selection, so its `Drop` may
+/// read the projection.
 #[test]
 fn filtered_current_item_drop_may_read_the_projection() {
     let hook = Hook::default();
@@ -269,8 +269,8 @@ fn filtered_current_item_drop_may_read_the_projection() {
     let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
     let first = filtered.current().unwrap();
     assert_eq!(first.name(), "first");
-    source.remove(&first).unwrap();
-    // The projection's current slot now owns the removed item's last handle.
+    // The projection's current slot now owns the item's only handle outside
+    // the source.
     drop(first);
 
     let reader = filtered.clone();
@@ -278,12 +278,12 @@ fn filtered_current_item_drop_may_read_the_projection() {
         let _ = reader.current();
         let _ = reader.visible();
     });
-    let current = within_timeout("FilteredCompositeVm::current", {
-        let filtered = filtered.clone();
-        move || filtered.current().map(|item| item.name())
+    within_timeout("CompositeVm::clear reconciles FilteredCompositeVm", {
+        let source = source.clone();
+        move || source.clear()
     });
     assert!(hook.disarm() > 0);
-    assert_eq!(current.as_deref(), Some("second"));
+    assert!(filtered.current().is_none());
 }
 
 /// Keyed `replace`, `remove_at` and `remove_key` drop the captured key of the

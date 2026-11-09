@@ -3,11 +3,10 @@ use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use vmx::{
-    walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
-    ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange, VmxError,
+    walk_expanded, Command, ConstructionStatus, ExpandableState, HierarchicalVm, Message,
+    MessageHub, ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange,
+    VmxError,
 };
-
-use super::expandable_support::ExpandableHierarchy;
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
     HierarchicalVm::new(name, name.to_string())
@@ -1089,12 +1088,17 @@ fn removing_a_non_child_is_a_noop() {
 /// HIER-012 — walk_expanded honors lazy boundaries via ExpandableState
 #[test]
 fn walk_expanded_honors_hierarchy_expansion_boundary() {
-    let root = ExpandableHierarchy::expandable("root", false);
-    root.add_child(ExpandableHierarchy::plain("child"));
+    let root = leaf("root");
+    root.compose_expansion(ExpandableState::new()).unwrap();
+    root.add_child(leaf("child")).unwrap();
 
     assert_eq!(walk_expanded(&root).unwrap().len(), 1);
     root.expansion().unwrap().expand();
     assert_eq!(walk_expanded(&root).unwrap().len(), 2);
+    assert!(
+        root.compose_expansion(ExpandableState::new()).is_err(),
+        "a node composes one expansion state"
+    );
 }
 
 /// HIER-013 — Composition with SearchableState filters materialized portion
