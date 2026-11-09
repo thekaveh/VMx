@@ -1,8 +1,8 @@
 //
-// NotificationVMTests.swift — NOTIF-011..016 conformance.
+// NotificationVMTests.swift — NOTIF-011..016 and NOTIF-018 conformance.
 //
 // Claimed IDs: NOTIF-011, NOTIF-012, NOTIF-013, NOTIF-014, NOTIF-015,
-//              NOTIF-016.
+//              NOTIF-016, NOTIF-018.
 //
 // See spec/16-notifications.md §6-7, ADR-0031.
 //
@@ -317,6 +317,75 @@ final class NotificationVMTests: XCTestCase {
         XCTAssertEqual(approveChanges, 1)
         XCTAssertEqual(approveCompletions, 1)
         XCTAssertEqual(rejectCompletions, 1)
+        hub.dispose()
+    }
+
+    // MARK: NOTIF-018
+
+    /// NOTIF-018 — every command of a disposing ConfirmationVM reports
+    /// `canExecute() == false` inside the disposal notifications, and a
+    /// handler that executes `rejectCommand` there cannot resolve the hub.
+    func testNotif018ConfirmationCommandsReportFalseDuringDispose() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .confirmation, message: "confirm?")
+        let poster = await post(hub, n)
+        let pending = PendingRecorder()
+        var cancellables = Set<AnyCancellable>()
+        hub.pending.sink { pending.last = $0 }.store(in: &cancellables)
+        let sut = ConfirmationVM(notification: n, hub: hub, scheduler: scheduler)
+
+        var handlerRuns = 0
+        var reads: [Bool] = []
+        let commands = [sut.dismissCommand, sut.approveCommand, sut.rejectCommand]
+        for command in commands {
+            command.canExecuteChanged
+                .sink {
+                    handlerRuns += 1
+                    reads.append(contentsOf: commands.map { $0.canExecute() })
+                    sut.rejectCommand.execute()
+                }
+                .store(in: &cancellables)
+        }
+
+        poster.resolved.isInverted = true
+        sut.dispose()
+
+        XCTAssertGreaterThanOrEqual(handlerRuns, 1, "NOTIF-018: the handlers ran")
+        XCTAssertFalse(reads.isEmpty)
+        XCTAssertEqual(reads.filter { $0 }, [], "NOTIF-018: every read returned false")
+        XCTAssertFalse(sut.isResolved)
+        XCTAssertTrue(pending.last.contains { $0 === n }, "NOTIF-018: still pending")
+
+        let runsAfterFirstDispose = handlerRuns
+        sut.dispose()
+        XCTAssertEqual(handlerRuns, runsAfterFirstDispose, "NOTIF-018: no handler runs again")
+        XCTAssertTrue(pending.last.contains { $0 === n })
+
+        await fulfillment(of: [poster.resolved], timeout: 0.3)
+        XCTAssertNil(poster.reaction, "NOTIF-018: the posted awaitable has not resolved")
+        cancellables.removeAll()
+        hub.dispose()
+    }
+
+    /// NOTIF-018 — a disposing NotificationVM's `dismissCommand` reports
+    /// `canExecute() == false` inside its disposal notification.
+    func testNotif018DismissCommandReportsFalseDuringDispose() {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "info")
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler)
+        var reads: [Bool] = []
+        var cancellables = Set<AnyCancellable>()
+        sut.dismissCommand.canExecuteChanged
+            .sink { reads.append(sut.dismissCommand.canExecute()) }
+            .store(in: &cancellables)
+
+        sut.dispose()
+
+        XCTAssertFalse(reads.isEmpty, "NOTIF-018: the handler ran")
+        XCTAssertEqual(reads.filter { $0 }, [], "NOTIF-018: every read returned false")
+        cancellables.removeAll()
         hub.dispose()
     }
 }

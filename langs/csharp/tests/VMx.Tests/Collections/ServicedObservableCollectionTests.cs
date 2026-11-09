@@ -194,4 +194,17 @@ public class ServicedObservableCollectionTests
         message.OldIndex.Should().Be(0);
         message.NewIndex.Should().Be(2);
     }
+
+    [Fact]
+    public void Hub_Message_From_A_Plain_Collection_Keeps_Its_Type_Name()
+    {
+        var hub = new TestHub();
+        var sut = new ServicedObservableCollection<int>(hub);
+        var messages = new List<IMessage>();
+        hub.Messages.Subscribe(messages.Add);
+
+        sut.Add(1);
+
+        messages.Should().ContainSingle().Which.SenderName.Should().Be("ServicedObservableCollection`1");
+    }
 }

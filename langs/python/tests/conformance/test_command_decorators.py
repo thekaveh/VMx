@@ -1,12 +1,13 @@
-"""Conformance tests: CMDD-001..013 — command decorators.
+"""Conformance tests: CMDD-001..013 and CMDD-018 — command decorators.
 
-Per spec/04-commands.md §Decorators and ADR-0012.
+Per spec/04-commands.md §Decorators, ADR-0012 and ADR-0195.
 """
 
 from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from typing import Any
 
 import pytest
@@ -582,3 +583,62 @@ def test_CMDD_013_admitted_pair_with_throwing_inner_runs_post_and_reraises() -> 
 
     assert raised.value is boom
     assert log == ["pre", "post"]
+
+
+# ---------------------------------------------------------------------------
+# CMDD-018 — execute() never runs the inner command inside its own call
+# (spec/04 §8.3.1, ADR-0195)
+# ---------------------------------------------------------------------------
+
+
+class _InsideExecute(threading.local):
+    active = False
+
+
+def _marked_confirmation() -> tuple[
+    ConfirmationDecoratorCommand, _InsideExecute, list[bool], threading.Event
+]:
+    """A decorator over an inner command that records the thread-local mark."""
+    mark = _InsideExecute()
+    seen: list[bool] = []
+    ran = threading.Event()
+
+    def _inner() -> None:
+        seen.append(mark.active)
+        ran.set()
+
+    async def _confirm() -> bool:
+        return True
+
+    inner = RelayCommand.builder().task(_inner).build()
+    return ConfirmationDecoratorCommand(inner, confirm=_confirm), mark, seen, ran
+
+
+def _execute_marked(decorator: ConfirmationDecoratorCommand, mark: _InsideExecute) -> None:
+    mark.active = True
+    try:
+        decorator.execute()
+    finally:
+        mark.active = False
+
+
+@pytest.mark.conformance("CMDD-018")
+async def test_CMDD_018_execute_on_a_loop_runs_the_inner_after_it_returns() -> None:
+    decorator, mark, seen, ran = _marked_confirmation()
+
+    _execute_marked(decorator, mark)
+
+    deadline = time.monotonic() + HANG_GUARD
+    while not ran.is_set() and time.monotonic() < deadline:
+        await asyncio.sleep(0)
+    assert seen == [False], "the inner ran once, outside the execute() call"
+
+
+@pytest.mark.conformance("CMDD-018")
+def test_CMDD_018_execute_off_a_loop_runs_the_inner_after_it_returns() -> None:
+    decorator, mark, seen, ran = _marked_confirmation()
+
+    _execute_marked(decorator, mark)
+
+    assert ran.wait(HANG_GUARD)
+    assert seen == [False], "the inner ran once, outside the execute() call"
