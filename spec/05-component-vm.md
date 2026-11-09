@@ -126,6 +126,9 @@ The established local-only raise primitive remains available for lifecycle and
 computed properties that intentionally do not publish a hub
 `PropertyChangedMessage`. Subclass-authored settable properties SHOULD use the
 dual-channel helper so a binding notification cannot be omitted accidentally.
+A call of the local-only primitive that begins after VM disposal is also a
+no-op (ADR-0223). The library's own terminal `Status` and `IsConstructed`
+notifications are part of disposal and still reach local observers.
 
 This is the only property-authoring convenience added by VMx. Per ADR-0040,
 VMx does not provide `IProperty` wrappers, decorators, implicit accessors,

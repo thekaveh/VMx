@@ -85,9 +85,8 @@ act on the canonical ownership identity (ADR-0221):
   which is the wrapped component's stream, emits the name once.
 - One call of the local-only raise primitive emits the name once on that
   stream and sends no hub message. Rust has no local-only primitive.
-- After the wrapped component is disposed, the dual-channel helper emits on
-  neither channel (`05-component-vm.md` §2.3). Chapter 05 gives the local-only
-  primitive no disposal rule, and the C# primitive still raises the event.
+- After the wrapped component is disposed, neither helper emits on any
+  channel (`05-component-vm.md` §2.3, ADR-0223).
 
 C# decorators expose the helpers as protected `NotifyPropertyChanged` and
 `RaisePropertyChanged`. In C#, Python, and TypeScript, a decorator can wrap a
@@ -131,7 +130,8 @@ child (ADR-0205).
 - pre-owned and multiply decorated components retain one transferable owner
 - resources registered through a decorator belong to the wrapped component
 - a decorator's property notification helpers emit through the wrapped
-  component, with the wrapped component as the hub message sender
+  component, with the wrapped component as the hub message sender, and emit
+  nothing after the wrapped component is disposed
 
 Forwarded disposal inherits `DISP-001`: repeated wrapper disposal may reach the
 wrapped instance repeatedly at the call boundary, but the wrapped VM performs

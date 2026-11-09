@@ -301,6 +301,8 @@ public class ComponentVMConformanceTests
         vm.Dispose();
 
         vm.EmitValueNotification();
+        // The local-only primitive is inert after disposal too (ADR-0223, #1542).
+        vm.RaiseLocalValueNotification();
 
         hubCount.Should().Be(0);
         localCount.Should().Be(0);
@@ -786,6 +788,8 @@ public class ComponentVMConformanceTests
         }
 
         public void EmitValueNotification() => NotifyPropertyChanged(nameof(Value));
+
+        public void RaiseLocalValueNotification() => RaisePropertyChanged(nameof(Value));
     }
 
     private sealed class ReferenceModel(int value) : IEquatable<ReferenceModel>

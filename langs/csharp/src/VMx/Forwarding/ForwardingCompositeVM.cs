@@ -239,7 +239,8 @@ public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IComponentVM
 
     /// <summary>
     /// Raises only the local <c>PropertyChanged</c> event, through the wrapped
-    /// VM (#1352).
+    /// VM (#1352). After the wrapped VM is disposed, the call is a no-op
+    /// (ADR-0223).
     /// </summary>
     protected void RaisePropertyChanged(string propertyName) => _membership.RaisePropertyChanged(propertyName);
 

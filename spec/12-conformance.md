@@ -811,9 +811,14 @@ notification still occurs before its local surface completes
 
 ### CVM-009 — Notification helper is inert after disposal
 
+Per spec/05-component-vm.md §2.3 and ADR-0223.
+
 **Given** a disposed component
 **When** its dual-channel property notification helper is invoked
 **Then** neither the hub nor the VM-local channel emits
+**When** its local-only raise primitive is invoked (not Rust, which has no such
+primitive)
+**Then** the VM-local channel does not emit
 
 ### CVM-010 — Modeled components explicitly republish the retained model
 
@@ -1149,7 +1154,7 @@ wraps `first`
 
 ### FWD-006 — Decorator notification helpers emit through the wrapped component
 
-Per spec/09-forwarding.md §1 and ADR-0221.
+Per spec/09-forwarding.md §1, ADR-0221 and ADR-0223.
 
 **Given** a component decorator around component `inner`, and a composite
 decorator around composite `inner`, each `inner` with a hub
@@ -1163,7 +1168,7 @@ which has no such primitive)
 **Then** the property-changed stream emits that name once, and the hub
 receives no message
 **When** `inner` is disposed and the subclass calls the dual-channel helper
-again
+and the local-only raise primitive again
 **Then** neither channel emits
 
 ______________________________________________________________________

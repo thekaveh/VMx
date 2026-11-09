@@ -1887,9 +1887,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     _hub.Send(ConstructionStatusChangedMessage.Create(
                         this, Name, ConstructionStatus.Disposed)));
                 FirstFailure.Capture(ref firstError, () =>
-                    RaisePropertyChanged(nameof(Status)));
+                    RaiseLocalPropertyChanged(nameof(Status)));
                 FirstFailure.Capture(ref firstError, () =>
-                    RaisePropertyChanged(nameof(IsConstructed)));
+                    RaiseLocalPropertyChanged(nameof(IsConstructed)));
                 if (notifyTrigger)
                     FirstFailure.Capture(ref firstError, () =>
                         _statusTrigger.OnNext(Unit.Default));
@@ -2469,8 +2469,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // Status and IsConstructed are computed/read-only, so they raise INPC only;
             // no PropertyChangedMessage on the hub (spec 03-messages.md restricts hub
             // PropertyChangedMessage to setter-assigned properties).
-            RaisePropertyChanged(nameof(Status));
-            RaisePropertyChanged(nameof(IsConstructed));
+            RaiseLocalPropertyChanged(nameof(Status));
+            RaiseLocalPropertyChanged(nameof(IsConstructed));
 
             if (notifyTrigger)
                 _statusTrigger.OnNext(Unit.Default);
@@ -2575,12 +2575,32 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             ref firstError,
             () => _hub.Send(
                 PropertyChangedMessage<IComponentVM>.Create(this, Name, propertyName)));
-        FirstFailure.Capture(ref firstError, () => RaisePropertyChanged(propertyName));
+        FirstFailure.Capture(ref firstError, () => RaiseLocalPropertyChanged(propertyName));
         firstError?.Throw();
     }
 
-    /// <summary>Raises only the local <see cref="PropertyChanged"/> event.</summary>
+    /// <summary>
+    /// Raises only the local <see cref="PropertyChanged"/> event. A call that
+    /// begins after disposal is a no-op, as for <see cref="NotifyPropertyChanged"/>
+    /// (spec 05 §2.3, ADR-0223).
+    /// </summary>
     protected void RaisePropertyChanged(string propertyName)
+    {
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Disposed) return;
+        }
+
+        RaiseLocalPropertyChanged(propertyName);
+    }
+
+    /// <summary>
+    /// Raises the local event without the disposal check. Lifecycle publication
+    /// and admitted <see cref="NotifyPropertyChanged"/> calls use it, so the
+    /// terminal <c>Status</c> change and a re-entrantly disposed helper call
+    /// still reach local observers.
+    /// </summary>
+    private void RaiseLocalPropertyChanged(string propertyName)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
     /// <summary>Registers a disposable for terminal VM cleanup and returns it.</summary>
