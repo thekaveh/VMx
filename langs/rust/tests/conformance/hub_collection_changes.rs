@@ -3,7 +3,9 @@
 //!
 //! Rust's `CompositeVm` and `GroupVm` keep their children in an
 //! `ObservableList`. Its local stream, `collection_changed()`, receives each
-//! change before the hub (ADR-0208). These tests assert that each effective
+//! change before the hub (ADR-0208), and
+//! `ObservableMembershipSource::subscribe_membership` listens on that local
+//! stream. These tests assert that each effective
 //! mutation delivers exactly one `CollectionChangedMessage` before the
 //! mutating call returns, in mutation order, sent by the container, with the
 //! positions of chapter 21 §2.4, and that the local event comes first. Rust's
