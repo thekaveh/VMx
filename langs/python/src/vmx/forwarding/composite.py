@@ -178,6 +178,9 @@ class ForwardingCompositeVM(_ForwardingMembership, Generic[VM]):
     def deselect_child(self, vm: _ComponentVMBase) -> None:
         self._wrapped.deselect_child(vm)
 
+    def _child_disposed(self, vm: _ComponentVMBase) -> None:
+        self._wrapped._child_disposed(vm)
+
     # ── CompositeVM: current and child selection ──────────────────────────────
 
     @property
