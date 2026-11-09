@@ -911,9 +911,11 @@ public final class FormVM<Model> {
         }
         let committedErrors = prepared.errors ?? _errors
         let errorsChanged = committedErrors != _errors
-        // Like every commit, the approval advances the generation (§5.4); it
-        // remains authoritative over earlier edits (§5.1, §5.3).
+        // Like every commit, the approval advances the generation (§5.4) and
+        // counts as a commit by this thread; it remains authoritative over
+        // earlier edits (§5.1, §5.3).
         commitGeneration &+= 1
+        frames[caller]?.commits &+= 1
         if let model = prepared.model { _model = model }
         _snapshot = prepared.snapshot
         _errors = committedErrors
