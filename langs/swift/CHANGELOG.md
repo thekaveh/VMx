@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Catchable `Result` forms for three operations that trap on invalid input
+  (ADR-0217, #1349). `FilteredCompositeVM.setCurrentResult(_:)` returns a
+  `CompositeMembershipError` failure for an item that is not visible and
+  changes nothing. `removeAtResult(_:)` on `CompositeVM`, `GroupVM` and
+  `ForwardingCompositeVM` returns `.attachmentFailed(VMCollectionIndexError)`
+  for an index outside `[0, count)`. `DerivedProperty.fromSourcesResult`
+  returns `.failure(.noSources)` for an empty source list, through the new
+  `DerivedPropertyError.noSources` case; a `switch` over
+  `DerivedPropertyError` with no `default` must add it.
+  `FilteredCompositeVM.setCurrent(_:)`, its `current` setter and
+  `fromSources` still trap; ADR-0009 §2.35 lists the remaining Swift traps.
+
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
@@ -74,6 +86,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- While disposal of a composite is requested or deferred, `setCurrent(_:)` on
+  a non-member, or on a disposed child, now throws the `.disposing`
+  `CompositeMembershipError`, not `.nonMember` (ADR-0217, #1423). The
+  disposal refusal applies before the non-member refusal, as in C#, Python,
+  TypeScript and Rust, and `canSetCurrent(_:)` returns `false`. After
+  `Disposed`, a non-member selection also throws `.disposing`; a member
+  selection stays an inert no-op.
+- `CompositeVM.removeAt(_:)` and `GroupVM.removeAt(_:)` no longer trap on an
+  index outside `[0, count)` (ADR-0217, #1349). They change nothing and emit
+  nothing, as `insert` and `replace` do for a refused index.
 - Disposing the current child of a composite now clears the composite's
   `current` before `dispose()` returns (ADR-0189, #1317). The composite
   publishes the change once and calls `onCurrentChanged` with `nil` once. The

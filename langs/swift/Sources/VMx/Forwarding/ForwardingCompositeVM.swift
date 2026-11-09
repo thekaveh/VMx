@@ -184,6 +184,9 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     }
     open override func remove(_ child: Child) -> Bool { _wrapped.remove(child) }
     open override func removeAt(_ index: Int) { _wrapped.removeAt(index) }
+    open override func removeAtResult(_ index: Int) -> Result<Void, ContainerOwnershipError> {
+        _wrapped.removeAtResult(index)
+    }
     open override func replace(at index: Int, with child: Child) {
         _wrapped.replace(at: index, with: child)
     }

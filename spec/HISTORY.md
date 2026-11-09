@@ -724,3 +724,11 @@ child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 455
 library IDs plus 5 scenario IDs.
 
 See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
+
+v3.30.0 also orders two selection refusals. For a non-null selection, the
+disposal refusal applies before the non-member refusal, so a non-member
+selected while disposal of the composite is pending gets the disposal error
+in every flavor. Swift `FilteredCompositeVM` gains the catchable
+`setCurrentResult(_:)` (chapter 06 §9).
+
+See ADR-0217 and chapter 06 §3, §4.3 and §9.
