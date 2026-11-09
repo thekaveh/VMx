@@ -10,6 +10,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-070` conformance tests (#1316, ADR-0193). An edit to a `keys1()` or
+  `keys2()` snapshot does not change the dictionary. Rust already behaved this
+  way.
+- The `COMP-042` and `GRP-012` tests now assert that each container message
+  carries the container's name (#1309, ADR-0194). Rust already behaved this
+  way.
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
@@ -144,6 +150,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ObservableMultiDictionary` and `ObservableDictionary` Remove and Replace hub
+  messages now carry the entry's position in enumeration order (#1316,
+  ADR-0193, `COL-068`). Remove sends `old_index: Some(position)` and
+  `new_index: None`. Replace sends `Some(position)` in both fields. Before,
+  both sent `None`.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,

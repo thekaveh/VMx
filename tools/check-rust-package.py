@@ -76,6 +76,8 @@ tests/conformance/container_hook_disposal.rs
 tests/conformance/derived_properties.rs
 tests/conformance/dialogs.rs
 tests/conformance/dictionary_key_view_order.rs
+tests/conformance/dictionary_key_views_read_only.rs
+tests/conformance/dictionary_remove_replace_positions.rs
 tests/conformance/discriminator.rs
 tests/conformance/drop_reentry.rs
 tests/conformance/expandable.rs
