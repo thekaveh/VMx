@@ -75,8 +75,17 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   so a hang fails within minutes instead of at the job timeout. For a
   single-process `swift test`, it reads XCTest's `Test Case '...' started.`
   lines instead, and kills the whole run when a case does not finish in time.
-  `--timeout` bounds the whole command. The Swift `examples`, `coverage
-  floor` and `thread sanitizer` jobs run their tests through it.
+  A `--parallel` command skips that output check, because SwiftPM replays a
+  crashed case's `started` line with no finish line after it. `--timeout`
+  bounds the whole command. The Swift `examples`, `coverage floor` and `thread
+  sanitizer` jobs run their tests through it.
+
+- `ci-retry.mjs` — runs a CI command up to three times, 20 s apart, and kills
+  each attempt after 240 s. With `--retry-on=npm-network` it retries only a
+  registry or network error, so an `npm audit` advisory fails after one
+  attempt. Every workflow `npm ci` and `npm audit` runs through it;
+  `tools/tests/test_ci_retry.py` checks that each retried step fits inside its
+  job timeout.
 
 - `select-csharp-release.py` — maps the three collision-free stable C# tag
   namespaces to exactly one package ID, verifies that package's project version,
@@ -84,7 +93,6 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 
 ### 1.1 Release, package, and coverage checks
 
-- `ci-retry.mjs` — Runs a CI command up to three times, 20 s apart, and kills each attempt after 240 s. With `--retry-on=npm-network` it retries only a registry or network error, so an `npm audit` advisory fails after one attempt. Every workflow `npm ci` and `npm audit` runs through it; `tools/tests/test_ci_retry.py` checks that each retried step fits inside its job timeout.
 - `check-cobertura-threshold.py` — Fails when aggregate Cobertura line or branch coverage drops below a floor (C# coverage gate).
 - `check-conformance-execution.py` — Checks that every library conformance ID has a passing executed test case, not only a marker.
 - `check-coverage-floor.py` — Checks an llvm-cov coverage export against a flavor's recorded floor in `coverage-floors.json` (Rust and Swift).

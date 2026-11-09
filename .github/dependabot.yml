@@ -22,8 +22,12 @@ updates:
     ignore:
       - dependency-name: jsdom
         versions: [">=30.0.0"]
-      # packages/react-18-deps stays on React 18. A new React major is a
-      # deliberate adapter change, so no update proposes one.
+      # packages/react-18-deps stays on React 18. Dependabot cannot ignore a
+      # dependency in one directory of a shared entry, and a separate entry
+      # would split each update of the adapter's other dependencies from its
+      # React 18 copy. So no directory of this entry, the adapter and the React
+      # Notes Showcase included, gets a React major proposal. A new React
+      # major is a deliberate adapter change.
       - dependency-name: react
         update-types: ["version-update:semver-major"]
       - dependency-name: react-dom
