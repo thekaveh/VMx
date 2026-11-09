@@ -72,8 +72,17 @@ def main() -> int:
     if args.capture_output:
         if "\n" in sys.executable or "\r" in sys.executable:
             parser.exit(1, "Python executable cannot contain newlines in a step output\n")
-        with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
-            output.write(f"executable={sys.executable}\n")
+        github_output = os.environ.get("GITHUB_OUTPUT")
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as output:
+                output.write(f"executable={sys.executable}\n")
+        else:
+            # Outside GitHub Actions a maintainer can still run a step's exact command (#1471).
+            print(
+                "GITHUB_OUTPUT is not set; skipping the executable step output",
+                file=sys.stderr,
+                flush=True,
+            )
         environment = os.environ.get("GITHUB_ENV")
         if args.venv and environment:
             venv = os.path.normcase(os.path.realpath(args.venv))
