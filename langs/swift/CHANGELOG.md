@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `NotificationVM` and `ConfirmationVM` accept any `NotificationScheduler`,
+  so an app can drive them in real time (#1347, spec/16 §6). The new public
+  protocol refines the Combine `Scheduler` with `seconds(from:to:)`. VMx
+  conforms `VirtualTimeScheduler`, `DispatchQueue`, `RunLoop` and
+  `OperationQueue`. The lifespan and decay-tick timers run on the injected
+  scheduler, and the VMs have no lock, so pass a serial scheduler on the
+  thread that uses the VM, such as `DispatchQueue.main`. Callers that pass a
+  `VirtualTimeScheduler` compile unchanged. The initializers are now generic,
+  so a subclass that overrides `init(notification:hub:scheduler:lifespan:tickInterval:)`
+  must declare its override as generic over `NotificationScheduler`. The notes
+  showcase passes `DispatchQueue.main` and no longer advances a virtual clock
+  from a one-second `Timer`.
+
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The

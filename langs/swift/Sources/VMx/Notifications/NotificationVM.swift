@@ -4,10 +4,12 @@
 // See spec/16-notifications.md §6 and ADR-0031.
 //
 // Consumes a `Notification` and exposes UI-bindable state with a timed
-// auto-dismiss lifecycle, driven by an injected `VirtualTimeScheduler`:
+// auto-dismiss lifecycle, driven by an injected `NotificationScheduler`
+// (`DispatchQueue.main` or `RunLoop.main` in an app, `VirtualTimeScheduler` in
+// tests; #1347):
 //
 //   - `opacity` decays linearly 1.0 → 0.0 over `lifespan` as the scheduler's
-//     virtual `now` advances (NOTIF-011).
+//     `now` advances (NOTIF-011).
 //   - at expiry (`now` reaches `start + lifespan`) the VM auto-resolves the hub
 //     notification with `.approve` (NOTIF-012); `ConfirmationVM` opts out.
 //   - `dismissCommand` resolves `.approve` and cancels the timer (NOTIF-014).
@@ -18,6 +20,10 @@
 // the scheduler all measure seconds, so a `lifespan` of 10 advanced to 5 yields
 // `opacity` 0.5. `propertyChanged` emits Swift-idiomatic property names
 // (`"isResolved"`, `"remaining"`, `"opacity"`).
+//
+// Threading: the expiry and decay-tick timers run where the scheduler runs its
+// work. The VM has no lock, so pass a serial scheduler on the thread that uses
+// the VM, such as `DispatchQueue.main` for a main-thread UI.
 //
 // `open` (not `final`): `ConfirmationVM` subclasses it and overrides
 // `armsExpiryTimer()` / `onExpire()` / `dispose()`.
@@ -31,12 +37,11 @@ open class NotificationVM {
 
     private let notificationRef: Notification
     private let hub: NotificationHubProtocol
-    private let scheduler: VirtualTimeScheduler
+    /// The injected scheduler, measured from construction; opacity decay and
+    /// the expiry timer are relative to that instant.
+    private let clock: NotificationClock
     private let tickInterval: TimeInterval
     private let emitsDecayTicks: Bool
-    /// Virtual instant (seconds) captured at construction; opacity decay and
-    /// the expiry timer are measured relative to it.
-    private let startTime: TimeInterval
 
     private let propertyChangedSubject = PassthroughSubject<String, Never>()
 
@@ -54,20 +59,22 @@ open class NotificationVM {
     /// Resolves with `.approve` and cancels the timer. Idempotent.
     public let dismissCommand: RelayCommand
 
-    public init(
+    /// - Parameter scheduler: Drives the lifespan and decay-tick timers. Pass
+    ///   a real-time scheduler such as `DispatchQueue.main` in an app, and a
+    ///   `VirtualTimeScheduler` in tests. The timers run on this scheduler.
+    public init<S: NotificationScheduler>(
         notification: Notification,
         hub: NotificationHubProtocol,
-        scheduler: VirtualTimeScheduler,
+        scheduler: S,
         lifespan: TimeInterval = 60,
         tickInterval: TimeInterval = 0
     ) {
         self.notificationRef = notification
         self.hub = hub
-        self.scheduler = scheduler
+        self.clock = NotificationClock(scheduler)
         self.lifespan = lifespan
         self.tickInterval = tickInterval
         self.emitsDecayTicks = tickInterval > 0 && lifespan > 0
-        self.startTime = scheduler.now.seconds
 
         // Build the dismiss command via a weak local so we never reference
         // `self` before initialization completes. `weakSelf` is assigned after
@@ -82,8 +89,7 @@ open class NotificationVM {
         // ConfirmationVM never auto-resolves). `armsExpiryTimer()` is an open
         // hook resolved via dynamic dispatch, so the subclass override runs.
         if armsExpiryTimer() {
-            let expireAt = scheduler.now.advanced(by: .seconds(lifespan))
-            self.timerCancellable = scheduler.schedule(at: expireAt) { [weak self] in
+            self.timerCancellable = clock.schedule(lifespan) { [weak self] in
                 self?.onExpire()
             }
         }
@@ -118,8 +124,7 @@ open class NotificationVM {
 
     /// Remaining time in seconds, decaying toward 0 via the injected scheduler.
     public var remaining: TimeInterval {
-        let elapsed = scheduler.now.seconds - startTime
-        let r = lifespan - elapsed
+        let r = lifespan - clock.elapsed()
         return r > 0 ? r : 0
     }
 
@@ -195,8 +200,7 @@ open class NotificationVM {
     }
 
     private func scheduleDecayTick() {
-        let due = scheduler.now.advanced(by: .seconds(tickInterval))
-        tickCancellable = scheduler.schedule(at: due) { [weak self] in
+        tickCancellable = clock.schedule(tickInterval) { [weak self] in
             guard let self, !self.disposed, !self.resolved else { return }
             self.raisePropertyChanged("remaining")
             self.raisePropertyChanged("opacity")

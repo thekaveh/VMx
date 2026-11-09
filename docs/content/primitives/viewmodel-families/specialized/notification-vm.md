@@ -43,6 +43,11 @@ once under the [Disposal Contract](../../disposal-contract.md).
 | Lifespan default | 60 s             | 60 s              | 60 s             | 60 s             | 60 s                |
 | Dismiss command  | `DismissCommand` | `dismiss_command` | `dismissCommand` | `dismissCommand` | `dismiss_command()` |
 
+Swift accepts any `NotificationScheduler`: `DispatchQueue.main`,
+`RunLoop.main` or `OperationQueue.main` in an app, and `VirtualTimeScheduler`
+in tests. The timers run on that scheduler, so pass one on the thread that
+uses the VM.
+
 Rust's `NotificationVm` has no injected scheduler: its lifespan advances only
 through `advance_by_ms`, so a host drives the clock itself. Its `dispose()`
 makes every clone of `dismiss_command()` inert. Dropping the VM does not, so
