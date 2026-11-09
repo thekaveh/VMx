@@ -1,4 +1,4 @@
-import { config, Observable, Subject } from "rxjs";
+import { config, Observable, Subject, VirtualTimeScheduler } from "rxjs";
 import { describe, expect, it, vi } from "vitest";
 
 import { SearchableState } from "../../src/index.js";
@@ -220,6 +220,36 @@ describe("SRCH-007", () => {
 
     expect(first.disposeCount).toBe(0);
     expect(second.disposeCount).toBe(0);
+  });
+});
+
+describe("SRCH-008", () => {
+  it("starts no term debounce at construction", () => {
+    const scheduler = new VirtualTimeScheduler();
+    const items = ["one"];
+    const state = new SearchableState<string>({
+      items: () => items,
+      predicate: matches,
+      debounceMs: 100,
+      scheduler,
+    });
+    const snapshots: (readonly string[])[] = [];
+    state.filtered.subscribe((snapshot) => snapshots.push(snapshot));
+    expect(snapshots).toEqual([["one"]]);
+
+    items.push("two");
+    scheduler.flush();
+    expect(snapshots).toHaveLength(1);
+
+    state.search();
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots.at(-1)).toEqual(["one", "two"]);
+
+    state.searchTerm = "o";
+    expect(snapshots).toHaveLength(2);
+    scheduler.flush();
+    expect(snapshots).toHaveLength(3);
+    state.dispose();
   });
 });
 

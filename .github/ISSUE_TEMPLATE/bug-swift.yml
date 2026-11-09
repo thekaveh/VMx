@@ -1,45 +1,74 @@
 name: Bug report — Swift (VMx SwiftPM package)
 description: Something is broken in the Swift flavor.
-labels: [bug, swift]
+labels: [bug]
 body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences that say what is wrong and where.
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
       label: VMx version
-      placeholder: e.g., 2.5.0
+      placeholder: "e.g., 4.0.0"
     validations:
       required: true
   - type: input
     id: swift
     attributes:
       label: Swift toolchain version
-      placeholder: e.g., 6.0
+      description: The output of `swift --version`.
+      placeholder: "e.g., 6.1.2"
     validations:
       required: true
   - type: input
     id: platform
     attributes:
       label: Platform (macOS / iOS / tvOS / watchOS) and OS version
-      placeholder: e.g., macOS 15.2
+      placeholder: "e.g., macOS 15.2"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >-
+        How to reproduce the defect, the observed output (error text, wrong
+        value or stack trace) and the behavior that you expected. Put the
+        reproduction code in the next field.
     validations:
       required: true
   - type: textarea
     id: repro
     attributes:
-      label: Minimal reproduction
-      description: Smallest code snippet that reproduces the issue.
+      label: Reproduction
+      description: The smallest program that shows the defect that Context describes.
       render: swift
     validations:
       required: true
   - type: textarea
-    id: expected
+    id: acceptance
     attributes:
-      label: Expected behavior
+      label: Acceptance criteria
+      description: >-
+        Checkable conditions that show the defect is fixed, one checkbox per
+        condition.
+      placeholder: "- [ ] Calling `dispose()` twice does not trap or throw."
     validations:
       required: true
   - type: textarea
-    id: actual
+    id: evidence
     attributes:
-      label: Actual behavior
+      label: Evidence
+      description: >-
+        A `Location | What it shows` table. Each row names a file and line
+        range, a log, a CI run or a link, and says in one sentence what it
+        shows.
+      value: |
+        | Location | What it shows |
+        |---|---|
     validations:
-      required: true
+      required: false

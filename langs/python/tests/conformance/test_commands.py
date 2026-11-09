@@ -12,6 +12,7 @@ CMD-006  Null task is a no-op (no exception)
 CMD-007  Table-driven configurations from command-truthtable.json
 CMD-013  Disposed RelayCommand instances are inert
 CMD-014..019  Imperative can-execute re-evaluation notifications
+CMD-020  A fire-and-forget fault reaches errors after the completion notification
 CMD-021  A failing can_execute_changed handler stops neither other handlers nor a trigger
 """
 
@@ -19,6 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+import time
 from collections.abc import Awaitable
 
 import pytest
@@ -394,6 +397,62 @@ async def test_async_relay_command_reports_factory_error_and_restores_state() ->
     assert [str(error) for error in errors] == ["factory boom"]
     assert cmd.is_executing is False
     assert cmd.can_execute() is True
+
+
+# ---------------------------------------------------------------------------
+# CMD-020 — a fire-and-forget fault reaches errors after the completion
+# notification (spec/04 §10.2/§10.4, ADR-0195)
+# ---------------------------------------------------------------------------
+
+
+def _fault_order_command() -> tuple[AsyncRelayCommand, list[object], threading.Event, Exception]:
+    boom = RuntimeError("task boom")
+
+    async def _task() -> None:
+        await asyncio.sleep(0)
+        raise boom
+
+    cmd = AsyncRelayCommand.builder().task(_task).build()
+    lock = threading.Lock()
+    log: list[object] = []
+    failed = threading.Event()
+
+    def _on_change(_: object) -> None:
+        with lock:
+            log.append("change")
+
+    def _on_error(error: BaseException) -> None:
+        with lock:
+            log.append(("error", error, cmd.is_executing))
+        failed.set()
+
+    cmd.can_execute_changed.subscribe(_on_change)
+    cmd.errors.subscribe(_on_error)
+    return cmd, log, failed, boom
+
+
+@pytest.mark.conformance("CMD-020")
+async def test_CMD_020_fault_reaches_errors_after_completion_on_a_loop() -> None:
+    cmd, log, failed, boom = _fault_order_command()
+
+    cmd.execute()
+
+    deadline = time.monotonic() + HANG_GUARD
+    while not failed.is_set() and time.monotonic() < deadline:
+        await asyncio.sleep(0)
+    assert log == ["change", "change", ("error", boom, False)]
+    cmd.dispose()
+
+
+@pytest.mark.conformance("CMD-020")
+def test_CMD_020_fault_reaches_errors_after_completion_off_a_loop() -> None:
+    cmd, log, failed, boom = _fault_order_command()
+
+    cmd.execute()
+
+    assert failed.wait(HANG_GUARD)
+    assert log == ["change", "change", ("error", boom, False)]
+    cmd.dispose()
 
 
 # ---------------------------------------------------------------------------

@@ -190,6 +190,17 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
         self._items.insert(to_index, item)
         self._emit(CollectionChangedMessage.for_move(self, item, from_index, to_index))
 
+    def reverse(self) -> None:
+        """Reverse the items atomically and emit one Reset.
+
+        Zero or one item is a no-op. Observers never see an interim order
+        (spec/21 §2.3.6, ADR-0193).
+        """
+        if len(self._items) < 2:
+            return
+        self._items.reverse()
+        self._emit(CollectionChangedMessage.for_reset(self))
+
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _emit(self, msg: CollectionChangedMessage[T]) -> None:

@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 using VMx.Internal;
@@ -69,6 +70,9 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
     /// <inheritdoc/>
     /// <remarks>
     /// Synchronous <c>Execute</c> kicks off the confirmation flow and returns immediately.
+    /// It returns before the inner command runs, also when the confirmation is already
+    /// complete; the inner command then runs on a thread-pool thread (spec/04 §8.3.1,
+    /// ADR-0195). VMx does not marshal it to the caller's context (spec/11 §3.1).
     /// Once confirmed, it invokes the inner command's own <see cref="ICommand.Execute"/>,
     /// which starts an asynchronous inner command without awaiting it; that inner
     /// command reports its operation's faults on its own error channel (spec §8.3.2,
@@ -108,7 +112,16 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
     {
         // The inner predicate may dispose the decorator.
         if (!CanExecute(parameter) || _disposed) return;
-        var confirmed = await _confirm().ConfigureAwait(false);
+        var confirmation = _confirm();
+        // Execute() never runs the inner command inside its own call (spec/04
+        // §8.3.1, ADR-0195). A completed confirmation would continue inline, so
+        // move to the thread pool first. The hop is unconditional: another thread
+        // can complete the confirmation between an IsCompleted check and the await.
+        // Task.Yield() is not used: it would post to the caller's
+        // SynchronizationContext, and VMx does not marshal (spec/11 §3.1).
+        if (!awaitInner)
+            await ThreadPoolHop.Instance;
+        var confirmed = await confirmation.ConfigureAwait(false);
         // A confirmation that resolves after disposal runs nothing (spec §8.4, ADR-0134).
         if (!confirmed || _disposed) return;
         if (awaitInner)
@@ -124,6 +137,27 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
             }
         }
         _inner.Execute(parameter);
+    }
+
+    // An awaitable that always continues on a thread-pool thread and never
+    // captures the caller's SynchronizationContext or TaskScheduler.
+    private sealed class ThreadPoolHop : ICriticalNotifyCompletion
+    {
+        public static readonly ThreadPoolHop Instance = new();
+
+        public ThreadPoolHop GetAwaiter() => this;
+
+        public bool IsCompleted => false;
+
+        public void GetResult()
+        {
+        }
+
+        public void OnCompleted(Action continuation) =>
+            ThreadPool.QueueUserWorkItem(static state => ((Action)state!)(), continuation);
+
+        public void UnsafeOnCompleted(Action continuation) =>
+            ThreadPool.UnsafeQueueUserWorkItem(static state => ((Action)state!)(), continuation);
     }
 
     private void EmitError(Exception error)

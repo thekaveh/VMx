@@ -159,19 +159,25 @@ pub(crate) fn evaluate_command_predicate(predicate: impl FnOnce() -> bool) -> bo
 /// Errors produced by VMx lifecycle, ownership, validation, and service contracts.
 pub enum VmxError {
     #[error("invalid lifecycle transition from {from:?} via {operation}")]
-    /// A lifecycle operation is invalid for the current status.
+    /// A lifecycle operation is invalid for the current status (spec/02
+    /// §2.1, ADR-0203).
+    ///
+    /// Every illegal `construct`, `destruct`, or `reconstruct` returns this
+    /// variant: from `Disposed` (also once the inline dispose cascade has
+    /// started), during another transition (`from` is the transient status,
+    /// LIFE-008), and from any other status that does not admit the call.
     InvalidLifecycleTransition {
         /// Status from which the operation was attempted.
         from: ConstructionStatus,
-        /// Stable operation name used in the diagnostic.
+        /// Stable operation name used in the diagnostic: `"construct"`,
+        /// `"destruct"`, or `"reconstruct"`.
         operation: &'static str,
     },
     #[error("viewmodel is disposed")]
-    /// The target view model has already been disposed.
+    /// A non-lifecycle operation targets a disposed view model or a container
+    /// whose disposal is pending. An illegal lifecycle call from `Disposed`
+    /// returns [`VmxError::InvalidLifecycleTransition`] instead.
     Disposed,
-    #[error("operation already in progress")]
-    /// Another lifecycle operation is already in progress.
-    ConcurrentOperation,
     #[error("component is not a child of this container")]
     /// The supplied component is not a child of the container.
     NonChild,
@@ -611,6 +617,24 @@ pub enum LifecycleOperation {
     Dispose,
 }
 
+impl LifecycleOperation {
+    /// The stable operation name that
+    /// [`VmxError::InvalidLifecycleTransition`] carries.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Construct => "construct",
+            Self::Destruct => "destruct",
+            Self::Dispose => "dispose",
+        }
+    }
+}
+
+/// The lifecycle transition error for `operation` attempted from `from`
+/// (spec/02 §2.1, ADR-0203).
+pub(crate) fn invalid_transition(from: ConstructionStatus, operation: &'static str) -> VmxError {
+    VmxError::InvalidLifecycleTransition { from, operation }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 /// The order in which a [`crate::GroupVm`] or [`crate::CompositeVm`] destructs
 /// and disposes its children (ADR-0161).
@@ -661,7 +685,9 @@ pub enum CollectionChangeAction {
 pub struct CollectionChangedMessage {
     /// Identity of the publishing owner.
     pub sender_id: usize,
-    /// Human-readable identity of the publishing owner.
+    /// Human-readable identity of the publishing owner. A `CompositeVm` or
+    /// `GroupVm` message carries the container's `name()`. A plain collection
+    /// or dictionary message carries its type name (ADR-0194).
     pub sender_name: String,
     /// Logical collection property name.
     pub property_name: String,
@@ -1076,6 +1102,18 @@ impl MessageHub {
     /// or subscription keeps that state allocated.
     pub(crate) fn identity(&self) -> usize {
         Arc::as_ptr(&self.inner) as usize
+    }
+
+    /// Reports whether a `ConstructionStatusChanged` message of `sender_id`
+    /// with `status` is queued for delivery on this hub.
+    pub(crate) fn has_pending_status(&self, sender_id: usize, status: ConstructionStatus) -> bool {
+        lock(&self.inner.state).pending.iter().any(|message| {
+            matches!(
+                message,
+                Message::ConstructionStatusChanged(change)
+                    if change.sender_id == sender_id && change.status == status
+            )
+        })
     }
 
     pub(crate) fn is_delivering_from(&self, sender_id: usize) -> bool {
@@ -2588,8 +2626,14 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     ///
     /// Containers use this hook to stay transient until a background child
     /// settles (spec/02 §6). Wrapper nodes should forward it to the wrapped
-    /// VM. The default returns `false`; a container whose child does not
-    /// support settle notification accepts that child while it is still
+    /// VM. The default returns `false`. A container then falls back to its
+    /// own message hub (spec/11 §4, ADR-0205): when it started the node and,
+    /// by the time the start call returned, the hub delivered or queued the
+    /// node's Constructing/Destructing status, it waits on that hub for a
+    /// status of the node that arrives once the node is no longer in flight,
+    /// and rolls back when the node settles anywhere else. Otherwise (the
+    /// node publishes on another hub, or the container joined a node
+    /// already in flight) it accepts the node while it is still
     /// Constructing/Destructing instead of waiting for it.
     fn when_lifecycle_settled(&self, _callback: LifecycleSettleCallback) -> bool {
         false
@@ -2904,6 +2948,17 @@ impl Drop for StartAttempt {
 /// A container transition waiting for children that settle asynchronously
 /// (spec/02 §6): later child steps queue behind the child being awaited, and
 /// the container publishes its terminal status only after the queue drains.
+/// What a container's transition does once its own action returned.
+enum ChildWalkOutcome {
+    /// No child step is pending; the action publishes the terminal status.
+    Settled,
+    /// A child step is pending; the settle continuation publishes.
+    Deferred,
+    /// A child failed while the action ran; the caller publishes the
+    /// rollback status.
+    Failed(VmxError),
+}
+
 struct ChildSettle {
     generation: u64,
     waiting: bool,
@@ -2939,32 +2994,275 @@ impl ChildSettle {
     }
 }
 
-/// A VM node that exposes recursive tree traversal state.
-pub trait TreeNode: VmNode {
-    /// Returns child nodes in traversal order.
-    fn children_nodes(&self) -> Vec<Self> {
-        Vec::new()
+#[derive(Default)]
+struct ChildObserverState {
+    /// The container's hub delivered the child's transient status.
+    seen: bool,
+    /// The hub delivered a later status of the child, or the hub completed.
+    settled: bool,
+    callback: Option<LifecycleSettleCallback>,
+}
+
+/// Watches the container's own hub for the status of a child the container
+/// starts, for a node that does not forward
+/// [`VmNode::when_lifecycle_settled`] (spec/11 §4, ADR-0205). It subscribes
+/// before the child's start call. A container waits on the child only when,
+/// by the time that call returned, the hub delivered or queued the child's
+/// transient status: the child then publishes on this hub, so its next
+/// status arrives here too, and the wait is bounded. The hub's completion
+/// also ends the wait.
+///
+/// The hub can still hold statuses of the child's earlier transitions,
+/// queued before the start call (a hub batch, a borrowed scope, or another
+/// thread's drain). A message cannot tell which transition it belongs to,
+/// so a non-transient status settles the wait only when the child itself
+/// is no longer at the transient status; otherwise it is an earlier
+/// transition's status and the observer ignores it.
+struct ChildObserver {
+    hub: MessageHub,
+    child_id: usize,
+    transient: ConstructionStatus,
+    state: Arc<Mutex<ChildObserverState>>,
+    subscription: Subscription,
+}
+
+impl ChildObserver {
+    fn start<N: VmNode>(hub: MessageHub, child: &N, transient: ConstructionStatus) -> Self {
+        let child_id = child.id();
+        // The subscription ends when the awaited check runs or the settle is
+        // dropped, so this clone does not outlive the container's wait.
+        let probe = child.clone();
+        let state = Arc::new(Mutex::new(ChildObserverState::default()));
+        let on_message = Arc::clone(&state);
+        let on_completion = Arc::clone(&state);
+        let subscription = hub.subscribe_with_completion(
+            move |message| {
+                let Message::ConstructionStatusChanged(change) = message else {
+                    return;
+                };
+                if change.sender_id != child_id {
+                    return;
+                }
+                if change.status == transient {
+                    lock(&on_message).seen = true;
+                } else if probe.status() != transient {
+                    Self::settle(&on_message);
+                }
+                // Otherwise the child is still in flight: the message is a
+                // status of an earlier transition that the hub queued
+                // before this start call.
+            },
+            move || Self::settle(&on_completion),
+        );
+        Self {
+            hub,
+            child_id,
+            transient,
+            state,
+            subscription,
+        }
     }
 
-    /// Returns child nodes in traversal order, or the error that stops their
-    /// materialization.
+    /// Records a transient status the hub has queued but not yet delivered
+    /// (the start call ran inside a hub batch, a borrowed scope, or this
+    /// thread's drain). Call after the start call returns.
+    fn note_queued_transient(&self) {
+        if !lock(&self.state).seen && self.hub.has_pending_status(self.child_id, self.transient) {
+            lock(&self.state).seen = true;
+        }
+    }
+
+    fn settle(state: &Mutex<ChildObserverState>) {
+        let callback = {
+            let mut state = lock(state);
+            state.settled = true;
+            state.callback.take()
+        };
+        if let Some(callback) = callback {
+            callback();
+        }
+    }
+
+    /// Registers `callback` to run when the hub delivers a status of the
+    /// child that finds it no longer at the transient status. Returns `false` (dropping `callback`) when the hub never
+    /// delivered the transient status or already delivered the next one.
+    fn arm(state: &Mutex<ChildObserverState>, callback: LifecycleSettleCallback) -> bool {
+        let mut state = lock(state);
+        if !state.seen || state.settled {
+            return false;
+        }
+        state.callback = Some(callback);
+        true
+    }
+}
+
+/// A VM node that the tree walks can visit (spec/13, ADR-0207).
+///
+/// A container lists its members as type-erased [`TreeNodeRef`] handles, so
+/// a walk crosses containers whose children have other types: a
+/// [`CompositeVm`](crate::CompositeVm) or [`GroupVm`](crate::GroupVm) lists
+/// its children, an aggregate lists its present components in
+/// `component_1`, `component_2`, … order, and a
+/// [`HierarchicalVm`](crate::HierarchicalVm) lists its children. A leaf keeps
+/// the default, which lists no children.
+pub trait TreeNode: VmNode {
+    /// Returns the node's children in traversal order, or the error that
+    /// stops their materialization.
     ///
     /// [`walk`](crate::walk), [`walk_expanded`](crate::walk_expanded) and
-    /// [`find`](crate::find) read children through this method, so a node
-    /// whose children can fail to load reports that failure to the caller
-    /// (spec/13 §6.1, ADR-0170). The default wraps
-    /// [`children_nodes`](Self::children_nodes) in `Ok`.
-    fn try_children_nodes(&self) -> VmxResult<Vec<Self>> {
-        Ok(self.children_nodes())
+    /// [`find`](crate::find) read children only through this method, so a
+    /// node whose children can fail to load reports that failure to the
+    /// caller (spec/13 §6.1, ADR-0170). The default returns no children.
+    fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        Ok(Vec::new())
     }
 
     /// Returns the node's opt-in expansion capability, when present.
+    /// [`walk_expanded`](crate::walk_expanded) does not descend into a node
+    /// whose capability reports collapsed.
     fn expandable(&self) -> Option<&dyn crate::Expandable> {
         None
     }
 }
 
+/// The object-safe view of a [`TreeNode`] behind a [`TreeNodeRef`].
+trait ErasedTreeNode: Send + Sync {
+    fn node_id(&self) -> usize;
+    fn node_status(&self) -> ConstructionStatus;
+    fn node_children(&self) -> VmxResult<Vec<TreeNodeRef>>;
+    fn node_expandable(&self) -> Option<&dyn crate::Expandable>;
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn node_type_name(&self) -> &'static str;
+}
+
+impl<T: TreeNode> ErasedTreeNode for T {
+    fn node_id(&self) -> usize {
+        self.id()
+    }
+
+    fn node_status(&self) -> ConstructionStatus {
+        self.status()
+    }
+
+    fn node_children(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        self.try_children_nodes()
+    }
+
+    fn node_expandable(&self) -> Option<&dyn crate::Expandable> {
+        self.expandable()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn node_type_name(&self) -> &'static str {
+        std::any::type_name::<T>()
+    }
+}
+
+/// A type-erased handle to a [`TreeNode`], which the tree walks yield.
+///
+/// A handle shares the node it wraps, as a clone of the node does. It
+/// compares equal to another handle for the same node identity.
+/// [`downcast`](Self::downcast) returns the concrete node.
+///
+/// ```
+/// use vmx::{walk, ComponentVm, CompositeVm, TreeNodeRef};
+///
+/// let root = CompositeVm::new("root");
+/// let leaf = ComponentVm::new("leaf");
+/// root.add(leaf.clone()).unwrap();
+///
+/// let nodes = walk(&root).unwrap();
+/// assert_eq!(nodes, vec![TreeNodeRef::new(root.clone()), TreeNodeRef::new(leaf.clone())]);
+/// assert!(nodes[1].downcast::<ComponentVm>() == Some(leaf));
+/// assert!(nodes[0].downcast::<ComponentVm>().is_none());
+/// ```
+#[derive(Clone)]
+pub struct TreeNodeRef {
+    node: Arc<dyn ErasedTreeNode>,
+}
+
+impl TreeNodeRef {
+    /// Wraps `node`.
+    pub fn new<T: TreeNode>(node: T) -> Self {
+        Self {
+            node: Arc::new(node),
+        }
+    }
+
+    /// Returns the wrapped node's identity.
+    pub fn id(&self) -> usize {
+        self.node.node_id()
+    }
+
+    /// Returns the wrapped node's lifecycle status.
+    pub fn status(&self) -> ConstructionStatus {
+        self.node.node_status()
+    }
+
+    /// Returns the wrapped node's Rust type name, for diagnostics.
+    pub fn type_name(&self) -> &'static str {
+        self.node.node_type_name()
+    }
+
+    /// Reports whether the wrapped node is a `T`.
+    pub fn is<T: TreeNode>(&self) -> bool {
+        self.node.as_any().is::<T>()
+    }
+
+    /// Returns the wrapped node as a `T`, or `None` for another type.
+    pub fn downcast_ref<T: TreeNode>(&self) -> Option<&T> {
+        self.node.as_any().downcast_ref::<T>()
+    }
+
+    /// Returns a clone of the wrapped node as a `T`, or `None` for another
+    /// type.
+    pub fn downcast<T: TreeNode>(&self) -> Option<T> {
+        self.downcast_ref::<T>().cloned()
+    }
+
+    /// Returns the wrapped node's children, as
+    /// [`TreeNode::try_children_nodes`] does.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of [`TreeNode::try_children_nodes`].
+    pub fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        self.node.node_children()
+    }
+
+    /// Returns the wrapped node's expansion capability, when present.
+    pub fn expandable(&self) -> Option<&dyn crate::Expandable> {
+        self.node.node_expandable()
+    }
+}
+
+impl PartialEq for TreeNodeRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl Eq for TreeNodeRef {}
+
+impl std::fmt::Debug for TreeNodeRef {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TreeNodeRef")
+            .field("type", &self.type_name())
+            .field("id", &self.id())
+            .finish()
+    }
+}
+
 type Hook = Arc<Mutex<dyn FnMut() -> VmxResult<()> + Send + 'static>>;
+
+/// Work a construct or destruct runs after the hook succeeds, inside the
+/// transition: a component's member walk (spec/02 §6.1, ADR-0203). For a
+/// background component it runs on the background dispatcher.
+pub(crate) type TransitionBody<D> = Box<dyn FnOnce(&ComponentCore<D>) -> VmxResult<()> + Send>;
 type OwnedCleanup = Box<dyn FnOnce() + Send + 'static>;
 /// Disposes one member registered through `ComponentVm::own_member`.
 pub(crate) type MemberDisposal = Box<dyn FnOnce() -> VmxResult<()> + Send + 'static>;
@@ -2979,7 +3277,7 @@ enum MemberPhase {
     /// The members are disposed: a registration disposes its member now.
     Done,
 }
-pub(crate) type ModelHint<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
+pub(crate) type ModelHint<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 
 #[derive(Clone)]
 pub(crate) struct ComponentCore<D: Dispatcher = NullDispatcher> {
@@ -3019,7 +3317,7 @@ impl<D: Dispatcher> WeakComponentCore<D> {
 struct ComponentCoreInner<D: Dispatcher> {
     id: usize,
     name: String,
-    hint: Option<String>,
+    hint: String,
     status: ConstructionStatus,
     transitioning: bool,
     transition_generation: u64,
@@ -3065,20 +3363,24 @@ impl<D: Dispatcher> ComponentCoreInner<D> {
     }
 }
 
-/// Admits `reconstruct` from `status` with the same errors the lifecycle core
-/// returns: `Disposed`, `ConcurrentOperation` during another transition
-/// (spec/02 §2.1, LIFE-008), or `InvalidLifecycleTransition` otherwise.
+/// Admits `reconstruct` from `status` with the error the lifecycle core
+/// returns: `InvalidLifecycleTransition` naming `status` and `reconstruct`
+/// from every status but `Constructed` (spec/02 §2.1, LIFE-008, ADR-0203).
 pub(crate) fn reconstruct_admission(status: ConstructionStatus) -> VmxResult<()> {
     match status {
         ConstructionStatus::Constructed => Ok(()),
-        ConstructionStatus::Disposed => Err(VmxError::Disposed),
-        ConstructionStatus::Constructing | ConstructionStatus::Destructing => {
-            Err(VmxError::ConcurrentOperation)
-        }
-        other => Err(VmxError::InvalidLifecycleTransition {
-            from: other,
-            operation: "reconstruct",
-        }),
+        other => Err(invalid_transition(other, "reconstruct")),
+    }
+}
+
+/// The status an illegal call names: a sealed construct whose `Constructed`
+/// publication has not started yet is still `Constructing` to every observer
+/// (spec/06 §5.1).
+fn observed_status<D: Dispatcher>(inner: &ComponentCoreInner<D>) -> ConstructionStatus {
+    if inner.transitioning && inner.status == ConstructionStatus::Constructed {
+        ConstructionStatus::Constructing
+    } else {
+        inner.status
     }
 }
 
@@ -3099,7 +3401,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             inner: Arc::new(Mutex::new(ComponentCoreInner {
                 id: next_id(),
                 name: name.into(),
-                hint: None,
+                hint: String::new(),
                 status: ConstructionStatus::Destructed,
                 transitioning: false,
                 transition_generation: 0,
@@ -3184,11 +3486,11 @@ impl<D: Dispatcher> ComponentCore<D> {
         lock(&self.inner).name.clone()
     }
 
-    pub(crate) fn hint(&self) -> Option<String> {
+    pub(crate) fn hint(&self) -> String {
         lock(&self.inner).hint.clone()
     }
 
-    pub(crate) fn set_hint(&self, hint: Option<String>) {
+    pub(crate) fn set_hint(&self, hint: String) {
         lock(&self.inner).hint = hint;
     }
 
@@ -3231,9 +3533,24 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     pub(crate) fn transition(&self, operation: LifecycleOperation) -> VmxResult<()> {
         if operation != LifecycleOperation::Dispose && lock(&self.inner).background {
-            return self.transition_background(operation);
+            return self.transition_background(operation, None);
         }
         self.transition_with(operation, || Ok(()))
+    }
+
+    /// Runs a construct or destruct with `body` after the hook, where the
+    /// hook runs: on the background dispatcher for a background component,
+    /// otherwise on the calling thread (spec/02 §6.1, spec/11 §4, ADR-0203).
+    /// A rejected transition runs nothing.
+    pub(crate) fn transition_with_walk(
+        &self,
+        operation: LifecycleOperation,
+        body: TransitionBody<D>,
+    ) -> VmxResult<()> {
+        if operation != LifecycleOperation::Dispose && lock(&self.inner).background {
+            return self.transition_background(operation, Some(body));
+        }
+        self.transition_with(operation, || body(self))
     }
 
     pub(crate) fn reconstruct(&self) -> VmxResult<()> {
@@ -3243,13 +3560,19 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     /// Admits `reconstruct` as [`reconstruct_admission`] does, after the
     /// refusal of the inline dispose cascade: once that cascade has started,
-    /// the call fails with [`VmxError::Disposed`] whatever `Status` reads
-    /// (spec/02 §7.2).
+    /// the call fails as from `Disposed` whatever `Status` reads (spec/02
+    /// §7.2).
     pub(crate) fn admit_reconstruct(&self) -> VmxResult<()> {
         let status = {
             let inner = lock(&self.inner);
             if inner.hook_admission_closed {
-                return Err(VmxError::Disposed);
+                return Err(invalid_transition(
+                    ConstructionStatus::Disposed,
+                    "reconstruct",
+                ));
+            }
+            if inner.transitioning {
+                return Err(invalid_transition(observed_status(&inner), "reconstruct"));
             }
             inner.status
         };
@@ -3361,17 +3684,17 @@ impl<D: Dispatcher> ComponentCore<D> {
                 // The inline dispose cascade refuses the call first (spec/02
                 // §7.2).
                 if inner.status == ConstructionStatus::Disposed || inner.hook_admission_closed {
-                    return (Err(VmxError::Disposed), None);
-                }
-                if inner.transitioning {
-                    return (Err(VmxError::ConcurrentOperation), None);
-                }
-                if inner.status != ConstructionStatus::Constructed {
                     return (
-                        Err(VmxError::InvalidLifecycleTransition {
-                            from: inner.status,
-                            operation: "reconstruct",
-                        }),
+                        Err(invalid_transition(
+                            ConstructionStatus::Disposed,
+                            "reconstruct",
+                        )),
+                        None,
+                    );
+                }
+                if inner.transitioning || inner.status != ConstructionStatus::Constructed {
+                    return (
+                        Err(invalid_transition(observed_status(&inner), "reconstruct")),
                         None,
                     );
                 }
@@ -3485,7 +3808,12 @@ impl<D: Dispatcher> ComponentCore<D> {
         }
     }
 
-    fn run_background_hook(&self, hook: Option<Hook>, generation: u64) -> Option<VmxResult<()>> {
+    fn run_background_hook(
+        &self,
+        hook: Option<Hook>,
+        body: Option<TransitionBody<D>>,
+        generation: u64,
+    ) -> Option<VmxResult<()>> {
         {
             let mut inner = lock(&self.inner);
             if inner.transition_generation != generation
@@ -3501,8 +3829,22 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
             inner.active_hook_owner = Some(thread::current().id());
         }
+        // The body (a member walk) runs after the hook inside the same hook
+        // admission, as in the foreground transition (LIFE-015).
         let execution = catch_unwind(AssertUnwindSafe(|| {
-            hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()))
+            hook.map(|hook| (lock(&hook))())
+                .unwrap_or(Ok(()))
+                .and_then(|()| {
+                    let body_allowed = {
+                        let inner = lock(&self.inner);
+                        inner.transition_generation == generation
+                            && inner.status != ConstructionStatus::Disposed
+                    };
+                    match body {
+                        Some(body) if body_allowed => body(self),
+                        _ => Ok(()),
+                    }
+                })
         }));
         let deferred = {
             let mut inner = lock(&self.inner);
@@ -3551,17 +3893,26 @@ impl<D: Dispatcher> ComponentCore<D> {
         Some(result)
     }
 
-    fn transition_background(&self, operation: LifecycleOperation) -> VmxResult<()> {
+    fn transition_background(
+        &self,
+        operation: LifecycleOperation,
+        body: Option<TransitionBody<D>>,
+    ) -> VmxResult<()> {
         let hub = lock(&self.inner).hub.clone();
         let started = self.send_status(&hub, || {
             let mut inner = lock(&self.inner);
             // The inline dispose cascade refuses the call before the
             // idempotent no-op (spec/02 §7.2).
-            if inner.hook_admission_closed {
-                return (Err(VmxError::Disposed), None);
+            if inner.hook_admission_closed || inner.status == ConstructionStatus::Disposed {
+                return (
+                    Err(invalid_transition(
+                        ConstructionStatus::Disposed,
+                        operation.name(),
+                    )),
+                    None,
+                );
             }
             match (inner.status, operation) {
-                (ConstructionStatus::Disposed, _) => return (Err(VmxError::Disposed), None),
                 (ConstructionStatus::Constructed, LifecycleOperation::Construct)
                 | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
                     return (Ok(None), None)
@@ -3569,7 +3920,13 @@ impl<D: Dispatcher> ComponentCore<D> {
                 _ => {}
             }
             if inner.transitioning {
-                return (Err(VmxError::ConcurrentOperation), None);
+                return (
+                    Err(invalid_transition(
+                        observed_status(&inner),
+                        operation.name(),
+                    )),
+                    None,
+                );
             }
             let transition_status = match operation {
                 LifecycleOperation::Construct => ConstructionStatus::Constructing,
@@ -3621,8 +3978,20 @@ impl<D: Dispatcher> ComponentCore<D> {
         let scheduling_name = sender_name.clone();
         let action_dispatcher = dispatcher.clone();
         let background_action = Box::new(move || {
-            let Some(result) = core.run_background_hook(hook, generation) else {
+            let Some(result) = core.run_background_hook(hook, body, generation) else {
                 return;
+            };
+            // A member walk still waiting on a child hands the terminal
+            // publication to the settle continuation (spec/02 §6.1). A
+            // member failure recorded while the walk ran rolls back through
+            // the foreground publication below (spec/11 §3).
+            let result = match result {
+                Ok(()) => match core.arm_children_settle(generation) {
+                    ChildWalkOutcome::Settled => Ok(()),
+                    ChildWalkOutcome::Deferred => return,
+                    ChildWalkOutcome::Failed(error) => Err(error),
+                },
+                Err(error) => Err(error),
             };
             let error = result.err();
             let settled = if error.is_none() { target } else { rollback };
@@ -3636,6 +4005,9 @@ impl<D: Dispatcher> ComponentCore<D> {
             let fallback_name = sender_name.clone();
             let foreground_action = Box::new(move || {
                 let emission = error.as_ref().and_then(|_| errors.begin_emission());
+                // A failed walk can leave a settle with queued steps; they
+                // drop after `send_status` releases the hub and core locks.
+                let mut cleared = None;
                 publication_core.send_status(&hub, || {
                     let mut inner = lock(&publication_core.inner);
                     if inner.transition_generation != generation
@@ -3649,6 +4021,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                         inner.transitioning = false;
                         return ((), None);
                     }
+                    cleared = inner.child_settle.take();
                     inner.status = settled;
                     inner.transitioning = false;
                     (
@@ -3666,6 +4039,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                     errors.send(error);
                 }
                 drop(emission);
+                drop(cleared);
                 publication_core.release_settle_waiters();
             });
             if catch_unwind(AssertUnwindSafe(|| {
@@ -3777,20 +4151,30 @@ impl<D: Dispatcher> ComponentCore<D> {
                 // destruct fails as from Disposed, before the idempotent
                 // no-op, the legality check, and the concurrent-operation
                 // check (spec/02 §7.2, LIFE-021).
-                if inner.hook_admission_closed && operation != LifecycleOperation::Dispose {
-                    return (Err(VmxError::Disposed), None);
+                if operation != LifecycleOperation::Dispose
+                    && (inner.hook_admission_closed || inner.status == ConstructionStatus::Disposed)
+                {
+                    return (
+                        Err(invalid_transition(
+                            ConstructionStatus::Disposed,
+                            operation.name(),
+                        )),
+                        None,
+                    );
                 }
                 match (inner.status, operation) {
-                    (ConstructionStatus::Disposed, LifecycleOperation::Construct)
-                    | (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
-                        return (Err(VmxError::Disposed), None)
-                    }
                     // A sealed construct still publishing Constructed is in
                     // flight: a second construct is concurrent, not idempotent.
                     (ConstructionStatus::Constructed, LifecycleOperation::Construct)
                         if inner.transitioning =>
                     {
-                        return (Err(VmxError::ConcurrentOperation), None)
+                        return (
+                            Err(invalid_transition(
+                                ConstructionStatus::Constructing,
+                                operation.name(),
+                            )),
+                            None,
+                        )
                     }
                     (ConstructionStatus::Constructed, LifecycleOperation::Construct)
                     | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
@@ -3804,7 +4188,13 @@ impl<D: Dispatcher> ComponentCore<D> {
                     _ => {}
                 }
                 if inner.transitioning && operation != LifecycleOperation::Dispose {
-                    return (Err(VmxError::ConcurrentOperation), None);
+                    return (
+                        Err(invalid_transition(
+                            observed_status(&inner),
+                            operation.name(),
+                        )),
+                        None,
+                    );
                 }
 
                 let transition_status = match operation {
@@ -4293,12 +4683,6 @@ impl<D: Dispatcher> ComponentCore<D> {
         lock(&self.inner).member_phase = MemberPhase::Done;
     }
 
-    /// Whether construct and destruct hooks run through the background
-    /// dispatcher.
-    pub(crate) fn is_background(&self) -> bool {
-        lock(&self.inner).background
-    }
-
     /// Whether auto-construct-on-add constructs a child added now without a
     /// start record: only while the container is Constructed. While it is
     /// Constructing, only an add that registered a start record starts its
@@ -4513,23 +4897,43 @@ impl<D: Dispatcher> ComponentCore<D> {
         {
             return Ok(());
         }
-        let expected = match operation {
-            LifecycleOperation::Construct => {
-                child.construct()?;
-                ConstructionStatus::Constructed
-            }
-            LifecycleOperation::Destruct => {
-                child.destruct()?;
-                ConstructionStatus::Destructed
-            }
+        let (transient, expected) = match operation {
+            LifecycleOperation::Construct => (
+                ConstructionStatus::Constructing,
+                ConstructionStatus::Constructed,
+            ),
+            LifecycleOperation::Destruct => (
+                ConstructionStatus::Destructing,
+                ConstructionStatus::Destructed,
+            ),
             LifecycleOperation::Dispose => return child.dispose(),
         };
-        self.await_child(child, expected)
+        // Subscribed before the start call, so it sees the child's transient
+        // status when the child publishes on this container's hub.
+        let observer = ChildObserver::start(self.hub(), child, transient);
+        match operation {
+            LifecycleOperation::Construct => child.construct()?,
+            _ => child.destruct()?,
+        }
+        observer.note_queued_transient();
+        self.await_child_observed(child, expected, Some(observer))
     }
 
     /// Holds the container transition until `child`, already started, settles
     /// at `expected`; fails it when the child settled anywhere else.
     fn await_child<N: VmNode>(&self, child: &N, expected: ConstructionStatus) -> VmxResult<()> {
+        self.await_child_observed(child, expected, None)
+    }
+
+    /// [`Self::await_child`] with the hub observer of a child this
+    /// container started. The observer is the fallback for a node without
+    /// settle notification.
+    fn await_child_observed<N: VmNode>(
+        &self,
+        child: &N,
+        expected: ConstructionStatus,
+        observer: Option<ChildObserver>,
+    ) -> VmxResult<()> {
         let (generation, stale) = {
             let mut inner = lock(&self.inner);
             let generation = inner.transition_generation;
@@ -4542,6 +4946,20 @@ impl<D: Dispatcher> ComponentCore<D> {
         if self.watch_child(generation, child, expected) {
             return Ok(());
         }
+        let in_flight = match expected {
+            ConstructionStatus::Constructed => ConstructionStatus::Constructing,
+            _ => ConstructionStatus::Destructing,
+        };
+        // A node that does not forward `when_lifecycle_settled` is watched
+        // on this container's hub when the container started it and the hub
+        // delivered or queued its transient status (ADR-0205).
+        if let Some(observer) = observer {
+            if child.status() == in_flight
+                && self.watch_observed(generation, child, expected, observer)
+            {
+                return Ok(());
+            }
+        }
         {
             let mut inner = lock(&self.inner);
             if let Some(settle) = inner.child_settle.as_mut() {
@@ -4550,18 +4968,70 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
             }
         }
-        // A third-party node that does not forward `when_lifecycle_settled`
-        // cannot notify the container when its background transition
-        // settles; keep the pre-settle-tracking behavior and accept it while
-        // it is still in flight rather than failing the container.
-        let in_flight = match expected {
-            ConstructionStatus::Constructed => ConstructionStatus::Constructing,
-            _ => ConstructionStatus::Destructing,
-        };
+        // Otherwise the container cannot learn when the node's transition
+        // settles (it joined a node already in flight, or the node publishes
+        // on another hub). It accepts the node while it is still in flight
+        // rather than wait without limit.
         if child.status() == in_flight {
             return Ok(());
         }
         child_settled_result(child, expected)
+    }
+
+    /// Like [`Self::watch_child`], with `observer` in place of the child's
+    /// settle hook. The awaited check owns the observer, so its subscription
+    /// ends when the check runs or the settle is dropped.
+    fn watch_observed<N: VmNode>(
+        &self,
+        generation: u64,
+        child: &N,
+        expected: ConstructionStatus,
+        observer: ChildObserver,
+    ) -> bool {
+        let ChildObserver {
+            state,
+            subscription,
+            ..
+        } = observer;
+        let awaited_child = child.clone();
+        let awaited: AwaitedChild = Box::new(move || {
+            drop(subscription);
+            child_settled_result(&awaited_child, expected)
+        });
+        let displaced = {
+            let mut inner = lock(&self.inner);
+            if !self.settle_is_current(&inner, generation) {
+                drop(inner);
+                drop(awaited);
+                return true;
+            }
+            inner
+                .child_settle
+                .as_mut()
+                .and_then(|settle| settle.awaited.replace(awaited))
+        };
+        drop(displaced);
+        let core = self.downgrade();
+        if ChildObserver::arm(
+            &state,
+            Box::new(move || {
+                if let Some(core) = core.upgrade() {
+                    core.child_settled(generation);
+                }
+            }),
+        ) {
+            return true;
+        }
+        let unused = {
+            let mut inner = lock(&self.inner);
+            inner
+                .child_settle
+                .as_mut()
+                .filter(|settle| settle.generation == generation)
+                .and_then(|settle| settle.awaited.take())
+        };
+        drop(unused);
+        false
     }
 
     /// Registers this transition's settle callback on `child`. The container
@@ -4728,29 +5198,42 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     /// Hands the terminal publication to the settle continuation when a
     /// child step is still pending after the container's action returned,
-    /// or applies a child failure recorded while the action ran.
+    /// or applies a child failure recorded while the action ran, on the
+    /// calling thread.
     fn defer_until_children_settle(&self, generation: u64) -> bool {
-        let failure = {
-            let mut inner = lock(&self.inner);
-            let pending = self.settle_is_current(&inner, generation)
-                && inner.child_settle.as_ref().is_some_and(ChildSettle::busy);
-            match inner.child_settle.as_mut() {
-                Some(settle) if pending => {
-                    settle.armed = true;
-                    settle.failure.take()
-                }
-                _ => {
-                    let cleared = inner.child_settle.take();
-                    drop(inner);
-                    drop(cleared);
-                    return false;
-                }
+        match self.arm_children_settle(generation) {
+            ChildWalkOutcome::Settled => false,
+            ChildWalkOutcome::Deferred => true,
+            ChildWalkOutcome::Failed(error) => {
+                self.settle_children(generation, Some(error));
+                true
             }
-        };
-        if let Some(error) = failure {
-            self.settle_children(generation, Some(error));
         }
-        true
+    }
+
+    /// Arms the settle continuation once the container's action returned.
+    /// A child failure recorded while the action ran is returned, and the
+    /// caller publishes the rollback; the settle stays marked failed, so no
+    /// other path publishes a terminal status in the meantime.
+    fn arm_children_settle(&self, generation: u64) -> ChildWalkOutcome {
+        let mut inner = lock(&self.inner);
+        let pending = self.settle_is_current(&inner, generation)
+            && inner.child_settle.as_ref().is_some_and(ChildSettle::busy);
+        match inner.child_settle.as_mut() {
+            Some(settle) if pending => {
+                settle.armed = true;
+                settle
+                    .failure
+                    .take()
+                    .map_or(ChildWalkOutcome::Deferred, ChildWalkOutcome::Failed)
+            }
+            _ => {
+                let cleared = inner.child_settle.take();
+                drop(inner);
+                drop(cleared);
+                ChildWalkOutcome::Settled
+            }
+        }
     }
 
     /// Publishes a deferred container transition's terminal status: the
@@ -4856,7 +5339,7 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// admission closes first. With no hook admitted on another thread,
     /// `cascade` runs now, before this core publishes `Disposed` (LIFE-013,
     /// LIFE-018): this is the inline cascade, during which a construct,
-    /// destruct, or reconstruct fails with [`VmxError::Disposed`] and no
+    /// destruct, or reconstruct fails as from `Disposed` and no
     /// status other than `Disposed` commits (spec/02 §7.2, LIFE-021).
     /// Otherwise this core publishes `Disposed`, and `cascade` runs after
     /// that hook returns. It runs on this thread after its wait, or on the

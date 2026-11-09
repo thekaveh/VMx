@@ -51,9 +51,11 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
         _filteredSubject = new BehaviorSubject<IReadOnlyList<TItem>>(ApplyFilter(""));
         _filtered = new IsolatedObservable<IReadOnlyList<TItem>>(_filteredSubject, captureCompletionFailures: true);
 
+        // Skip the seeded "" so construction starts no debounce (ADR-0198).
+        var termChanges = _termSubject.Skip(1);
         var debouncedTerm = actualDebounce > TimeSpan.Zero
-            ? _termSubject.Throttle(actualDebounce, actualScheduler)
-            : _termSubject.AsObservable();
+            ? termChanges.Throttle(actualDebounce, actualScheduler)
+            : termChanges;
 
         var forceFilter = _forceSearchSubject.Select(_ => _termSubject.Value);
         var sourceFilter = sourceChanged is null

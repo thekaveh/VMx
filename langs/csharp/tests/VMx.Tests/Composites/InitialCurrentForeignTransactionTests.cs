@@ -555,8 +555,9 @@ public class InitialCurrentForeignTransactionTests
             .AutoConstructOnAdd(true).Build();
         // Y's old parent: its removal callback runs after root admits Y and before
         // root clears the replaced child, so the walk can select inside that window.
-        // The case guards against reading Current before that callback; the clear's
-        // own check-and-clear is atomic under the gates and has no user code inside.
+        // The case guards against reading Current before that callback. The clear's
+        // own check-and-clear is atomic under the gates and has no user code inside;
+        // Replacement_Keeps_A_Selection_That_Commits_Before_The_Clear covers that check.
         var source = CompositeVM<ComponentVM>.Builder()
             .Name("source").Services(hub, dispatcher)
             .Children(() => mode == "replace-from-container" ? [y] : [])
@@ -645,5 +646,48 @@ public class InitialCurrentForeignTransactionTests
             lock (sawSelection) sawSelection.Should().Equal(true); // selected after root admitted Y
             root.Should().Equal(first, y);
         }
+    }
+
+    [Fact]
+    public void Replacement_Keeps_A_Selection_That_Commits_Before_The_Clear()
+    {
+        // #1406: an index replacement clears Current only while the replaced
+        // child is still current, and it checks that inside its locked clear.
+        // The probe runs before the clear takes its locks. There another thread
+        // selects B, and that selection commits before the probe returns.
+        var hub = new TestHub();
+        var dispatcher = RxDispatcher.Immediate();
+        var a = Child(hub, dispatcher, "A");
+        var b = Child(hub, dispatcher, "B");
+        var replacement = Child(hub, dispatcher, "R");
+        var changes = new List<string?>();
+        var root = CompositeVM<ComponentVM>.Builder()
+            .Name("root").Services(hub, dispatcher).Children(() => [a, b])
+            .OnCurrentChanged(value => { lock (changes) changes.Add(value?.Name); })
+            .Build();
+        root.Construct();
+        root.Current = a;
+        lock (changes) changes.Clear();
+        var errors = new List<Exception>();
+        var probeCalls = 0;
+        root.DetachProbeForTesting = detached =>
+        {
+            probeCalls++;
+            detached.Should().BeSameAs(a);
+            var selector = Start(() => root.Current = b, errors);
+            selector.Join(HangGuard).Should().BeTrue("the selection commits before the probe returns");
+            root.Current.Should().BeSameAs(b);
+        };
+
+        root[0] = replacement;
+
+        root.DetachProbeForTesting = null;
+        probeCalls.Should().Be(1);
+        lock (errors) errors.Should().BeEmpty();
+        root.Should().Equal(replacement, b);
+        root.Current.Should().BeSameAs(b);
+        b.IsCurrent.Should().BeTrue();
+        a.IsCurrent.Should().BeFalse();
+        lock (changes) changes.Should().Equal("B");
     }
 }

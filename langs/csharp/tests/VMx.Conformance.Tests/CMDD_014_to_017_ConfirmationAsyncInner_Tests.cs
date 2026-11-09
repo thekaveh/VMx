@@ -28,6 +28,7 @@ public sealed class CMDD_014_to_017_ConfirmationAsyncInner_Tests
     private sealed class RecordingAsyncCommand : IAsyncCommand, IDisposable
     {
         private readonly TaskCompletionSource _entered = Gate();
+        private readonly TaskCompletionSource _executeEntered = Gate();
         private int _executeCalls;
         private int _executeAsyncCalls;
         private int _cancelCalls;
@@ -49,6 +50,8 @@ public sealed class CMDD_014_to_017_ConfirmationAsyncInner_Tests
 
         public Task Entered => _entered.Task.WaitAsync(HangGuard);
 
+        public Task ExecuteEntered => _executeEntered.Task.WaitAsync(HangGuard);
+
         public bool IsExecuting => ExecuteAsyncCalls > 0 && !Release.Task.IsCompleted;
 
         public event EventHandler? CanExecuteChanged
@@ -63,6 +66,7 @@ public sealed class CMDD_014_to_017_ConfirmationAsyncInner_Tests
         {
             LastParameter = parameter;
             Interlocked.Increment(ref _executeCalls);
+            _executeEntered.TrySetResult();
         }
 
         public Task ExecuteAsync(object? parameter = null, CancellationToken cancellationToken = default)
@@ -279,13 +283,15 @@ public sealed class CMDD_014_to_017_ConfirmationAsyncInner_Tests
     /// <summary>CMDD-015: on the fire-and-forget path the decorator reaches an async
     /// inner only through its synchronous <c>Execute</c>.</summary>
     [Fact, Trait("Conformance", "CMDD-015")]
-    public void CMDD_015_Fire_And_Forget_Starts_An_Async_Inner_Through_Its_Own_Execute()
+    public async Task CMDD_015_Fire_And_Forget_Starts_An_Async_Inner_Through_Its_Own_Execute()
     {
         var inner = new RecordingAsyncCommand();
         using var decorator = new ConfirmationDecoratorCommand(inner, () => Task.FromResult(true));
 
-        // A completed confirmation runs the whole flow inline.
+        // A completed confirmation still starts the inner after Execute() returns
+        // (CMDD-018, ADR-0195).
         decorator.Execute("payload");
+        await inner.ExecuteEntered;
 
         inner.ExecuteCalls.Should().Be(1);
         inner.ExecuteAsyncCalls.Should().Be(0);

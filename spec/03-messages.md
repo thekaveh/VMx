@@ -19,7 +19,10 @@ current public surfaces express that invariant as follows:
 | Swift      | `Message.senderName`, `Message.senderObject`         | concrete typed messages expose `sender`        |
 | Rust       | `sender_name`, `sender_id`                           | enum variants retain the same numeric identity |
 
-The diagnostic name typically equals the sender VM's `Name`. In the four
+The diagnostic name typically equals the sender VM's `Name`. A
+`CollectionChangedMessage` from a `CompositeVM` or `GroupVM` always carries the
+container's `Name`; a plain collection or dictionary uses a flavor-defined name
+(chapter 21 §2.4, ADR-0194). In the four
 object-sender flavors, typed messages expose the canonical runtime sender as
 `Sender`/`sender`. TypeScript also exposes that canonical member on its untyped
 base. C#, Python, and Swift retain their legacy untyped base aliases for source

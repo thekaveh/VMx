@@ -3,11 +3,10 @@ use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use vmx::{
-    walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
-    ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange, VmxError,
+    walk_expanded, Command, ConstructionStatus, ExpandableState, HierarchicalVm, Message,
+    MessageHub, ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange,
+    VmxError,
 };
-
-use super::expandable_support::ExpandableHierarchy;
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
     HierarchicalVm::new(name, name.to_string())
@@ -1089,19 +1088,30 @@ fn removing_a_non_child_is_a_noop() {
 /// HIER-012 — walk_expanded honors lazy boundaries via ExpandableState
 #[test]
 fn walk_expanded_honors_hierarchy_expansion_boundary() {
-    let root = ExpandableHierarchy::expandable("root", false);
-    root.add_child(ExpandableHierarchy::plain("child"));
+    let root = leaf("root");
+    root.compose_expansion(ExpandableState::new()).unwrap();
+    root.add_child(leaf("child")).unwrap();
 
     assert_eq!(walk_expanded(&root).unwrap().len(), 1);
     root.expansion().unwrap().expand();
     assert_eq!(walk_expanded(&root).unwrap().len(), 2);
+    assert!(
+        root.compose_expansion(ExpandableState::new()).is_err(),
+        "a node composes one expansion state"
+    );
 }
 
 /// HIER-013 — Composition with SearchableState filters materialized portion
 #[test]
 fn searchable_state_filters_materialized_nodes() {
     let root = leaf("root");
-    root.add_child(leaf("alpha")).unwrap();
+    // A grandchild that matches below a node whose children are materialized,
+    // so the search must cover deeper nodes, not only the root's children
+    // (#1399).
+    let alpha = leaf("alpha");
+    alpha.add_child(leaf("alpaca")).unwrap();
+    assert!(alpha.is_children_materialized());
+    root.add_child(alpha).unwrap();
     root.add_child(leaf("beta")).unwrap();
     root.add_child(leaf("alps")).unwrap();
     let lazy_calls = Arc::new(AtomicUsize::new(0));
@@ -1141,10 +1151,14 @@ fn searchable_state_filters_materialized_nodes() {
     state.set_search_term("alp");
 
     let filtered = state.filtered();
-    assert_eq!(filtered.len(), 2);
     assert_eq!(
         filtered.iter().map(|node| node.model()).collect::<Vec<_>>(),
-        vec!["alpha", "alps"]
+        vec!["alpha", "alpaca", "alps"],
+        "exactly the matching materialized nodes, in walk order"
+    );
+    assert!(
+        !filtered.iter().any(|node| node.model() == "alpine"),
+        "the un-materialized lazy child is not in the results"
     );
     assert_eq!(lazy_calls.load(Ordering::SeqCst), 0);
     assert!(!lazy.is_children_materialized());
@@ -1258,8 +1272,8 @@ fn hierarchical_builder_repeated_builds_are_distinct_equivalent() {
     assert_ne!(a.id(), b.id());
     assert_eq!(a.model(), "root");
     assert_eq!(b.model(), "root");
-    assert_eq!(a.hint(), Some("h".to_string()));
-    assert_eq!(b.hint(), Some("h".to_string()));
+    assert_eq!(a.hint(), "h");
+    assert_eq!(b.hint(), "h");
 
     // Eager children: constructing materializes each subtree without a
     // separate children access.
@@ -1288,7 +1302,7 @@ fn hierarchical_builder_defaults_are_lazy() {
         .build()
         .unwrap();
 
-    assert_eq!(node.hint(), Some(String::new()));
+    assert_eq!(node.hint(), "");
     assert_eq!(node.name(), "HierarchicalVm");
     // Lazy default: construction does not evaluate the children factory.
     node.construct().unwrap();
@@ -1516,4 +1530,23 @@ fn try_children_reports_factory_is_leaf_reentry_as_error() {
 
     *reenter.lock().unwrap() = false;
     assert_eq!(root.try_children().unwrap().len(), 1);
+}
+
+/// `HierarchicalVmBuilder::services` accepts any dispatcher, as the other
+/// builders do; the hierarchy keeps only the hub (#1268, ADR-0206).
+#[test]
+fn hierarchical_builder_accepts_any_dispatcher() {
+    let immediate = HierarchicalVm::<String>::builder()
+        .model("root".to_string())
+        .children_factory(|_| Vec::new())
+        .services(MessageHub::new(), vmx::ImmediateDispatcher::new())
+        .build();
+    let default = HierarchicalVm::<String>::builder()
+        .model("root".to_string())
+        .children_factory(|_| Vec::new())
+        .services(MessageHub::new(), vmx::DefaultDispatcher::new())
+        .build();
+
+    assert!(immediate.is_ok());
+    assert!(default.is_ok());
 }
