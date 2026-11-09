@@ -5,8 +5,9 @@
 // are inert, and disposal during execution or a pending confirmation admits no
 // later inner work (spec/04-commands.md §8.4, ADR-0134).
 //
-// Swift commands cannot throw from `execute()`, so the admitted-pair rethrow case
-// of CMDD-013 is covered by `DecoratorCommand`'s `defer` (ADR-0062 §2.5).
+// Swift commands cannot throw from `execute()`, so CMDD-013's throwing-inner
+// clause does not apply to Swift (spec/04-commands.md §8.4, ADR-0184). The
+// post-action still runs from `DecoratorCommand`'s `defer` (ADR-0062 §2.5).
 //
 import XCTest
 import Combine
