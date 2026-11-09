@@ -745,15 +745,20 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let cleaned = LockedValues<Int>()
         let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
         await vm.load()
+        let commandErrors = LockedCount()
+        let errorCancellables = [vm.loadCommand.errors, vm.reloadCommand.errors]
+            .map { $0.sink { _ in commandErrors.increment() } }
 
         await vm.reload()
 
         XCTAssertEqual(vm.state.status, .idle)
         XCTAssertNil(vm.state.value)
         XCTAssertNil(vm.state.error)
+        XCTAssertEqual(commandErrors.value, 0)
         XCTAssertEqual(cleaned.values, [3])
         XCTAssertTrue(vm.loadCommand.canExecute())
         XCTAssertFalse(vm.reloadCommand.canExecute())
+        withExtendedLifetime(errorCancellables) {}
     }
 
     /// ARES-012 — a retained reload that the loader cancels restores
@@ -768,15 +773,20 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
             cleaned.append($0)
         }
         await vm.load()
+        let commandErrors = LockedCount()
+        let errorCancellables = [vm.loadCommand.errors, vm.reloadCommand.errors]
+            .map { $0.sink { _ in commandErrors.increment() } }
 
         await vm.reload()
 
         XCTAssertEqual(vm.state.status, .ready)
         XCTAssertEqual(vm.state.value, 3)
         XCTAssertNil(vm.state.error)
+        XCTAssertEqual(commandErrors.value, 0)
         XCTAssertEqual(cleaned.values, [])
         XCTAssertTrue(vm.reloadCommand.canExecute())
         XCTAssertFalse(vm.cancelCommand.canExecute())
+        withExtendedLifetime(errorCancellables) {}
     }
 
     /// ARES-012 — a superseded loader's cancellation is a stale completion.
@@ -799,7 +809,13 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let newer = Task { await vm.reload() }
         await fulfillment(of: [second.parked], timeout: signalTimeout)
         let notifications = LockedCount()
-        let cancellable = vm.propertyChanged.sink { _ in notifications.increment() }
+        let cancellables = [vm.propertyChanged.sink { _ in notifications.increment() }]
+            + [vm.loadCommand.canExecuteChanged, vm.reloadCommand.canExecuteChanged,
+               vm.cancelCommand.canExecuteChanged]
+            .map { $0.sink { notifications.increment() } }
+        let commandErrors = LockedCount()
+        let errorCancellables = [vm.loadCommand.errors, vm.reloadCommand.errors]
+            .map { $0.sink { _ in commandErrors.increment() } }
 
         first.resolve(1)
         await older.value
@@ -808,6 +824,7 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 20_000_000)
 
         XCTAssertEqual(notifications.value, 0)
+        XCTAssertEqual(commandErrors.value, 0)
         XCTAssertEqual(vm.state.status, .loading)
         XCTAssertTrue(vm.cancelCommand.canExecute())
 
@@ -815,6 +832,6 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         await newer.value
         XCTAssertEqual(vm.state.status, .ready)
         XCTAssertEqual(vm.state.value, 2)
-        withExtendedLifetime(cancellable) {}
+        withExtendedLifetime((cancellables, errorCancellables)) {}
     }
 }

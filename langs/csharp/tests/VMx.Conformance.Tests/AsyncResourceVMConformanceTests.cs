@@ -868,22 +868,34 @@ public sealed class AsyncResourceVMConformanceTests
         var firstGate = NewSource();
         var second = NewSource<int>();
         var attempt = 0;
-        var vm = Create(hub, async _ =>
+        Task<int>? older = null;
+        async Task<int> OlderLoader()
         {
-            if (++attempt == 2) return await second.Task;
             await firstGate.Task;
             foreign.Cancel();
             throw new OperationCanceledException(foreign.Token);
-        });
+        }
+        var vm = Create(hub, _ => ++attempt == 2 ? second.Task : older = OlderLoader());
 
         var load = vm.LoadAsync();
         var reload = vm.ReloadAsync();
-        var changes = 0;
-        vm.PropertyChanged += (_, _) => changes++;
-        firstGate.SetResult();
         await load;
+        var notifications = 0;
+        vm.PropertyChanged += (_, _) => notifications++;
+        vm.LoadCommand.CanExecuteChanged += (_, _) => notifications++;
+        vm.ReloadCommand.CanExecuteChanged += (_, _) => notifications++;
+        vm.CancelCommand.CanExecuteChanged += (_, _) => notifications++;
+        var commandErrors = new List<Exception>();
+        using var loadErrors = vm.LoadCommand.Errors.Subscribe(commandErrors.Add);
+        using var reloadErrors = vm.ReloadCommand.Errors.Subscribe(commandErrors.Add);
+        firstGate.SetResult();
+        // The VM observes the older loader's completion synchronously, before
+        // this await resumes.
+        var olderCompletion = () => older!;
+        await olderCompletion.Should().ThrowAsync<OperationCanceledException>();
 
-        changes.Should().Be(0);
+        notifications.Should().Be(0);
+        commandErrors.Should().BeEmpty();
         vm.State.Status.Should().Be(AsyncResourceStatus.Loading);
         vm.CancelCommand.CanExecute(null).Should().BeTrue();
         second.SetResult(8);

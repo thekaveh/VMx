@@ -999,31 +999,65 @@ async def test_loader_cancellation_on_retained_reload_restores_prior_value(sourc
 
 @pytest.mark.conformance("ARES-012")
 async def test_superseded_loader_cancellation_does_not_roll_back_newer_operation() -> None:
-    entered = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    older_entered = asyncio.Event()
+    older_superseded = asyncio.Event()
+    newer_entered = asyncio.Event()
+    release_older: asyncio.Future[None] = loop.create_future()
+    newer_result: asyncio.Future[int] = loop.create_future()
+    older_task: list[asyncio.Task[object]] = []
 
-    async def first() -> int:
-        entered.set()
-        return await asyncio.get_running_loop().create_future()  # cancelled on supersede
+    async def older_loader() -> int:
+        task = asyncio.current_task()
+        assert task is not None
+        older_task.append(task)
+        older_entered.set()
+        try:
+            await loop.create_future()  # the reload cancels this wait
+        except asyncio.CancelledError:
+            # The loader keeps running past the supersede, then ends with its
+            # own cancellation while the newer operation is current.
+            older_superseded.set()
+        await release_older
+        raise asyncio.CancelledError
 
-    steps: list[Callable[[], Awaitable[int]]] = [first]
+    async def newer_loader() -> int:
+        newer_entered.set()
+        return await newer_result
+
+    loaders = [older_loader, newer_loader]
 
     async def loader() -> int:
-        if steps:
-            return await steps.pop(0)()
-        return 2
+        return await loaders.pop(0)()
 
     vm = _vm(loader)
-    changes: list[str] = []
-    vm.property_changed.subscribe(changes.append)
     older = asyncio.ensure_future(vm.load())
-    await asyncio.wait_for(entered.wait(), HANG_GUARD)
-    await vm.reload()
+    await asyncio.wait_for(older_entered.wait(), HANG_GUARD)
+    newer = asyncio.ensure_future(vm.reload())
+    await asyncio.wait_for(newer_entered.wait(), HANG_GUARD)
+    await asyncio.wait_for(older_superseded.wait(), HANG_GUARD)
     await asyncio.wait_for(older, HANG_GUARD)
 
+    notifications: list[str] = []
+    vm.property_changed.subscribe(notifications.append)
+    for command in (vm.load_command, vm.reload_command, vm.cancel_command):
+        command.can_execute_changed.subscribe(lambda _: notifications.append("command"))
+    command_errors = _record_command_errors(vm)
+
+    release_older.set_result(None)
+    await asyncio.wait_for(asyncio.wait(older_task), HANG_GUARD)
+    assert older_task[0].cancelled()
+
+    assert notifications == []
+    assert command_errors == []
+    stale_status = vm.state.status
+    assert stale_status is AsyncResourceStatus.LOADING
+    assert vm.cancel_command.can_execute()
+
+    newer_result.set_result(2)
+    await asyncio.wait_for(newer, HANG_GUARD)
     assert vm.state.status is AsyncResourceStatus.READY
     assert vm.state.value == 2
-    assert changes == ["state", "state", "state"]  # Loading, Loading, Ready
-    _assert_commands(vm, load=False, reload=True)
 
 
 async def test_self_cancellation_racing_explicit_cancel_publishes_one_rollback() -> None:
