@@ -119,10 +119,12 @@ source versions per spec line are:
 2.4.0 are tagged (`csharp-v*`, `typescript-v*`, and `python-v*`) but were never
 published. NuGet, npm, and PyPI do not serve these versions, and none of these
 tags has a GitHub Release. At the 2.x tags, the release workflow published to
-NuGet and npm only when a `NUGET_API_KEY` or `NPM_TOKEN` secret was set;
-`csharp-v1.0.0` predates the release workflow. TypeScript 2.0.0 to 2.3.0 used
-the npm package name `vmx`, which a different project owns; TypeScript 2.4.0
-renamed the package to `@thekaveh/vmx`. Python 2.6.1 and 3.1.0 are on PyPI.
+NuGet and npm only when a `NUGET_API_KEY` or `NPM_TOKEN` secret was set.
+`csharp-v1.0.0` and `python-v1.0.0` predate the release workflow, and GitHub
+Actions lists no release run for the Python 2.0.0 to 2.4.0 tags. TypeScript
+2.0.0 to 2.3.0 used the npm package name `vmx`, which a different project owns;
+TypeScript 2.4.0 renamed the package to `@thekaveh/vmx`. Python 2.6.1 and 3.1.0
+are on PyPI.
 
 [^swift-subdir]: Swift 2.4.0 and 2.6.0 are tagged (`v2.4.0`, `swift-v2.4.0`,
 `v2.6.0`, and `swift-v2.6.0`), but at those tags `Package.swift` exists only
