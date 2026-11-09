@@ -32,8 +32,13 @@ release procedure for every flavor.
   examples, security, and spec-discipline aggregate checks against the latest
   target branch. Maintainer review is expected when another reviewer is
   available; the single-collaborator repository does not require self-approval.
-- A new push to a PR cancels that PR's older run of each CI workflow. Runs on
-  `develop` and `main`, scheduled runs, and manual runs are never cancelled.
+- A new push to a PR cancels that PR's older run of each of the nine
+  pull-request CI workflows: `python`, `csharp`, `typescript`, `swift`, `rust`,
+  `conformance`, `spec-discipline`, `security-audit`, and
+  `examples-contract-checks`. Their runs on `develop` and `main`, scheduled
+  runs, and manual runs are never cancelled. The `docs`, `wiki`, `release`,
+  `release-please`, `starters`, and `typescript-windows-watch` workflows keep
+  their own concurrency groups.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
 
