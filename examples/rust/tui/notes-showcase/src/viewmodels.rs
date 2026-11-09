@@ -46,18 +46,10 @@ impl NoteVm {
         self.component.set_model(note);
     }
 
+    /// Uses the one matching rule of every notes showcase, which the
+    /// global search shares.
     fn matches(&self, term: &str) -> bool {
-        let term = term.trim().to_lowercase();
-        if term.is_empty() {
-            return true;
-        }
-        let note = self.model();
-        note.title.to_lowercase().contains(&term)
-            || note.body.to_lowercase().contains(&term)
-            || note
-                .tags
-                .iter()
-                .any(|tag| tag.to_lowercase().contains(&term))
+        note_matches(&self.model(), term)
     }
 }
 
@@ -610,8 +602,8 @@ struct SearchProgress {
     refreshing: usize,
     /// The first-page fetches started so far.
     first_page_fetches: usize,
-    /// The term of the latest first-page fetch.
-    first_page_term: String,
+    /// The page that the latest first-page fetch returned, once it returns.
+    first_page: Option<Vec<SearchHit>>,
 }
 
 /// Ends one `refresh()` call, also when the pager panics.
@@ -651,14 +643,14 @@ impl GlobalSearchVm {
                 // The first page uses the current term. A later page uses the
                 // term in the cursor, so Load more continues the term of the
                 // loaded pages.
-                let (term, offset) = match cursor {
-                    Some(cursor) => (cursor.term, cursor.offset),
+                let (term, offset, fetch) = match cursor {
+                    Some(cursor) => (cursor.term, cursor.offset, None),
                     None => {
                         let term = loader_state.search_term();
                         let mut progress = lock(&loader_progress);
                         progress.first_page_fetches += 1;
-                        progress.first_page_term = term.clone();
-                        (term, 0)
+                        progress.first_page = None;
+                        (term, 0, Some(progress.first_page_fetches))
                     }
                 };
                 let (notes, next) = repository.search_notes(&term, offset, SEARCH_PAGE_SIZE);
@@ -668,7 +660,13 @@ impl GlobalSearchVm {
                         term: term.clone(),
                         note,
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
+                if let Some(fetch) = fetch {
+                    let mut progress = lock(&loader_progress);
+                    if progress.first_page_fetches == fetch {
+                        progress.first_page = Some(hits.clone());
+                    }
+                }
                 (hits, next.map(|offset| SearchCursor { term, offset }))
             },
             hub.clone(),
@@ -694,23 +692,30 @@ impl GlobalSearchVm {
     /// Load more is unavailable while this runs. A load that passed its
     /// check just before the refresh began can still start during the
     /// refresh, and the pager then discards the refresh (spec 21 §6.2). So
-    /// when the results do not all carry the term that the refresh fetched,
-    /// this searches again, at most `SEARCH_RUNS` times in all.
+    /// when the results do not start with the page that the refresh fetched,
+    /// this searches again, at most `SEARCH_RUNS` times in all. The check
+    /// compares the hits, not only the term, so a discarded refresh for the
+    /// unchanged term also runs again.
     pub fn refresh(&self) {
         lock(&self.progress).refreshing += 1;
         let _run = RefreshRun(&self.progress);
         for _ in 0..SEARCH_RUNS {
             let fetches = lock(&self.progress).first_page_fetches;
             self.pages.refresh();
-            let (fetched, term) = {
+            let (fetched, first_page) = {
                 let progress = lock(&self.progress);
                 (
                     progress.first_page_fetches != fetches,
-                    progress.first_page_term.clone(),
+                    progress.first_page.clone(),
                 )
             };
-            // A refused or disposed refresh fetched nothing to check.
-            if !fetched || self.pages.items().iter().all(|hit| hit.term == term) {
+            // A refused or disposed refresh fetched nothing to check. A
+            // newer first-page fetch that has not returned belongs to
+            // another refresh, which checks its own result.
+            let Some(first_page) = first_page.filter(|_| fetched) else {
+                return;
+            };
+            if shows_first_page(&self.pages.items(), &first_page) {
                 return;
             }
         }
@@ -740,6 +745,13 @@ impl GlobalSearchVm {
     }
 }
 
+/// Reports whether `results` are what a committed refresh that fetched
+/// `first_page` leaves: they start with that page, and an empty page leaves
+/// no results. A later load only appends, so it keeps this true.
+fn shows_first_page(results: &[SearchHit], first_page: &[SearchHit]) -> bool {
+    results.starts_with(first_page) && (!first_page.is_empty() || results.is_empty())
+}
+
 impl GlobalSearchVm {
     /// Releases the primitives this view-model owns once its core is disposed.
     fn release_owned(&self) {
@@ -750,11 +762,28 @@ impl GlobalSearchVm {
 
 impl_node!(GlobalSearchVm);
 
+/// The entries a `NotificationsVm` shows, and whether disposal has emptied
+/// them for good. One lock guards both, so a post that races disposal either
+/// lands before it and is disposed with the rest, or sees the flag.
+#[derive(Default)]
+struct NotificationEntries {
+    disposed: bool,
+    vms: Vec<NotificationVm>,
+}
+
+impl NotificationEntries {
+    /// Removes the resolved entries. The caller disposes them after it
+    /// releases the lock.
+    fn take_resolved(&mut self) -> Vec<NotificationVm> {
+        self.vms.extract_if(.., |vm| vm.is_resolved()).collect()
+    }
+}
+
 #[derive(Clone)]
 pub struct NotificationsVm {
     core: ComponentVm<()>,
     hub: NotificationHub,
-    active_vms: Arc<Mutex<Vec<NotificationVm>>>,
+    entries: Arc<Mutex<NotificationEntries>>,
 }
 
 impl NotificationsVm {
@@ -762,25 +791,33 @@ impl NotificationsVm {
         Self {
             core: ComponentVm::with_model("notifications", (), hub, NullDispatcher::new()),
             hub: NotificationHub::new(),
-            active_vms: Arc::new(Mutex::new(Vec::new())),
+            entries: Arc::new(Mutex::new(NotificationEntries::default())),
         }
     }
 
+    /// The notification hub that the entries resolve through.
+    pub fn hub(&self) -> NotificationHub {
+        self.hub.clone()
+    }
+
+    /// Posts a notification and shows an entry for it. After disposal, the
+    /// hub stores nothing and no entry is added.
     pub fn post(&self, kind: NotificationType, message: impl Into<String>) -> u64 {
         let notification = self.hub.post(kind, message);
         let (resolved, dropped) = {
-            let mut active = lock(&self.active_vms);
+            let mut entries = lock(&self.entries);
+            if entries.disposed {
+                return notification.id;
+            }
             // Entries resolved through the hub must not hold a cap slot.
-            let resolved = active
-                .extract_if(.., |vm| vm.is_resolved())
-                .collect::<Vec<_>>();
-            active.push(NotificationVm::with_hub(
+            let resolved = entries.take_resolved();
+            entries.vms.push(NotificationVm::with_hub(
                 notification.clone(),
                 self.hub.clone(),
                 60_000,
             ));
-            let excess = active.len().saturating_sub(NOTIFICATION_CAP);
-            (resolved, active.drain(..excess).collect::<Vec<_>>())
+            let excess = entries.vms.len().saturating_sub(NOTIFICATION_CAP);
+            (resolved, entries.vms.drain(..excess).collect::<Vec<_>>())
         };
         // A removed entry is disposed, as in spec 16 §8.1.
         for vm in resolved {
@@ -797,17 +834,17 @@ impl NotificationsVm {
 
     pub fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
         self.hub.resolve(notification_id, reaction);
-        let resolved = lock(&self.active_vms)
-            .extract_if(.., |vm| vm.is_resolved())
-            .collect::<Vec<_>>();
-        for vm in resolved {
-            vm.dispose();
-        }
+        self.dispose_resolved();
     }
 
     /// Returns the entries that are still pending, oldest first.
+    ///
+    /// An entry can be resolved outside this view-model: by its dismiss
+    /// command, by `dismiss()`, by lifespan expiry or through the hub. Such
+    /// an entry is removed and disposed here, before the list is returned.
     pub fn visible(&self) -> Vec<NotificationVm> {
-        lock(&self.active_vms).clone()
+        self.dispose_resolved();
+        lock(&self.entries).vms.clone()
     }
 
     pub fn messages(&self) -> Vec<String> {
@@ -817,12 +854,24 @@ impl NotificationsVm {
             .map(|notification| notification.message)
             .collect()
     }
+
+    /// Removes the resolved entries and disposes them, as in spec 16 §8.1.
+    fn dispose_resolved(&self) {
+        let resolved = lock(&self.entries).take_resolved();
+        for vm in resolved {
+            vm.dispose();
+        }
+    }
 }
 
 impl NotificationsVm {
     /// Releases the primitives this view-model owns once its core is disposed.
     fn release_owned(&self) {
-        let remaining = std::mem::take(&mut *lock(&self.active_vms));
+        let remaining = {
+            let mut entries = lock(&self.entries);
+            entries.disposed = true;
+            std::mem::take(&mut entries.vms)
+        };
         for vm in remaining {
             vm.dispose();
         }
