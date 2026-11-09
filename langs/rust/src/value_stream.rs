@@ -285,7 +285,9 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     /// Current subscribers, queued values, and a later
     /// [`dispose`](Self::dispose) are unchanged. An owner calls this when it
     /// starts a disposal whose late subscribers must receive completion only
-    /// (ADR-0197).
+    /// (ADR-0197). Only the notification hub calls it, so it compiles with the
+    /// `notifications` feature (ADR-0211).
+    #[cfg(any(feature = "notifications", test))]
     pub(crate) fn refuse_new_subscriptions(&self) {
         lock(&self.inner).refuses_new_subscriptions = true;
     }
