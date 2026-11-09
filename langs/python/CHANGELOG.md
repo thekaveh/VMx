@@ -19,13 +19,15 @@ All notable changes to the Python flavor are documented here. The format is base
 - `attach_many` now indexes the materialized subtree of each attached item
   (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
   can name any node of that subtree as its parent; before, it became a
-  `MISSING_PARENT` orphan. A descendant key that is already in the tree, or that
-  an earlier item in the batch claimed, rejects the item as
-  `DUPLICATE_EXISTING_KEY` or `DUPLICATE_BATCH_KEY`, so a batch no longer adds a
-  second node for a key. A parent key that names the item's own descendant
-  is now a `CYCLE` rejection instead of a parked orphan. Children that
-  `add_child` materializes from a lazy factory join the index in the next
-  batch.
+  `MISSING_PARENT` orphan. A descendant key that is already in the tree, or
+  that an earlier item in the batch claimed, rejects the item as
+  `DUPLICATE_EXISTING_KEY` or `DUPLICATE_BATCH_KEY`, so a batch no longer adds
+  a second node for a key. An item that is a node of an earlier item's subtree
+  is rejected as `ALREADY_ATTACHED` in either batch order, never as a
+  duplicate, so `duplicates` never holds a live node. A parent key that names
+  the item's own descendant is now a `CYCLE` rejection instead of a parked
+  orphan. Children that `add_child` materializes from a lazy factory join the
+  index in the next batch.
 - `walk`, `walk_expanded` and `find` no longer catch a `TypeError` from
   `iter(node)` (#1434, ADR-0212, spec/13 §6.1). A `HierarchicalVM` whose
   children factory returned `None` or raised `TypeError` became a leaf, and the

@@ -162,6 +162,82 @@ public class HIER_042_to_044_BatchSubtreeIndexTests
         p.Children.Should().Equal(c);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Conformance", "HIER-043")]
+    public void HIER_043_Node_Of_An_Earlier_Subtree_Is_Already_Attached(bool childFirst)
+    {
+        var root = new Node("root");
+        var p = new Node("p");
+        var c = new Node("c");
+        p.AddChild(c);
+
+        var result = Attach(root, childFirst ? [c, p] : [p, c]);
+
+        result.Added.Should().Equal(p);
+        result.Duplicates.Should().BeEmpty();
+        result.Rejections.Should().ContainSingle();
+        result.Rejections[0].Item.Should().BeSameAs(c);
+        result.Rejections[0].Reason.Should().Be(BatchAttachRejectionReason.AlreadyAttached);
+        c.HierarchicalParent.Should().BeSameAs(p);
+        p.Children.Should().Equal(c);
+    }
+
+    [Fact]
+    [Trait("Conformance", "HIER-043")]
+    public void HIER_043_Duplicate_Key_Inside_One_Subtree_Rejects_The_Candidate()
+    {
+        var root = new Node("root");
+        var p = new Node("p");
+        var d1 = new Node("d");
+        var d2 = new Node("d");
+        p.AddChild(d1);
+        p.AddChild(d2);
+
+        var result = Attach(root, [p]);
+
+        result.Added.Should().BeEmpty();
+        result.Duplicates.Should().Equal(p);
+        result.Rejections.Should().ContainSingle();
+        result.Rejections[0].Item.Should().BeSameAs(p);
+        result.Rejections[0].Reason.Should().Be(BatchAttachRejectionReason.DuplicateBatchKey);
+        p.HierarchicalParent.Should().BeNull();
+        p.Children.Should().Equal(d1, d2);
+    }
+
+    [Fact]
+    [Trait("Conformance", "HIER-043")]
+    public void HIER_043_Descendant_Selector_Failure_Keeps_A_Parked_Candidate_Parked()
+    {
+        static BatchAttachResult<Node> AttachFailing(Node root, IEnumerable<Node> items) =>
+            root.AttachMany(
+                items,
+                node => node.Model.Key == "bad"
+                    ? throw new InvalidOperationException("keyOf failed")
+                    : node.Model.Key,
+                node => node.Model.ParentKey is null
+                    ? BatchParentKey<string>.Root
+                    : BatchParentKey<string>.For(node.Model.ParentKey),
+                MissingParentPolicy.Park);
+        var root = new Node("root");
+        var p = new Node("p", "m");
+        var parked = AttachFailing(root, [p]);
+        parked.Orphans.Should().Equal(p);
+        root.ParkedAttachCount.Should().Be(1);
+        p.AddChild(new Node("bad"));
+
+        var result = AttachFailing(root, []);
+
+        result.Added.Should().BeEmpty();
+        result.Duplicates.Should().BeEmpty();
+        result.Rejections.Should().ContainSingle();
+        result.Rejections[0].Item.Should().BeSameAs(p);
+        result.Rejections[0].Reason.Should().Be(BatchAttachRejectionReason.SelectorFailed);
+        root.ParkedAttachCount.Should().Be(1);
+        p.HierarchicalParent.Should().BeNull();
+    }
+
     [Fact]
     [Trait("Conformance", "HIER-044")]
     public void HIER_044_Factory_Children_Join_The_Index_Only_In_The_Next_Batch()

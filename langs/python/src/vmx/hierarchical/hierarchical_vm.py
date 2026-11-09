@@ -440,6 +440,8 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
 
         candidates: list[_BatchAttachCandidate[TVM]] = []
         candidate_keys: set[Hashable] = set()
+        # The descendant claims of accepted candidates, by key (ADR-0212).
+        descendant_claims: dict[Hashable, TVM] = {}
         for item, was_parked in [
             *((item, True) for item in parked),
             *((item, False) for item in incoming),
@@ -468,6 +470,17 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                     BatchAttachRejection(
                         item,
                         BatchAttachRejectionReason.DUPLICATE_EXISTING_KEY,
+                    )
+                )
+                continue
+            # An item that is a descendant of an earlier candidate is attached
+            # outside the indexed tree (spec/18 §6, ADR-0212).
+            claimed_descendant = descendant_claims.get(key) is item
+            if claimed_descendant:
+                rejections.append(
+                    BatchAttachRejection(
+                        item,
+                        BatchAttachRejectionReason.ALREADY_ATTACHED,
                     )
                 )
                 continue
@@ -523,6 +536,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                 continue
 
             candidate_keys.update(claimed)
+            descendant_claims.update(subtree)
             candidates.append(
                 _BatchAttachCandidate(
                     item,

@@ -164,6 +164,77 @@ def test_hier_043_earlier_candidate_key_rejects_a_subtree_that_repeats_it() -> N
     assert list(p.children) == [c]
 
 
+@pytest.mark.conformance("HIER-043")
+@pytest.mark.parametrize("child_first", [False, True])
+def test_hier_043_node_of_an_earlier_subtree_is_already_attached(child_first: bool) -> None:
+    root = Node("root")
+    p = Node("p")
+    c = Node("c")
+    p.add_child(c)
+
+    result = attach(root, [c, p] if child_first else [p, c])
+
+    assert result.added == [p]
+    assert result.duplicates == []
+    assert result.rejections == [
+        BatchAttachRejection(c, BatchAttachRejectionReason.ALREADY_ATTACHED)
+    ]
+    assert c.parent is p
+    assert list(p.children) == [c]
+
+
+@pytest.mark.conformance("HIER-043")
+def test_hier_043_duplicate_key_inside_one_subtree_rejects_the_candidate() -> None:
+    root = Node("root")
+    p = Node("p")
+    d1 = Node("d")
+    d2 = Node("d")
+    p.add_child(d1)
+    p.add_child(d2)
+
+    result = attach(root, [p])
+
+    assert result.added == []
+    assert result.duplicates == [p]
+    assert result.rejections == [
+        BatchAttachRejection(p, BatchAttachRejectionReason.DUPLICATE_BATCH_KEY)
+    ]
+    assert p.parent is None
+    assert list(p.children) == [d1, d2]
+
+
+@pytest.mark.conformance("HIER-043")
+def test_hier_043_descendant_selector_failure_keeps_a_parked_candidate_parked() -> None:
+    def key_of(node: Node) -> str:
+        if node.model.key == "bad":
+            raise RuntimeError("keyOf failed")
+        return node.model.key
+
+    def attach_failing(root: Node, items: list[Node]) -> BatchAttachResult[Node]:
+        return root.attach_many(
+            items,
+            key_of=key_of,
+            parent_key_of=lambda node: node.model.parent_key,
+            on_missing_parent=MissingParentPolicy.PARK,
+        )
+
+    root = Node("root")
+    p = Node("p", "m")
+    parked = attach_failing(root, [p])
+    assert parked.orphans == [p]
+    assert root.parked_attach_count == 1
+    p.add_child(Node("bad"))
+
+    result = attach_failing(root, [])
+
+    assert result.added == []
+    assert result.duplicates == []
+    assert [r.reason for r in result.rejections] == [BatchAttachRejectionReason.SELECTOR_FAILED]
+    assert result.rejections[0].item is p
+    assert root.parked_attach_count == 1
+    assert p.parent is None
+
+
 @pytest.mark.conformance("HIER-044")
 def test_hier_044_factory_children_join_the_index_only_in_the_next_batch() -> None:
     root = Node("root")

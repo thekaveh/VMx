@@ -151,6 +151,90 @@ final class HierarchicalBatchSubtreeIndexTests: XCTestCase {
         XCTAssertTrue(p.children.first === c)
     }
 
+    /// HIER-043 — a node of an earlier candidate's subtree is rejected as
+    /// `alreadyAttached` in either batch order and never as a duplicate.
+    func testHier043NodeOfEarlierSubtreeIsAlreadyAttached() {
+        for childFirst in [false, true] {
+            let root = node("root")
+            let p = node("p")
+            let c = node("c")
+            p.addChild(c)
+
+            let result = attach(root, childFirst ? [c, p] : [p, c])
+
+            XCTAssertEqual(result.added.count, 1, "childFirst: \(childFirst)")
+            XCTAssertTrue(result.added.first === p)
+            XCTAssertTrue(result.duplicates.isEmpty, "childFirst: \(childFirst)")
+            XCTAssertEqual(result.rejections.count, 1)
+            XCTAssertTrue(result.rejections.first?.item === c)
+            XCTAssertEqual(result.rejections.first?.reason, .alreadyAttached)
+            XCTAssertTrue(c.parent === p)
+            XCTAssertEqual(p.children.count, 1)
+            XCTAssertTrue(p.children.first === c)
+        }
+    }
+
+    /// HIER-043 — a duplicate key inside one candidate's subtree rejects the
+    /// candidate as `duplicateBatchKey`.
+    func testHier043DuplicateKeyInsideOneSubtreeRejectsCandidate() {
+        let root = node("root")
+        let p = node("p")
+        let d1 = node("d")
+        let d2 = node("d")
+        p.addChild(d1)
+        p.addChild(d2)
+
+        let result = attach(root, [p])
+
+        XCTAssertTrue(result.added.isEmpty)
+        XCTAssertEqual(result.duplicates.count, 1)
+        XCTAssertTrue(result.duplicates.first === p)
+        XCTAssertEqual(result.rejections.count, 1)
+        XCTAssertTrue(result.rejections.first?.item === p)
+        XCTAssertEqual(result.rejections.first?.reason, .duplicateBatchKey)
+        XCTAssertNil(p.parent)
+        XCTAssertEqual(p.children.count, 2)
+        XCTAssertTrue(p.children.first === d1)
+        XCTAssertTrue(p.children.last === d2)
+    }
+
+    /// HIER-043 — a descendant `keyOf` failure rejects a parked candidate as
+    /// `selectorFailed` and keeps it parked.
+    func testHier043DescendantSelectorFailureKeepsParkedCandidateParked() {
+        struct KeyFailure: Error {}
+        func attachFailing(
+            _ root: SubtreeNode,
+            _ items: [SubtreeNode]
+        ) -> BatchAttachResult<SubtreeNode> {
+            root.attachMany(
+                items,
+                keyOf: { node in
+                    if node.model.key == "bad" { throw KeyFailure() }
+                    return node.model.key
+                },
+                parentKeyOf: { $0.model.parentKey },
+                onMissingParent: .park
+            )
+        }
+        let root = node("root")
+        let p = node("p", parent: "m")
+        let parked = attachFailing(root, [p])
+        XCTAssertEqual(parked.orphans.count, 1)
+        XCTAssertTrue(parked.orphans.first === p)
+        XCTAssertEqual(root.parkedAttachCount, 1)
+        p.addChild(node("bad"))
+
+        let result = attachFailing(root, [])
+
+        XCTAssertTrue(result.added.isEmpty)
+        XCTAssertTrue(result.duplicates.isEmpty)
+        XCTAssertEqual(result.rejections.count, 1)
+        XCTAssertTrue(result.rejections.first?.item === p)
+        XCTAssertEqual(result.rejections.first?.reason, .selectorFailed)
+        XCTAssertEqual(root.parkedAttachCount, 1)
+        XCTAssertNil(p.parent)
+    }
+
     /// HIER-044 — factory children that `addChild` materializes join the
     /// index only in the next batch.
     func testHier044FactoryChildrenJoinIndexInNextBatch() {

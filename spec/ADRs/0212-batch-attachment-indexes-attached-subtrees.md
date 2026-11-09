@@ -64,6 +64,15 @@ The claims follow the candidate's own key, in depth-first pre-order, after the
 - A `keyOf` failure on a descendant rejects the candidate as `SelectorFailed`.
   A parked candidate stays parked, as for its own selectors.
 
+An item that is itself a node of an earlier candidate's materialized subtree
+holds that candidate's claim on its key. The item is attached outside the
+indexed tree, so it is rejected as `AlreadyAttached` and is not returned in
+`duplicates`. This check runs before the `DuplicateBatchKey` check and compares
+node identity. Without it, the batch `[p, c]`, where `c` is a child of `p`,
+would return the live node `c` in `duplicates`, and the batch `[c, p]` would
+reject `c` as `AlreadyAttached`. The rejection now does not depend on the batch
+order.
+
 A rejected candidate is returned in `duplicates` (for a key collision), is not
 attached, and keeps its subtree. Its claims are not recorded. An accepted
 candidate records all of its claims at once.
@@ -113,6 +122,10 @@ walk, and `find` returns a match that it reaches before the failing node.
 - A batch that once attached a subtree with a duplicate key now rejects the
   subtree root as a duplicate. A consumer that relied on that gets the
   rejection in `duplicates`.
+- An item that is a node of an earlier candidate's subtree is rejected as
+  `AlreadyAttached` in either batch order, as before for the order in which it
+  comes first. It never appears in `duplicates`, so a consumer that disposes
+  or retries `duplicates` never acts on a live node.
 - A candidate whose parent key names its own descendant was parked as a
   `MissingParent` orphan that could never resolve. It is now a terminal `Cycle`.
 - A Python walk over a custom node whose `__iter__` fails with `TypeError` now

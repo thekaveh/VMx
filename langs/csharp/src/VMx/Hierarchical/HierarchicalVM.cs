@@ -343,6 +343,8 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
         var candidates = new List<BatchCandidate<TKey>>();
         var candidateKeys = new HashSet<TKey>();
+        // The descendant claims of accepted candidates, by key (ADR-0212).
+        var descendantClaims = new Dictionary<TKey, TVM>();
         foreach (var entry in parked.Select(item => (Item: item, WasParked: true))
                      .Concat(incoming.Select(item => (Item: item, WasParked: false))))
         {
@@ -370,6 +372,16 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                 rejections.Add(new BatchAttachRejection<TVM>(
                     entry.Item,
                     BatchAttachRejectionReason.DuplicateExistingKey));
+                continue;
+            }
+            if (descendantClaims.TryGetValue(key, out var claimHolder)
+                && ReferenceEquals(claimHolder, entry.Item))
+            {
+                // The item is a descendant of an earlier candidate, so it is
+                // attached outside the indexed tree (spec/18 §6, ADR-0212).
+                rejections.Add(new BatchAttachRejection<TVM>(
+                    entry.Item,
+                    BatchAttachRejectionReason.AlreadyAttached));
                 continue;
             }
             if (candidateKeys.Contains(key))
@@ -438,6 +450,8 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
             }
 
             candidateKeys.UnionWith(claimed);
+            foreach (var claim in subtree)
+                descendantClaims.Add(claim.Key, claim.Value);
 
             candidates.Add(new BatchCandidate<TKey>(
                 entry.Item,

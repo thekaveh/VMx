@@ -492,6 +492,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
         var candidates: [BatchAttachCandidate<TVM, Key>] = []
         var candidateKeys = Set<Key>()
+        // The descendant claims of accepted candidates, by key (ADR-0212).
+        var descendantClaims: [Key: TVM] = [:]
         let active = parked.map { ($0, true) } + items.map { ($0, false) }
         for (item, wasParked) in active {
             let key: Key
@@ -512,6 +514,12 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             if existing[key] != nil {
                 duplicates.append(item)
                 rejections.append(BatchAttachRejection(item: item, reason: .duplicateExistingKey))
+                continue
+            }
+            if let claimHolder = descendantClaims[key], claimHolder === item {
+                // The item is a descendant of an earlier candidate, so it is
+                // attached outside the indexed tree (spec/18 §6, ADR-0212).
+                rejections.append(BatchAttachRejection(item: item, reason: .alreadyAttached))
                 continue
             }
             if candidateKeys.contains(key) {
@@ -566,6 +574,7 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             }
 
             candidateKeys.formUnion(claimed)
+            for claim in subtree { descendantClaims[claim.key] = claim.node }
             candidates.append(BatchAttachCandidate(
                 item: item,
                 key: key,

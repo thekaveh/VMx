@@ -80,13 +80,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `attachMany` now indexes the materialized subtree of each attached item
   (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
   can name any node of that subtree as its parent; before, it became a
-  `.missingParent` orphan. A descendant key that is already in the tree, or that
-  an earlier item in the batch claimed, rejects the item as
+  `.missingParent` orphan. A descendant key that is already in the tree, or
+  that an earlier item in the batch claimed, rejects the item as
   `.duplicateExistingKey` or `.duplicateBatchKey`, so a batch no longer adds a
-  second node for a key. A parent key that names the item's own descendant
-  is now a `.cycle` rejection instead of a parked orphan. Children that
-  `addChild` materializes from a lazy factory join the index in the next
-  batch.
+  second node for a key. An item that is a node of an earlier item's subtree
+  is rejected as `.alreadyAttached` in either batch order, never as a
+  duplicate, so `duplicates` never holds a live node. A parent key that names
+  the item's own descendant is now a `.cycle` rejection instead of a parked
+  orphan. Children that `addChild` materializes from a lazy factory join the
+  index in the next batch.
 - A `FormVM` approval started from a preparation callback or an
   `errorsChanged` sink of `setModel` or deny now starts its persister after
   the outermost update sends all queued notifications (ADR-0180, spec/20

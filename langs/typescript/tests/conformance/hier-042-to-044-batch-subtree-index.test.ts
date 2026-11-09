@@ -150,6 +150,81 @@ describe("HIER-043", () => {
   });
 });
 
+describe("HIER-043", () => {
+  it.each([false, true])(
+    "rejects a node of an earlier subtree as AlreadyAttached (child first: %s)",
+    (childFirst) => {
+      const root = new Node("root");
+      const p = new Node("p");
+      const c = new Node("c");
+      p.addChild(c);
+
+      const result = attach(root, childFirst ? [c, p] : [p, c]);
+
+      expect(result.added).toHaveLength(1);
+      expect(result.added[0]).toBe(p);
+      expect(result.duplicates).toHaveLength(0);
+      expect(result.rejections).toHaveLength(1);
+      expect(result.rejections[0]?.item).toBe(c);
+      expect(result.rejections[0]?.reason).toBe(BatchAttachRejectionReason.AlreadyAttached);
+      expect(c.parent).toBe(p);
+      expect(p.children).toHaveLength(1);
+      expect(p.children[0]).toBe(c);
+    },
+  );
+
+  it("rejects a candidate whose own subtree repeats a key", () => {
+    const root = new Node("root");
+    const p = new Node("p");
+    const d1 = new Node("d");
+    const d2 = new Node("d");
+    p.addChild(d1);
+    p.addChild(d2);
+
+    const result = attach(root, [p]);
+
+    expect(result.added).toHaveLength(0);
+    expect(result.duplicates).toHaveLength(1);
+    expect(result.duplicates[0]).toBe(p);
+    expect(result.rejections).toHaveLength(1);
+    expect(result.rejections[0]?.item).toBe(p);
+    expect(result.rejections[0]?.reason).toBe(BatchAttachRejectionReason.DuplicateBatchKey);
+    expect(p.parent).toBeNull();
+    expect(p.children).toHaveLength(2);
+    expect(p.children[0]).toBe(d1);
+    expect(p.children[1]).toBe(d2);
+  });
+
+  it("keeps a parked candidate parked when a descendant keyOf fails", () => {
+    const attachFailing = (root: Node, items: Node[]) =>
+      root.attachMany(items, {
+        keyOf: (node) => {
+          if (node.model.key === "bad") throw new Error("keyOf failed");
+          return node.model.key;
+        },
+        parentKeyOf: (node) => node.model.parentKey,
+        onMissingParent: MissingParentPolicy.Park,
+      });
+    const root = new Node("root");
+    const p = new Node("p", "m");
+    const parked = attachFailing(root, [p]);
+    expect(parked.orphans).toHaveLength(1);
+    expect(parked.orphans[0]).toBe(p);
+    expect(root.parkedAttachCount).toBe(1);
+    p.addChild(new Node("bad"));
+
+    const result = attachFailing(root, []);
+
+    expect(result.added).toHaveLength(0);
+    expect(result.duplicates).toHaveLength(0);
+    expect(result.rejections).toHaveLength(1);
+    expect(result.rejections[0]?.item).toBe(p);
+    expect(result.rejections[0]?.reason).toBe(BatchAttachRejectionReason.SelectorFailed);
+    expect(root.parkedAttachCount).toBe(1);
+    expect(p.parent).toBeNull();
+  });
+});
+
 describe("HIER-044", () => {
   it("indexes children that addChild materializes only in the next batch", () => {
     const root = new Node("root");

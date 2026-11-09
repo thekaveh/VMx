@@ -459,6 +459,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
 
         let mut candidates = Vec::<BatchAttachCandidate<Self, K>>::new();
         let mut candidate_keys = HashSet::<K>::new();
+        // The descendant claims of accepted candidates, by key (ADR-0212).
+        let mut descendant_claims = HashMap::<K, Self>::new();
         let active = parked
             .into_iter()
             .map(|item| (item, true))
@@ -498,6 +500,16 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 rejections.push(BatchAttachRejection {
                     item,
                     reason: BatchAttachRejectionReason::DuplicateExistingKey,
+                    detail: None,
+                });
+                continue;
+            }
+            if descendant_claims.get(&key) == Some(&item) {
+                // The item is a descendant of an earlier candidate, so it is
+                // attached outside the indexed tree (spec/18 §6, ADR-0212).
+                rejections.push(BatchAttachRejection {
+                    item,
+                    reason: BatchAttachRejectionReason::AlreadyAttached,
                     detail: None,
                 });
                 continue;
@@ -574,6 +586,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
             }
 
             candidate_keys.extend(claimed);
+            descendant_claims.extend(subtree.iter().cloned());
             candidates.push(BatchAttachCandidate {
                 item,
                 key,

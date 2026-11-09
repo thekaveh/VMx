@@ -3634,6 +3634,22 @@ and keeps its child
 **When** the batch `[c2, p]` is attached to a fresh root and fresh nodes
 **Then** `c2` stays unresolved as an orphan, and `p` is in `Duplicates` with
 `DuplicateBatchKey`
+**Given** an empty hierarchy root and a detached node `p` whose materialized
+child `c` has key `"c"`
+**When** the batch `[p, c]` is attached, and the batch `[c, p]` is attached to
+a fresh root and fresh nodes
+**Then** in both batches `p` is added, `c` is rejected as `AlreadyAttached` and
+stays a child of `p`, and `Duplicates` is empty
+**Given** an empty hierarchy root and a detached node `p` whose two materialized
+children both have key `"d"`
+**When** the batch `[p]` is attached
+**Then** `p` is in `Duplicates` with `DuplicateBatchKey`, is not attached, and
+keeps both children
+**Given** an empty hierarchy root and a node `p` parked with a missing parent
+**And** a child `b`, whose `keyOf` fails, then added to `p`
+**When** an empty batch is attached
+**Then** `p` is rejected as `SelectorFailed`, is not in `Duplicates`, and the
+parked count stays 1
 
 ### HIER-044 — Factory children that `AddChild` materializes do not join the index
 

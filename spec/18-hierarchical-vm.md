@@ -201,7 +201,10 @@ equals an earlier claim in the batch, including one from the same subtree, the
 candidate is rejected as `DuplicateBatchKey`. A rejected candidate is returned
 in `duplicates`, is not attached, and keeps its subtree unchanged. A `keyOf`
 failure on a descendant rejects the candidate as `SelectorFailed`, and a parked
-candidate stays parked, as for its own selectors (ADR-0212).
+candidate stays parked, as for its own selectors (ADR-0212). An item that is
+itself a node of an earlier candidate's materialized subtree is attached outside
+the indexed tree. It is rejected as `AlreadyAttached`, not as a duplicate, so
+the batch order does not change its rejection.
 
 Candidates are scanned repeatedly in input order. A candidate attaches when
 its parent is in the index. When it attaches, the candidate and every node of
@@ -518,7 +521,10 @@ hub message. A host maps `Current` to a route or a detail view.
   that names the candidate's own descendant is a `Cycle` (ADR-0212).
 - `HIER-043` — A descendant key of a candidate that equals a key in the index
   or an earlier claim in the batch rejects the candidate as
-  `DuplicateExistingKey` or `DuplicateBatchKey` without attaching it.
+  `DuplicateExistingKey` or `DuplicateBatchKey` without attaching it; a
+  descendant `keyOf` failure is `SelectorFailed` and keeps a parked candidate
+  parked; a node of an earlier candidate's subtree is `AlreadyAttached` in
+  either batch order.
 - `HIER-044` — Children that `AddChild` materializes from a lazy factory do not
   join the index during that batch; the next batch resolves a candidate aimed
   at one of them.

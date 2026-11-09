@@ -387,6 +387,8 @@ export abstract class HierarchicalVM<
 
     const candidates: BatchAttachCandidate<TVM, TKey>[] = [];
     const candidateKeys = new Set<TKey>();
+    // The descendant claims of accepted candidates, by key (ADR-0212).
+    const descendantClaims = new Map<TKey, TVM>();
     const activeItems: Array<readonly [TVM, boolean]> = [
       ...parked.map((item) => [item, true] as const),
       ...incoming.map((item) => [item, false] as const),
@@ -412,6 +414,12 @@ export abstract class HierarchicalVM<
       if (existing.has(key)) {
         duplicates.push(item);
         rejections.push({ item, reason: BatchAttachRejectionReason.DuplicateExistingKey });
+        continue;
+      }
+      if (descendantClaims.get(key) === item) {
+        // The item is a descendant of an earlier candidate, so it is attached
+        // outside the indexed tree (spec/18 §6, ADR-0212).
+        rejections.push({ item, reason: BatchAttachRejectionReason.AlreadyAttached });
         continue;
       }
       if (candidateKeys.has(key)) {
@@ -463,6 +471,7 @@ export abstract class HierarchicalVM<
       }
 
       for (const claim of claimed) candidateKeys.add(claim);
+      for (const [subtreeKey, node] of subtree) descendantClaims.set(subtreeKey, node);
       candidates.push({
         item,
         key,
