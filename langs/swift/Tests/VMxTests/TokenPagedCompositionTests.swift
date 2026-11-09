@@ -116,27 +116,36 @@ final class TokenPagedCompositionTests: XCTestCase {
     }
 
     /// Thread-safe fetch harness for the #1161 regressions (spec 21 §6.2,
-    /// ADR-0169). Pages [1] and [101] load; then a refresh fetch can be held.
+    /// ADR-0169). Pages [1] and [101] load; then first-page fetches can be held.
     private final class TerminalAfterAdmissionHarness: @unchecked Sendable {
         let lock = NSLock()
-        var calls: [String?] = []
-        var holdNextFirstPage = 0
-        var held: [CheckedContinuation<([Int], String?), Error>] = []
-        let heldStarted = DispatchSemaphore(value: 0)
-        var resets = 0
-        let resetSeen = DispatchSemaphore(value: 0)
+        private var calls: [String?] = []
+        private var holdFirstPages = 0
+        private var held: [CheckedContinuation<([Int], String?), Error>] = []
+        private var onHeld: [() -> Void] = []
+
+        /// Holds the next first-page fetch and runs `started` once it is held.
+        func holdNextFirstPage(_ started: @escaping () -> Void) {
+            lock.withLock {
+                holdFirstPages += 1
+                onHeld.append(started)
+            }
+        }
 
         func fetch(_ token: String?) async throws -> ([Int], String?) {
             let hold = lock.withLock { () -> Bool in
                 calls.append(token)
-                guard token == nil, holdNextFirstPage > 0 else { return false }
-                holdNextFirstPage -= 1
+                guard token == nil, holdFirstPages > 0 else { return false }
+                holdFirstPages -= 1
                 return true
             }
             if hold {
                 return try await withCheckedThrowingContinuation { continuation in
-                    lock.withLock { held.append(continuation) }
-                    heldStarted.signal()
+                    let started = lock.withLock { () -> () -> Void in
+                        held.append(continuation)
+                        return onHeld.removeFirst()
+                    }
+                    started()
                 }
             }
             // Page 1. Before the fix a gated-out load refetched it here.
@@ -151,10 +160,29 @@ final class TokenPagedCompositionTests: XCTestCase {
         func calls(since start: Int) -> [String?] { lock.withLock { Array(calls[start...]) } }
     }
 
-    /// COL-026 / #1161 — a refresh commits a terminal token after loadMore was
-    /// admitted but before its body starts. The load fetches nothing and appends
-    /// nothing; before the fix it refetched page 1 and appended it again.
-    func testCOL026TerminalTokenCommittedAfterAdmissionFetchesNothing() async throws {
+    /// Polls `condition` until it holds or `hangGuard` elapses, without
+    /// blocking a Swift concurrency thread.
+    private func eventually(_ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(hangGuard)
+        while !condition() {
+            if Date() >= deadline { return false }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        return true
+    }
+
+    /// COL-026 / #1161 — after loadMore is admitted and before its body starts,
+    /// a refresh commits a terminal page and a later refresh starts and holds
+    /// its fetch. The gated-out load fetches nothing and supersedes nothing
+    /// (spec 21 §6.2, ADR-0169), so the later refresh still commits its page.
+    /// Before the fix the load refetched page 1, appended it and superseded
+    /// the later refresh.
+    ///
+    /// `execute()` admits on the calling thread and fires `canExecuteChanged`
+    /// there before the body task starts. A GCD thread calls it, so the
+    /// admission window blocks that thread and never a Swift concurrency
+    /// thread; the refreshes run on the cooperative pool meanwhile.
+    func testCOL026GatedOutLoadFetchesNothingAndDoesNotSupersedeALaterRefresh() async throws {
         let harness = TerminalAfterAdmissionHarness()
         let sut = TokenPagedComposition<Int, String>(fetchNext: harness.fetch)
         try await sut.loadMoreCommand.executeAsync()
@@ -163,34 +191,71 @@ final class TokenPagedCompositionTests: XCTestCase {
         XCTAssertEqual(sut.currentToken, "2")
 
         let callsBefore = harness.callCount
-        harness.lock.withLock { harness.holdNextFirstPage = 1 }
-        let refresh = Task.detached { try await sut.refreshCommand.executeAsync() }
-        XCTAssertEqual(harness.heldStarted.wait(timeout: .now() + hangGuard), .success)
+        let terminalHeld = expectation(description: "the terminal refresh fetch is held")
+        harness.holdNextFirstPage { terminalHeld.fulfill() }
+        sut.refreshCommand.execute()
+        await fulfillment(of: [terminalHeld], timeout: hangGuard)
 
-        sut.collectionChanged.sink { _ in
-            harness.lock.withLock { harness.resets += 1 }
-            harness.resetSeen.signal()
-        }.store(in: &cancellables)
-        let armed = ManagedAtomicFlag()
-        var resetWait: DispatchTimeoutResult?
-        // admit() fires canExecuteChanged after admission and before the body
-        // Task starts; the refresh commits its terminal page in that window.
-        sut.loadMoreCommand.canExecuteChanged.sink { _ in
-            guard armed.takeOnce() else { return }
+        let resets = SharedCounter()
+        sut.collectionChanged.sink { _ in resets.increment() }.store(in: &cancellables)
+
+        let window = WindowResults()
+        var admission: AnyCancellable?
+        admission = sut.loadMoreCommand.canExecuteChanged.sink { _ in
+            // Runs on the admitting GCD thread. Leave the subject first, so
+            // the refreshes' own notifications never wait for this window.
+            admission?.cancel()
             harness.takeHeld()?.resume(returning: ([1, 101, 555], nil))
-            resetWait = harness.resetSeen.wait(timeout: .now() + hangGuard)
-        }.store(in: &cancellables)
+            window.terminalCommitted = Self.poll {
+                !sut.refreshCommand.isExecuting && !sut.hasMore
+            }
+            let laterHeld = DispatchSemaphore(value: 0)
+            harness.holdNextFirstPage { laterHeld.signal() }
+            sut.refreshCommand.execute()
+            window.laterRefreshHeld = laterHeld.wait(timeout: .now() + hangGuard)
+        }
+        defer { admission?.cancel() }
 
-        try await Task.detached { try await sut.loadMoreCommand.executeAsync() }.value
-        try await refresh.value
+        let admitted = expectation(description: "loadMore was admitted")
+        let boxedSut = UncheckedSendableBox(sut)
+        DispatchQueue.global().async {
+            boxedSut.value.loadMoreCommand.execute()
+            admitted.fulfill()
+        }
+        await fulfillment(of: [admitted], timeout: hangGuard)
+        XCTAssertEqual(window.terminalCommitted, true, "the terminal refresh did not commit")
+        XCTAssertEqual(window.laterRefreshHeld, .success, "the later refresh did not start")
+        let loadFinished = await eventually { !sut.loadMoreCommand.isExecuting }
+        XCTAssertTrue(loadFinished, "the gated-out load did not finish")
 
-        XCTAssertEqual(resetWait, .success)
         XCTAssertEqual(sut.items, [1, 101, 555])
         XCTAssertNil(sut.currentToken)
         XCTAssertFalse(sut.hasMore)
-        XCTAssertEqual(harness.calls(since: callsBefore), [nil])
-        XCTAssertEqual(harness.lock.withLock { harness.resets }, 1)
-        XCTAssertFalse(sut.loadMoreCommand.canExecute())
+        XCTAssertEqual(
+            harness.calls(since: callsBefore), [nil, nil],
+            "only the two refreshes fetch; the gated-out load fetches nothing"
+        )
+        XCTAssertEqual(resets.value, 1, "only the terminal refresh has published a Reset")
+
+        harness.takeHeld()?.resume(returning: ([7], "x"))
+        let laterCommitted = await eventually {
+            resets.value == 2 && !sut.refreshCommand.isExecuting
+        }
+        XCTAssertTrue(laterCommitted, "the later refresh did not commit")
+        XCTAssertEqual(sut.items, [7])
+        XCTAssertEqual(sut.currentToken, "x")
+        XCTAssertTrue(sut.hasMore)
+    }
+
+    /// Polls `condition` on a non-concurrency thread until it holds or
+    /// `hangGuard` elapses.
+    private static func poll(_ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(hangGuard)
+        while !condition() {
+            if Date() >= deadline { return false }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        return true
     }
 
     /// COL-027 — refresh clears and refetches first page.
@@ -379,15 +444,29 @@ final class TokenPagedCompositionTests: XCTestCase {
     }
 }
 
-/// A one-shot flag that is safe to take from any thread.
-private final class ManagedAtomicFlag: @unchecked Sendable {
+/// A counter that is safe to update from any thread.
+private final class SharedCounter: @unchecked Sendable {
     private let lock = NSLock()
-    private var available = true
+    private var count = 0
 
-    func takeOnce() -> Bool {
-        lock.withLock {
-            defer { available = false }
-            return available
-        }
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
+}
+
+/// What the admission window observed, read after the admitting thread
+/// returns.
+private final class WindowResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _terminalCommitted: Bool?
+    private var _laterRefreshHeld: DispatchTimeoutResult?
+
+    var terminalCommitted: Bool? {
+        get { lock.withLock { _terminalCommitted } }
+        set { lock.withLock { _terminalCommitted = newValue } }
+    }
+
+    var laterRefreshHeld: DispatchTimeoutResult? {
+        get { lock.withLock { _laterRefreshHeld } }
+        set { lock.withLock { _laterRefreshHeld = newValue } }
     }
 }
