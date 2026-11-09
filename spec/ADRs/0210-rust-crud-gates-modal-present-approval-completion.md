@@ -52,6 +52,16 @@ one that matches the other flavors.
   return. A gated command is awaitable through `Command::as_async`. An ungated
   command is the plain relay, so its `execute()` stays synchronous.
   `create_new_command()` still returns `RelayCommand`.
+- `Command` has no `dispose()`, error stream or `execute_async()`, and Rust
+  cannot downcast an `Arc<dyn Command>` as a C# caller casts an `ICommand`.
+  Two accessors, `update_confirmation()` and `delete_confirmation()`, therefore
+  return the gated command as a `ConfirmationDecoratorCommand<RelayCommand>`,
+  or `None` without a gate. They reach `error_stream()`, where a
+  fire-and-forget `execute()` reports a panicking gate or action, and
+  `execute_async()`. A new `dispose()` disposes every command the helper
+  built, as the helper's `Dispose` does in C#, Python, TypeScript and Swift.
+  It detaches the trigger, disposes the decorators and disposes the create,
+  update and delete relays. It is idempotent.
 - `new` and `with_current_changed` stay and call `with_options` with no gates.
   `with_confirm_delete` is removed: its synchronous gate is the divergence
   that this ADR closes. Code that used it passes
@@ -100,7 +110,9 @@ one that matches the other flavors.
   return `Arc<dyn Command>` instead of `RelayCommand`, and
   `with_confirm_delete` is removed. The Rust CHANGELOG records the migration.
 - Additive for Rust: `ModeledCrudCommands::with_options`, `NO_CONFIRM`,
-  `DialogService::present`, and `FormVm::subscribe_approved_with_completion`.
+  `ModeledCrudCommands::update_confirmation`, `delete_confirmation` and
+  `dispose`, `DialogService::present`, and
+  `FormVm::subscribe_approved_with_completion`.
 - Chapter 06 §7 names `with_options` and drops its "Open Rust gap" paragraph.
   Chapter 19 §2.1 replaces its "Open Rust gap" paragraph with the Rust
   contract. The Rust capability parity ledger closes its §12.4.7 CRUD item

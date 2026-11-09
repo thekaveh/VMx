@@ -483,8 +483,10 @@ Behavior:
 Rust takes the two gates as `Fn() -> AsyncValue<bool>` closures in
 `ModeledCrudCommands::with_options`, with the `current_changed` trigger. Its
 Update and Delete accessors return `Arc<dyn Command>`; a gated command is a
-`ConfirmationDecoratorCommand` and is awaited through `Command::as_async`
-(ADR-0210).
+`ConfirmationDecoratorCommand` and is awaited through `Command::as_async`.
+`update_confirmation()` and `delete_confirmation()` return the gated command
+with its concrete type, for its error stream, and `dispose()` disposes every
+command the helper built (ADR-0210).
 
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 

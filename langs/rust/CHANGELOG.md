@@ -16,6 +16,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `current_changed` trigger. A supplied gate wraps that command in a
   `ConfirmationDecoratorCommand`, so execution waits for the answer and only
   `true` runs the action. The trigger also refreshes a gated command.
+- `ModeledCrudCommands::update_confirmation()`, `delete_confirmation()` and
+  `dispose()` (#1258, ADR-0210). `Command` has no downcast, so the two
+  accessors return the gated command as a
+  `ConfirmationDecoratorCommand<RelayCommand>`, or `None` without a gate. Use
+  them for `error_stream()`, where a fire-and-forget `execute()` reports a
+  panicking gate or action, and for `execute_async()`. `dispose()` detaches the
+  trigger, disposes the confirmation decorators and disposes the create,
+  update and delete relays, as the helper's `Dispose` does in the other
+  flavors.
 - `DialogService::present`, a provided method that presents a `ModalVm<T>`
   and returns its result (#1267, ADR-0210, `DIA-009`, `DIA-010`). A host
   adapter overrides it. The default dismisses the modal with its cancellation
@@ -118,7 +127,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   once. `ModeledCrudCommands::with_confirm_delete` and its synchronous
   `Fn() -> bool` gate are removed. Migration: call `with_options` with
   `Some(move || AsyncValue::ready(confirm()))` as `confirm_delete`, or with an
-  asynchronous gate.
+  asynchronous gate. The returned `Arc<dyn Command>` exposes only the
+  `Command` methods. To dispose the commands, call
+  `ModeledCrudCommands::dispose()` instead of `RelayCommand::dispose()`. To
+  observe a gated command's errors or call `execute_async()`, use
+  `update_confirmation()` or `delete_confirmation()`.
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default

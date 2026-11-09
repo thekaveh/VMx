@@ -20,11 +20,22 @@ pub const NO_CONFIRM: Option<fn() -> AsyncValue<bool>> = None;
 /// command built with a confirmation gate is a [`ConfirmationDecoratorCommand`]
 /// around the plain [`RelayCommand`]; a command built without one is the plain
 /// relay (spec `06-composite-vm.md` §7, ADR-0210).
+///
+/// `Command` has no downcast, so the concrete gated commands are also
+/// returned by [`update_confirmation`](Self::update_confirmation) and
+/// [`delete_confirmation`](Self::delete_confirmation), which reach their
+/// error streams and `execute_async`. [`dispose`](Self::dispose) disposes
+/// every command the helper built, as the helper's `Dispose` does in the
+/// other flavors.
 pub struct ModeledCrudCommands<VM: Clone + Send + 'static> {
     create_new_command: RelayCommand,
+    update_relay: RelayCommand,
+    delete_relay: RelayCommand,
+    update_confirmation: Option<ConfirmationDecoratorCommand<RelayCommand>>,
+    delete_confirmation: Option<ConfirmationDecoratorCommand<RelayCommand>>,
     update_current_command: Arc<dyn Command>,
     delete_current_command: Arc<dyn Command>,
-    _current_changed_subscription: Option<Subscription>,
+    current_changed_subscription: Option<Subscription>,
     _phantom: std::marker::PhantomData<VM>,
 }
 
@@ -148,11 +159,19 @@ impl<VM: Clone + Send + 'static> ModeledCrudCommands<VM> {
                 delete_hub.send(can_execute_changed_message());
             })
         });
+        let update_confirmation = confirm_update
+            .map(|confirm| ConfirmationDecoratorCommand::new(update.clone(), confirm));
+        let delete_confirmation = confirm_delete
+            .map(|confirm| ConfirmationDecoratorCommand::new(delete.clone(), confirm));
         Self {
             create_new_command,
-            update_current_command: gated(update, confirm_update),
-            delete_current_command: gated(delete, confirm_delete),
-            _current_changed_subscription: subscription,
+            update_current_command: public_command(&update, &update_confirmation),
+            delete_current_command: public_command(&delete, &delete_confirmation),
+            update_relay: update,
+            delete_relay: delete,
+            update_confirmation,
+            delete_confirmation,
+            current_changed_subscription: subscription,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -195,16 +214,102 @@ impl<VM: Clone + Send + 'static> ModeledCrudCommands<VM> {
     pub fn delete_current_command(&self) -> Arc<dyn Command> {
         self.delete_current_command.clone()
     }
+
+    /// Returns the gated update command, or `None` without a `confirm_update`
+    /// gate.
+    ///
+    /// It is the same command that
+    /// [`update_current_command`](Self::update_current_command) returns, with
+    /// its concrete type. Use it to observe the
+    /// [`error_stream`](ConfirmationDecoratorCommand::error_stream), where a
+    /// fire-and-forget `execute()` reports a panicking gate or action, or to
+    /// call [`execute_async`](ConfirmationDecoratorCommand::execute_async).
+    pub fn update_confirmation(&self) -> Option<ConfirmationDecoratorCommand<RelayCommand>> {
+        self.update_confirmation.clone()
+    }
+
+    /// Returns the gated delete command, or `None` without a `confirm_delete`
+    /// gate.
+    ///
+    /// It is the same command that
+    /// [`delete_current_command`](Self::delete_current_command) returns, with
+    /// its concrete type. Use it to observe the
+    /// [`error_stream`](ConfirmationDecoratorCommand::error_stream), where a
+    /// fire-and-forget `execute()` reports a panicking gate or action, or to
+    /// call [`execute_async`](ConfirmationDecoratorCommand::execute_async).
+    ///
+    /// ```
+    /// use std::{sync::mpsc, time::Duration};
+    /// use vmx::{AsyncValue, Command, ModeledCrudCommands, NO_CONFIRM, VmxError};
+    ///
+    /// let crud = ModeledCrudCommands::with_options(
+    ///     || Some(7),
+    ///     || {},
+    ///     |_: i32| {},
+    ///     |_| panic!("delete failed"),
+    ///     NO_CONFIRM,
+    ///     Some(|| AsyncValue::ready(true)),
+    ///     None,
+    /// );
+    /// assert!(crud.update_confirmation().is_none());
+    ///
+    /// let (sender, failures) = mpsc::channel();
+    /// let sender = std::sync::Mutex::new(sender);
+    /// let _failures = crud
+    ///     .delete_confirmation()
+    ///     .expect("delete is gated")
+    ///     .error_stream()
+    ///     .subscribe(move |error| sender.lock().unwrap().send(error).unwrap());
+    ///
+    /// // A fire-and-forget execution reports the panicking action here.
+    /// crud.delete_current_command().execute();
+    /// assert_eq!(
+    ///     failures.recv_timeout(Duration::from_secs(5)).unwrap(),
+    ///     VmxError::Other("command panicked: delete failed".into())
+    /// );
+    ///
+    /// // Disposal makes every command inert.
+    /// crud.dispose();
+    /// assert!(!crud.delete_current_command().can_execute());
+    /// ```
+    pub fn delete_confirmation(&self) -> Option<ConfirmationDecoratorCommand<RelayCommand>> {
+        self.delete_confirmation.clone()
+    }
+
+    /// Disposes the commands this helper built. Idempotent.
+    ///
+    /// It detaches the `current_changed` trigger, disposes any confirmation
+    /// decorators, which completes their error streams, and disposes the
+    /// create, update and delete relays, which makes them inert. This matches
+    /// the helper's `Dispose` in the other flavors (ADR-0210).
+    pub fn dispose(&self) {
+        if let Some(subscription) = &self.current_changed_subscription {
+            subscription.dispose();
+        }
+        for confirmation in [&self.update_confirmation, &self.delete_confirmation]
+            .into_iter()
+            .flatten()
+        {
+            confirmation.dispose();
+        }
+        for relay in [
+            &self.create_new_command,
+            &self.update_relay,
+            &self.delete_relay,
+        ] {
+            relay.dispose();
+        }
+    }
 }
 
-/// Wraps `command` in a confirmation decorator when a gate is supplied.
-fn gated<F>(command: RelayCommand, confirm: Option<F>) -> Arc<dyn Command>
-where
-    F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
-{
-    match confirm {
-        Some(confirm) => Arc::new(ConfirmationDecoratorCommand::new(command, confirm)),
-        None => Arc::new(command),
+/// Returns the gated command when one exists, else the plain relay.
+fn public_command(
+    relay: &RelayCommand,
+    confirmation: &Option<ConfirmationDecoratorCommand<RelayCommand>>,
+) -> Arc<dyn Command> {
+    match confirmation {
+        Some(confirmation) => Arc::new(confirmation.clone()),
+        None => Arc::new(relay.clone()),
     }
 }
 
@@ -259,6 +364,58 @@ mod tests {
             execution.wait().expect("the execution completed");
             assert_eq!(*updated.lock().unwrap(), expected, "answer = {answer}");
         }
+    }
+
+    // ADR-0210: `dispose` detaches the trigger, completes the gated
+    // command's error stream, and makes every command inert, gated or not.
+    #[test]
+    fn dispose_releases_every_command_the_helper_built() {
+        let trigger = MessageHub::new();
+        let crud = ModeledCrudCommands::with_options(
+            || Some(1),
+            || {},
+            |_| {},
+            |_| {},
+            NO_CONFIRM,
+            Some(|| AsyncValue::ready(true)),
+            Some(trigger.clone()),
+        );
+        let update_changes = crud
+            .update_current_command()
+            .can_execute_changed()
+            .record(16);
+        let completed = Arc::new(Mutex::new(0));
+        let _errors = {
+            let completed = completed.clone();
+            crud.delete_confirmation()
+                .expect("delete is gated")
+                .error_stream()
+                .subscribe_with_completion(|_| {}, move || *completed.lock().unwrap() += 1)
+        };
+
+        crud.dispose();
+        crud.dispose();
+
+        assert_eq!(
+            *completed.lock().unwrap(),
+            1,
+            "the error stream completed once"
+        );
+        assert!(!crud.create_new_command().can_execute());
+        assert!(!crud.update_current_command().can_execute());
+        assert!(!crud.delete_current_command().can_execute());
+        // The relay's own disposal announces a final eligibility change.
+        let after_dispose = update_changes.messages().len();
+        trigger.send(Message::Custom {
+            sender_id: 0,
+            sender_name: "selection".to_string(),
+            name: "current_changed".to_string(),
+        });
+        assert_eq!(
+            update_changes.messages().len(),
+            after_dispose,
+            "the trigger is detached"
+        );
     }
 
     // ADR-0049, ADR-0210: the trigger reaches gated commands too.
