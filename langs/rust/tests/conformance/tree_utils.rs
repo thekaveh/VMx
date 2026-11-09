@@ -353,7 +353,7 @@ fn models(nodes: Vec<TreeNodeRef>) -> Vec<String> {
         .collect()
 }
 
-/// Tree walks over invalid factory output (spec/13 §6, ADR-0170, #1060):
+/// Tree walks over invalid factory output (spec/13 §6.1, ADR-0170, #1060):
 /// `walk`, `walk_expanded` and `find` return the factory error instead of
 /// panicking, and the node stays unmaterialized so a later walk retries.
 #[test]

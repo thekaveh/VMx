@@ -755,6 +755,155 @@ public sealed class AsyncResourceVMConformanceTests
         await load;
     }
 
+    [Fact, Trait("Conformance", "ARES-012")]
+    public async Task ARES_012_Loader_Self_Cancellation_Restores_Idle_On_Initial_Load()
+    {
+        using var hub = new MessageHub();
+        using var foreign = new CancellationTokenSource();
+        var gate = NewSource();
+        var vm = Create(hub, async _ =>
+        {
+            await gate.Task;
+            foreign.Cancel();
+            throw new OperationCanceledException(foreign.Token);
+        });
+        var commandErrors = new List<Exception>();
+        using var subscription = vm.LoadCommand.Errors.Subscribe(commandErrors.Add);
+
+        var load = vm.LoadAsync();
+        vm.State.Status.Should().Be(AsyncResourceStatus.Loading);
+        gate.SetResult();
+        await load;
+
+        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+        vm.State.HasValue.Should().BeFalse();
+        vm.State.Error.Should().BeNull();
+        commandErrors.Should().BeEmpty();
+        vm.LoadCommand.CanExecute(null).Should().BeTrue();
+        vm.ReloadCommand.CanExecute(null).Should().BeFalse();
+        vm.CancelCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact, Trait("Conformance", "ARES-012")]
+    public async Task ARES_012_Loader_Self_Cancellation_Through_Load_Command_Emits_No_Error()
+    {
+        using var hub = new MessageHub();
+        var vm = Create(hub, _ => Task.FromCanceled<int>(new CancellationToken(true)));
+        var commandErrors = new List<Exception>();
+        var changes = new List<AsyncResourceStatus>();
+        using var subscription = vm.LoadCommand.Errors.Subscribe(commandErrors.Add);
+        vm.PropertyChanged += (_, _) => changes.Add(vm.State.Status);
+
+        vm.LoadCommand.Execute(null);
+        await WaitUntilAsync(() => changes.Count == 2);
+
+        changes.Should().Equal(AsyncResourceStatus.Loading, AsyncResourceStatus.Idle);
+        vm.State.Error.Should().BeNull();
+        commandErrors.Should().BeEmpty();
+        vm.LoadCommand.CanExecute(null).Should().BeTrue();
+        vm.ReloadCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact, Trait("Conformance", "ARES-012")]
+    public async Task ARES_012_Loader_Self_Cancellation_On_Discard_Reload_Restores_Idle()
+    {
+        using var hub = new MessageHub();
+        using var foreign = new CancellationTokenSource();
+        foreign.Cancel();
+        var cleaned = new List<int>();
+        var attempt = 0;
+        var vm = Create(hub, _ => ++attempt == 1
+            ? Task.FromResult(5)
+            : Task.FromException<int>(new OperationCanceledException(foreign.Token)),
+            cleanup: cleaned.Add);
+        var commandErrors = new List<Exception>();
+        using var subscription = vm.ReloadCommand.Errors.Subscribe(commandErrors.Add);
+
+        await vm.LoadAsync();
+        await vm.ReloadAsync();
+
+        cleaned.Should().Equal(5);
+        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+        vm.State.HasValue.Should().BeFalse();
+        vm.State.Error.Should().BeNull();
+        commandErrors.Should().BeEmpty();
+        vm.LoadCommand.CanExecute(null).Should().BeTrue();
+        vm.ReloadCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact, Trait("Conformance", "ARES-012")]
+    public async Task ARES_012_Loader_Self_Cancellation_On_Retained_Reload_Restores_Ready()
+    {
+        using var hub = new MessageHub();
+        using var foreign = new CancellationTokenSource();
+        foreign.Cancel();
+        var cleaned = new List<int>();
+        var attempt = 0;
+        var vm = Create(hub, _ => ++attempt == 1
+            ? Task.FromResult(5)
+            : Task.FromException<int>(new OperationCanceledException(foreign.Token)),
+            AsyncResourceRetention.RetainPrevious, cleaned.Add);
+        var commandErrors = new List<Exception>();
+        using var subscription = vm.ReloadCommand.Errors.Subscribe(commandErrors.Add);
+
+        await vm.LoadAsync();
+        vm.ReloadCommand.Execute(null);
+        await WaitUntilAsync(() => vm.State.Status != AsyncResourceStatus.Loading);
+
+        cleaned.Should().BeEmpty();
+        vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
+        vm.State.Value.Should().Be(5);
+        vm.State.Error.Should().BeNull();
+        commandErrors.Should().BeEmpty();
+        vm.LoadCommand.CanExecute(null).Should().BeFalse();
+        vm.ReloadCommand.CanExecute(null).Should().BeTrue();
+        vm.CancelCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact, Trait("Conformance", "ARES-012")]
+    public async Task ARES_012_Superseded_Loader_Cancellation_Is_Stale()
+    {
+        using var hub = new MessageHub();
+        using var foreign = new CancellationTokenSource();
+        var firstGate = NewSource();
+        var second = NewSource<int>();
+        var attempt = 0;
+        Task<int>? older = null;
+        async Task<int> OlderLoader()
+        {
+            await firstGate.Task;
+            foreign.Cancel();
+            throw new OperationCanceledException(foreign.Token);
+        }
+        var vm = Create(hub, _ => ++attempt == 2 ? second.Task : older = OlderLoader());
+
+        var load = vm.LoadAsync();
+        var reload = vm.ReloadAsync();
+        await load;
+        var notifications = 0;
+        vm.PropertyChanged += (_, _) => notifications++;
+        vm.LoadCommand.CanExecuteChanged += (_, _) => notifications++;
+        vm.ReloadCommand.CanExecuteChanged += (_, _) => notifications++;
+        vm.CancelCommand.CanExecuteChanged += (_, _) => notifications++;
+        var commandErrors = new List<Exception>();
+        using var loadErrors = vm.LoadCommand.Errors.Subscribe(commandErrors.Add);
+        using var reloadErrors = vm.ReloadCommand.Errors.Subscribe(commandErrors.Add);
+        firstGate.SetResult();
+        // The VM observes the older loader's completion synchronously, before
+        // this await resumes.
+        var olderCompletion = () => older!;
+        await olderCompletion.Should().ThrowAsync<OperationCanceledException>();
+
+        notifications.Should().Be(0);
+        commandErrors.Should().BeEmpty();
+        vm.State.Status.Should().Be(AsyncResourceStatus.Loading);
+        vm.CancelCommand.CanExecute(null).Should().BeTrue();
+        second.SetResult(8);
+        await reload;
+        vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
+        vm.State.Value.Should().Be(8);
+    }
+
     private static AsyncResourceVM<int> Create(
         IMessageHub hub,
         Func<CancellationToken, Task<int>> loader,

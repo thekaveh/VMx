@@ -479,11 +479,11 @@ describe("joined reconstructing child – the parent acts on the child's live st
     s.bg.runAll();
 
     expect(c.status).toBe(S.Disposed);
-    // The disposed child missed Destructed, so the parent rolls back.
+    // A child that reaches Disposed during the wait counts as settled, so the
+    // parent reaches Destructed (ADR-0189).
+    expect(p.status).toBe(S.Destructed);
+    // P's own guard is released, and its walks skip the disposed child.
+    expect(() => p.construct()).not.toThrow();
     expect(p.status).toBe(S.Constructed);
-    expect(p.canReconstruct()).toBe(true);
-    // P's own guard is released: a destruct reaches the disposed child, which
-    // rejects it, instead of P rejecting it from Destructing.
-    expect(() => p.destruct()).toThrow("Cannot destruct from state Disposed.");
   });
 });

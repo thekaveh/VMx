@@ -1,6 +1,6 @@
 # ADR 0173 — Selection commits without a membership transaction
 
-- **Status:** Accepted
+- **Status:** Accepted (extended by 0188 and 0189)
 - **Date:** 2026-11-07
 - **Spec version:** 3.30.0 (clarification of chapter 06 §3, §3.1, §3.2, §4.2,
   §4.3 and §5)
@@ -182,7 +182,8 @@ Rule 4 uses the "membership transaction in progress" error. The Swift
   destruct clear, from a child hook or from another thread, is not refused.
   `COMP-005` assumes no consumer selects while the composite destructs. A
   status check would need the lifecycle status under the membership gate,
-  which no flavor has.
+  which no flavor has. ADR-0188 replaces this bullet: a non-null selection
+  while the composite is `Destructing` changes nothing and raises nothing.
 - **No conformance ID.** As in ADR-0165, every rule is observable only while
   another operation is in flight. Each flavor covers the rules with its own
   tests. `COMP-005`, `COMP-025`, `COMP-026` and `COMP-040` keep covering the

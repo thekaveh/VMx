@@ -1277,7 +1277,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
 ///
 /// Returns the error of [`TreeNode::try_children_nodes`], such as
 /// [`VmxError::InvalidArgument`] for a [`HierarchicalVm`] whose lazy children
-/// factory returns structurally invalid output (spec/13 §6, ADR-0170). That
+/// factory returns structurally invalid output (spec/13 §6.1, ADR-0170). That
 /// node stays unmaterialized, and a later walk retries the factory.
 pub fn walk<T: TreeNode>(root: &T) -> VmxResult<Vec<TreeNodeRef>> {
     let mut nodes = Vec::new();
