@@ -31,8 +31,10 @@ Flavor limits (spec/09 introduction and §2):
 - Rust has no subclass overrides. `ForwardingComponentVm` offers
   `with_hint_override` and `with_model_hint`; `ForwardingCompositeVm` offers no
   override hooks.
-- TypeScript `ForwardingCompositeVM` cannot be a container child; the type
-  checker rejects the add. It also has no owned-resource helper.
+- Both TypeScript decorators expose the wrapped VM as `wrappedBase`. The
+  wrapped VM sends every hub message the decorator causes, so the React
+  `useVm` hook uses it to re-render a component bound to a decorator
+  (ADR-0213).
 
 The wrapped component and every decorator around it have one canonical
 ownership identity. Adding a decorator to a composite or group first removes

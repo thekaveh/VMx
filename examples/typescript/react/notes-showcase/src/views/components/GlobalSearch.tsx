@@ -9,8 +9,12 @@ export interface GlobalSearchProps {
 
 export const GlobalSearch: React.FC<GlobalSearchProps> = ({ ws }) => {
   const vm = useVm(ws.globalSearch);
-  const refresh = useCommand(vm.refreshCommand);
-  const loadMore = useCommand(vm.loadMoreCommand);
+  const refresh = useCommand(vm.refreshCommand, {
+    onError: (error) => ws.reportFailure("Search", error),
+  });
+  const loadMore = useCommand(vm.loadMoreCommand, {
+    onError: (error) => ws.reportFailure("Load more", error),
+  });
 
   const onSearchChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     vm.searchTerm = e.target.value;

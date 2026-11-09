@@ -8,7 +8,9 @@
  * Pure-VM contract (§6.1): this component holds no React state. The toolbar
  * commands come straight off `ws.newNotebookCommand` / `ws.newNoteCommand`
  * / `ws.exportCommand` via `useCommand`; the keymap is forwarded to
- * `useHotkeys`. All children get the bound sub-VM from the prop tree.
+ * `useHotkeys`. Each toolbar command reports a failed run through
+ * `ws.reportFailure`, which shows an error toast. All children get the bound
+ * sub-VM from the prop tree.
  */
 import type React from "react";
 
@@ -32,9 +34,15 @@ export interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ ws, dialog }) => {
-  const newNotebook = useCommand(ws.newNotebookCommand);
-  const newNote = useCommand(ws.newNoteCommand);
-  const exportCmd = useCommand(ws.exportCommand);
+  const newNotebook = useCommand(ws.newNotebookCommand, {
+    onError: (error) => ws.reportFailure("New notebook", error),
+  });
+  const newNote = useCommand(ws.newNoteCommand, {
+    onError: (error) => ws.reportFailure("New note", error),
+  });
+  const exportCmd = useCommand(ws.exportCommand, {
+    onError: (error) => ws.reportFailure("Export", error),
+  });
   const save = useCommand(ws.noteForm.approveCommand);
 
   // Hotkeys: Mod+N new note, Mod+Shift+N new notebook, Mod+E export, Mod+S save.

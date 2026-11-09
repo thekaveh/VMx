@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `ForwardingCompositeVM` extends `ComponentVMBase`, so `CompositeVM.add` and
+  `GroupVM.add` accept it (#1272, ADR-0213). It shares the ownership identity
+  of the wrapped composite: adding it removes the wrapped composite from its
+  previous container, and selection and current flags reach the wrapped
+  composite (`FWD-004`). The inherited `own()` and `ownMember()` register on
+  the wrapped composite (`FWD-005`).
+- `ForwardingCompositeVM.wrappedBase` returns the wrapped composite. The
+  existing `ForwardingComponentVM.wrappedBase` is now documented. The wrapped
+  VM sends every hub message a decorator causes, and `@thekaveh/vmx-react`
+  `useVm` uses this getter to re-render a component bound to a decorator
+  (#1350).
 - `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
   and `find` report invalid children-factory output as a recoverable error,
   assign no parent and retry the factory on the next walk; `find` returns a
@@ -98,6 +109,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   GRP-014 and COMP-046.
 
 ### Changed
+
+- The `ForwardingCompositeVM` selection command getters now return
+  `RelayCommand` instead of `ICommand` (#1272, ADR-0213). `RelayCommand`
+  implements `ICommand`, so existing callers still compile.
 
 - **Source-breaking:** `HierarchicalVMConstructionContext`, which the builder
   passes to `vmFactory`, now types `hub` and `dispatcher` as required (#665,

@@ -97,9 +97,18 @@ const resource = useAsyncResource(screen.data);   // discriminated async state
 Collection snapshots retain the same array identity while quiet and preserve
 the identity/order of VM items across add, remove, replace, reset, batch, and
 move events. `useCommand` subscribes to `canExecuteChanged`; consumers do not
-need a global polling render to refresh buttons. `useDerivedProperty` renders
-`undefined` until the property's first value and renders that value as soon as
-it arrives, including from a source that first emits after mount.
+need a global polling render to refresh buttons. An `AsyncRelayCommand` sends a
+rejected task to its `errors` channel, because `execute()` returns before the
+task settles. Pass `useCommand(command, { onError })` to receive each failure
+while the component is mounted; the hook unsubscribes on unmount and binds a
+command without `errors`, such as `RelayCommand`, as before. `useVm` also
+re-renders a component bound to a `ForwardingComponentVM` or
+`ForwardingCompositeVM`: it matches messages from the VM that the decorator's
+`wrappedBase` chain reaches. A `ForwardingCompositeVM` needs an
+`@thekaveh/vmx` release that contains ADR-0213; 3.30.0 does not.
+`useDerivedProperty` renders `undefined` until the property's first value and
+renders that value as soon as it arrives, including from a source that first
+emits after mount.
 
 ## 4. Conditional VMs and the Rules of Hooks
 
