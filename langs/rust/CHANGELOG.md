@@ -87,6 +87,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
   reaction stays authoritative, and a second call has no effect. Disposal
   never disposes the hub. Before this change, a kept command still resolved
   the hub after the host dropped the view model.
+- `HierarchicalVm<M, N = ()>` takes a node-data type `N`, the Rust form of a
+  `TVM` subclass (#1263, ADR-0202). `parent()`, `children()`, `path()`, the
+  children factory and `attach_many` use `HierarchicalVm<M, N>`, and
+  `node_data()` returns the node's own `N`. `HierarchicalVm::with_node_data`
+  and `HierarchicalVmBuilder::with_node_data` create such nodes, and
+  `TreeSelection<M, N = ()>` follows the node type. `N` defaults to `()`, so
+  code that names `HierarchicalVm<M>` or `TreeSelection<M>` is unchanged.
 
 ### Changed
 
@@ -141,6 +148,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   ADR-0178). Clones of the view model share the commands. A command holds
   only the shared notification state, so a kept command makes no reference
   cycle.
+- `TokenPagedComposition` requires `Token: Clone + Send + Sync + 'static` and
+  runs `Token::clone` with no pager lock held (#1278, ADR-0202). Clones of one
+  stored token no longer take turns, and a clone that reads the cursor again
+  on its own thread no longer blocks forever. A `Send`-only token, for
+  example one that holds a `Cell`, no longer compiles. Wrap its state in a
+  `Mutex` or an atomic.
 
 ### Fixed
 
@@ -256,10 +269,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   clone that waited for a refresh to finish, or for a start while another
   commit waited, blocked forever. The pager now stores the token behind its
   own lock, which no commit takes. A reader takes the cursor lock only to copy
-  that handle, and runs `Token::clone` after it releases the lock. The bound
-  stays `Token: Clone + Send + 'static`. The `current_token()` rustdoc states
-  the remaining limits: clones of one stored token take turns, and a clone
-  must not read the cursor again on its own thread.
+  that handle, and runs `Token::clone` after it releases the lock. #1278
+  later removed the token lock in this release.
 - The `CompositeVm` construct walk's `Current(selector)` assignment follows
   ADR-0165 (#1151). It skips a child that an add, insert, replacement or
   population has attached but not admitted, skips while disposal is pending,

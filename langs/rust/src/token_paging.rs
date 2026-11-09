@@ -226,24 +226,27 @@ impl RefreshPlan {
     }
 }
 
-/// The stored continuation token. The outer lock guards only the slot, and
-/// readers hold it just long enough to clone the `Arc`. `Token::clone` runs
-/// under the token's own lock, which no commit takes, so a clone can wait for
-/// any load or refresh of the same pager to start or commit (#1162).
-/// `Mutex<Token>` is `Sync` when `Token: Send`, so the pager keeps its
-/// `Token: Clone + Send + 'static` bound.
-type Cursor<Token> = Mutex<Option<Arc<Mutex<Token>>>>;
+/// The stored continuation token. The lock guards only the slot, and readers
+/// hold it just long enough to clone the `Arc`. `Token::clone` runs with no
+/// lock held, so a clone can wait for any load, refresh or other cursor read
+/// of the same pager, or read the cursor again on its own thread (#1162,
+/// #1278, ADR-0202). Readers share the stored token, so the pager requires
+/// `Token: Sync`.
+type Cursor<Token> = Mutex<Option<Arc<Token>>>;
 
 /// Clones the stored token with no pager lock held while `Token::clone` runs.
+///
+/// The reader's `Arc` drops after the clone, also with no lock held, so a
+/// last-reference `Token::drop` runs outside every pager lock.
 fn read_cursor<Token: Clone>(cursor: &Cursor<Token>) -> Option<Token> {
     let stored = lock(cursor).clone();
-    stored.map(|token| lock(&token).clone())
+    stored.map(|token| Token::clone(&token))
 }
 
 /// The values a cursor write displaced: the stored token it replaced, and a
 /// token it did not adopt. Callers drop them only after they release the
 /// commit, so `Token::drop` runs outside every pager lock.
-type CursorWrite<Token> = (Option<Arc<Mutex<Token>>>, Option<Token>);
+type CursorWrite<Token> = (Option<Arc<Token>>, Option<Token>);
 
 /// Stores `next` and its `has_more`, and returns the displaced token. No user
 /// code runs here: the slot swap moves an `Arc` and allocates a new one.
@@ -253,7 +256,7 @@ fn write_cursor<Token>(
     next: Option<Token>,
 ) -> CursorWrite<Token> {
     let more = next.is_some();
-    let stored = next.map(|token| Arc::new(Mutex::new(token)));
+    let stored = next.map(Arc::new);
     let displaced = std::mem::replace(&mut *lock(cursor), stored);
     *lock(has_more) = more;
     (displaced, None)
@@ -266,7 +269,7 @@ fn write_cursor<Token>(
 /// check, which makes the commit stale, or after the writes (#1045). No user
 /// code runs under `gate`. A commit holds it while it takes the cursor slot
 /// lock, but a reader holds that lock only to clone the stored `Arc`, never
-/// while `Token::clone` runs (#1162).
+/// while `Token::clone` runs (#1162, #1278).
 fn begin_operation(gate: &Mutex<()>, generation: &AtomicUsize) -> usize {
     let _start = lock(gate);
     generation.fetch_add(1, Ordering::SeqCst) + 1
@@ -371,9 +374,20 @@ impl Drop for TokenPagerCommit {
 
 #[derive(Clone)]
 /// An accumulated, forward-only page sequence driven by continuation tokens.
+///
+/// The token type is `Clone + Send + Sync + 'static`. Readers share one stored
+/// token and clone it with no pager lock held (spec/21 §6.1, ADR-0202). A
+/// `Send`-only token, such as one that holds a `Cell`, does not compile; keep
+/// its state in a `Mutex` or an atomic instead:
+///
+/// ```compile_fail
+/// use vmx::TokenPagedComposition;
+///
+/// let _pages = TokenPagedComposition::<i32, std::cell::Cell<u8>>::new(None);
+/// ```
 pub struct TokenPagedComposition<
     T: Clone + PartialEq + Send + 'static,
-    Token: Clone + Send + 'static,
+    Token: Clone + Send + Sync + 'static,
 > {
     id: usize,
     items: Arc<Mutex<Vec<T>>>,
@@ -388,7 +402,7 @@ pub struct TokenPagedComposition<
     operation_gate: Arc<Mutex<()>>,
 }
 
-impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
+impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static>
     TokenPagedComposition<T, Token>
 {
     /// Creates an empty pager whose default loader immediately reaches the end.
@@ -572,19 +586,11 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
     /// Returns the continuation token for the next page.
     ///
     /// The pager runs `Token::clone` here, and in each load's cursor read,
-    /// with no pager lock held. A clone can therefore wait for another thread
-    /// to start or commit a load or refresh of this pager (#1162). Two limits
-    /// remain, because every clone of one stored token runs under that
-    /// token's own lock:
-    ///
-    /// - Clones of the same stored token take turns. A `Token::clone` must
-    ///   not wait for another clone of that token, for example for a
-    ///   `current_token()` call or a load on another thread that reads the
-    ///   same cursor.
-    /// - The lock is not re-entrant. A `Token::clone` must not read the
-    ///   cursor again on its own thread, for example by calling
-    ///   `current_token()` or `load_more(loader)`, or by calling
-    ///   `load_next()` and joining its load. That call blocks forever.
+    /// with no pager lock held (#1162, #1278, ADR-0202). A clone can
+    /// therefore wait for another thread to start or commit a load or
+    /// refresh of this pager. Clones of one stored token can run at once,
+    /// because `Token: Sync`. A clone can also read the cursor again on its
+    /// own thread, for example through `current_token()`.
     pub fn current_token(&self) -> Option<Token> {
         read_cursor(&self.next_token)
     }
@@ -687,7 +693,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
     }
 }
 
-impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
+impl<T: VmNode, Token: Clone + Send + Sync + 'static> TokenPagedComposition<T, Token> {
     /// Creates a pager that constructs each loaded VM before publishing its reset.
     ///
     /// The token argument is retained for source compatibility and ignored.
