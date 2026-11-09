@@ -209,10 +209,14 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// sets its <see cref="HierarchicalParent"/>, and publishes
     /// <see cref="TreeStructureChangedMessage"/> on the hub.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">
+    /// This node or the child's current parent is disposed (spec/18 §7.1).
+    /// </exception>
     public void AddChild(TVM child)
     {
         RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(child, nameof(child));
+        ThrowIfDisposed();
         AttachChild(child, explicitReparent: false);
     }
 
@@ -220,10 +224,12 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// Removes <paramref name="child"/> from this node's <see cref="Children"/> list
     /// and publishes <see cref="TreeStructureChangedMessage"/> on the hub.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">This node is disposed (spec/18 §7.1).</exception>
     public void RemoveChild(TVM child)
     {
         RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(child, nameof(child));
+        ThrowIfDisposed();
 
         EnsureChildrenMaterialized();
         // Match by identity (not Equals) so a TVM overriding Equals cannot
@@ -247,16 +253,25 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// updating parent references and publishing a
     /// <see cref="TreeStructureChange.Reparented"/> message on the hub.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">
+    /// This node or the child's current parent is disposed (spec/18 §7.1).
+    /// </exception>
     public void ReparentChild(TVM child)
     {
         RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(child, nameof(child));
+        ThrowIfDisposed();
         AttachChild(child, explicitReparent: true);
     }
 
     private void AttachChild(TVM child, bool explicitReparent)
     {
         if (ReferenceEquals(child.HierarchicalParent, this)) return;
+        // A disposed parent's child list is frozen, so a transfer out of it
+        // refuses before any materialization or mutation (spec/18 §7.1).
+        if (child._hierarchicalParent is { } current && current.IsDisposed())
+            throw new ObjectDisposedException(current.Name,
+                $"Cannot move '{child.Name}' out of a disposed parent.");
         if (Path.Any(p => ReferenceEquals(p, child)))
             throw new InvalidOperationException(
                 $"Cannot reparent '{child.Name}' under '{Name}': it is this node or one of its ancestors (HIER-018).");
@@ -300,6 +315,9 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// structural root. Ordinary ingestion anomalies are returned as typed
     /// rejections; an existing same-key node is never replaced.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">
+    /// This node or its structural root is disposed (spec/18 §7.1).
+    /// </exception>
     public BatchAttachResult<TVM> AttachMany<TKey>(
         IEnumerable<TVM> items,
         Func<TVM, TKey> keyOf,
@@ -311,8 +329,10 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         ThrowHelper.ThrowIfNull(items, nameof(items));
         ThrowHelper.ThrowIfNull(keyOf, nameof(keyOf));
         ThrowHelper.ThrowIfNull(parentKeyOf, nameof(parentKeyOf));
+        ThrowIfDisposed();
 
         var root = GetTreeRoot();
+        root.ThrowIfDisposed();
         var incoming = items.ToList();
         var parked = root._parkedAttachItems.ToList();
         root._parkedAttachItems.Clear();
@@ -534,9 +554,16 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// access invokes the children factory again. Invalidating an unmaterialized
     /// node is a no-op.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">This node is disposed (spec/18 §7.1).</exception>
     public void InvalidateChildren()
     {
         RejectStructuralReentry();
+        ThrowIfDisposed();
+        DropChildren();
+    }
+
+    private void DropChildren()
+    {
         if (_children is null) return;
         foreach (var child in _children)
         {
@@ -552,14 +579,24 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
     /// <summary>
     /// Drops cached children for this node and all materialized descendants.
+    /// A disposed descendant keeps its cache, but its materialized children
+    /// are still visited (spec/18 §7.1).
     /// </summary>
+    /// <exception cref="ObjectDisposedException">This node is disposed (spec/18 §7.1).</exception>
     public void InvalidateSubtree()
+    {
+        RejectStructuralReentry();
+        ThrowIfDisposed();
+        DropSubtree();
+    }
+
+    private void DropSubtree()
     {
         RejectStructuralReentry();
         if (_children is null) return;
         foreach (var child in _children.ToArray())
-            child.InvalidateSubtree();
-        InvalidateChildren();
+            child.DropSubtree();
+        if (!IsDisposed()) DropChildren();
     }
 
     /// <inheritdoc/>
@@ -630,6 +667,17 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         _materializationReentered = true;
         throw new InvalidOperationException(
             "The children factory re-entered a structural operation on its receiver.");
+    }
+
+    /// <summary>
+    /// A disposed node's child list is frozen: every structural call on it
+    /// refuses, also one that would do nothing (spec/18 §7.1, ADR-0190).
+    /// </summary>
+    private void ThrowIfDisposed()
+    {
+        if (IsDisposed())
+            throw new ObjectDisposedException(Name,
+                "A disposed tree node refuses structural calls.");
     }
 
     private TVM GetTreeRoot()

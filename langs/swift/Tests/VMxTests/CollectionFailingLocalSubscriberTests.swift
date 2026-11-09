@@ -1,16 +1,18 @@
 //
 // CollectionFailingLocalSubscriberTests.swift — COL-066 structural coverage.
 //
-// Claimed IDs: COL-066.
+// Claimed IDs: COL-066, COL-069.
 //
 // COL-066 requires that a failing local subscriber does not suppress the hub
 // message (spec/01-concepts.md §1.4, spec/21-collections.md §2.5, ADR-0171).
 // In Swift a local subscriber cannot fail: every local publisher has the
 // failure type `Never`, and a Combine `sink` closure cannot throw. These tests
-// pin that structure and the delivery a local subscriber still sees.
+// pin that structure and the delivery a local subscriber still sees. COL-069
+// adds that every later local subscriber receives each change once
+// (spec/03-messages.md §3.6, ADR-0191).
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import Combine
 import XCTest
@@ -63,5 +65,39 @@ final class CollectionFailingLocalSubscriberTests: XCTestCase {
         XCTAssertEqual(keyed.get("b"), "b")
         XCTAssertEqual(dictionary.get("c", 1), "one")
         XCTAssertEqual(order, ["local", "hub", "local", "hub", "local", "hub"])
+    }
+
+    /// COL-069 — structural: no local subscriber can fail, so two local
+    /// subscribers each receive every change once, and each change sends one
+    /// hub message. In the dictionary this holds for one granular event too.
+    func testCOL069EveryLocalSubscriberReceivesEachChangeOnce() throws {
+        let hub = MessageHub()
+        let serviced = ServicedObservableCollection<String>(hub: hub)
+        let keyed = KeyedServicedObservableCollection<String, String>(keyOf: { $0 }, hub: hub)
+        let dictionary = ObservableDictionary<String, Int, String>(hub: hub)
+        var hubMessages = 0
+        hub.messages.sink { _ in hubMessages += 1 }.store(in: &cancellables)
+
+        var servicedA = 0, servicedB = 0
+        serviced.collectionChanged.sink { _ in servicedA += 1 }.store(in: &cancellables)
+        serviced.collectionChanged.sink { _ in servicedB += 1 }.store(in: &cancellables)
+        serviced.append("a")
+        serviced.append("b")
+        XCTAssertEqual([servicedA, servicedB, hubMessages], [2, 2, 2])
+
+        var keyedA = 0, keyedB = 0
+        keyed.collectionChanged.sink { _ in keyedA += 1 }.store(in: &cancellables)
+        keyed.collectionChanged.sink { _ in keyedB += 1 }.store(in: &cancellables)
+        try keyed.append("c")
+        try keyed.append("d")
+        XCTAssertEqual([keyedA, keyedB, hubMessages], [2, 2, 4])
+
+        var addedA = 0, addedB = 0
+        dictionary.itemAdded.sink { _ in addedA += 1 }.store(in: &cancellables)
+        dictionary.itemAdded.sink { _ in addedB += 1 }.store(in: &cancellables)
+        try dictionary.add("e", 1, "one")
+        try dictionary.add("f", 2, "two")
+        XCTAssertEqual([addedA, addedB], [2, 2])
+        XCTAssertEqual(hubMessages, 6)
     }
 }

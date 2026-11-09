@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Reactive.Concurrency;
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using FluentAssertions;
 using VMx.Components;
@@ -8,6 +11,7 @@ using VMx.Messages;
 using VMx.Services;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -117,7 +121,9 @@ public class GRP_014_COMP_046_ReverseDestructOrder_Tests
         var builder = CompositeVM<ComponentVM<string>>.Builder()
             .Name("composite").Services(hub, Dispatcher)
             .Children(() => Names.Select(name => Child(hub, name)).ToArray())
-            // A current child is cleared before the children are destructed.
+            // A current child is cleared before the children are destructed;
+            // COMP_046_Reverse_Clears_Current_Before_The_First_Child_Destructs
+            // checks it.
             .Current(children => children.Last());
         if (order == ChildOrder.Reverse) builder = builder.DestructOrder(ChildOrder.Reverse);
         var log = Record(hub);
@@ -158,4 +164,130 @@ public class GRP_014_COMP_046_ReverseDestructOrder_Tests
 
         AssertOrder(hub, builder.Build(), log, order);
     }
+
+    [Fact, Trait("Conformance", "COMP-046")]
+    public void COMP_046_Reverse_Clears_Current_Before_The_First_Child_Destructs()
+    {
+        var hub = new MessageHub();
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite").Services(hub, Dispatcher)
+            .Children(() => Names.Select(name => Child(hub, name)).ToArray())
+            .Current(children => children.Last())
+            .DestructOrder(ChildOrder.Reverse)
+            .Build();
+        composite.Construct();
+        composite.Current.Should().NotBeNull();
+        var currentAtFirstDestructing = new List<ComponentVM<string>?>();
+        using var probe = hub.Messages.OfType<ConstructionStatusChangedMessage>()
+            .Where(m => m.Status == ConstructionStatus.Destructing && m.SenderName != composite.Name)
+            .Subscribe(_ =>
+            {
+                if (currentAtFirstDestructing.Count == 0)
+                    currentAtFirstDestructing.Add(composite.Current);
+            });
+        var log = Record(hub);
+
+        composite.Destruct();
+
+        currentAtFirstDestructing.Should().Equal([null], "Current is cleared before the first child destructs");
+        log.Should().Equal(Expect(ConstructionStatus.Destructed, ["c", "b", "a"], composite.Name));
+        hub.Dispose();
+    }
+
+    // ── Background children: the walk waits for each child before the next ──
+
+    /// <summary>A scheduler whose queued work runs only when a test drains it.</summary>
+    private sealed class ManualScheduler : IScheduler
+    {
+        private readonly ConcurrentQueue<Action> _queue = new();
+
+        public DateTimeOffset Now => DateTimeOffset.UtcNow;
+
+        public IDisposable Schedule<TState>(TState state, Func<IScheduler, TState, IDisposable> action)
+        {
+            _queue.Enqueue(() => action(this, state));
+            return Disposable.Empty;
+        }
+
+        public IDisposable Schedule<TState>(
+            TState state, TimeSpan dueTime, Func<IScheduler, TState, IDisposable> action)
+            => Schedule(state, action);
+
+        public IDisposable Schedule<TState>(
+            TState state, DateTimeOffset dueTime, Func<IScheduler, TState, IDisposable> action)
+            => Schedule(state, action);
+
+        public int Pending => _queue.Count;
+
+        /// <summary>Runs the work queued so far, in order.</summary>
+        public void RunPending()
+        {
+            for (var count = _queue.Count; count > 0 && _queue.TryDequeue(out var work); count--)
+                work();
+        }
+
+        /// <summary>
+        /// Runs queued work until <paramref name="done"/> holds. A walk resumes
+        /// through a pool thread, so an empty queue alone does not mean the walk
+        /// has finished.
+        /// </summary>
+        public void RunUntil(Func<bool> done)
+        {
+            // A monotonic clock: a wall-clock step cannot move the deadline.
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            while (!done())
+            {
+                if (elapsed.Elapsed > HangGuard) throw new TimeoutException("the condition did not hold");
+                RunPending();
+                Thread.Sleep(1);
+            }
+        }
+    }
+
+    private static void AssertBackgroundWaits(
+        Func<MessageHub, IDispatcher, IEnumerable<ComponentVM<string>>, IComponentVM> make)
+    {
+        var background = new ManualScheduler();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, background);
+        var hub = new MessageHub();
+        var children = Names
+            .Select(name => ComponentVM<string>.Builder()
+                .Name(name).Services(hub, dispatcher).Model(name).Background(true).Build())
+            .ToArray();
+        var parent = make(hub, dispatcher, children);
+        var construct = parent.ConstructAsync();
+        // The walk resumes on a pool thread, so wait for the whole construct.
+        background.RunUntil(() => construct.IsCompleted);
+        construct.Status.Should().Be(TaskStatus.RanToCompletion);
+        parent.Status.Should().Be(ConstructionStatus.Constructed);
+        var log = Record(hub);
+
+        parent.Destruct();
+
+        // The walk starts only the last child and waits for it to settle.
+        children.Select(child => child.Status).Should().Equal(
+            ConstructionStatus.Constructed, ConstructionStatus.Constructed, ConstructionStatus.Destructing);
+        var vm = (ComponentVMBase)parent;
+        background.RunUntil(() =>
+            parent.Status == ConstructionStatus.Destructed && !vm.HasInFlightLifecycleForTesting);
+        log.Should().Equal(Expect(ConstructionStatus.Destructed, ["c", "b", "a"], parent.Name));
+        hub.Dispose();
+    }
+
+    [Fact, Trait("Conformance", "GRP-014")]
+    public void GRP_014_Reverse_Waits_For_Background_Children_Last_First()
+        => AssertBackgroundWaits((hub, dispatcher, children) => GroupVM<ComponentVM<string>>.Builder()
+            .Name("group").Services(hub, dispatcher)
+            .Children(() => children)
+            .DestructOrder(ChildOrder.Reverse)
+            .Build());
+
+    [Fact, Trait("Conformance", "COMP-046")]
+    public void COMP_046_Reverse_Waits_For_Background_Children_Last_First()
+        => AssertBackgroundWaits((hub, dispatcher, children) => CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite").Services(hub, dispatcher)
+            .Children(() => children)
+            .Current(items => items.Last())
+            .DestructOrder(ChildOrder.Reverse)
+            .Build());
 }

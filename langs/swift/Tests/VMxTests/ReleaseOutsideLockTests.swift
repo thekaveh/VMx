@@ -7,7 +7,7 @@
 // regression fails instead of hanging the suite.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -42,7 +42,7 @@ final class ReleaseOutsideLockTests: XCTestCase {
             do { try body() } catch { failure.value = error }
             done.fulfill()
         }
-        wait(for: [done], timeout: 5)
+        wait(for: [done], timeout: hangGuard)
         if let error = failure.value { XCTFail("\(description) threw \(error)") }
     }
 

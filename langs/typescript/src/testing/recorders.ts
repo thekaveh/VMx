@@ -1,5 +1,6 @@
 import { Subscription } from "rxjs";
 import type { ObservableList } from "../collections/observableList.js";
+import type { ReadOnlyObservableList } from "../collections/readOnlyObservableList.js";
 import {
   CollectionChangedMessage,
   type CollectionMutationAction,
@@ -110,7 +111,7 @@ export class ObservableListRecorder<T> {
   readonly #records: ObservableListChange<T>[] = [];
   readonly #subscriptions = new Subscription();
 
-  constructor(list: ObservableList<T>) {
+  constructor(list: ObservableList<T> | ReadOnlyObservableList<T>) {
     this.#subscriptions.add(list.itemAdded.subscribe(({ item, index }) => {
       this.#records.push({
         action: "add",
@@ -166,6 +167,8 @@ export class ObservableListRecorder<T> {
   }
 }
 
-export function recordObservableList<T>(list: ObservableList<T>): ObservableListRecorder<T> {
+export function recordObservableList<T>(
+  list: ObservableList<T> | ReadOnlyObservableList<T>,
+): ObservableListRecorder<T> {
   return new ObservableListRecorder(list);
 }

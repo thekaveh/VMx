@@ -280,6 +280,12 @@ async def test_every_control_is_on_screen_and_clickable(size: tuple[int, int]) -
         for button in actions:
             assert screen.contains_region(button.region), f"{button.id} at {button.region}"
             assert await pilot.hover(button), f"{button.id} is covered or clipped"
+        # ADR-0201 §2.4: the theme control strip has six buttons.
+        theme_buttons = list(app.query("#theme_controls Button"))
+        assert len(theme_buttons) == 6
+        for button in theme_buttons:
+            assert screen.contains_region(button.region), f"{button.id} at {button.region}"
+            assert await pilot.hover(button), f"{button.id} is covered or clipped"
         for selector in _CONTROLS:
             widget = app.query_one(selector)
             widget.scroll_visible(animate=False, immediate=True)

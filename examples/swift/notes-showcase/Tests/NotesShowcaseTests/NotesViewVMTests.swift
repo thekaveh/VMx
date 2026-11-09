@@ -244,6 +244,39 @@ final class NotesViewVMTests: XCTestCase {
         XCTAssertEqual(before, vm.filteredItems.count)
     }
 
+    // MARK: - ADR-0201 §2.1 selection after a refilter or a page change
+
+    /// ADR-0201 §2.1 — a search, the starred filter and a page change never
+    /// change `current`; the note is visible again once the filter clears.
+    func testSearchStarredFilterAndPageChange_keepCurrent() async throws {
+        let (vm, _) = try await buildAndBind(notebookId: "nb-reviews", pageSize: 5)
+        let note = try XCTUnwrap(vm.visibleItems.first { $0.title == "Vendor shortlist" })
+        vm.current = note
+
+        vm.searchTerm = "Q1"
+        vm.search()
+        XCTAssertFalse(vm.visibleItems.contains { $0 === note })
+        XCTAssertTrue(vm.current === note)
+        vm.searchTerm = ""
+        vm.search()
+        XCTAssertTrue(vm.current === note)
+        XCTAssertTrue(vm.visibleItems.contains { $0 === note })
+
+        vm.showStarredOnly = true
+        XCTAssertFalse(vm.visibleItems.contains { $0 === note })
+        XCTAssertTrue(vm.current === note)
+        vm.showStarredOnly = false
+        XCTAssertTrue(vm.current === note)
+        XCTAssertTrue(vm.visibleItems.contains { $0 === note })
+
+        vm.moveToNextPageCommand.execute()
+        XCTAssertFalse(vm.visibleItems.contains { $0 === note })
+        XCTAssertTrue(vm.current === note)
+        vm.moveToPreviousPageCommand.execute()
+        XCTAssertTrue(vm.current === note)
+        XCTAssertTrue(vm.visibleItems.contains { $0 === note })
+    }
+
     // MARK: - bindTo to a different notebook
 
     func testBindTo_different_notebook_swaps_items() async throws {

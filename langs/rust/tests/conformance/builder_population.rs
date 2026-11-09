@@ -178,7 +178,13 @@ macro_rules! concurrent_construct_test {
                 move || container.construct()
             });
             entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-            assert_eq!(container.construct(), Err(VmxError::ConcurrentOperation));
+            assert_eq!(
+                container.construct(),
+                Err(VmxError::InvalidLifecycleTransition {
+                    from: ConstructionStatus::Constructing,
+                    operation: "construct",
+                })
+            );
             assert_eq!(container.status(), ConstructionStatus::Constructing);
             release_tx.send(()).unwrap();
             first.join().unwrap().unwrap();

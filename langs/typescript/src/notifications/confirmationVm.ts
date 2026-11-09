@@ -26,6 +26,9 @@ export class ConfirmationVM extends NotificationVM {
   readonly approveCommand: RelayCommand;
   readonly rejectCommand: RelayCommand;
 
+  /** Set first in dispose(), so both commands report canExecute false (ADR-0196). */
+  #disposing = false;
+
   constructor(
     notification: Notification,
     hub: INotificationHub,
@@ -43,10 +46,12 @@ export class ConfirmationVM extends NotificationVM {
 
     this.approveCommand = RelayCommand.builder()
       .task(() => this.resolveWith(NotificationReaction.Approve))
+      .predicate(() => !this.#disposing)
       .build();
 
     this.rejectCommand = RelayCommand.builder()
       .task(() => this.resolveWith(NotificationReaction.Reject))
+      .predicate(() => !this.#disposing)
       .build();
   }
 
@@ -72,9 +77,11 @@ export class ConfirmationVM extends NotificationVM {
   /**
    * Delegates to base dispose, then disposes the commands. The base marks the
    * VM disposed first, so an observer that runs while a command is disposed
-   * cannot resolve the hub (#753).
+   * cannot resolve the hub (#753). Every command reports `canExecute()` false
+   * from the start of this call (spec/16 §6.2, ADR-0196).
    */
   override dispose(): void {
+    this.#disposing = true;
     super.dispose();
     this.approveCommand.dispose();
     this.rejectCommand.dispose();

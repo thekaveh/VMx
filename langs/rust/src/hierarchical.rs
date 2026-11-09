@@ -4,10 +4,10 @@
 
 use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
-    ConstructionStatus, Expandable, Hash, HashMap, HashSet, Message, MessageHub, Mutex,
-    NullDispatcher, ParentHandle, PropertyChangedMessage, PropertyChangedStream, ThreadId,
-    TreeNode, TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak,
-    HIERARCHY_TOPOLOGY_GATE,
+    ConstructionStatus, Dispatcher, Expandable, ExpandableState, Hash, HashMap, HashSet, Message,
+    MessageHub, Mutex, NullDispatcher, OnceLock, ParentHandle, PropertyChangedMessage,
+    PropertyChangedStream, ThreadId, TreeNode, TreeNodeRef, TreeStructureChange,
+    TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak, HIERARCHY_TOPOLOGY_GATE,
 };
 
 type HierChildrenFactory<M, N> =
@@ -94,8 +94,11 @@ struct ChildrenMaterializationState {
 
 /// A recursive modeled VM with lazy children and derived topology properties.
 ///
-/// Hierarchies do not implicitly opt in to expansion; consumers compose
-/// [`crate::ExpandableState`] in a wrapper when expanded traversal is needed:
+/// Hierarchies do not implicitly opt in to expansion. A consumer composes an
+/// [`ExpandableState`] with [`compose_expansion`](Self::compose_expansion)
+/// when expanded traversal is needed, and [`walk_expanded`] then stops at the
+/// node while the state is collapsed (spec/18 §9, ADR-0207). The node itself
+/// does not implement [`Expandable`]:
 ///
 /// ```compile_fail
 /// use vmx::{Expandable, HierarchicalVm};
@@ -136,6 +139,8 @@ struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static, N: Send
     eager_children: Arc<Mutex<bool>>,
     parked_attach_items: Arc<Mutex<Vec<HierarchicalVm<M, N>>>>,
     hub: MessageHub,
+    /// The composed expansion capability, set at most once.
+    expansion: OnceLock<ExpandableState>,
 }
 
 impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
@@ -222,9 +227,45 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 eager_children: Arc::new(Mutex::new(eager_children)),
                 parked_attach_items: Arc::new(Mutex::new(Vec::new())),
                 hub,
+                expansion: OnceLock::new(),
             }),
             materialization_context: None,
         }
+    }
+
+    /// Composes `expansion` as this node's opt-in expansion capability.
+    ///
+    /// [`TreeNode::expandable`] then returns it, so [`walk_expanded`] yields
+    /// this node but not its descendants while `expansion` is collapsed.
+    /// Clones of the node share the composition. The node does not dispose
+    /// the state; the caller keeps that ownership.
+    ///
+    /// ```
+    /// use vmx::{walk_expanded, ExpandableState, HierarchicalVm};
+    ///
+    /// let root = HierarchicalVm::new("root", "root".to_string());
+    /// root.add_child(HierarchicalVm::new("child", "child".to_string())).unwrap();
+    /// let expansion = ExpandableState::new();
+    /// root.compose_expansion(expansion.clone()).unwrap();
+    /// assert_eq!(walk_expanded(&root).unwrap().len(), 1);
+    ///
+    /// expansion.expand();
+    /// assert_eq!(walk_expanded(&root).unwrap().len(), 2);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::InvalidArgument`] when the node already composes
+    /// an expansion state; the first composition stays.
+    pub fn compose_expansion(&self, expansion: ExpandableState) -> VmxResult<()> {
+        self.inner.expansion.set(expansion).map_err(|_| {
+            VmxError::InvalidArgument("the node already composes an expansion state".to_string())
+        })
+    }
+
+    /// Returns the composed expansion state, when present.
+    pub fn expansion(&self) -> Option<&ExpandableState> {
+        self.inner.expansion.get()
     }
 
     /// Returns this node's own consumer node data. Clones of this node share it.
@@ -253,7 +294,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Returns this node's hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.inner.component.hint()
     }
 
@@ -280,6 +321,38 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         self.inner.component.notify_property_changed(property_name);
     }
 
+    /// Replaces the hook invoked during construction (spec/02 §2.2,
+    /// ADR-0203).
+    ///
+    /// The hook runs once in the `Constructing` phase, before an eager node
+    /// constructs its children. An `Err` (or a panic) rolls the node back to
+    /// `Destructed`, as for [`ComponentVm::on_construct`]. The hook must not
+    /// capture this node or a value that holds it (#750).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_construct(hook);
+    }
+
+    /// Replaces the hook invoked during destruction (spec/02 §2.2,
+    /// ADR-0203). The hook must not capture this node (#750).
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_destruct(hook);
+    }
+
+    /// Replaces the hook invoked during disposal (spec/02 §2.2, ADR-0203).
+    /// The hook must not capture this node (#750).
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_dispose(hook);
+    }
+
     /// Returns this node's parent, when attached.
     pub fn parent(&self) -> Option<Self> {
         let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
@@ -297,14 +370,26 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Adds or transfers `child` beneath this node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::Disposed`] when this node or the child's current
+    /// parent is disposed, also when the call would do nothing (spec/18 §7.1).
     pub fn add_child(&self, child: Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
+        self.reject_if_disposed()?;
         self.attach_child(&child, false)
     }
 
     /// Removes `child` from this node without disposing it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::Disposed`] when this node is disposed, also when
+    /// `child` is not a member (spec/18 §7.1).
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
+        self.reject_if_disposed()?;
         self.try_children()?;
         let removed = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
@@ -336,12 +421,23 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Transfers `child` from its current parent beneath this node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::Disposed`] when this node or the child's current
+    /// parent is disposed (spec/18 §7.1).
     pub fn reparent_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
+        self.reject_if_disposed()?;
         self.attach_child(child, true)
     }
 
     fn attach_child(&self, child: &Self, explicit_reparent: bool) -> VmxResult<()> {
+        // A disposed parent's child list is frozen, so a transfer out of it
+        // refuses before the receiver materializes (spec/18 §7.1).
+        if let Some(parent) = child.parent() {
+            parent.reject_if_disposed()?;
+        }
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
         let (reparented, index) = loop {
@@ -351,8 +447,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 if lock(&self.inner.children).is_none() {
                     None
                 } else {
-                    self.ensure_not_reparenting_cycle_unlocked(child)?;
                     let old_parent = child.parent_unlocked();
+                    // Check again: the parent can change during materialization.
+                    if let Some(parent) = &old_parent {
+                        parent.reject_if_disposed()?;
+                    }
+                    self.ensure_not_reparenting_cycle_unlocked(child)?;
                     if old_parent.as_ref() == Some(self) {
                         return Ok(());
                     }
@@ -399,6 +499,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Attaches an out-of-order batch by stable item and parent keys.
+    ///
+    /// When this node or its structural root is disposed, every item is
+    /// returned as an [`BatchAttachRejectionReason::AttachmentFailed`]
+    /// rejection and nothing is parked (spec/18 §7.1).
     pub fn attach_many<K, FKey, FParent>(
         &self,
         items: Vec<Self>,
@@ -411,7 +515,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         FKey: Fn(&Self) -> VmxResult<K>,
         FParent: Fn(&Self) -> VmxResult<Option<K>>,
     {
-        if let Err(error) = self.reject_structural_reentry() {
+        let refused = self.reject_structural_reentry().and_then(|()| {
+            self.reject_if_disposed()?;
+            self.tree_root().reject_if_disposed()
+        });
+        if let Err(error) = refused {
             return BatchAttachResult {
                 added: Vec::new(),
                 duplicates: Vec::new(),
@@ -783,8 +891,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Detaches materialized children so the factory runs on the next read.
+    ///
+    /// A disposed node returns without a change (spec/18 §7.1).
     pub fn invalidate_children(&self) {
-        if self.reject_structural_reentry().is_err() {
+        if self.reject_structural_reentry().is_err() || self.reject_if_disposed().is_err() {
             return;
         }
         let discarded = {
@@ -815,14 +925,25 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
     }
 
     /// Invalidates this node and every currently materialized descendant.
+    ///
+    /// A disposed node returns without a change. A disposed descendant keeps
+    /// its cache, and its materialized children are still invalidated
+    /// (spec/18 §7.1).
     pub fn invalidate_subtree(&self) {
+        if self.reject_structural_reentry().is_err() || self.reject_if_disposed().is_err() {
+            return;
+        }
+        self.invalidate_subtree_from_live_ancestor();
+    }
+
+    fn invalidate_subtree_from_live_ancestor(&self) {
         if self.reject_structural_reentry().is_err() {
             return;
         }
         let materialized_children = lock(&self.inner.children).clone();
         if let Some(children) = materialized_children {
             for child in children {
-                child.invalidate_subtree();
+                child.invalidate_subtree_from_live_ancestor();
             }
             self.invalidate_children();
         }
@@ -1063,6 +1184,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         ready.notify_all();
     }
 
+    /// Refuses a structural call on a disposed node (spec/18 §7.1).
+    fn reject_if_disposed(&self) -> VmxResult<()> {
+        if self.status() == ConstructionStatus::Disposed {
+            return Err(VmxError::Disposed);
+        }
+        Ok(())
+    }
+
     fn reject_structural_reentry(&self) -> VmxResult<()> {
         let current = thread::current().id();
         let mut state = lock(&self.inner.materializing_children.0);
@@ -1160,20 +1289,24 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> VmN
 impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> TreeNode
     for HierarchicalVm<M, N>
 {
-    /// Returns [`HierarchicalVm::children`].
-    ///
-    /// # Panics
-    ///
-    /// Panics under the same conditions as [`HierarchicalVm::children`].
-    fn children_nodes(&self) -> Vec<Self> {
-        self.children()
-    }
-
     /// Returns [`HierarchicalVm::try_children`], which [`walk`],
     /// [`walk_expanded`] and [`find`] use. Invalid factory output returns the
     /// error and leaves this node unmaterialized and retryable (ADR-0170).
-    fn try_children_nodes(&self) -> VmxResult<Vec<Self>> {
-        self.try_children()
+    fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        Ok(self
+            .try_children()?
+            .into_iter()
+            .map(TreeNodeRef::new)
+            .collect())
+    }
+
+    /// Returns the composed [`ExpandableState`], when present, so
+    /// [`walk_expanded`] stops at a collapsed node.
+    fn expandable(&self) -> Option<&dyn Expandable> {
+        self.inner
+            .expansion
+            .get()
+            .map(|expansion| expansion as &dyn Expandable)
     }
 }
 
@@ -1190,7 +1323,7 @@ pub struct HierarchicalVmBuilder<
     model: Option<M>,
     node_data: N,
     children_factory: Option<HierChildrenFactory<M, N>>,
-    services: Option<(MessageHub, NullDispatcher)>,
+    hub: Option<MessageHub>,
     hint: Option<String>,
     eager_children: bool,
 }
@@ -1218,7 +1351,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
             model: None,
             node_data,
             children_factory: None,
-            services: None,
+            hub: None,
             hint: Some(String::new()),
             eager_children: false,
         }
@@ -1239,9 +1372,15 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
         self
     }
 
-    /// Sets the hub and null dispatcher services.
-    pub fn services(mut self, hub: MessageHub, dispatcher: NullDispatcher) -> Self {
-        self.services = Some((hub, dispatcher));
+    /// Sets the required hub and dispatcher services.
+    ///
+    /// It accepts any [`Dispatcher`], as the other builders do. The built
+    /// hierarchy keeps only the hub: it runs no dispatched work and has no
+    /// background option, so this method drops `dispatcher`, and every node
+    /// uses a [`NullDispatcher`] (ADR-0009, ADR-0206).
+    pub fn services<D: Dispatcher>(mut self, hub: MessageHub, dispatcher: D) -> Self {
+        drop(dispatcher);
+        self.hub = Some(hub);
         self
     }
 
@@ -1269,8 +1408,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
         let factory = self.children_factory.ok_or_else(|| {
             VmxError::BuilderValidation("children_factory is required".to_string())
         })?;
-        let (hub, _dispatcher) = self
-            .services
+        let hub = self
+            .hub
             .ok_or_else(|| VmxError::BuilderValidation("services are required".to_string()))?;
         let node_data = self.node_data;
         let node = HierarchicalVm::with_node_data(
@@ -1282,7 +1421,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
             hub,
         );
         if let Some(hint) = self.hint {
-            node.inner.component.core.set_hint(Some(hint));
+            node.inner.component.core.set_hint(hint);
         }
         Ok(node)
     }
@@ -1290,43 +1429,59 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
 
 /// Returns a depth-first pre-order snapshot rooted at `root`.
 ///
+/// The walk yields `root`, then descends through each node's
+/// [`TreeNode::try_children_nodes`]: the children of a `CompositeVm` or
+/// `GroupVm`, the present components of an aggregate in `component_1`,
+/// `component_2`, … order, and the children of a `HierarchicalVm` (spec/13
+/// §2, ADR-0207). A leaf yields only itself.
+///
+/// ```
+/// use vmx::{walk, ComponentVm, CompositeVm};
+///
+/// let root = CompositeVm::new("root");
+/// root.add(ComponentVm::<()>::new("a")).unwrap();
+/// root.add(ComponentVm::<()>::new("b")).unwrap();
+/// assert_eq!(walk(&root).unwrap().len(), 3);
+/// ```
+///
 /// # Errors
 ///
 /// Returns the error of [`TreeNode::try_children_nodes`], such as
 /// [`VmxError::InvalidArgument`] for a [`HierarchicalVm`] whose lazy children
 /// factory returns structurally invalid output (spec/13 §6.1, ADR-0170). That
 /// node stays unmaterialized, and a later walk retries the factory.
-pub fn walk<T: TreeNode>(root: &T) -> VmxResult<Vec<T>> {
-    let mut nodes = vec![root.clone()];
-    for child in root.try_children_nodes()? {
-        nodes.extend(walk(&child)?);
-    }
+pub fn walk<T: TreeNode>(root: &T) -> VmxResult<Vec<TreeNodeRef>> {
+    let mut nodes = Vec::new();
+    walk_into(TreeNodeRef::new(root.clone()), false, &mut nodes)?;
     Ok(nodes)
 }
 
 /// Returns the first depth-first node matching `predicate`.
+///
+/// The search visits nodes in [`walk`] order, calls `predicate` at most once
+/// per visited node, and stops at the first match.
 ///
 /// # Errors
 ///
 /// Returns the error of [`TreeNode::try_children_nodes`], as [`walk`] does,
 /// when the search reaches a node whose children fail to load before it finds
 /// a match.
-pub fn find<T: TreeNode, F>(root: &T, predicate: F) -> VmxResult<Option<T>>
+pub fn find<T: TreeNode, F>(root: &T, predicate: F) -> VmxResult<Option<TreeNodeRef>>
 where
-    F: Fn(&T) -> bool,
+    F: Fn(&TreeNodeRef) -> bool,
 {
-    find_inner(root, &predicate)
+    find_inner(TreeNodeRef::new(root.clone()), &predicate)
 }
 
-fn find_inner<T: TreeNode, F>(root: &T, predicate: &F) -> VmxResult<Option<T>>
+fn find_inner<F>(node: TreeNodeRef, predicate: &F) -> VmxResult<Option<TreeNodeRef>>
 where
-    F: Fn(&T) -> bool,
+    F: Fn(&TreeNodeRef) -> bool,
 {
-    if predicate(root) {
-        return Ok(Some(root.clone()));
+    if predicate(&node) {
+        return Ok(Some(node));
     }
-    for child in root.try_children_nodes()? {
-        if let Some(found) = find_inner(&child, predicate)? {
+    for child in node.try_children_nodes()? {
+        if let Some(found) = find_inner(child, predicate)? {
             return Ok(Some(found));
         }
     }
@@ -1335,19 +1490,37 @@ where
 
 /// Returns a depth-first snapshot while skipping collapsed descendants.
 ///
+/// It descends as [`walk`] does, but a node whose
+/// [`TreeNode::expandable`] capability reports collapsed contributes only
+/// itself (spec/13 §5). A node without the capability counts as expanded.
+///
 /// # Errors
 ///
 /// Returns the error of [`TreeNode::try_children_nodes`], as [`walk`] does,
 /// for a descended node whose children fail to load. A collapsed node's
 /// children are not read.
-pub fn walk_expanded<T: TreeNode>(root: &T) -> VmxResult<Vec<T>> {
-    let mut nodes = vec![root.clone()];
-    if root.expandable().is_none_or(Expandable::is_expanded) {
-        for child in root.try_children_nodes()? {
-            nodes.extend(walk_expanded(&child)?);
-        }
-    }
+pub fn walk_expanded<T: TreeNode>(root: &T) -> VmxResult<Vec<TreeNodeRef>> {
+    let mut nodes = Vec::new();
+    walk_into(TreeNodeRef::new(root.clone()), true, &mut nodes)?;
     Ok(nodes)
+}
+
+fn walk_into(
+    node: TreeNodeRef,
+    expanded_only: bool,
+    nodes: &mut Vec<TreeNodeRef>,
+) -> VmxResult<()> {
+    let descend = !expanded_only || node.expandable().is_none_or(Expandable::is_expanded);
+    let children = if descend {
+        Some(node.try_children_nodes())
+    } else {
+        None
+    };
+    nodes.push(node);
+    for child in children.transpose()?.unwrap_or_default() {
+        walk_into(child, expanded_only, nodes)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

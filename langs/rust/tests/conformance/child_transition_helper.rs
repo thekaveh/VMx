@@ -50,8 +50,9 @@ impl Leaf {
     where
         F: FnOnce() -> VmxResult<()> + Send + 'static,
     {
-        self.component.construct_with_children(|walk| {
-            for child in &self.children {
+        let children = self.children.clone();
+        self.component.construct_with_children(move |walk| {
+            for child in &children {
                 walk.transition(child)?;
             }
             walk.then(after)
@@ -63,8 +64,9 @@ impl Leaf {
     }
 
     fn destruct(&self) -> VmxResult<()> {
-        self.component.destruct_with_children(|walk| {
-            for child in &self.children {
+        let children = self.children.clone();
+        self.component.destruct_with_children(move |walk| {
+            for child in &children {
                 walk.transition(child)?;
             }
             Ok(())
@@ -258,9 +260,10 @@ impl Dashboard {
     }
 
     fn construct(&self) -> VmxResult<()> {
-        self.component.construct_with_children(|walk| {
-            walk.transition(&self.group)?;
-            walk.transition(&self.detail)
+        let (group, detail) = (self.group.clone(), self.detail.clone());
+        self.component.construct_with_children(move |walk| {
+            walk.transition(&group)?;
+            walk.transition(&detail)
         })
     }
 }
@@ -395,7 +398,7 @@ fn helper_destructs_in_caller_order() {
 }
 
 /// LIFE-020 — the helper joins a child that is already Constructing: no
-/// concurrent-operation error, the child's hook runs once, and the parent
+/// lifecycle transition error, the child's hook runs once, and the parent
 /// stays Constructing until the child settles.
 #[test]
 fn helper_joins_child_in_transit() {

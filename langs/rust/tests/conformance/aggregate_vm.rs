@@ -848,7 +848,7 @@ fn builders_require_every_field_and_remain_independent_when_cloned() {
         .build()
         .unwrap();
     assert_eq!(aggregate.name(), "aggregate");
-    assert_eq!(aggregate.hint(), Some(String::new()));
+    assert_eq!(aggregate.hint(), "");
 }
 
 #[test]
@@ -892,7 +892,13 @@ fn reconstruct_reinvokes_factories_and_disposes_replaced_slots() {
     assert!(aggregate.is_constructed());
 
     aggregate.dispose().unwrap();
-    assert_eq!(aggregate.construct(), Err(VmxError::Disposed));
+    assert_eq!(
+        aggregate.construct(),
+        Err(VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Disposed,
+            operation: "construct",
+        })
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 

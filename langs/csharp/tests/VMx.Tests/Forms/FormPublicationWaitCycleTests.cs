@@ -453,4 +453,178 @@ public class FormPublicationWaitCycleTests
         form.Model.Should().Be(new Model("y2"), "the queued update is applied, not lost");
         form.Dispose();
     }
+
+    /// <summary>
+    /// What a nested call meeting another thread's open scope observed
+    /// (spec/20 §5.4, ADR-0180, #1472).
+    /// </summary>
+    private sealed class NestedRun
+    {
+        public required FormVM<Model> Form { get; init; }
+        public int NestedCalls { get; set; }
+        public int[] RequestsDuringNestedCall { get; set; } = [];
+        public bool YRequestRefused { get; set; }
+        public Model? ModelAfterNestedCall { get; set; }
+        public bool XScopeOpenAfterNestedCall { get; set; }
+        public List<bool> ApprovedCompletions { get; } = [];
+    }
+
+    // Thread Y holds the drain of hub H. Thread X's SetModel("bad") delivers
+    // ErrorsChanged in its scope, and X's sink sends on H, so the send waits
+    // for Y. Y's subscriber then calls SetModel("outer"). Its wait for X's
+    // scope closes a cycle and is refused, so the call prepares at once
+    // (spec/20 §5.5). Y's validator then makes the nested call, which never
+    // waits for X's scope (spec/20 §5.4). The wait-for graph seam records
+    // every wait request, accepted or refused.
+    private static NestedRun RunNestedCall(bool dispose)
+    {
+        var hub = new MessageHub();
+        var xThread = 0;
+        var yThread = 0;
+        var xArmed = 1;
+        var nestedActive = 0;
+        var requests = new List<(int Thread, bool Accepted, bool Nested)>();
+        Exception? xError = null;
+        Exception? yError = null;
+        using var xSinkReturned = new ManualResetEventSlim();
+        // Set by X's Model notification, which X's update sends after its
+        // outermost scope closes (spec/20 §5.4).
+        using var xScopeClosed = new ManualResetEventSlim();
+        var formHub = new MessageHub();
+        using var yDraining = new ManualResetEventSlim();
+        using var releaseY = new ManualResetEventSlim();
+        NestedRun? run = null;
+        // Not `using`: on a regression an implicit Dispose could block.
+        var form = FormVM<Model>.Builder()
+            .Initial(new Model("initial"))
+            .Persister(_ => Task.CompletedTask)
+            .Snapshotter(model => model)
+            .Hub(formHub)
+            .Validator("Value", model =>
+            {
+                if (model.Value == "outer" && Environment.CurrentManagedThreadId == Volatile.Read(ref yThread))
+                {
+                    var current = run!.Form;
+                    run.NestedCalls++;
+                    Volatile.Write(ref nestedActive, 1);
+                    if (dispose)
+                    {
+                        current.Dispose();
+                    }
+                    else
+                    {
+                        current.SetModel(new Model("nested"));
+                        run.ModelAfterNestedCall = current.Model;
+                    }
+                    Volatile.Write(ref nestedActive, 0);
+                    run.XScopeOpenAfterNestedCall = !xSinkReturned.IsSet;
+                }
+                return model.Value == "bad" ? "rejected" : null;
+            })
+            .Build();
+        run = new NestedRun { Form = form };
+        void OnWaitDecided(int thread, bool accepted)
+        {
+            if (thread != Volatile.Read(ref yThread)) return;
+            lock (requests) requests.Add((thread, accepted, Volatile.Read(ref nestedActive) == 1));
+        }
+        WaitForGraph.Shared.WaitDecidedForTesting += OnWaitDecided;
+        try
+        {
+            using var approvedSubscription = form.OnApproved.Subscribe(
+                _ => { },
+                () => run.ApprovedCompletions.Add(xScopeClosed.IsSet));
+            using var formHubSubscription = formHub.Messages.Subscribe(message =>
+            {
+                if (message is PropertyChangedMessage<FormVM<Model>> { PropertyName: "Model" }
+                    && Environment.CurrentManagedThreadId == Volatile.Read(ref xThread))
+                    xScopeClosed.Set();
+            });
+            using var errorsSubscription = form.ErrorsChanged.Subscribe(_ =>
+            {
+                if (Environment.CurrentManagedThreadId != Volatile.Read(ref xThread)) return;
+                if (Interlocked.Exchange(ref xArmed, 0) == 0) return;
+                releaseY.Set();
+                // Y drains H, so this send waits for Y.
+                hub.Send(new Marker("x"));
+                xSinkReturned.Set();
+            });
+            using var hubSubscription = hub.Messages.OfType<Marker>().Subscribe(message =>
+            {
+                if (message.Tag != "go") return;
+                yDraining.Set();
+                if (!releaseY.Wait(HangGuard)) return;
+                // X's hub send waits for Y before Y calls the form.
+                if (!SpinWait.SpinUntil(
+                    () => WaitForGraph.Shared.IsWaitingForTesting(Volatile.Read(ref xThread)),
+                    HangGuard)) return;
+                form.SetModel(new Model("outer"));
+            });
+
+            var y = new Thread(() =>
+            {
+                Volatile.Write(ref yThread, Environment.CurrentManagedThreadId);
+                try { hub.Send(new Marker("go")); }
+                catch (Exception error) { yError = error; }
+            })
+            { IsBackground = true };
+            y.Start();
+            yDraining.Wait(HangGuard).Should().BeTrue();
+            var x = new Thread(() =>
+            {
+                Volatile.Write(ref xThread, Environment.CurrentManagedThreadId);
+                try { form.SetModel(new Model("bad")); }
+                catch (Exception error) { xError = error; }
+            })
+            { IsBackground = true };
+            x.Start();
+
+            x.Join(HangGuard * 2).Should().BeTrue("thread X must not deadlock");
+            y.Join(HangGuard * 2).Should().BeTrue("thread Y must not deadlock");
+        }
+        finally
+        {
+            WaitForGraph.Shared.WaitDecidedForTesting -= OnWaitDecided;
+            releaseY.Set();
+            hub.Dispose();
+            formHub.Dispose();
+        }
+
+        xError.Should().BeNull();
+        yError.Should().BeNull();
+        lock (requests)
+        {
+            run.YRequestRefused = requests.Any(request => !request.Accepted);
+            run.RequestsDuringNestedCall = requests
+                .Where(request => request.Nested)
+                .Select(request => request.Thread)
+                .ToArray();
+        }
+        run.YRequestRefused.Should().BeTrue("Y's outer wait for X's scope is refused");
+        run.NestedCalls.Should().Be(1);
+        run.XScopeOpenAfterNestedCall.Should().BeTrue("the nested call returns while X holds its scope");
+        run.RequestsDuringNestedCall.Should().BeEmpty("a nested call makes no wait request");
+        return run;
+    }
+
+    [Fact]
+    public void A_Nested_SetModel_Never_Waits_For_Another_Threads_Scope()
+    {
+        var run = RunNestedCall(dispose: false);
+
+        run.ModelAfterNestedCall.Should().NotBeNull();
+        run.ModelAfterNestedCall.Should().NotBe(new Model("nested"), "the nested call returns before it takes effect");
+        run.Form.Model.Should().Be(new Model("nested"), "the nested call replays after X's scope ends");
+        run.Form.IsValid.Should().BeTrue();
+        run.Form.Dispose();
+    }
+
+    [Fact]
+    public void A_Nested_Dispose_Never_Waits_For_Another_Threads_Scope()
+    {
+        var run = RunNestedCall(dispose: true);
+
+        run.ApprovedCompletions.Should().Equal(
+            [true], "OnApproved completes once, after X's outermost scope closed and X sent its Model notification");
+    }
 }
