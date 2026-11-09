@@ -96,9 +96,11 @@ cargo package --locked
 python3 ../../tools/check-rust-package.py  # crate holds exactly the tracked files
 ```
 
-Rust's minimum supported toolchain is 1.88. The `rust` workflow runs these
-gates on 1.88.0 and on stable, so run Clippy on both before you push. Keep the
-committed library and example lockfiles current.
+Rust's minimum supported toolchain is 1.88. The `rust` workflow runs every
+gate in this block on 1.88.0. On stable it runs the format check, the
+all-feature Clippy, test and documentation gates, and the package check. Run
+Clippy on both toolchains before you push. Keep the committed library and
+example lockfiles current.
 
 ### 2.6 Cross-cutting checks (conformance + example-app contracts)
 

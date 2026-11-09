@@ -94,7 +94,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default
   `test-seams` Cargo feature (#1294). A default build no longer exports them.
-  The conformance tests that call them run with `--all-features`.
+  The conformance tests that call them run with `--all-features`. This is not
+  a breaking change: the seams are hidden test-only API, and no published
+  release exported them.
 - Breaking: `GroupVmOptions` and `CompositeVmOptions` have a new
   `destruct_order` field, so code that builds them with a struct literal must
   now set it (#662).
