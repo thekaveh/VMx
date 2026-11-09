@@ -2097,8 +2097,6 @@ declare class NullNotificationHub implements INotificationHub {
     resolve(_notification: Notification, _reaction: NotificationReaction): void;
 }
 
-declare function makeConfirm(hub: INotificationHub, prompt: string): () => Promise<boolean>;
-
 
 declare class NotificationVM {
     #private;
@@ -2128,7 +2126,7 @@ declare class ConfirmationVM extends NotificationVM {
     dispose(): void;
 }
 
-export { ConfirmationVM, type INotificationHub, Notification, NotificationHub, NotificationReaction, NotificationType, NotificationVM, NullNotificationHub, makeConfirm };
+export { ConfirmationVM, type INotificationHub, Notification, NotificationHub, NotificationReaction, NotificationType, NotificationVM, NullNotificationHub };
 
 // ==== relayCommand.d.ts ====
 import { Observable } from 'rxjs';

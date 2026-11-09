@@ -1,0 +1,1 @@
+API breakage: var VMxVersion.minSpecVersion has been removed

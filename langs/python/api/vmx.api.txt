@@ -1637,7 +1637,6 @@ module vmx.notifications
     property is_resolved [get] -> bool
     property lifespan [get] -> timedelta
     property notification [get] -> Notification
-    def notify_external_resolve(self) -> 'None'
     property opacity [get] -> float
     property property_changed [get] -> rx.Observable[str]
     property remaining_time [get] -> timedelta

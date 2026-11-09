@@ -1,8 +1,6 @@
 #nullable enable
 VMx.Extensions.DependencyInjection.ServiceCollectionExtensions
 VMx.Extensions.DependencyInjection.VMxOptions
-VMx.Extensions.DependencyInjection.VMxOptions.DispatcherFactory.get -> System.Func<System.IServiceProvider!, VMx.Services.IDispatcher!>?
-VMx.Extensions.DependencyInjection.VMxOptions.DispatcherFactory.set -> void
 VMx.Extensions.DependencyInjection.VMxOptions.UseDispatcher(System.Func<System.IServiceProvider!, VMx.Services.IDispatcher!>! factory) -> VMx.Extensions.DependencyInjection.VMxOptions!
 VMx.Extensions.DependencyInjection.VMxOptions.VMxOptions() -> void
 static VMx.Extensions.DependencyInjection.ServiceCollectionExtensions.AddVMx(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<VMx.Extensions.DependencyInjection.VMxOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
