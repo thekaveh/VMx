@@ -13,6 +13,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
+import time
 from collections.abc import Callable
 from threading import Barrier, BrokenBarrierError, Event, Thread
 
@@ -2370,10 +2371,26 @@ def test_colliding_bulk_wait_does_not_block_unrelated_callback_transfer() -> Non
 
     def run_bulk() -> None:
         bulk_started.set()
-        try:
-            bulk_destination.construct()
-        except BaseException as error:
-            bulk_errors.append(error)
+        # The first transfer releases the child's ownership when it commits,
+        # before first_destination's membership transaction ends. A population
+        # that meets that open transaction fails at once and rolls back
+        # (ADR-0187), so the worker retries until the transaction has ended.
+        deadline = time.monotonic() + HANG_GUARD
+        while True:
+            try:
+                bulk_destination.construct()
+                return
+            except RuntimeError as error:
+                if (
+                    "membership transaction is already in progress" not in str(error)
+                    or time.monotonic() >= deadline
+                ):
+                    bulk_errors.append(error)
+                    return
+                Event().wait(0.001)
+            except BaseException as error:
+                bulk_errors.append(error)
+                return
 
     def on_old_collection(event: CollectionChangedEvent) -> None:
         if event.action != "remove" or bulk_threads:
