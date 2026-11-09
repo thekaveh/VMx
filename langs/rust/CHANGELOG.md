@@ -140,6 +140,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVm` call nested in a preparation callback or an `errors_changed`
+  subscriber of `set_model` or `revert` now returns before its notifications
+  (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
+  `approve()` and the approve command. The outermost update sends them before
+  it returns, with no lock held: error maps first, in commit order, then the
+  other notifications. A nested `approve()` returns `Ok(())` once admitted,
+  and its persister runs after that; a failure goes to `approve_errors`. A
+  nested call no longer commits while another thread holds a publication
+  scope; it takes the refused-wait result. Queued notifications are dropped
+  once the form is disposed.
 - `CompositeVm::replace` now clears the replaced child as `current` before it
   frees the child, as `remove_at` does (#1219). Before, the commit freed the
   child first. Another thread could adopt the freed child into another
