@@ -2597,7 +2597,6 @@ output delivers only its initial value on subscribe; ADR-0198)
 `["one", "two"]`
 **When** a new term is set
 **Then** one filtered notification occurs after its debounce window
-(synchronously in Rust, which has no debounce)
 
 ### SRCH-009 — a failing predicate or `Filtered` subscriber keeps the helper live
 

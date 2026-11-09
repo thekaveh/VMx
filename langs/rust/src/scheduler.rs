@@ -1,6 +1,6 @@
 //! Delayed work: the scheduler contract and `DelayedTask`.
 //!
-//! Spec: `spec/11-threading-and-dispatch.md` §6; ADR-0219.
+//! Spec: `spec/11-threading.md` §6; ADR-0219.
 
 use std::collections::BTreeMap;
 use std::fmt;
