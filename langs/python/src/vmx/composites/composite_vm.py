@@ -60,6 +60,7 @@ _CALL = "call"
 _CHILD = "child"
 _DELIVERY = "delivery"
 _CLEAR = "clear"
+_DISPOSE_CLEAR = "dispose-clear"
 
 
 def _transaction_in_progress() -> RuntimeError:
@@ -212,7 +213,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         The dispose clear of spec/06 §4.3 rule 9 (ADR-0189). It clears only
         while that child is still current, compared by ownership identity so
         a forwarding decorator matches. It never runs during this composite's
-        own disposal: requested, deferred or Disposed.
+        own disposal: requested, deferred or Disposed. The commit checks that
+        again, because the composite's dispose can start in between.
         """
         identity = vm._ownership_identity
         with self._membership_gate:
@@ -221,7 +223,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             current = self._current
             if current is None or current._ownership_identity is not identity:
                 return
-        self._apply_current_change(None, kind=_CLEAR, only_replacing=current)
+        self._apply_current_change(None, kind=_DISPOSE_CLEAR, only_replacing=current)
 
     def contains_child(self, vm: _ComponentVMBase) -> bool:
         with self._membership_gate:
@@ -1322,23 +1324,28 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         ``_CALL`` (a refusal raises), ``_CHILD`` (the child ``select`` and
         ``deselect`` paths: a refusal is a silent no-op, ADR-0188),
         ``_DELIVERY`` (an async delivery or the walk's assignment: a refusal
-        is a silent no-op) or ``_CLEAR`` (the destruct, detach or dispose
-        clear: never refused). A non-null selection while the composite is
-        Destructing changes nothing for every kind (rule 8). With
-        *only_replacing*, the
-        change applies only while that child is still current: a transaction
-        clears the child it detached, never a selection made after the detach
-        (#1064).
+        is a silent no-op), ``_CLEAR`` (the destruct or detach clear: never
+        refused) or ``_DISPOSE_CLEAR`` (the dispose clear: skipped while this
+        composite's own disposal is pending or done, ADR-0189 rule 6). A
+        non-null selection while the composite is Destructing changes nothing
+        for every kind (rule 8). With *only_replacing*, the change applies
+        only while that child is still current: a transaction clears the child
+        it detached, never a selection made after the detach (#1064).
         """
-        if kind == _CLEAR:
+        clear = kind in (_CLEAR, _DISPOSE_CLEAR)
+        if clear:
             # A clear with nothing to clear skips the global lane.
             with self._membership_gate:
                 if self._current is None:
                     return
-        disposed = kind != _CLEAR and self._is_disposed()
+        disposed = not clear and self._is_disposed()
         with _current_change_coordinator:
             with self._membership_gate:
-                if kind != _CLEAR:
+                if kind == _DISPOSE_CLEAR and (
+                    self._disposal_pending_locked() or self._status is ConstructionStatus.DISPOSED
+                ):
+                    return
+                if not clear:
                     refusal = self._selection_refusal_locked(
                         value, disposed=disposed, require_constructed=require_constructed
                     )

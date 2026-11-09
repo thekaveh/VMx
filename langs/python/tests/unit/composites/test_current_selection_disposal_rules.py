@@ -232,3 +232,29 @@ def test_disposing_a_child_that_is_not_current_publishes_nothing() -> None:
 
     assert p.current is a
     assert messages == []
+
+
+def test_dispose_clear_rechecks_the_composite_disposal_at_the_commit() -> None:
+    # The composite's own dispose can start between the dispose clear's first
+    # check and its commit. The commit checks again and clears nothing, so the
+    # composite's dispose cascade publishes no Current change (ADR-0189 rule 6).
+    hub: MessageHub[object] = MessageHub()
+    dispatcher = RxDispatcher.immediate()
+    a = ComponentVMBuilder().name("a").services(hub, dispatcher).build()
+    changes: list[object] = []
+    p = _composite(hub, dispatcher, [a], on_current_changed=changes.append)
+    p.construct()
+    p.current = a
+    changes.clear()
+    apply_current_change = p._apply_current_change
+
+    def dispose_starts_first(*args: Any, **kwargs: Any) -> None:
+        p._dispose_requested = True
+        apply_current_change(*args, **kwargs)
+
+    p._apply_current_change = dispose_starts_first  # type: ignore[method-assign]
+
+    a.dispose()
+
+    assert p.current is a
+    assert changes == []
