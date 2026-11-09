@@ -154,6 +154,46 @@ describe("FORM-041", () => {
     expect(form.model).toEqual(m("c"));
   });
 
+  it("sends the notifications of a call nested in an errorsChanged observer's update", () => {
+    const log: string[] = [];
+    let reentered = false;
+    let nestedInC = false;
+    let form!: FormVM<Model>;
+    ({ form } = makeForm(log, {
+      validators: {
+        value: (model) => {
+          // The update from the errorsChanged observer makes a nested call
+          // of its own; that call's notifications must still go out.
+          if (model.value === "c" && !nestedInC) {
+            nestedInC = true;
+            form.setModel(m("d"));
+          }
+          return model.value === "a" ? "rejected" : null;
+        },
+      },
+    }));
+    form.errorsChanged.subscribe(() => {
+      if (!reentered) {
+        reentered = true;
+        form.setModel(m("c"));
+      }
+    });
+
+    form.setModel(m("a"));
+    log.push("outer returned");
+
+    expect(log).toEqual([
+      'errors {"value":"rejected"}',
+      "errors {}",
+      "can_execute",
+      "model d",
+      "can_execute",
+      "model d",
+      "outer returned",
+    ]);
+    expect(form.model).toEqual(m("d"));
+  });
+
   it("calls a nested approval's persister after the outer update's notifications", async () => {
     const log: string[] = [];
     const persisted: string[] = [];

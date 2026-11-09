@@ -1015,22 +1015,34 @@ export class FormVM<TM> {
   /**
    * Adds `own` to the queue. A nested call's notifications are dropped once
    * the form is disposed. Returns the queue to send when the caller is the
-   * outermost update, or undefined when the caller is nested.
+   * outermost update, or undefined when the caller is nested. Inside the
+   * error-map phase of a delivery, the outermost frame of an update moves the
+   * whole queue, with the notifications of its own nested calls, to that
+   * delivery.
    */
   #takeNotices(own: Notices): Notices | undefined {
-    if (this.#isNested()) {
-      const nested = {
-        errors: own.errors.map((send) => this.#unlessDisposed(send)),
-        afterScope: own.afterScope.map((send) => this.#unlessDisposed(send)),
-        starts: own.starts,
-      };
-      appendNotices(this.#preparationDepth > 0 ? this.#pendingNotices : this.#scopedNotices, nested);
+    if (this.#preparationDepth > 0) {
+      appendNotices(this.#pendingNotices, this.#markedNested(own));
       return undefined;
     }
     const delivery = this.#pendingNotices;
     this.#pendingNotices = noNotices();
+    if (this.#deliveringErrors) {
+      appendNotices(delivery, this.#markedNested(own));
+      appendNotices(this.#scopedNotices, delivery);
+      return undefined;
+    }
     appendNotices(delivery, own);
     return delivery;
+  }
+
+  /** `notices`, marked as queued by a nested call (§5.4, ADR-0180). */
+  #markedNested(notices: Notices): Notices {
+    return {
+      errors: notices.errors.map((send) => this.#unlessDisposed(send)),
+      afterScope: notices.afterScope.map((send) => this.#unlessDisposed(send)),
+      starts: notices.starts,
+    };
   }
 
   #unlessDisposed(send: () => void): () => void {
