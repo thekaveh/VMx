@@ -5,13 +5,14 @@
  * The docs-snippet regions are shown there verbatim, dedented, and
  * `make docs-check` keeps them equal. No conformance ID (recipes; #657).
  */
-import { asyncScheduler, timer, type Subscription } from "rxjs";
+import { asyncScheduler, type SchedulerLike } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AsyncResourceRetention,
   AsyncResourceStatus,
   AsyncResourceVM,
   ComponentVMBase,
+  DelayedTask,
   MessageHub,
   RxDispatcher,
   TokenPagedComposition,
@@ -35,9 +36,14 @@ interface MetricsApi {
 class MetricsPanelVM extends ComponentVMBase {
   readonly resource: AsyncResourceVM<Metric[]>;
   readonly retryCommand: DecoratorCommand;
-  #poll: Subscription | null = null;
+  readonly #poll: DelayedTask;
 
-  constructor(api: MetricsApi, hub: IMessageHub, dispatcher: IDispatcher) {
+  constructor(
+    api: MetricsApi,
+    hub: IMessageHub,
+    dispatcher: IDispatcher,
+    scheduler: SchedulerLike,
+  ) {
     super({ name: "metrics-panel", hub, dispatcher });
     this.resource = this.own(
       new AsyncResourceVM({
@@ -56,6 +62,8 @@ class MetricsPanelVM extends ComponentVMBase {
         () => this.resource.state.status === AsyncResourceStatus.Error,
       ),
     );
+    // The poll runs on the injected scheduler, never through the dispatcher.
+    this.#poll = this.own(new DelayedTask(scheduler));
   }
 
   get type(): ViewModelType {
@@ -65,17 +73,20 @@ class MetricsPanelVM extends ComponentVMBase {
   // Poll while constructed: load at once, then reload every 30 s.
   protected override _onConstruct(): void {
     super._onConstruct();
-    this.#poll = timer(0, 30_000, this._dispatcher.foreground).subscribe(() => {
-      const { status } = this.resource.state;
-      if (status === AsyncResourceStatus.Idle) void this.resource.load();
-      // Skip a tick while a load runs; a reload would supersede it.
-      else if (status !== AsyncResourceStatus.Loading) void this.resource.reload();
-    });
+    this.#poll.schedule(0, this.#tick);
   }
 
+  // Each tick schedules the next one.
+  readonly #tick = (): void => {
+    const { status } = this.resource.state;
+    if (status === AsyncResourceStatus.Idle) void this.resource.load();
+    // Skip a tick while a load runs; a reload would supersede it.
+    else if (status !== AsyncResourceStatus.Loading) void this.resource.reload();
+    this.#poll.schedule(30_000, this.#tick);
+  };
+
   protected override _onDestruct(): void {
-    this.#poll?.unsubscribe();
-    this.#poll = null;
+    this.#poll.cancel();
     this.resource.cancel();
     super._onDestruct();
   }
@@ -113,7 +124,7 @@ describe("AsyncResourceVM recipes", () => {
 
   it("offers retry only in Error, and retry reloads to Ready", async () => {
     const { api, pending } = controlledApi();
-    const panel = new MetricsPanelVM(api, hub(), dispatcher());
+    const panel = new MetricsPanelVM(api, hub(), dispatcher(), asyncScheduler);
     let retryChanges = 0;
     panel.retryCommand.canExecuteChanged.subscribe(() => (retryChanges += 1));
 
@@ -143,7 +154,7 @@ describe("AsyncResourceVM recipes", () => {
 
   it("lets the latest start win without rejection handling", async () => {
     const { api, pending } = controlledApi();
-    const panel = new MetricsPanelVM(api, hub(), dispatcher());
+    const panel = new MetricsPanelVM(api, hub(), dispatcher(), asyncScheduler);
     const errors: unknown[] = [];
     panel.resource.reloadCommand.errors.subscribe((error) => errors.push(error));
     void panel.resource.load();
@@ -170,7 +181,7 @@ describe("AsyncResourceVM recipes", () => {
 
   it("lets a reload supersede a load that loadCommand started", async () => {
     const { api, pending } = controlledApi();
-    const panel = new MetricsPanelVM(api, hub(), dispatcher());
+    const panel = new MetricsPanelVM(api, hub(), dispatcher(), asyncScheduler);
 
     panel.resource.loadCommand.execute();
     await vi.advanceTimersByTimeAsync(0);
@@ -193,7 +204,7 @@ describe("AsyncResourceVM recipes", () => {
 
   it("reloads from Error on the next tick", async () => {
     const { api, pending } = controlledApi();
-    const panel = new MetricsPanelVM(api, hub(), dispatcher());
+    const panel = new MetricsPanelVM(api, hub(), dispatcher(), asyncScheduler);
 
     panel.construct();
     await vi.advanceTimersByTimeAsync(0);
@@ -208,7 +219,7 @@ describe("AsyncResourceVM recipes", () => {
 
   it("polls while constructed and skips ticks during a load", async () => {
     const { api, pending } = controlledApi();
-    const panel = new MetricsPanelVM(api, hub(), dispatcher());
+    const panel = new MetricsPanelVM(api, hub(), dispatcher(), asyncScheduler);
 
     panel.construct();
     await vi.advanceTimersByTimeAsync(0);
@@ -240,7 +251,7 @@ describe("AsyncResourceVM recipes", () => {
 
   it("stops polling and cancels the running load at destruct", async () => {
     const { api, pending } = controlledApi();
-    const panel = new MetricsPanelVM(api, hub(), dispatcher());
+    const panel = new MetricsPanelVM(api, hub(), dispatcher(), asyncScheduler);
 
     panel.construct();
     await vi.advanceTimersByTimeAsync(0);

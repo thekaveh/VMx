@@ -52,8 +52,9 @@ Swift accepts any `NotificationScheduler`: `DispatchQueue.main`,
 in tests. The timers run on that scheduler, so pass one on the thread that
 uses the VM.
 
-Rust's `NotificationVm` has no injected scheduler: its lifespan advances only
-through `advance_by_ms`, so a host drives the clock itself. Its `dispose()`
+Rust's `NotificationVm::with_scheduler` takes any `Scheduler`. `new` and
+`with_hub` use `SystemScheduler`, so the lifespan runs in real time, and tests
+pass a `VirtualTimeScheduler` (ADR-0219). Its `dispose()`
 makes every clone of `dismiss_command()` inert. Dropping the VM does not, so
 call `dispose()` when a VM leaves the visible list.
 

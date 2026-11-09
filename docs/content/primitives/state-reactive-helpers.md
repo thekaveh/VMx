@@ -159,7 +159,8 @@ state recipe in [Integration](../integration/index.md) instead.
 A resource never starts loading at construct, and only disposal cancels its
 load automatically (ADR-0100 §2.7, §4.6). The view-model below loads when it is
 constructed, polls while it stays constructed, offers retry after a failure,
-and cancels its load at destruct:
+and cancels its load at destruct. The poll is a `DelayedTask` whose action
+schedules the next tick (spec 11 §6.3):
 
 <!-- checked-snippet: langs/typescript/tests/unit/asyncResourceRecipes.test.ts#polling-panel -->
 
@@ -167,9 +168,14 @@ and cancels its load at destruct:
 class MetricsPanelVM extends ComponentVMBase {
   readonly resource: AsyncResourceVM<Metric[]>;
   readonly retryCommand: DecoratorCommand;
-  #poll: Subscription | null = null;
+  readonly #poll: DelayedTask;
 
-  constructor(api: MetricsApi, hub: IMessageHub, dispatcher: IDispatcher) {
+  constructor(
+    api: MetricsApi,
+    hub: IMessageHub,
+    dispatcher: IDispatcher,
+    scheduler: SchedulerLike,
+  ) {
     super({ name: "metrics-panel", hub, dispatcher });
     this.resource = this.own(
       new AsyncResourceVM({
@@ -188,6 +194,8 @@ class MetricsPanelVM extends ComponentVMBase {
         () => this.resource.state.status === AsyncResourceStatus.Error,
       ),
     );
+    // The poll runs on the injected scheduler, never through the dispatcher.
+    this.#poll = this.own(new DelayedTask(scheduler));
   }
 
   get type(): ViewModelType {
@@ -197,17 +205,20 @@ class MetricsPanelVM extends ComponentVMBase {
   // Poll while constructed: load at once, then reload every 30 s.
   protected override _onConstruct(): void {
     super._onConstruct();
-    this.#poll = timer(0, 30_000, this._dispatcher.foreground).subscribe(() => {
-      const { status } = this.resource.state;
-      if (status === AsyncResourceStatus.Idle) void this.resource.load();
-      // Skip a tick while a load runs; a reload would supersede it.
-      else if (status !== AsyncResourceStatus.Loading) void this.resource.reload();
-    });
+    this.#poll.schedule(0, this.#tick);
   }
 
+  // Each tick schedules the next one.
+  readonly #tick = (): void => {
+    const { status } = this.resource.state;
+    if (status === AsyncResourceStatus.Idle) void this.resource.load();
+    // Skip a tick while a load runs; a reload would supersede it.
+    else if (status !== AsyncResourceStatus.Loading) void this.resource.reload();
+    this.#poll.schedule(30_000, this.#tick);
+  };
+
   protected override _onDestruct(): void {
-    this.#poll?.unsubscribe();
-    this.#poll = null;
+    this.#poll.cancel();
     this.resource.cancel();
     super._onDestruct();
   }
@@ -229,24 +240,48 @@ class MetricsPanelVM extends ComponentVMBase {
   started, pass the signal of a per-construct `AbortController` to
   `load(signal)` and abort it at destruct.
 
-### 6.5.3.2. Poll Timers By Flavor
+### 6.5.3.2. Delayed Work By Flavor
 
-Start and stop the timer in the same construct and destruct hooks. The timer
-needs a scheduler that supports a delay:
+Delayed work runs on an injected scheduler through `DelayedTask` (spec 11 §6,
+ADR-0219). It never goes through `IDispatcher`. The action runs where the
+scheduler runs it, so a host that needs the UI thread passes a UI scheduler.
+Schedule the first run in the construct hook, and cancel it in the destruct
+hook. Own the task, so that disposal cancels it too.
 
-- C#: `Observable.Timer(TimeSpan.Zero, period, dispatcher.Foreground)` with a
-  real UI scheduler. `NullDispatcher` and `RxDispatcher.Immediate()` use
-  `ImmediateScheduler`, on which a periodic `Observable.Timer` does not return
-  from `Subscribe`, so the construct hook hangs.
-- Python: `RxDispatcher.asyncio(loop).foreground`, or an asyncio task on the
-  loop that runs the resource's operations (see
-  [Async Resource Operation Loops](services-messages-dispatching.md#6691-async-resource-operation-loops)).
-  The `ImmediateScheduler` of `NullDispatcher` and `RxDispatcher.immediate()`
-  raises `WouldBlockException` for a delayed action.
-- Swift: dispatchers take work without a delay. Use a `Timer` or a `Task` that
-  loops on `Task.sleep`.
-- Rust: dispatchers take work without a delay. Drive the tick from the host
-  event loop.
+| Flavor     | Real-time scheduler                           | Test scheduler                                 | Schedule a 30 s run                             |
+| ---------- | --------------------------------------------- | ---------------------------------------------- | ----------------------------------------------- |
+| C#         | `DefaultScheduler.Instance` or a UI scheduler | `Microsoft.Reactive.Testing.TestScheduler`     | `task.Schedule(TimeSpan.FromSeconds(30), Tick)` |
+| Python     | `TimeoutScheduler()` or `AsyncIOScheduler`    | `reactivex.testing.TestScheduler`              | `task.schedule(30.0, tick)`                     |
+| TypeScript | `asyncScheduler`                              | rxjs `TestScheduler` or a `SchedulerLike` fake | `task.schedule(30_000, tick)`                   |
+| Swift      | `DispatchQueue.main` or `RunLoop.main`        | `VirtualTimeScheduler`                         | `task.schedule(after: 30, tick)`                |
+| Rust       | `SystemScheduler`                             | `VirtualTimeScheduler`                         | `task.schedule(Duration::from_secs(30), tick)`  |
+
+- **Polling.** `isPending` is already false when the action starts. The
+  action can therefore schedule the next run on the same task.
+- **Replacing.** `schedule` replaces a pending action and restarts the delay.
+  After `schedule`, `cancel` or `dispose` returns, a replaced action never
+  starts.
+- **Immediate schedulers.** Do not pass an immediate scheduler. The C#
+  `ImmediateScheduler` blocks the caller for the delay, and the Python one
+  raises `WouldBlockException` for a delay.
+- **Tests.** Inject the virtual-time scheduler and advance it. Due actions run
+  on the advancing thread, in due-time order.
+
+### 6.5.3.3. Transient State
+
+A "Copied" label that reverts after two seconds needs one `DelayedTask`. Each
+copy schedules the revert again, so the label stays for two seconds after the
+last copy:
+
+```typescript
+copy(): void {
+  this.#copied.value = true;
+  this.#revert.schedule(2_000, () => (this.#copied.value = false));
+}
+```
+
+Dispose the task with the view-model. A test advances the virtual-time
+scheduler by two seconds and checks that the label is gone.
 
 ## 6.5.4. Reactive Search Sources
 

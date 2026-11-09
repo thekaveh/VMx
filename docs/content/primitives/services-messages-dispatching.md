@@ -104,6 +104,16 @@ Requests follow the hub delivery rules. Rust adds one limit:
 - **Rust.** `Message::Custom` has only the sender fields and a `name`, so a
   Rust request carries no payload (#673).
 
+### 6.6.3.2. Delayed Work
+
+The dispatcher takes work without a delay. Delayed work runs on an injected
+scheduler instead (spec/11 §6, ADR-0219). The scheduler has a current time
+and runs an action once after a delay. `DelayedTask` holds at most one pending
+action on it. The action runs where the scheduler runs it, never through
+`IDispatcher`. A host that needs UI-thread delivery passes a UI scheduler.
+See [Delayed Work By Flavor](state-reactive-helpers.md#6532-delayed-work-by-flavor)
+for the schedulers and recipes.
+
 ## 6.6.4. Cross-Language Surface
 
 | Service            | Purpose                                              |
