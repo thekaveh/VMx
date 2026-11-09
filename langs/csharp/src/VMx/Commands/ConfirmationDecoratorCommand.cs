@@ -2,6 +2,7 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -150,10 +151,8 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
         }
 
         ExceptionDispatchInfo? firstError = null;
-        try { _errors.OnCompleted(); }
-        catch (Exception error) { firstError = ExceptionDispatchInfo.Capture(error); }
-        try { _errors.Dispose(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
+        FirstFailure.Capture(ref firstError, _errors.OnCompleted);
+        FirstFailure.Capture(ref firstError, _errors.Dispose);
         firstError?.Throw();
     }
 }

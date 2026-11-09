@@ -8,6 +8,22 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a population that fails before its commit now disposes the
+  candidates it built (#1324). This covers a throwing `AggregateVM2` to
+  `AggregateVM6` factory on `Construct()` or `Reconstruct()`, a refused
+  aggregate preflight, and a throwing `CompositeVMOf` projector. The old slots
+  and parent links stay. A candidate that has a parent, that another ownership
+  transaction holds, or that owns the aggregate is not disposed. A
+  `FilteredCompositeVM` or `ScoredFilteredCompositeVM` whose first recompute
+  throws, or whose scorer is null, now detaches from its source before the
+  exception propagates.
+- Fixed: `CompositeVM` and `GroupVM` `BatchUpdate` now change the batch depth
+  and dirty flag under a lock (#1344). Batches opened and closed on several
+  threads keep an exact depth, and a change made while another thread closes
+  the outermost batch still raises its `Reset`. A batch that closes after the
+  container's disposal is requested raises no local `Reset`, as it sends no hub
+  message.
+
 - Added: `COL-067` conformance tests (#1176, ADR-0177). An
   `ObservableDictionary` mutation changes the entries and `Count` first. Then
   it updates each key view that changes, raises the dictionary events and

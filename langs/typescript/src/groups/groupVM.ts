@@ -17,9 +17,11 @@ import { disposeBestEffort } from "../components/disposal.js";
 import { emittedIndex } from "../collections/emittedIndex.js";
 import {
   constructWalk,
+  ContainerBatch,
   deliverCollectionChanged,
   destructWalk,
   maybeAutoConstruct,
+  requireChildOrder,
 } from "../components/vmContainer.js";
 import { ViewModelType } from "../components/types.js";
 import type { ChildOrder } from "../components/types.js";
@@ -70,11 +72,10 @@ export class GroupVM<VM extends ComponentVMBase>
   #populated = false;
   /** Collects the children population started constructing (see `_onConstruct`). */
   #populationJoined: Set<ComponentVMBase> | null = null;
-  #batchDepth = 0;
+  readonly #batch = new ContainerBatch((event) => this.#deliverCollectionChanged(event));
   #disposeRequested = false;
   #disposeDeferred = false;
   #membershipTransactionActive = false;
-  #batchDirty = false;
   readonly #collectionChangedSubject = new Subject<CollectionChangedEvent>();
   readonly #groupParent: GroupParent<VM>;
 
@@ -94,7 +95,7 @@ export class GroupVM<VM extends ComponentVMBase>
     super(opts);
     this.#groupParent = new GroupParent(this);
     this.#autoConstructOnAdd = opts.autoConstructOnAdd ?? false;
-    this.#destructOrder = opts.destructOrder ?? "insertion";
+    this.#destructOrder = requireChildOrder(opts.destructOrder ?? "insertion");
     this.#childrenFactory = opts.childrenFactory ?? null;
   }
 
@@ -346,24 +347,15 @@ export class GroupVM<VM extends ComponentVMBase>
   // ── Batch updates (spec v1.1) ─────────────────────────────────────────────
 
   batchUpdate(): BatchUpdateHandle {
-    this.#batchDepth++;
-    return new BatchUpdateHandle(this);
+    return this.#batch.enter(this);
   }
 
   _exitBatch(): void {
-    this.#batchDepth--;
-    if (this.#batchDepth === 0 && this.#batchDirty) {
-      this.#batchDirty = false;
-      this.#deliverCollectionChanged(makeCollectionChangedEvent("reset"));
-    }
+    this.#batch.exit();
   }
 
   protected _emitCollectionChanged(event: CollectionChangedEvent): void {
-    if (this.#batchDepth > 0) {
-      this.#batchDirty = true;
-      return;
-    }
-    this.#deliverCollectionChanged(event);
+    this.#batch.emit(event);
   }
 
   // Local subscribers first, then one hub message (see `deliverCollectionChanged`).
@@ -730,7 +722,7 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
    */
   destructOrder(order: ChildOrder): GroupVMBuilder<VM> {
     const b = new GroupVMBuilder<VM>(this);
-    b.#destructOrder = order;
+    b.#destructOrder = requireChildOrder(order);
     return b;
   }
 

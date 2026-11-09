@@ -15,8 +15,14 @@ public sealed class ScoredFilteredCompositeVM<VM> : FilteredCompositeVM<VM>
         FilteredCursorPolicy cursorPolicy = FilteredCursorPolicy.SnapToFirst)
         : base(source, vm => scorer(vm) is not null, cursorPolicy, deferInitialRecompute: true)
     {
-        _scorer = scorer ?? throw new ArgumentNullException(nameof(scorer));
-        RefreshScores();
+        if (scorer is null)
+        {
+            // Detach before the failure propagates (#1324).
+            Dispose();
+            throw new ArgumentNullException(nameof(scorer));
+        }
+        _scorer = scorer;
+        InitialRecompute();
     }
 
     /// <inheritdoc/>

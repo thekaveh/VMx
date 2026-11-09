@@ -118,12 +118,17 @@ internal static class ContainerMembership
         // committed change (spec/01 §1.4, #723): send it, then rethrow.
         // The first failure wins, as in NotifyPropertyChanged and Python.
         ExceptionDispatchInfo? firstFailure = null;
-        try { handler?.Invoke(container, args); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
+        FirstFailure.Capture(
+            ref firstFailure,
+            (Handler: handler, Container: container, Args: args),
+            static state => state.Handler?.Invoke(state.Container, state.Args));
         if (canPublish(container))
         {
-            try { container.Hub.Send(CollectionChangedMessage<VM>.From(container, args)); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+            FirstFailure.Capture(
+                ref firstFailure,
+                (Container: container, Args: args),
+                static state => state.Container.Hub.Send(
+                    CollectionChangedMessage<VM>.From(state.Container, state.Args)));
         }
         firstFailure?.Throw();
     }
@@ -197,42 +202,64 @@ internal static class ContainerMembership
 /// The ref-counted collection-change batch shared by composites and groups
 /// (spec v1.1). A change inside an open batch only marks it dirty; the
 /// outermost close delivers one <c>Reset</c> if any change occurred.
+/// The depth and the dirty flag change under one lock, so batches opened and
+/// closed on several threads keep an exact depth, and a change that marks the
+/// batch dirty is never lost to a concurrent close (#1344). Delivery runs
+/// outside the lock. A close after the container's disposal is requested
+/// delivers nothing, so no local event goes without its hub message.
 /// </summary>
 internal sealed class ContainerBatch
 {
     private readonly Action<NotifyCollectionChangedEventArgs> _deliver;
+    private readonly Func<bool> _canDeliverReset;
+    private readonly object _gate = new();
     private int _depth;
     private bool _dirty;
 
     /// <param name="deliver">The container's local-event and hub delivery.</param>
-    internal ContainerBatch(Action<NotifyCollectionChangedEventArgs> deliver) => _deliver = deliver;
+    /// <param name="canDeliverReset">
+    /// False once the container's disposal is requested; the outermost close
+    /// then drops the pending <c>Reset</c>.
+    /// </param>
+    internal ContainerBatch(
+        Action<NotifyCollectionChangedEventArgs> deliver,
+        Func<bool> canDeliverReset)
+    {
+        _deliver = deliver;
+        _canDeliverReset = canDeliverReset;
+    }
 
     /// <summary>Opens one batch level; disposing the handle closes it once.</summary>
     internal IDisposable Enter()
     {
-        _depth++;
+        lock (_gate) _depth++;
         return new Handle(this);
     }
 
     /// <summary>Delivers <paramref name="args"/> now, or marks an open batch dirty.</summary>
     internal void Raise(NotifyCollectionChangedEventArgs args)
     {
-        if (_depth > 0)
+        lock (_gate)
         {
-            _dirty = true;
-            return;
+            if (_depth > 0)
+            {
+                _dirty = true;
+                return;
+            }
         }
         _deliver(args);
     }
 
     private void Exit()
     {
-        _depth--;
-        if (_depth == 0 && _dirty)
+        lock (_gate)
         {
+            _depth--;
+            if (_depth != 0 || !_dirty) return;
             _dirty = false;
-            _deliver(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
         }
+        if (!_canDeliverReset()) return;
+        _deliver(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
     }
 
     /// <summary>The handle <see cref="Enter"/> returns.</summary>
@@ -661,7 +688,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
-        _batch = new ContainerBatch(DeliverCollectionChanged);
+        _batch = new ContainerBatch(
+            DeliverCollectionChanged,
+            () => Volatile.Read(ref _disposeRequested) == 0 && !IsDisposed());
         _asyncSelection = asyncSelection;
         _autoConstructOnAdd = autoConstructOnAdd;
         _destructOrder = destructOrder;
@@ -749,34 +778,20 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         return new ParentTransferToken(
             commit: () =>
             {
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
+                ExceptionDispatchInfo? firstError = null;
                 lock (_membershipGate) _transactionStaged = false;
-                try
+                if (wasCurrent)
                 {
-                    if (wasCurrent)
-                        ApplyCurrentChange(null, CurrentChange.Clear, onlyReplacing: child);
+                    FirstFailure.Capture(ref firstError, () =>
+                        ApplyCurrentChange(null, CurrentChange.Clear, onlyReplacing: child));
                 }
-                catch (Exception error)
-                {
-                    firstError = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-                }
-                try
-                {
+                FirstFailure.Capture(ref firstError, () =>
                     RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Remove, child, index));
-                }
-                catch (Exception error)
-                {
-                    firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-                }
-                try
-                {
-                    EndMembershipTransaction(propagateDisposeFailure: firstError is null);
-                }
-                catch (Exception error)
-                {
-                    firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-                }
+                        NotifyCollectionChangedAction.Remove, child, index)));
+                // Read after the first two steps ran.
+                var propagateDisposeFailure = firstError is null;
+                FirstFailure.Capture(ref firstError, () =>
+                    EndMembershipTransaction(propagateDisposeFailure));
                 firstError?.Throw();
             },
             rollback: () =>

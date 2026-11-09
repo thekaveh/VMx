@@ -36,7 +36,16 @@ export class FilteredCompositeVM<VM extends ComponentVMBase> {
     this.predicate = options.predicate ?? (() => true);
     this.#cursorPolicy = options.cursorPolicy ?? FilteredCursorPolicy.SnapToFirst;
     this.#subscription = source.collectionChanged.subscribe(() => this._recompute());
-    if (options.deferInitialRecompute !== true) this._recompute();
+    if (options.deferInitialRecompute !== true) {
+      try {
+        this._recompute();
+      } catch (error) {
+        // Detach before the failure propagates, so the unreachable filter
+        // never runs again (#1324).
+        this.dispose();
+        throw error;
+      }
+    }
   }
 
   get visible(): VM[] {

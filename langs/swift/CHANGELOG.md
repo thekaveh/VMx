@@ -72,6 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An aggregate population that its ownership preflight refuses now disposes
+  the candidates it built (#1324). The old slots and parent links stay. A
+  candidate that has a parent, that another ownership transaction holds, or
+  that owns the aggregate is not disposed.
 - A `FormVM` approval started from a preparation callback or an
   `errorsChanged` sink of `setModel` or deny now starts its persister after
   the outermost update sends all queued notifications (ADR-0180, spec/20

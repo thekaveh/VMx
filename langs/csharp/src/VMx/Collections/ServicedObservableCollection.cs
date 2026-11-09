@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Reactive.Disposables;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 using VMx.Messages;
 using VMx.Services;
 
@@ -106,15 +107,22 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         //    must not suppress the hub message for the committed change:
         //    send it, then rethrow the first failure (spec/01 §1.4, ADR-0171).
         ExceptionDispatchInfo? firstFailure = null;
-        try { base.OnCollectionChanged(e); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
+        FirstFailure.Capture(
+            ref firstFailure,
+            (Owner: this, Args: e),
+            static state => state.Owner.RaiseLocalCollectionChanged(state.Args));
 
         // 2. Publish to hub (if present).
         if (_hub is not null)
         {
-            try { _hub.Send(CollectionChangedMessage<T>.From(this, e)); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+            FirstFailure.Capture(
+                ref firstFailure,
+                (Owner: this, Hub: _hub, Args: e),
+                static state => state.Hub.Send(CollectionChangedMessage<T>.From(state.Owner, state.Args)));
         }
         firstFailure?.Throw();
     }
+
+    private void RaiseLocalCollectionChanged(NotifyCollectionChangedEventArgs e)
+        => base.OnCollectionChanged(e);
 }

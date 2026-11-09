@@ -100,6 +100,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A population that fails before its commit now disposes the candidates it
+  built (#1324). This covers a throwing `AggregateVM2` to `AggregateVM6`
+  factory on `construct()` or `reconstruct()`, a refused aggregate preflight,
+  and a throwing `CompositeVMOf` projector. The old slots and parent links
+  stay. A candidate that has a parent, that another ownership transaction
+  holds, or that owns the aggregate is not disposed. A `FilteredCompositeVM`
+  or `ScoredFilteredCompositeVM` whose first recompute throws now detaches
+  from its source before the error propagates.
+- `GroupVM`, `CompositeVM` and `CompositeVMOf`, their builders and the
+  `create` factories now throw a `TypeError` for a `destructOrder` that is
+  not `"insertion"` or `"reverse"`, such as `"Reverse"` from an untyped caller
+  (#1397). Before, the container walked its children in insertion order with
+  no error.
 - A `FormVM` call nested in a preparation callback or an `errorsChanged`
   observer of `setModel` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,

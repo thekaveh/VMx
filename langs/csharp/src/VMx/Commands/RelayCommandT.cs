@@ -1,6 +1,7 @@
 using System.Reactive;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -87,13 +88,9 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
         if (_disposed) return;
         _disposed = true;
         ExceptionDispatchInfo? firstError = null;
-        try { CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
-        catch (Exception error) { firstError = ExceptionDispatchInfo.Capture(error); }
+        FirstFailure.Capture(ref firstError, () => CanExecuteChanged?.Invoke(this, EventArgs.Empty));
         foreach (var subscription in _triggerSubscriptions)
-        {
-            try { subscription.Dispose(); }
-            catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
-        }
+            FirstFailure.Capture(ref firstError, subscription.Dispose);
         firstError?.Throw();
     }
 

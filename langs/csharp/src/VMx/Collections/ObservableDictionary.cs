@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 using VMx.Messages;
 using VMx.Services;
 
@@ -516,14 +517,17 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         Func<CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>> message)
     {
         ExceptionDispatchInfo? firstFailure = null;
-        try { granular(); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
-        try { CollectionChanged?.Invoke(this, args); }
-        catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+        FirstFailure.Capture(ref firstFailure, granular);
+        FirstFailure.Capture(
+            ref firstFailure,
+            (Owner: this, Args: args),
+            static state => state.Owner.CollectionChanged?.Invoke(state.Owner, state.Args));
         if (_hub is not null)
         {
-            try { _hub.Send(message()); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+            FirstFailure.Capture(
+                ref firstFailure,
+                (Hub: _hub, Message: message),
+                static state => state.Hub.Send(state.Message()));
         }
         firstFailure?.Throw();
     }

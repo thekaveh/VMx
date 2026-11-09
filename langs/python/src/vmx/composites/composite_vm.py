@@ -35,6 +35,7 @@ from vmx.components._late_child_starts import (
     _LateWalk,
     _StartRecord,
 )
+from vmx.components._unowned_candidates import dispose_unowned_candidates
 from vmx.components.base import (
     _begin_parent_transfer,
     _commit_parent_transfer,
@@ -43,7 +44,7 @@ from vmx.components.base import (
     _ParentCompositeVM,
     _ParentTransfer,
 )
-from vmx.components.child_order import ChildOrder, _in_destruct_order
+from vmx.components.child_order import ChildOrder, _in_destruct_order, _require_child_order
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -106,6 +107,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         on_current_changed: Callable[[VM | None], None] | None = None,
         destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> None:
+        # Checked before any state exists: an unknown order is a caller error.
+        _require_child_order(destruct_order)
         super().__init__(
             name=name,
             hint=hint,
@@ -1539,7 +1542,15 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
         return CompositeVMOfBuilder()
 
     def _populate_children(self) -> None:
-        children = [self._child_model_to_child_vm(model) for model in self._children_models()]
+        # A projector that raises disposes the children it already built
+        # (#1324); the composite keeps no children.
+        children: list[VM] = []
+        try:
+            for model in self._children_models():
+                children.append(self._child_model_to_child_vm(model))
+        except BaseException:
+            dispose_unowned_candidates(self, children)
+            raise
         self._attach_population(children)
 
 

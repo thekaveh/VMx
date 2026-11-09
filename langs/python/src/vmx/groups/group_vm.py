@@ -50,7 +50,7 @@ from vmx.components.base import (
     _ParentCompositeVM,
     _ParentTransfer,
 )
-from vmx.components.child_order import ChildOrder, _in_destruct_order
+from vmx.components.child_order import ChildOrder, _in_destruct_order, _require_child_order
 from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -104,6 +104,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         on_destruct: Callable[[], None] | None = None,
         destruct_order: ChildOrder = ChildOrder.INSERTION,
     ) -> None:
+        # Checked before any state exists: an unknown order is a caller error.
+        _require_child_order(destruct_order)
         super().__init__(
             name=name,
             hint=hint,
