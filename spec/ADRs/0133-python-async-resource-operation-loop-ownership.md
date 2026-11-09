@@ -1,6 +1,6 @@
 # ADR 0133 — Preserve Python async resource operation-loop ownership
 
-- **Status:** Accepted
+- **Status:** Accepted (Extended by ADR-0199)
 - **Date:** 2026-09-26
 - **Spec version:** 3.23.0
 
@@ -68,7 +68,7 @@ cleanup still run, preserving the first unrelated teardown error.
 This maps the existing resource cancellation and ownership contract onto Python
 asyncio. It adds no public API, thread, loop, dependency, UI dispatch rule, or
 general VM/observer thread-safety guarantee. Loader-originated self-cancellation
-remains separate issue #334. Spec/minimum-spec version 3.23.0, fixtures, and the
+remains separate issue #334; ADR-0199 later closed it. Spec/minimum-spec version 3.23.0, fixtures, and the
 403-library/408-total catalog remain unchanged. Python source 3.23.3 is unreleased;
 the release manifest remains 3.23.1.
 

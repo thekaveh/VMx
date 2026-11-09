@@ -837,7 +837,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// Runs one lifecycle hook with a fresh deferral slot. A hook that throws
     /// after deferring completion abandons that deferral: its continuation never
     /// runs and its eventual fault is observed (ADR-0109), so the next transition
-    /// starts clean.
+    /// starts clean. When the hook returns and a terminal cleanup that a wait
+    /// cycle deferred to it fails, the hook's lifecycle call throws that
+    /// failure after the lease is released, as for a hook failure (ADR-0200).
     /// </summary>
     private void RunLifecycleHook(Action hook, LifecycleHookLease lease)
     {
@@ -848,29 +850,37 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
         var previous = t_lifecycleHookScope;
         t_lifecycleHookScope = scope;
+        var hookFailed = false;
+        ExceptionDispatchInfo? cleanupFailure = null;
         try
         {
             hook();
         }
         catch
         {
+            hookFailed = true;
             // Mark the walk abandoned before the hook's lease is released, so a
-            // child settling on another thread drives no further child. Observe
-            // the abandoned deferral's eventual fault.
-            scope.Abandoned = true;
-            var abandoned = TakeDeferredLifecycleTask();
-            _ = abandoned?.ContinueWith(
-                static completed => _ = completed.Exception,
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+            // child settling on another thread drives no further child.
+            AbandonHookDeferral(scope);
             throw;
         }
         finally
         {
             t_lifecycleHookScope = previous;
-            FinishLifecycleHook(lease);
+            var deferredFailure = FinishLifecycleHook(lease);
+            // A hook failure stays first: a deferred cleanup failure never
+            // replaces it (ADR-0126).
+            if (!hookFailed) cleanupFailure = deferredFailure;
             AfterHookLeaseReleasedForTesting?.Invoke();
+        }
+
+        if (cleanupFailure is not null)
+        {
+            // The call that runs a deferred terminal cleanup reports its first
+            // failure (ADR-0200). Disposed has superseded this call, so it
+            // abandons its deferral and propagates the failure.
+            AbandonHookDeferral(scope);
+            cleanupFailure.Throw();
         }
 
         lock (_gate)
@@ -881,6 +891,21 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             if (_deferredWalkScope is not null && _childTransitionAbandoned)
                 scope.Abandoned = true;
         }
+    }
+
+    /// <summary>
+    /// Stops the walk that the hook deferred to and observes the abandoned
+    /// deferral's eventual fault (ADR-0109).
+    /// </summary>
+    private void AbandonHookDeferral(LifecycleHookScope scope)
+    {
+        scope.Abandoned = true;
+        var abandoned = TakeDeferredLifecycleTask();
+        _ = abandoned?.ContinueWith(
+            static completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     /// <summary>
@@ -1970,7 +1995,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
     }
 
-    private void FinishLifecycleHook(LifecycleHookLease lease)
+    /// <summary>
+    /// Releases the hook's lease, then runs a terminal cleanup that a wait
+    /// cycle deferred to it. Returns the cleanup's first failure, which the
+    /// hook's lifecycle call reports (ADR-0200).
+    /// </summary>
+    private ExceptionDispatchInfo? FinishLifecycleHook(LifecycleHookLease lease)
     {
         Action? deferredDisposal;
         lock (_gate)
@@ -1982,13 +2012,17 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
         // The lease's waits leave the graph before its waiters wake.
         lease.Finish();
-        if (deferredDisposal is not null)
+        if (deferredDisposal is null) return null;
+        // The cycle-broken Dispose call returned normally, so this call is the
+        // only one left to receive the cleanup's failure.
+        try
         {
-            // A cycle-broken Dispose call has no synchronous caller left to
-            // receive this deferred failure. Never let it replace an exception
-            // already propagating from the admitted hook.
-            try { deferredDisposal(); }
-            catch (Exception) { }
+            deferredDisposal();
+            return null;
+        }
+        catch (Exception error)
+        {
+            return ExceptionDispatchInfo.Capture(error);
         }
     }
 

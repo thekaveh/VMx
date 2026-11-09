@@ -167,6 +167,7 @@ Key exports:
 | `NullMessageHub.INSTANCE`       | Null-object variant per ADR-0017                 |
 | `RxDispatcher`                  | Foreground/background scheduler pair             |
 | `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
+| `markSchedulerCancelled(scheduler)` | Opt-out for a custom scheduler that cancels its queued work (§4.7) |
 | `ConstructionStatus`            | 5-state lifecycle enum                           |
 | `StatusTransitionError`         | Raised on illegal lifecycle operations           |
 | `BuilderValidationError`        | Raised when a builder is missing required fields |
@@ -249,6 +250,21 @@ only bounded scalar metadata; state appears only through consumer snapshot
 selectors. Dispose the bridge before its owning hub. The bridge ignores
 incoming DevTools dispatches and gives no replay or time-travel guarantee. See
 [TypeScript DevTools observability](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/typescript.md#748-devtools-observability).
+
+### 4.7 Custom schedulers
+
+`RxDispatcher.immediate()` and `NullDispatcher` run both channels on rxjs
+`queueScheduler`. One flush can then hold several lifecycle failures. The
+first failure to leave the flush is thrown. VMx reports every other failure
+once through rxjs `config.onUnhandledError` after the flush returns
+(ADR-0200).
+
+A flush error unsubscribes the actions queued behind it. VMx then runs its own
+dropped lifecycle actions, so the VM still settles (#1052). A custom scheduler
+that cancels its queued work on purpose calls `markSchedulerCancelled(this)`
+before it unsubscribes that work. VMx then runs no hook and publishes no status
+for it. A failure that already happened is still reported. `ManualDispatcher`
+marks itself in `dispose()`.
 
 ## 5. Notifications
 

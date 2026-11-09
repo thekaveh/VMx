@@ -707,6 +707,25 @@ before a persister starts prevents the persister call (`FORM-041`,
 
 See ADR-0180 and chapter 20 §5.4 and §10.
 
+v3.30.0 also states the outcome of a loader's own cancellation. A current
+`AsyncResourceVM` loader that ends with its flavor's native cancellation signal
+restores the operation's saved stable state, as `Cancel` does, even when the VM
+did not request it. A C# timeout stays a failure, and a superseded loader's
+cancellation is stale (`ARES-012`). The catalog now contains 452 library IDs
+plus 5 scenario IDs.
+
+See ADR-0199 and chapter 23 §5 and §7.
+
+v3.30.0 also gives each lifecycle failure one reporting route. The call that
+runs a cycle-deferred terminal cleanup reports the cleanup's first failure when
+it has no earlier failure. In a shared-scheduler flush, the first failure is
+thrown to the flush's caller, and every other failure goes to the flavor's
+unhandled-error route after the flush returns. A scheduler that cancels its
+queued work on purpose marks itself first, so VMx runs none of that work. No
+conformance ID is added.
+
+See ADR-0200 and chapter 02 §2.4, §6.1, and §7.
+
 v3.30.0 also makes two composite selection refusals silent. A refused child
 `select()` or `deselect()` changes nothing and raises nothing in every flavor.
 While a composite is `Destructing`, a non-null selection changes nothing and
@@ -729,7 +748,7 @@ v3.30.0 also makes the `ObservableDictionary` key views read-only. `Keys1` and
 `Keys2` return a `ReadOnlyObservableList` facade in C#, Python, TypeScript, and
 Swift (`COL-070`). Dictionary Remove and Replace hub messages now carry the
 entry's position, as the §2.4 tables state (`COL-068`). Python's unkeyed
-`reverse()` sends one Reset. The catalog now contains 457 library IDs plus 5
+`reverse()` sends one Reset. The catalog now contains 458 library IDs plus 5
 scenario IDs.
 
 See ADR-0193 and chapter 21 §2.3.6, §4.2, and §4.7.
