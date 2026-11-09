@@ -76,7 +76,9 @@ ThemeVM : ComponentVM<ThemeModel>
 or `#RRGGBB`, with hexadecimal digits in either case, and stores the value as
 given. It rejects any other value, an empty or null value included, as
 `THEME-002` rejects an unknown preset. C#, Python and TypeScript raise their
-idiomatic argument error. Swift throws `ThemeError.invalidAccent` from
+idiomatic argument error. C# `RelayCommand<string>` never runs its task for a
+`null` parameter, so a `null` accent sent through the C# command does
+nothing. Swift throws `ThemeError.invalidAccent` from
 `applyAccentColor(_:)`, and `setAccentColor` discards the rejection
 (ADR-0009). A rejected accent publishes no `ThemeChangedMessage` and leaves the
 model unchanged.
