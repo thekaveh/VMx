@@ -1433,6 +1433,10 @@ fn aggregate_reconstruct_waiting_on_an_unsettled_component_frees_its_tree() {
 
 /// #750 — a composite dropped while it waits abandons its transition: the
 /// background child still settles later, and nothing panics or blocks.
+///
+/// #1280 — the dropped composite publishes no terminal status: the hub
+/// carries only its `Constructing`. This is the deliberate Rust divergence
+/// that ADR-0009 §2.34 records.
 #[test]
 fn dropped_waiting_composite_lets_its_child_settle_alone() {
     let hub = MessageHub::new();
@@ -1440,6 +1444,8 @@ fn dropped_waiting_composite_lets_its_child_settle_alone() {
     let child = background_child(&hub, &dispatcher, "child");
     let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
     composite.add(child.clone()).unwrap();
+    let composite_id = composite.id();
+    let (log, _subscription) = record(&hub);
     composite.construct().unwrap();
     assert_eq!(composite.status(), ConstructionStatus::Constructing);
 
@@ -1447,6 +1453,19 @@ fn dropped_waiting_composite_lets_its_child_settle_alone() {
     dispatcher.drain();
 
     assert_eq!(child.status(), ConstructionStatus::Constructed);
+    let composite_statuses: Vec<ConstructionStatus> = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(id, _)| *id == composite_id)
+        .map(|(_, status)| *status)
+        .collect();
+    assert_eq!(
+        composite_statuses,
+        vec![ConstructionStatus::Constructing],
+        "the dropped composite publishes no terminal status"
+    );
+    position(&log, child.id(), ConstructionStatus::Constructed);
 }
 
 /// #750 — an aggregate whose user keeps only one of its commands across a

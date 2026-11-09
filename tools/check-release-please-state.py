@@ -61,17 +61,18 @@ def check_state(root: Path) -> ReleaseState:
 
 
 def _write_github_output(path: Path, state: ReleaseState) -> None:
-    path.write_text(
-        "\n".join(
-            (
-                f"ready={str(state.ready).lower()}",
-                f"source-version={state.source_version}",
-                f"published-version={state.published_version}",
+    # GITHUB_OUTPUT is shared by the whole step, so append rather than replace (#1471).
+    with path.open("a", encoding="utf-8") as output:
+        output.write(
+            "\n".join(
+                (
+                    f"ready={str(state.ready).lower()}",
+                    f"source-version={state.source_version}",
+                    f"published-version={state.published_version}",
+                )
             )
+            + "\n"
         )
-        + "\n",
-        encoding="utf-8",
-    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
