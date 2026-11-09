@@ -69,6 +69,7 @@ tests/conformance/command_decorators.rs
 tests/conformance/command_ext.rs
 tests/conformance/commands.rs
 tests/conformance/component_vm.rs
+tests/conformance/composite_selection_disposal.rs
 tests/conformance/composite_vm.rs
 tests/conformance/confirmation_async_inner.rs
 tests/conformance/container_disposal_wait_cycle.rs
@@ -77,6 +78,7 @@ tests/conformance/derived_properties.rs
 tests/conformance/dialogs.rs
 tests/conformance/dictionary_key_view_order.rs
 tests/conformance/discriminator.rs
+tests/conformance/disposed_child_walks.rs
 tests/conformance/drop_reentry.rs
 tests/conformance/expandable.rs
 tests/conformance/expandable_support.rs
