@@ -511,7 +511,7 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
                     }
                     self.core.notify_property_changed("component_1");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -881,9 +881,9 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
                     self.core.notify_property_changed("component_1");
                     self.core.notify_property_changed("component_2");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -1234,11 +1234,11 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
                     self.core.notify_property_changed("component_2");
                     self.core.notify_property_changed("component_3");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next3, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -1580,13 +1580,13 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
                     self.core.notify_property_changed("component_3");
                     self.core.notify_property_changed("component_4");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next3, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next4, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next4, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -1973,15 +1973,15 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
                     self.core.notify_property_changed("component_4");
                     self.core.notify_property_changed("component_5");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next3, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next4, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next4, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next5, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next5, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -2412,17 +2412,17 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
                     self.core.notify_property_changed("component_5");
                     self.core.notify_property_changed("component_6");
                     self.core
-                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next1, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next2, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next3, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next4, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next4, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next5, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next5, LifecycleOperation::Construct)?;
                     self.core
-                        .transition_child(&next6, LifecycleOperation::Construct)?;
+                        .transition_or_join_child(&next6, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })

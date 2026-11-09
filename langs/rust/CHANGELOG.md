@@ -15,6 +15,16 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `ForwardingCompositeVm` implements `VmNode`, `PartialEq` and `Eq` (#1271,
+  ADR-0205, spec/09 §2). Each node method forwards to the wrapped composite,
+  so a `CompositeVm`, `GroupVm` or aggregate accepts the decorator as a child.
+  The decorator and the wrapped composite share one ownership identity, one
+  current flag and one lifecycle. The decorator also forwards `is_current`,
+  `can_select`, `select`, `can_deselect`, `deselect`, the select, deselect,
+  select-next, select-previous and reconstruct commands, `expand`,
+  `collapse`, `toggle_expansion`, `is_expanded`, `on_current_changed`,
+  `background_errors`, `set_current_selector`, `set_auto_construct_on_add`
+  and `set_async_selection`.
 - `ComponentVmBuilder::on_model_changed` and the optional
   `ComponentVmOptions::on_model_changed` field (#1252, ADR-0206). The callback
   receives the accepted model after the `model` notification and any
@@ -247,6 +257,12 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   a breaking change: the seams are hidden test-only API, and no published
   release exported them.
 
+- Breaking: a container whose started background child does not forward
+  `VmNode::when_lifecycle_settled` and publishes on the container's hub now
+  stays Constructing or Destructing until that child settles, and rolls back
+  when the child fails (#1274, ADR-0205). Before, it reached Constructed or
+  Destructed while the child was still in flight.
+
 - Breaking: `GroupVmOptions` and `CompositeVmOptions` have a new
   `destruct_order` field, so code that builds them with a struct literal must
   now set it (#662).
@@ -321,6 +337,30 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Fixed
 
+- A container now rolls back when a background child that does not forward
+  `VmNode::when_lifecycle_settled` fails (#1274, ADR-0205, spec/11 §4,
+  `LIFE-014`). The container waits for such a child when it started the child
+  and, by the time the start call returned, its own hub delivered or queued
+  the child's Constructing or Destructing status. A child that then settles
+  at another status rolls the container back, and the failure reaches the
+  container's `background_errors()` stream. A status of the child's earlier
+  transition that the hub still holds does not end the wait. Before, the
+  container accepted the child in flight: it stayed Constructed while the
+  child ended Destructed. This is a breaking behavior change (see Changed). A
+  child on another hub, or one joined while already in flight, is still
+  accepted in flight, so the container never waits without limit.
+- `AggregateVm1` to `AggregateVm6` now join a slot child that is already
+  Constructing when `construct()` runs, as the composite and group walks do
+  (#1273, spec/02 §6). Before, the aggregate called the child's `construct()`
+  again, got `ConcurrentOperation` and rolled back to Destructed. A joined
+  child that then fails rolls the aggregate back, and the failure reaches its
+  `background_errors()` stream.
+- `CompositeVm::clear()` no longer resets `is_current` on a removed child
+  after it releases the membership gate (#1285, spec/06 §4.3). The detach
+  clear already commits the previous current child's flag under the gate, as
+  in C# and Python. Before, a composite that added and selected the removed
+  child in that gap, from an `on_current_changed` subscriber or another
+  thread, found the child's `is_current()` reset to `false`.
 - A disposed `HierarchicalVm` node now refuses `add_child`, `remove_child`,
   `reparent_child`, `invalidate_children`, `invalidate_subtree` and
   `attach_many`, also where the call would do nothing (ADR-0190, spec/18 §7.1,

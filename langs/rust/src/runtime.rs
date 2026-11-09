@@ -1104,6 +1104,18 @@ impl MessageHub {
         Arc::as_ptr(&self.inner) as usize
     }
 
+    /// Reports whether a `ConstructionStatusChanged` message of `sender_id`
+    /// with `status` is queued for delivery on this hub.
+    pub(crate) fn has_pending_status(&self, sender_id: usize, status: ConstructionStatus) -> bool {
+        lock(&self.inner.state).pending.iter().any(|message| {
+            matches!(
+                message,
+                Message::ConstructionStatusChanged(change)
+                    if change.sender_id == sender_id && change.status == status
+            )
+        })
+    }
+
     pub(crate) fn is_delivering_from(&self, sender_id: usize) -> bool {
         let hub_id = self.identity();
         MESSAGE_HUB_DELIVERY_SENDERS.with(|senders| senders.borrow().contains(&(hub_id, sender_id)))
@@ -2614,8 +2626,14 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     ///
     /// Containers use this hook to stay transient until a background child
     /// settles (spec/02 §6). Wrapper nodes should forward it to the wrapped
-    /// VM. The default returns `false`; a container whose child does not
-    /// support settle notification accepts that child while it is still
+    /// VM. The default returns `false`. A container then falls back to its
+    /// own message hub (spec/11 §4, ADR-0205): when it started the node and,
+    /// by the time the start call returned, the hub delivered or queued the
+    /// node's Constructing/Destructing status, it waits on that hub for a
+    /// status of the node that arrives once the node is no longer in flight,
+    /// and rolls back when the node settles anywhere else. Otherwise (the
+    /// node publishes on another hub, or the container joined a node
+    /// already in flight) it accepts the node while it is still
     /// Constructing/Destructing instead of waiting for it.
     fn when_lifecycle_settled(&self, _callback: LifecycleSettleCallback) -> bool {
         false
@@ -2973,6 +2991,108 @@ impl ChildSettle {
 
     fn busy(&self) -> bool {
         self.failed || self.waiting || self.draining || !self.queue.is_empty()
+    }
+}
+
+#[derive(Default)]
+struct ChildObserverState {
+    /// The container's hub delivered the child's transient status.
+    seen: bool,
+    /// The hub delivered a later status of the child, or the hub completed.
+    settled: bool,
+    callback: Option<LifecycleSettleCallback>,
+}
+
+/// Watches the container's own hub for the status of a child the container
+/// starts, for a node that does not forward
+/// [`VmNode::when_lifecycle_settled`] (spec/11 §4, ADR-0205). It subscribes
+/// before the child's start call. A container waits on the child only when,
+/// by the time that call returned, the hub delivered or queued the child's
+/// transient status: the child then publishes on this hub, so its next
+/// status arrives here too, and the wait is bounded. The hub's completion
+/// also ends the wait.
+///
+/// The hub can still hold statuses of the child's earlier transitions,
+/// queued before the start call (a hub batch, a borrowed scope, or another
+/// thread's drain). A message cannot tell which transition it belongs to,
+/// so a non-transient status settles the wait only when the child itself
+/// is no longer at the transient status; otherwise it is an earlier
+/// transition's status and the observer ignores it.
+struct ChildObserver {
+    hub: MessageHub,
+    child_id: usize,
+    transient: ConstructionStatus,
+    state: Arc<Mutex<ChildObserverState>>,
+    subscription: Subscription,
+}
+
+impl ChildObserver {
+    fn start<N: VmNode>(hub: MessageHub, child: &N, transient: ConstructionStatus) -> Self {
+        let child_id = child.id();
+        // The subscription ends when the awaited check runs or the settle is
+        // dropped, so this clone does not outlive the container's wait.
+        let probe = child.clone();
+        let state = Arc::new(Mutex::new(ChildObserverState::default()));
+        let on_message = Arc::clone(&state);
+        let on_completion = Arc::clone(&state);
+        let subscription = hub.subscribe_with_completion(
+            move |message| {
+                let Message::ConstructionStatusChanged(change) = message else {
+                    return;
+                };
+                if change.sender_id != child_id {
+                    return;
+                }
+                if change.status == transient {
+                    lock(&on_message).seen = true;
+                } else if probe.status() != transient {
+                    Self::settle(&on_message);
+                }
+                // Otherwise the child is still in flight: the message is a
+                // status of an earlier transition that the hub queued
+                // before this start call.
+            },
+            move || Self::settle(&on_completion),
+        );
+        Self {
+            hub,
+            child_id,
+            transient,
+            state,
+            subscription,
+        }
+    }
+
+    /// Records a transient status the hub has queued but not yet delivered
+    /// (the start call ran inside a hub batch, a borrowed scope, or this
+    /// thread's drain). Call after the start call returns.
+    fn note_queued_transient(&self) {
+        if !lock(&self.state).seen && self.hub.has_pending_status(self.child_id, self.transient) {
+            lock(&self.state).seen = true;
+        }
+    }
+
+    fn settle(state: &Mutex<ChildObserverState>) {
+        let callback = {
+            let mut state = lock(state);
+            state.settled = true;
+            state.callback.take()
+        };
+        if let Some(callback) = callback {
+            callback();
+        }
+    }
+
+    /// Registers `callback` to run when the hub delivers a status of the
+    /// child that finds it no longer at the transient status. Returns `false` (dropping `callback`) when the hub never
+    /// delivered the transient status or already delivered the next one.
+    fn arm(state: &Mutex<ChildObserverState>, callback: LifecycleSettleCallback) -> bool {
+        let mut state = lock(state);
+        if !state.seen || state.settled {
+            return false;
+        }
+        state.callback = Some(callback);
+        true
     }
 }
 
@@ -4641,23 +4761,43 @@ impl<D: Dispatcher> ComponentCore<D> {
         {
             return Ok(());
         }
-        let expected = match operation {
-            LifecycleOperation::Construct => {
-                child.construct()?;
-                ConstructionStatus::Constructed
-            }
-            LifecycleOperation::Destruct => {
-                child.destruct()?;
-                ConstructionStatus::Destructed
-            }
+        let (transient, expected) = match operation {
+            LifecycleOperation::Construct => (
+                ConstructionStatus::Constructing,
+                ConstructionStatus::Constructed,
+            ),
+            LifecycleOperation::Destruct => (
+                ConstructionStatus::Destructing,
+                ConstructionStatus::Destructed,
+            ),
             LifecycleOperation::Dispose => return child.dispose(),
         };
-        self.await_child(child, expected)
+        // Subscribed before the start call, so it sees the child's transient
+        // status when the child publishes on this container's hub.
+        let observer = ChildObserver::start(self.hub(), child, transient);
+        match operation {
+            LifecycleOperation::Construct => child.construct()?,
+            _ => child.destruct()?,
+        }
+        observer.note_queued_transient();
+        self.await_child_observed(child, expected, Some(observer))
     }
 
     /// Holds the container transition until `child`, already started, settles
     /// at `expected`; fails it when the child settled anywhere else.
     fn await_child<N: VmNode>(&self, child: &N, expected: ConstructionStatus) -> VmxResult<()> {
+        self.await_child_observed(child, expected, None)
+    }
+
+    /// [`Self::await_child`] with the hub observer of a child this
+    /// container started. The observer is the fallback for a node without
+    /// settle notification.
+    fn await_child_observed<N: VmNode>(
+        &self,
+        child: &N,
+        expected: ConstructionStatus,
+        observer: Option<ChildObserver>,
+    ) -> VmxResult<()> {
         let (generation, stale) = {
             let mut inner = lock(&self.inner);
             let generation = inner.transition_generation;
@@ -4670,6 +4810,20 @@ impl<D: Dispatcher> ComponentCore<D> {
         if self.watch_child(generation, child, expected) {
             return Ok(());
         }
+        let in_flight = match expected {
+            ConstructionStatus::Constructed => ConstructionStatus::Constructing,
+            _ => ConstructionStatus::Destructing,
+        };
+        // A node that does not forward `when_lifecycle_settled` is watched
+        // on this container's hub when the container started it and the hub
+        // delivered or queued its transient status (ADR-0205).
+        if let Some(observer) = observer {
+            if child.status() == in_flight
+                && self.watch_observed(generation, child, expected, observer)
+            {
+                return Ok(());
+            }
+        }
         {
             let mut inner = lock(&self.inner);
             if let Some(settle) = inner.child_settle.as_mut() {
@@ -4678,18 +4832,70 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
             }
         }
-        // A third-party node that does not forward `when_lifecycle_settled`
-        // cannot notify the container when its background transition
-        // settles; keep the pre-settle-tracking behavior and accept it while
-        // it is still in flight rather than failing the container.
-        let in_flight = match expected {
-            ConstructionStatus::Constructed => ConstructionStatus::Constructing,
-            _ => ConstructionStatus::Destructing,
-        };
+        // Otherwise the container cannot learn when the node's transition
+        // settles (it joined a node already in flight, or the node publishes
+        // on another hub). It accepts the node while it is still in flight
+        // rather than wait without limit.
         if child.status() == in_flight {
             return Ok(());
         }
         child_settled_result(child, expected)
+    }
+
+    /// Like [`Self::watch_child`], with `observer` in place of the child's
+    /// settle hook. The awaited check owns the observer, so its subscription
+    /// ends when the check runs or the settle is dropped.
+    fn watch_observed<N: VmNode>(
+        &self,
+        generation: u64,
+        child: &N,
+        expected: ConstructionStatus,
+        observer: ChildObserver,
+    ) -> bool {
+        let ChildObserver {
+            state,
+            subscription,
+            ..
+        } = observer;
+        let awaited_child = child.clone();
+        let awaited: AwaitedChild = Box::new(move || {
+            drop(subscription);
+            child_settled_result(&awaited_child, expected)
+        });
+        let displaced = {
+            let mut inner = lock(&self.inner);
+            if !self.settle_is_current(&inner, generation) {
+                drop(inner);
+                drop(awaited);
+                return true;
+            }
+            inner
+                .child_settle
+                .as_mut()
+                .and_then(|settle| settle.awaited.replace(awaited))
+        };
+        drop(displaced);
+        let core = self.downgrade();
+        if ChildObserver::arm(
+            &state,
+            Box::new(move || {
+                if let Some(core) = core.upgrade() {
+                    core.child_settled(generation);
+                }
+            }),
+        ) {
+            return true;
+        }
+        let unused = {
+            let mut inner = lock(&self.inner);
+            inner
+                .child_settle
+                .as_mut()
+                .filter(|settle| settle.generation == generation)
+                .and_then(|settle| settle.awaited.take())
+        };
+        drop(unused);
+        false
     }
 
     /// Registers this transition's settle callback on `child`. The container
