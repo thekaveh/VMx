@@ -707,6 +707,24 @@ before a persister starts prevents the persister call (`FORM-041`,
 
 See ADR-0180 and chapter 20 §5.4 and §10.
 
+v3.30.0 also makes two composite selection refusals silent. A refused child
+`select()` or `deselect()` changes nothing and raises nothing in every flavor.
+While a composite is `Destructing`, a non-null selection changes nothing and
+raises nothing, so `destruct()` always returns with `Current` null
+(`COMP-051`, `COMP-052`).
+
+See ADR-0188 and chapter 05 §6 and chapter 06 §3.1, §4.3 and §5.
+
+v3.30.0 also covers a child that is disposed while it is still a member.
+Container walks and the child-transition helper skip a `Disposed` child, so
+the container still destructs, constructs and reconstructs (`LIFE-022`). A
+`Disposed` child is not selectable. When the current child publishes
+`Disposed` from its own `dispose()`, the composite clears `Current`, and the
+child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 455
+library IDs plus 5 scenario IDs.
+
+See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
+
 v3.30.0 also sets three command rules. The fire-and-forget `Execute()` of
 `ConfirmationDecoratorCommand` never invokes the inner command inside its own
 call, also when `confirm()` is already complete (`CMDD-018`). A fire-and-forget
@@ -719,7 +737,6 @@ v3.30.0 also defines two command-enablement notifications. A `FormVM` update
 raises `ApproveCommand.CanExecuteChanged` exactly once when it changes
 `IsValid`, or `IsDirty` in strict mode, also during an approval (`FORM-043`).
 From the start of `NotificationVM` or `ConfirmationVM` disposal, every command
-of the VM reports `CanExecute == false` (`NOTIF-018`). The catalog now contains
-455 library IDs plus 5 scenario IDs.
+of the VM reports `CanExecute == false` (`NOTIF-018`).
 
 See ADR-0196, chapter 20 §5.2, and chapter 16 §6.2.

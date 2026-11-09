@@ -117,7 +117,6 @@ run on a thread-pool thread.
   `IsExecuting == false`.
 
 §2.3 adds no conformance ID, because it makes no thread guarantee to test.
-The catalog grows from 451 to 453 library IDs with this ADR.
 
 ## 5. Consequences
 

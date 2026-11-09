@@ -8,6 +8,24 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Added: `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
+- Fixed: Disposing the current child of a composite now clears the
+  composite's current child before `Dispose()` returns (ADR-0189, #1317). The
+  composite publishes the change once and calls `OnCurrentChanged(null)` once.
+  The disposed child reads `IsCurrent` false. A disposed child can no longer
+  become current: the setter throws the non-member error.
+- Fixed: A composite, group or aggregate that holds a directly disposed child
+  now destructs, constructs and reconstructs (ADR-0189, #1383). Container
+  walks and the child-transition helper skip a disposed child. Before, every
+  `Destruct()` failed and the container stayed `Constructed`.
+- Fixed: A non-null selection while a composite is `Destructing` now changes
+  nothing and throws nothing (ADR-0188, #1425). `Destruct()` and
+  `Reconstruct()` therefore return with no current child, also when an
+  `OnCurrentChanged` callback or a child's destruct hook selects a child.
+- Changed: A refused child `Select()` or `Deselect()` now changes nothing and
+  throws nothing (ADR-0188, #1424). Before, it threw
+  `InvalidOperationException`.
 - Changed: the fire-and-forget `Execute()` of `ConfirmationDecoratorCommand`
   no longer runs the inner command inside its own call when the confirmation
   is already complete (ADR-0195, spec/04 §8.3.1, #1327, `CMDD-018`). The inner

@@ -89,8 +89,6 @@ before. The state after a resolution is out of scope.
 - `NOTIF-018` — every command of a notification VM reports `CanExecute == false` in each notification raised during `Dispose()`, and disposal does
   not resolve the notification.
 
-With ADR-0195, the catalog grows from 451 to 455 library IDs (460 in total).
-
 ## 5. Consequences
 
 - A Rust consumer receives more approve notifications than before: one for

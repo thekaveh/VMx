@@ -14,6 +14,8 @@ below for them.
 
 ### Added
 
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
 - `CMD-020`, `CMDD-018` and `FORM-043` conformance tests (ADR-0195,
   ADR-0196, #1327). A fire-and-forget `AsyncRelayCommand` fault reaches
   `errors` after the completion notification, and `execute()` of
@@ -74,8 +76,28 @@ below for them.
   changes a node. `dispose()` releases the subscriptions and completes the
   stream without emitting.
 
+### Changed
+
+- A refused child `select()` or `deselect()` now changes nothing and raises
+  nothing (ADR-0188, spec/05 §6, #1424). Before, it raised inside the caller's
+  own uncommitted membership transaction and while disposal of the composite
+  was pending.
+
 ### Fixed
 
+- Disposing the current child of a composite now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `on_current_changed` with `None` once.
+  The disposed child reads `is_current` false. A disposed child can no longer
+  become current: the setter raises the non-member `ValueError`.
+- A composite, group or aggregate that holds a directly disposed child now
+  destructs, constructs and reconstructs (ADR-0189, #1383). Container walks
+  and the child-transition helper skip a disposed child. Before, every
+  `destruct()` failed and the container stayed `Constructed`.
+- A non-null selection while a composite is `Destructing` now changes nothing
+  and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
+  therefore return with no current child, also when an `on_current_changed`
+  callback or a child's destruct hook selects a child.
 - Every command of a disposing `NotificationVM` or `ConfirmationVM` now
   reports `can_execute()` as `False` from the start of `dispose()` (ADR-0196,
   spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet

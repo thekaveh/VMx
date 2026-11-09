@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
 - `CMD-020`, `CMDD-018` and `FORM-043` conformance tests (ADR-0195,
   ADR-0196, #1327). Swift already behaved this way.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
@@ -74,6 +76,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Disposing the current child of a composite now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `onCurrentChanged` with `nil` once. The
+  disposed child reads `isCurrent` false. A disposed child can no longer
+  become current: `setCurrent(_:)` throws the non-member
+  `CompositeMembershipError`, and the `current` setter traps.
+- A composite, group or aggregate that holds a directly disposed child now
+  destructs, constructs and reconstructs (ADR-0189, #1383). Container walks
+  and the child-transition helper skip a disposed child. Before, every
+  `destruct()` failed and the container stayed `Constructed`.
+- A non-`nil` selection while a composite is `Destructing` now changes
+  nothing and raises nothing (ADR-0188, #1425). `destruct()` and
+  `reconstruct()` therefore return with no current child, also when an
+  `onCurrentChanged` callback or a child's destruct hook selects a child.
 - Every command of a disposing `NotificationVM` or `ConfirmationVM` now
   reports `canExecute()` false from the start of `dispose()` (ADR-0196,
   spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet

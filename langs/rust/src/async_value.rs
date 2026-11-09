@@ -225,7 +225,8 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
         }
     }
 
-    #[cfg(test)]
+    // Only the notification waiter tests observe the native wait.
+    #[cfg(all(test, feature = "notifications"))]
     pub(crate) fn observe_wait(&self) -> crate::runtime::wait_observation::Observation<'_> {
         crate::runtime::wait_observation::observe(&self.inner.ready)
     }
