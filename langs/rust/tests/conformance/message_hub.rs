@@ -310,7 +310,12 @@ fn hub_matches_message_ordering_fixture() {
 #[test]
 fn throwing_subscriber_does_not_break_hub() {
     let hub = MessageHub::new();
-    let _bad = hub.subscribe(|_| panic!("subscriber failed"));
+    let bad_runs = Arc::new(AtomicUsize::new(0));
+    let bad_runs_clone = bad_runs.clone();
+    let _bad = hub.subscribe(move |_| {
+        bad_runs_clone.fetch_add(1, Ordering::SeqCst);
+        panic!("subscriber failed");
+    });
     let received = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
     let _good = hub.subscribe(move |message| {
@@ -324,6 +329,8 @@ fn throwing_subscriber_does_not_break_hub() {
     hub.send(make_msg("msg2"));
 
     assert_eq!(*received.lock().unwrap(), vec!["msg1", "msg2"]);
+    // ADR-0191: the panicking subscriber stays attached and runs for both.
+    assert_eq!(bad_runs.load(Ordering::SeqCst), 2);
 }
 
 /// HUB-008 — Nested transactions defer and preserve every message

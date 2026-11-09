@@ -10,6 +10,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
+  tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
+  #1311). A failing subscriber does not stop the delivery to the other
+  subscribers or detach a subscription, and the subscribers of one
+  `AggregateChangeStream` envelope receive it in subscription order. Rust
+  already behaved this way. The Rust dictionary has no local channel, and
+  `SearchableState` is pull-based, so a failing predicate panics in the caller
+  of `filtered()`.
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
