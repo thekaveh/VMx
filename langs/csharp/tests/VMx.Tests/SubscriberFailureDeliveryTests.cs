@@ -105,6 +105,34 @@ public class SubscriberFailureDeliveryTests
         ((IDisposable)container).Dispose();
     }
 
+    [Fact]
+    public void Serviced_Collection_Multicast_Handler_Reaches_Every_Entry()
+    {
+        var collection = new VMx.Collections.ServicedObservableCollection<string>();
+        var order = new List<string>();
+        NotifyCollectionChangedEventHandler a = (_, _) =>
+        {
+            order.Add("A");
+            throw new SubscriberFailure();
+        };
+        NotifyCollectionChangedEventHandler b = (_, _) => order.Add("B");
+        collection.CollectionChanged += a + b;
+
+        collection.Invoking(c => c.Add("one")).Should().Throw<SubscriberFailure>();
+        order.Should().Equal("A", "B");
+
+        // Standard event semantics: removing one entry of a multicast
+        // subscription keeps the other entry attached.
+        collection.CollectionChanged -= a;
+        collection.Add("two");
+        order.Should().Equal("A", "B", "B");
+
+        collection.CollectionChanged += a;
+        collection.CollectionChanged -= b + a;
+        collection.Add("three");
+        order.Should().Equal("A", "B", "B");
+    }
+
     public static TheoryData<string> Wrappers() => new() { "decorator", "confirmation", "composite" };
 
     private static ICommand Wrapper(string kind, ICommand inner) => kind switch

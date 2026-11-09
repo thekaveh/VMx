@@ -25,11 +25,13 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
 {
     private readonly IMessageHub? _hub;
 
-    // Each local handler is registered on the base event through a wrapper
-    // that records its failure, so a throwing handler does not stop the later
-    // ones (spec/03 §3.6, ADR-0191). The base event keeps one entry per
-    // handler, so ObservableCollection's reentrancy check is unchanged.
-    private readonly List<(NotifyCollectionChangedEventHandler Handler, NotifyCollectionChangedEventHandler Wrapper)> _localHandlers = [];
+    // Each entry of a local handler is registered on the base event through a
+    // wrapper that records its failure, so a throwing entry does not stop the
+    // later ones (spec/03 §3.6, ADR-0191). The base event keeps one entry per
+    // handler entry, so ObservableCollection's reentrancy check is unchanged.
+    // The lock covers the list and the base event together, so a concurrent
+    // add and remove cannot leave an untracked wrapper on the base event.
+    private readonly List<(Delegate Handler, NotifyCollectionChangedEventHandler Wrapper)> _localHandlers = [];
     private ExceptionDispatchInfo? _deliveryFailure;
 
     /// <summary>
@@ -52,30 +54,46 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         add
         {
             if (value is null) return;
-            NotifyCollectionChangedEventHandler wrapper = (sender, args) =>
+            lock (_localHandlers)
             {
-                try { value(sender, args); }
-                catch (Exception error) { _deliveryFailure ??= ExceptionDispatchInfo.Capture(error); }
-            };
-            lock (_localHandlers) _localHandlers.Add((value, wrapper));
-            base.CollectionChanged += wrapper;
+                foreach (Delegate entry in value.GetInvocationList())
+                {
+                    var handler = (NotifyCollectionChangedEventHandler)entry;
+                    NotifyCollectionChangedEventHandler wrapper = (sender, args) =>
+                    {
+                        try { handler(sender, args); }
+                        catch (Exception error) { _deliveryFailure ??= ExceptionDispatchInfo.Capture(error); }
+                    };
+                    _localHandlers.Add((entry, wrapper));
+                    base.CollectionChanged += wrapper;
+                }
+            }
         }
         remove
         {
             if (value is null) return;
-            NotifyCollectionChangedEventHandler? wrapper = null;
+            // Standard event semantics: remove the last run of entries that
+            // equals the invocation list of value, if there is one.
+            Delegate[] entries = value.GetInvocationList();
             lock (_localHandlers)
             {
-                for (int i = _localHandlers.Count - 1; i >= 0; i--)
+                for (int start = _localHandlers.Count - entries.Length; start >= 0; start--)
                 {
-                    if (_localHandlers[i].Handler != value) continue;
-                    wrapper = _localHandlers[i].Wrapper;
-                    _localHandlers.RemoveAt(i);
-                    break;
+                    if (!RunMatches(start, entries)) continue;
+                    for (int i = start; i < start + entries.Length; i++)
+                        base.CollectionChanged -= _localHandlers[i].Wrapper;
+                    _localHandlers.RemoveRange(start, entries.Length);
+                    return;
                 }
             }
-            if (wrapper is not null) base.CollectionChanged -= wrapper;
         }
+    }
+
+    private bool RunMatches(int start, Delegate[] entries)
+    {
+        for (int i = 0; i < entries.Length; i++)
+            if (!_localHandlers[start + i].Handler.Equals(entries[i])) return false;
+        return true;
     }
 
     /// <inheritdoc/>
