@@ -90,7 +90,7 @@ while an equality comparison, a validator, the snapshotter, or
 thread return the committed state at once. An edit or `Dispose()` from another
 thread also does not wait for the callback. Commits stay serialized. When
 another thread commits first, the overtaken update runs again against the new
-state. A `Dispose()` from another thread returns at once, the overtaken update
+state. A `Dispose()` from another thread returns at once, the preparing update
 commits nothing, and the teardown runs when that update returns. If a
 validator itself disposes the form or makes another edit, the interrupted
 update commits nothing and the newest edit stands.
