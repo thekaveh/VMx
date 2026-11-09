@@ -15,6 +15,37 @@ import Combine
 import VMx
 @testable import NotesShowcaseCore
 
+// MARK: - Test dispatcher
+
+/// Runs foreground work inline like `ImmediateDispatcher`. A test can queue
+/// one action that runs right after the `count`-th next foreground work item,
+/// before the code that scheduled that item resumes.
+private final class InterleavingDispatcher: Dispatcher, @unchecked Sendable {
+    private let lock = NSLock()
+    private var remaining = 0
+    private var pending: (() -> Void)?
+
+    func afterForeground(count: Int, _ action: @escaping () -> Void) {
+        lock.withLock { remaining = count; pending = action }
+    }
+
+    func scheduleForeground(_ work: @escaping () -> Void) {
+        let action = lock.withLock { () -> (() -> Void)? in
+            guard pending != nil else { return nil }
+            remaining -= 1
+            guard remaining == 0 else { return nil }
+            defer { pending = nil }
+            return pending
+        }
+        work()
+        action?()
+    }
+
+    func scheduleBackground(_ work: @escaping () -> Void) {
+        work()
+    }
+}
+
 // MARK: - Test dialog services
 
 /// Dialog that silently accepts every confirmation and returns `nil` for files.
@@ -447,7 +478,9 @@ final class WorkspaceVMTests: XCTestCase {
         let subscription: AnyCancellable
     }
 
-    private func buildPolicyFixture() async throws -> PolicyFixture {
+    private func buildPolicyFixture(
+        dispatcher: Dispatcher = ImmediateDispatcher.INSTANCE
+    ) async throws -> PolicyFixture {
         let repo = CountingRepository(InMemoryNoteRepository(
             seed: SeedData.build(),
             loadAllDelay: 0,
@@ -458,7 +491,8 @@ final class WorkspaceVMTests: XCTestCase {
             exportDelay: 0
         ))
         let hub = NotificationHub()
-        let ws = try WorkspaceVM.builder().repository(repo).notificationHub(hub).build()
+        let ws = try WorkspaceVM.builder()
+            .repository(repo).notificationHub(hub).dispatcher(dispatcher).build()
         let box = PendingBox()
         let sub = hub.pending.sink { box.items = $0 }
         try await ws.constructAsync()
@@ -592,6 +626,34 @@ final class WorkspaceVMTests: XCTestCase {
         XCTAssertEqual(0, saves)
         await waitUntil({ !f.pending().isEmpty }, attempts: 20)
         XCTAssertTrue(f.pending().isEmpty)
+    }
+
+    /// ADR-0201 §2.3 — a note switch after the Save decision does not
+    /// redirect the Save. The switch binds a clean draft for another note,
+    /// and the Save writes nothing and posts no "Saved" notification.
+    func testActionBarSave_aNoteSwitchAfterTheDecision_writesNothing() async throws {
+        let dispatcher = InterleavingDispatcher()
+        let f = try await buildPolicyFixture(dispatcher: dispatcher)
+        defer { f.subscription.cancel(); f.ws.dispose() }
+        let ws = f.ws
+        let edited = ws.notesView.visibleItems[0]
+        let other = ws.notesView.visibleItems[1]
+        ws.notesView.current = edited
+        ws.setFocus(edited)
+        ws.noteForm.title = "Draft that the switch discards"
+        let save = try actionBarSave(ws)
+
+        // The first foreground item is the NoteVM admission check. The second
+        // is the Save's route decision. The switch runs right after it,
+        // before the Save resumes.
+        dispatcher.afterForeground(count: 2) { ws.notesView.current = other }
+        try await save.executeAsync()
+
+        XCTAssertEqual(other.model.id, ws.noteForm.snapshot.id)
+        let saves = await f.repo.saveCount
+        XCTAssertEqual(0, saves)
+        await waitUntil({ f.pending().contains { $0.message.hasPrefix("Saved") } }, attempts: 20)
+        XCTAssertFalse(f.pending().contains { $0.message.hasPrefix("Saved") })
     }
 
     /// ADR-0201 §2.3 — for a focused note that the editor does not hold, the

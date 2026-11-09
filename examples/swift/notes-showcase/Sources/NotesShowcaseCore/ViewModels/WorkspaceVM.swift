@@ -432,7 +432,7 @@ public final class WorkspaceVM {
     /// What a note save does, decided on the foreground (ADR-0201 §2.3).
     private enum NoteSaveRoute: Sendable {
         case nothing
-        case editorDraft
+        case editorDraft(noteId: String)
         case storedModel(NoteModel)
     }
 
@@ -452,13 +452,13 @@ public final class WorkspaceVM {
             guard let form, form.hasBoundNote, form.snapshot.id == note.model.id else {
                 return .storedModel(note.model)
             }
-            return form.isDirty && form.isValid ? .editorDraft : .nothing
+            return form.isDirty && form.isValid ? .editorDraft(noteId: note.model.id) : .nothing
         }
         switch route {
         case .nothing:
             return
-        case .editorDraft:
-            try await form?.approveAsync()
+        case .editorDraft(let noteId):
+            try await form?.approveDraftAsync(ofNote: noteId)
         case .storedModel(let model):
             try await repo.saveNote(model)
         }
