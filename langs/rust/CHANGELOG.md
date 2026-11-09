@@ -10,6 +10,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `ModeledCrudCommands::with_options` and the `NO_CONFIRM` constant (#1258,
+  ADR-0210, `COMP-024`). The constructor takes optional `confirm_update` and
+  `confirm_delete` gates of type `Fn() -> AsyncValue<bool>` and an optional
+  `current_changed` trigger. A supplied gate wraps that command in a
+  `ConfirmationDecoratorCommand`, so execution waits for the answer and only
+  `true` runs the action. The trigger also refreshes a gated command.
+- `DialogService::present`, a provided method that presents a `ModalVm<T>`
+  and returns its result (#1267, ADR-0210, `DIA-009`, `DIA-010`). A host
+  adapter overrides it. The default dismisses the modal with its cancellation
+  result, so existing implementations compile unchanged. The method has a
+  `where Self: Sized` bound: `dyn DialogService` stays usable for the other
+  methods, but `present` needs a concrete or generic service type.
+  `NullDialogService::present` remains and runs the trait default.
+- `FormVm::subscribe_approved_with_completion(on_approved, on_completed)`
+  (#1270, ADR-0210). Disposal calls `on_completed` once, after
+  `errors_changed()` and `approve_errors()` complete, with no form lock held.
+  A subscription on a disposed form completes at once and is inactive. A
+  handle detached before disposal is not completed. A panicking completion is
+  contained, and a panicking approval callback still propagates out of
+  `approve()`. `subscribe_approved` keeps its signature.
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
@@ -90,6 +110,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Breaking: `ModeledCrudCommands::update_current_command()` and
+  `delete_current_command()` now return `Arc<dyn Command>` instead of
+  `RelayCommand` (#1258, ADR-0210). A gated command is a
+  `ConfirmationDecoratorCommand`; await it through `Command::as_async`. An
+  ungated command is still the plain relay, and its `execute()` still runs at
+  once. `ModeledCrudCommands::with_confirm_delete` and its synchronous
+  `Fn() -> bool` gate are removed. Migration: call `with_options` with
+  `Some(move || AsyncValue::ready(confirm()))` as `confirm_delete`, or with an
+  asynchronous gate.
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default

@@ -473,18 +473,18 @@ Behavior:
   `CanExecute` correct on demand but non-reactive. Exposing the optional
   `current_changed` parameter is, per ADR-0049, a clarification first realized in
   C# (VMX-011). C# (`currentChanged`), Swift (`currentChanged`), and Rust
-  (`ModeledCrudCommands::with_current_changed`) accept the trigger. The Python and
+  (`ModeledCrudCommands::with_options`, which also takes the confirm gates, and
+  `ModeledCrudCommands::with_current_changed`) accept the trigger. The Python and
   TypeScript helpers accept no trigger input, so their Update and Delete commands
   stay correct on demand but non-reactive. To get reactive commands in these two
   flavors, build the commands directly with the base `Triggers` mechanism
   (chapter 04 §4.2).
 
-Open Rust gap: Rust has no `confirm_update` delegate. Its
-`ModeledCrudCommands::with_confirm_delete` takes a synchronous `Fn() -> bool`
-inside a plain `RelayCommand`, not an async delegate wrapped in a
-`ConfirmationDecoratorCommand`. The `with_confirm_delete` constructor also
-takes no `current_changed` trigger, so that Delete command is not reactive; the
-`with_current_changed` constructor accepts the trigger but has no confirmation.
+Rust takes the two gates as `Fn() -> AsyncValue<bool>` closures in
+`ModeledCrudCommands::with_options`, with the `current_changed` trigger. Its
+Update and Delete accessors return `Arc<dyn Command>`; a gated command is a
+`ConfirmationDecoratorCommand` and is awaited through `Command::as_async`
+(ADR-0210).
 
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 

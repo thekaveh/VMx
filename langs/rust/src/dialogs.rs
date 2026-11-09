@@ -41,7 +41,15 @@ pub enum NotificationSeverity {
     Error,
 }
 
-/// Asynchronous host boundary for files, confirmation, and notifications.
+/// Asynchronous host boundary for files, confirmation, notifications, and
+/// VM-backed modals.
+///
+/// [`present`](Self::present) is a provided generic method with a
+/// `where Self: Sized` bound (ADR-0210). An implementation that presents no
+/// modals needs no `present` of its own, and the trait stays dyn-compatible:
+/// `Box<dyn DialogService>` and `Arc<dyn DialogService>` keep working for the
+/// other four methods. `present` cannot be called through `dyn DialogService`;
+/// code that presents modals holds a concrete or generic service type.
 pub trait DialogService: Send + Sync {
     /// Requests a file to open, returning `None` on cancellation.
     fn pick_file_to_open(
@@ -65,6 +73,54 @@ pub trait DialogService: Send + Sync {
         title: Option<&str>,
         severity: NotificationSeverity,
     ) -> AsyncValue<()>;
+
+    /// Presents a VM-backed modal and returns its typed result (spec/19
+    /// §2.1 and §3).
+    ///
+    /// A host service overrides this method to show `modal` and dismiss it
+    /// with the user's choice. The default keeps null-object safety, as in
+    /// Python and Swift: it dismisses `modal` with its cancellation result.
+    /// The first result wins, so an already-dismissed modal keeps its result.
+    ///
+    /// ```
+    /// use vmx::{
+    ///     AsyncValue, DialogService, FileFilter, ModalVm, NotificationSeverity,
+    /// };
+    ///
+    /// struct Host;
+    ///
+    /// impl DialogService for Host {
+    ///     fn pick_file_to_open(&self, _: Option<FileFilter>, _: Option<&str>) -> AsyncValue<Option<String>> {
+    ///         AsyncValue::ready(None)
+    ///     }
+    ///     fn pick_file_to_save(
+    ///         &self,
+    ///         _: Option<FileFilter>,
+    ///         _: Option<&str>,
+    ///         _: Option<&str>,
+    ///     ) -> AsyncValue<Option<String>> {
+    ///         AsyncValue::ready(None)
+    ///     }
+    ///     fn confirm(&self, _: &str, _: Option<&str>) -> AsyncValue<bool> {
+    ///         AsyncValue::ready(false)
+    ///     }
+    ///     fn notify(&self, _: &str, _: Option<&str>, _: NotificationSeverity) -> AsyncValue<()> {
+    ///         AsyncValue::ready(())
+    ///     }
+    /// }
+    ///
+    /// // `Host` does not override `present`, so it cancels the modal.
+    /// let modal = ModalVm::new("cancel");
+    /// assert_eq!(Host.present(&modal).wait(), "cancel");
+    /// ```
+    fn present<T: Clone + Send + 'static>(&self, modal: &ModalVm<T>) -> AsyncValue<T>
+    where
+        Self: Sized,
+    {
+        // First result wins: an already-dismissed modal keeps its result.
+        modal.dispose();
+        modal.completion()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -105,8 +161,11 @@ impl DialogService for NullDialogService {
 
 impl NullDialogService {
     /// Cancels `modal` and returns its completion handle.
+    ///
+    /// Kept so a call without the [`DialogService`] trait in scope still
+    /// compiles; it runs the trait's default
+    /// [`present`](DialogService::present).
     pub fn present<T: Clone + Send + 'static>(&self, modal: &ModalVm<T>) -> AsyncValue<T> {
-        modal.dispose();
-        modal.completion()
+        <Self as DialogService>::present(self, modal)
     }
 }

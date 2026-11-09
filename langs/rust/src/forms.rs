@@ -14,13 +14,22 @@ type FormResetOnApproved<M> = Arc<dyn Fn(&M) -> VmxResult<M> + Send + Sync>;
 type FieldValidator<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, Option<String>> + Send + Sync>;
 type ApprovedCallback<M> = Arc<dyn Fn(M) + Send + Sync>;
+type ApprovedCompletion = Arc<dyn Fn() + Send + Sync>;
+
+/// One approval registration: its callback and, for
+/// [`FormVm::subscribe_approved_with_completion`], its completion callback.
+struct ApprovedEntry<M> {
+    id: u64,
+    callback: ApprovedCallback<M>,
+    completion: Option<ApprovedCompletion>,
+}
 
 /// Approval callbacks keyed by registration, so one can detach without
 /// disturbing the others. Disposal sets `closed` under the same lock, so a
 /// registration racing disposal is rejected instead of retained.
 struct ApprovedRegistry<M> {
     next_id: u64,
-    entries: Vec<(u64, ApprovedCallback<M>)>,
+    entries: Vec<ApprovedEntry<M>>,
     closed: bool,
 }
 
@@ -33,23 +42,54 @@ impl<M> ApprovedRegistry<M> {
         }
     }
 
-    fn register(&mut self, callback: ApprovedCallback<M>) -> Result<u64, ApprovedCallback<M>> {
-        if self.closed {
-            return Err(callback);
-        }
+    /// Registers a callback, or returns the rejected entry on a closed
+    /// registry.
+    fn register(
+        &mut self,
+        callback: ApprovedCallback<M>,
+        completion: Option<ApprovedCompletion>,
+    ) -> Result<u64, ApprovedEntry<M>> {
         let id = self.next_id;
+        let entry = ApprovedEntry {
+            id,
+            callback,
+            completion,
+        };
+        if self.closed {
+            return Err(entry);
+        }
         self.next_id += 1;
-        self.entries.push((id, callback));
+        self.entries.push(entry);
         Ok(id)
     }
 
     fn is_registered(&self, id: u64) -> bool {
-        self.entries.iter().any(|(entry, _)| *entry == id)
+        self.entries.iter().any(|entry| entry.id == id)
     }
 
-    fn remove(&mut self, id: u64) -> Option<ApprovedCallback<M>> {
-        let index = self.entries.iter().position(|(entry, _)| *entry == id)?;
-        Some(self.entries.remove(index).1)
+    fn remove(&mut self, id: u64) -> Option<ApprovedEntry<M>> {
+        let index = self.entries.iter().position(|entry| entry.id == id)?;
+        Some(self.entries.remove(index))
+    }
+
+    fn callback(&self, id: u64) -> Option<ApprovedCallback<M>> {
+        self.entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .map(|entry| Arc::clone(&entry.callback))
+    }
+}
+
+/// Releases the approval callbacks of `entries`, then runs their completion
+/// callbacks in registration order, with no lock held. A panicking
+/// completion is contained, as a hub completion is, so the rest still run.
+fn complete_approved<M>(entries: Vec<ApprovedEntry<M>>) {
+    let completions: Vec<ApprovedCompletion> = entries
+        .into_iter()
+        .filter_map(|entry| entry.completion)
+        .collect();
+    for completion in completions {
+        let _ = catch_unwind(AssertUnwindSafe(|| completion()));
     }
 }
 
@@ -1687,17 +1727,13 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 let ids: Vec<u64> = lock(&self.approved_callbacks)
                     .entries
                     .iter()
-                    .map(|(id, _)| *id)
+                    .map(|entry| entry.id)
                     .collect();
                 for id in ids {
                     if *lock(&self.disposed) {
                         break;
                     }
-                    let callback = lock(&self.approved_callbacks)
-                        .entries
-                        .iter()
-                        .find(|(entry_id, _)| *entry_id == id)
-                        .map(|(_, callback)| Arc::clone(callback));
+                    let callback = lock(&self.approved_callbacks).callback(id);
                     if let Some(callback) = callback {
                         callback(model.clone());
                     }
@@ -1940,7 +1976,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(M) + Send + Sync + 'static,
     {
-        let rejected = lock(&self.approved_callbacks).register(Arc::new(callback));
+        let rejected = lock(&self.approved_callbacks).register(Arc::new(callback), None);
         drop(rejected);
     }
 
@@ -1986,17 +2022,83 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(M) + Send + Sync + 'static,
     {
-        let registered = lock(&self.approved_callbacks).register(Arc::new(callback));
+        self.register_approved(Arc::new(callback), None)
+    }
+
+    /// Subscribes like [`subscribe_approved`](Self::subscribe_approved), and
+    /// also calls `on_completed` once when the form is disposed (spec/20
+    /// §10, ADR-0210).
+    ///
+    /// `on_completed` runs once, after the form's `errors_changed()` and
+    /// `approve_errors()` hubs are disposed, with no form lock held. A
+    /// repeated [`dispose`](Self::dispose) does not run it again. On a form
+    /// that is already disposed it runs at once, `on_approved` never runs,
+    /// and the returned handle is inactive. Detaching the handle before the
+    /// form is disposed releases both callbacks, and `on_completed` never
+    /// runs.
+    ///
+    /// A panic in `on_completed` is contained, as a hub completion callback
+    /// is, so disposal still completes the other subscribers. A panic in
+    /// `on_approved` propagates out of [`approve`](Self::approve), as it does
+    /// for [`subscribe_approved`](Self::subscribe_approved) (ADR-0139).
+    ///
+    /// ```
+    /// use std::sync::atomic::{AtomicUsize, Ordering};
+    /// use std::sync::Arc;
+    /// use vmx::FormVm;
+    ///
+    /// let form = FormVm::new("profile", 1);
+    /// let completed = Arc::new(AtomicUsize::new(0));
+    /// let subscription = {
+    ///     let completed = completed.clone();
+    ///     form.subscribe_approved_with_completion(
+    ///         |_model| {},
+    ///         move || {
+    ///             completed.fetch_add(1, Ordering::SeqCst);
+    ///         },
+    ///     )
+    /// };
+    ///
+    /// form.dispose();
+    /// form.dispose();
+    ///
+    /// assert_eq!(completed.load(Ordering::SeqCst), 1);
+    /// assert!(!subscription.is_active());
+    /// ```
+    pub fn subscribe_approved_with_completion<F, C>(
+        &self,
+        on_approved: F,
+        on_completed: C,
+    ) -> ApprovalSubscription
+    where
+        F: Fn(M) + Send + Sync + 'static,
+        C: Fn() + Send + Sync + 'static,
+    {
+        self.register_approved(Arc::new(on_approved), Some(Arc::new(on_completed)))
+    }
+
+    fn register_approved(
+        &self,
+        callback: ApprovedCallback<M>,
+        completion: Option<ApprovedCompletion>,
+    ) -> ApprovalSubscription {
+        let registered = lock(&self.approved_callbacks).register(callback, completion);
         match registered {
             Ok(id) => ApprovalSubscription::new(id, Arc::downgrade(&self.approved_callbacks)),
             Err(rejected) => {
-                drop(rejected);
+                // The form is disposed: complete at once, with no lock held.
+                complete_approved(vec![rejected]);
                 ApprovalSubscription::inactive()
             }
         }
     }
 
     /// Disposes commands and notification hubs and makes later mutations inert.
+    ///
+    /// After the hubs complete, disposal releases the approval callbacks and
+    /// calls the completion callback of each
+    /// [`subscribe_approved_with_completion`](Self::subscribe_approved_with_completion)
+    /// subscription once, with no form lock held (spec/20 §10, ADR-0210).
     ///
     /// Disposal waits for an update in progress on another thread, and until
     /// no other thread holds a publication scope on the form (spec/20 §5.4
@@ -2090,7 +2192,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             registry.closed = true;
             std::mem::take(&mut registry.entries)
         };
-        drop(released);
+        // Complete the approval subscribers after the hubs, with no lock
+        // held (spec/20 §10, ADR-0210).
+        complete_approved(released);
         let field_validators = std::mem::take(&mut *lock(&self.field_validators));
         let model_validators = std::mem::take(&mut *lock(&self.model_validators));
         drop(field_validators);

@@ -29,6 +29,7 @@ mod conformance {
     mod expandable_support;
     mod filtered_composite;
     mod form_approval_admission;
+    mod form_approval_completion;
     mod form_approval_subscription;
     mod form_approval_update_queue;
     mod form_failure_atomic_updates;
