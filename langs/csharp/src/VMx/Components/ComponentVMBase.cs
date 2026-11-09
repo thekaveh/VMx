@@ -369,8 +369,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private readonly IMessageHub _hub;
     private readonly List<IDisposable> _ownedResources = [];
 
-    // Member VMs registered through OwnMember, disposed in registration order
-    // before this VM publishes Disposed (spec/02 §7.1). Guarded by _gate.
+    // Member VMs registered through OwnMember, disposed in registration order.
+    // With no foreign hook running, they reach Disposed before this VM
+    // publishes Disposed; a foreign disposal publishes Disposed first and
+    // disposes them after the hook releases its lease (spec/02 §7.1,
+    // LIFE-015). Guarded by _gate.
     private readonly List<IComponentVM> _members = [];
     // Set under _gate when disposal takes the member list; a later
     // registration disposes its member at once.
@@ -1701,8 +1704,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             if (_status == ConstructionStatus.Disposed) return;
             // While the member cascade runs, a further disposal on any thread
-            // is a no-op: the first call disposes the members, then publishes
-            // Disposed (spec/02 §7.1).
+            // is a no-op: the first call finishes the disposal. With no foreign
+            // hook running, it disposes the members, then publishes Disposed;
+            // a foreign disposal publishes Disposed first and disposes the
+            // members after the hook releases its lease (spec/02 §7.1).
             if (_memberCascadeRunning && !resumed) return;
 
             // A pending child walk is abandoned before any child is disposed.
@@ -2429,18 +2434,23 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     protected IDisposable Own(Action cleanup) => Own(Disposable.Create(cleanup));
 
     /// <summary>
-    /// Registers a member view-model that this VM disposes before it publishes
-    /// <see cref="ConstructionStatus.Disposed"/> (spec/02 §7.1, ADR-0162), and
-    /// returns it for inline field assignment:
+    /// Registers a member view-model that this VM disposes in its
+    /// <see cref="Dispose()"/> (spec/02 §7.1, ADR-0162), and returns it for
+    /// inline field assignment:
     /// <code>
     /// _chart = OwnMember(new ChartVM(hub, dispatcher));
     /// </code>
     /// <see cref="Dispose()"/> disposes the members in registration order, after a
-    /// container's own children, so the cascade stays depth-first. Every member is
-    /// attempted. The first failure is rethrown after this VM's mandatory teardown.
-    /// While the members are disposed, a further <see cref="Dispose()"/> on any
-    /// thread returns at once and does nothing; the first call publishes
-    /// <see cref="ConstructionStatus.Disposed"/> after the last member.
+    /// container's own children, so the cascade stays depth-first. With no
+    /// construct or destruct hook of this VM running on another thread, every
+    /// member reaches <see cref="ConstructionStatus.Disposed"/> before this VM
+    /// publishes <see cref="ConstructionStatus.Disposed"/>. For a foreign
+    /// disposal, this VM publishes <see cref="ConstructionStatus.Disposed"/>
+    /// first, waits for the hook, and then disposes the members before
+    /// <see cref="OnDispose"/> (LIFE-015, ADR-0179). Every member is attempted. The
+    /// first failure is rethrown after this VM's mandatory teardown. While the
+    /// members are disposed, a further <see cref="Dispose()"/> on any thread
+    /// returns at once and does nothing; the first call finishes the disposal.
     /// A member registered after this VM's disposal started is disposed at once,
     /// and a failure from that disposal is thrown from this call.
     /// A member is not a container child: registration sets no parent link and

@@ -432,7 +432,9 @@ class _ComponentVMBase(ABC):
         self._background: bool = background
         self._owned_resources: list[Callable[[], None] | _Disposable] = []
         # Member VMs that ``dispose()`` disposes depth-first, in registration
-        # order, before this VM publishes Disposed (spec/02 §7.1).
+        # order. With no foreign hook running, they reach Disposed before this
+        # VM publishes Disposed; a foreign dispose publishes Disposed first and
+        # disposes them after the hook releases its lease (spec/02 §7.1).
         self._owned_members: list[_Disposable] = []
         # Set when disposal starts; a later registration is disposed at once.
         self._members_released: bool = False
@@ -1068,10 +1070,13 @@ class _ComponentVMBase(ABC):
     def dispose(self) -> None:
         """Transition to Disposed from any state. Terminal; idempotent.
 
-        Disposes the members registered with :meth:`_own_member` first, in
-        registration order, before this VM publishes Disposed (spec/02 §7.1).
-        Then disposes commands and completes the status trigger /
-        property_changed subjects.
+        Disposes the members registered with :meth:`_own_member` in
+        registration order (spec/02 §7.1). With no construct or destruct hook
+        of this VM running on another thread, every member reaches Disposed
+        before this VM publishes Disposed. For a foreign dispose, this VM
+        publishes Disposed first, waits for the hook, and then disposes the
+        members before ``_on_dispose`` (LIFE-015, ADR-0179). Then disposes
+        commands and completes the status trigger / property_changed subjects.
         """
         self._dispose_at_hook_boundary(None)
 
@@ -1641,10 +1646,14 @@ class _ComponentVMBase(ABC):
 
             self.chart = self._own_member(ChartVM(...))
 
-        ``dispose()`` disposes the registered members before this VM
-        publishes ``Disposed``: in registration order, after a container's
-        own children, and before the subclass ``_on_dispose`` hook and the
-        resources registered with :meth:`_own`. Every member is attempted;
+        ``dispose()`` disposes the registered members in registration order,
+        after a container's own children, and before the subclass
+        ``_on_dispose`` hook and the resources registered with :meth:`_own`.
+        With no construct or destruct hook of this VM running on another
+        thread, every member reaches ``Disposed`` before this VM publishes
+        ``Disposed``. For a foreign dispose, this VM publishes ``Disposed``
+        first, waits for the hook, and then disposes the members
+        (LIFE-015, ADR-0179). Every member is attempted;
         the first failure is raised after this VM's teardown finished
         (ADR-0108). A member registered after this VM reached ``Disposed``
         is disposed at once, and its failure is raised from this call.
