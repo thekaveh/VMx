@@ -85,7 +85,9 @@ open class GroupVM<Child: ComponentVMBase>:
     private var populated = false
     /// Collects the children population started constructing (see `_onConstruct`).
     private var populationJoined: [ComponentVMBase]?
-    private lazy var groupParent = GroupParent(group: self)
+    /// Set once in `init`, before the group is shared, so threads never race
+    /// to create it (a `lazy var` could create two, #1546).
+    private var groupParent: GroupParent<Child>!
     private let _autoConstructOnAdd: Bool
     /// The order of the destruct walk and the dispose cascade (ADR-0161).
     let destructOrder: ChildOrder
@@ -155,6 +157,7 @@ open class GroupVM<Child: ComponentVMBase>:
             hub: hub, dispatcher: dispatcher,
             onConstruct: onConstruct, onDestruct: onDestruct
         )
+        groupParent = GroupParent(group: self)
     }
 
     open override var type: ViewModelType { .group }
@@ -209,23 +212,18 @@ open class GroupVM<Child: ComponentVMBase>:
         return ParentTransfer(
             commit: {
                 defer { self.endMembershipTransaction() }
-                if child._ownershipParent === self.groupParent {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: self.groupParent)
                 self.emit(.removed(child, at: index))
             },
             rollback: {
                 defer { self.endMembershipTransaction() }
                 self.membershipGate.withLock {
                     guard !self.disposeRequested else {
-                        child._parent = nil
-                        child._ownershipParent = nil
+                        child._unlinkParent()
                         return
                     }
                     self.children.insert(child, at: Swift.min(index, self.children.count))
-                    child._parent = self.groupParent
-                    child._ownershipParent = self.groupParent
+                    child._linkParent(self.groupParent)
                 }
             }
         )
@@ -268,8 +266,7 @@ open class GroupVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         children.append(child)
-        child._parent = groupParent
-        child._ownershipParent = groupParent
+        child._linkParent(groupParent)
         lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         // When autoConstructOnAdd is set and the group is already Constructed,
@@ -283,10 +280,7 @@ open class GroupVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
-                if child._ownershipParent === groupParent {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: groupParent)
             }
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
@@ -298,10 +292,7 @@ open class GroupVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
-                if child._ownershipParent === groupParent {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: groupParent)
             }
             let compensationError = ContainerSupport.compensateAutoConstruct(
                 child, originalStatus: originalStatus
@@ -366,8 +357,7 @@ open class GroupVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         children.insert(child, at: index)
-        child._parent = groupParent
-        child._ownershipParent = groupParent
+        child._linkParent(groupParent)
         lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         if let error = autoConstructAttached(child, record: lateStart) {
@@ -376,10 +366,7 @@ open class GroupVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
-                if child._ownershipParent === groupParent {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: groupParent)
             }
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
@@ -391,10 +378,7 @@ open class GroupVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
-                if child._ownershipParent === groupParent {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: groupParent)
             }
             let compensationError = ContainerSupport.compensateAutoConstruct(
                 child, originalStatus: originalStatus
@@ -420,10 +404,7 @@ open class GroupVM<Child: ComponentVMBase>:
         let removed: (Child, Int)? = membershipGate.withLock {
             guard let index = children.firstIndex(where: { $0 === child }) else { return nil }
             let item = children.remove(at: index)
-            if item._ownershipParent === groupParent {
-                item._parent = nil
-                item._ownershipParent = nil
-            }
+            item._unlinkParent(ifOwnedBy: groupParent)
             return (item, index)
         }
         guard let (item, index) = removed else { return false }
@@ -457,10 +438,7 @@ open class GroupVM<Child: ComponentVMBase>:
         }
         let child: Child = membershipGate.withLock {
             let removed = children.remove(at: index)
-            if removed._ownershipParent === groupParent {
-                removed._parent = nil
-                removed._ownershipParent = nil
-            }
+            removed._unlinkParent(ifOwnedBy: groupParent)
             return removed
         }
         emit(.removed(child, at: index))
@@ -510,10 +488,8 @@ open class GroupVM<Child: ComponentVMBase>:
         }
         let old = children[index]
         children[index] = child
-        old._parent = nil
-        old._ownershipParent = nil
-        child._parent = groupParent
-        child._ownershipParent = groupParent
+        old._unlinkParent()
+        child._linkParent(groupParent)
         lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         if let error = autoConstructAttached(child, record: lateStart) {
@@ -521,13 +497,9 @@ open class GroupVM<Child: ComponentVMBase>:
                 lateStarts.remove(child, lateStart)
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children[attached] = old
-                    old._parent = groupParent
-                    old._ownershipParent = groupParent
+                    old._linkParent(groupParent)
                 }
-                if child._ownershipParent === groupParent {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: groupParent)
             }
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
@@ -538,13 +510,9 @@ open class GroupVM<Child: ComponentVMBase>:
             membershipGate.withLock {
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children[attached] = old
-                    old._parent = groupParent
-                    old._ownershipParent = groupParent
+                    old._linkParent(groupParent)
                 }
-                if child._ownershipParent === groupParent {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: groupParent)
             }
             let compensationError = ContainerSupport.compensateAutoConstruct(
                 child, originalStatus: originalStatus
@@ -567,9 +535,8 @@ open class GroupVM<Child: ComponentVMBase>:
         guard (try? beginMembershipTransaction()) != nil else { return }
         defer { endMembershipTransaction() }
         let accepted: Bool = membershipGate.withLock {
-            for child in children where child._ownershipParent === groupParent {
-                child._parent = nil
-                child._ownershipParent = nil
+            for child in children {
+                child._unlinkParent(ifOwnedBy: groupParent)
             }
             children.removeAll()
             return true
@@ -755,8 +722,7 @@ open class GroupVM<Child: ComponentVMBase>:
                 try requireTransactionCanContinueLocked()
                 for child in candidates {
                     children.append(child)
-                    child._parent = groupParent
-                    child._ownershipParent = groupParent
+                    child._linkParent(groupParent)
                 }
             }
             // Make the entire snapshot visible before any child hook runs.
@@ -782,10 +748,7 @@ open class GroupVM<Child: ComponentVMBase>:
                 }
                 // Detached first: a deferred compensation destructs only a
                 // child with no parent (ADR-0218 rule 7).
-                if child._ownershipParent === groupParent {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: groupParent)
                 if let error = ContainerSupport.compensateAutoConstruct(
                     child, originalStatus: originalStatuses[offset]
                 ), compensationError == nil {

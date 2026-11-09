@@ -143,12 +143,10 @@ func commitAggregateSlots(
     previous: [ComponentVMBase?],
     next: [ComponentVMBase]
 ) {
-    for child in previous where child?._ownershipParent === parent {
-        child?._parent = nil
-        child?._ownershipParent = nil
+    for child in previous {
+        child?._unlinkParent(ifOwnedBy: parent)
     }
     for child in next {
-        child._parent = parent
-        child._ownershipParent = parent
+        child._linkParent(parent)
     }
 }

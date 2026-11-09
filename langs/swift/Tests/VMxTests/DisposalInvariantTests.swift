@@ -159,8 +159,7 @@ final class DisposalInvariantTests: XCTestCase {
         let compositeChild = try ComponentVM.builder()
             .name("composite-child").services(hub: hub, dispatcher: dispatcher).build()
         let compositeBlocker = BlockingOwnershipParent(owner: compositeChild)
-        compositeChild._parent = compositeBlocker
-        compositeChild._ownershipParent = compositeBlocker
+        compositeChild._linkParent(compositeBlocker)
         let compositeDone = expectation(description: "composite admission returned")
         DispatchQueue.global().async {
             if case .success = composite.addResult(compositeChild) {
@@ -178,8 +177,7 @@ final class DisposalInvariantTests: XCTestCase {
         let groupChild = try ComponentVM.builder()
             .name("group-child").services(hub: hub, dispatcher: dispatcher).build()
         let groupBlocker = BlockingOwnershipParent(owner: groupChild)
-        groupChild._parent = groupBlocker
-        groupChild._ownershipParent = groupBlocker
+        groupChild._linkParent(groupBlocker)
         let groupDone = expectation(description: "group admission returned")
         DispatchQueue.global().async {
             if case .success = group.addResult(groupChild) {
