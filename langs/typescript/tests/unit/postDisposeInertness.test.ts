@@ -23,14 +23,18 @@ describe("post-dispose inertness", () => {
       .build();
     parent.construct();
     parent.selectComponent(kids[0]!);
-    kids[0]!.dispose();
     kids[1]!.dispose();
+    kids[1]!.select();
+    expect(parent.current).toBe(kids[0]);
 
+    // The dispose clear is the one change a disposed child makes (ADR-0189).
+    kids[0]!.dispose();
+    expect(parent.current).toBeNull();
     expect(kids[0]!.canDeselect()).toBe(false);
     kids[0]!.deselect();
-    kids[1]!.select();
+    kids[0]!.select();
 
-    expect(parent.current).toBe(kids[0]);
+    expect(parent.current).toBeNull();
   });
 
   it("a disposed derived property rejects writes", () => {
