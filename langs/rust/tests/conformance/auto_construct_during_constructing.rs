@@ -238,6 +238,7 @@ trait Container {
     fn after_seal(&self, hook: Arc<dyn Fn() + Send + Sync>);
     /// Whether the container's reconstruct command can execute now.
     fn reconstruct_can_execute(&self) -> bool;
+    #[cfg(feature = "test-seams")]
     fn dispose(&self) -> VmxResult<()>;
 }
 
@@ -282,6 +283,7 @@ impl Container for CompositeVm<Node> {
     fn reconstruct_can_execute(&self) -> bool {
         Command::can_execute(&self.reconstruct_command())
     }
+    #[cfg(feature = "test-seams")]
     fn dispose(&self) -> VmxResult<()> {
         CompositeVm::dispose(self)
     }
@@ -325,6 +327,7 @@ impl Container for GroupVm<Node> {
     fn after_seal(&self, hook: Arc<dyn Fn() + Send + Sync>) {
         self.set_seal_probe_for_testing(move || hook());
     }
+    #[cfg(feature = "test-seams")]
     fn dispose(&self) -> VmxResult<()> {
         GroupVm::dispose(self)
     }

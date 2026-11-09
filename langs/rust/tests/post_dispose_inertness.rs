@@ -43,17 +43,17 @@ fn disposed_composite_refuses_add_remove_and_every_selection() {
 }
 
 #[test]
-fn disposed_composite_clear_makes_no_change() {
+fn disposed_composite_clear_refuses_and_makes_no_change() {
     let (composite, a, _) = disposed_composite();
 
-    composite.clear();
+    assert!(matches!(composite.clear(), Err(VmxError::Disposed)));
 
     assert_eq!(composite.len(), 2);
     assert!(composite.current() == Some(a));
 }
 
 #[test]
-fn disposed_group_refuses_add_and_remove_and_clear_makes_no_change() {
+fn disposed_group_refuses_add_remove_and_clear() {
     let group = GroupVm::new("g");
     let a = Child::new("a");
     group.add(a.clone()).unwrap();
@@ -65,7 +65,7 @@ fn disposed_group_refuses_add_and_remove_and_clear_makes_no_change() {
         Err(VmxError::Disposed)
     ));
     assert!(matches!(group.remove(&a), Err(VmxError::Disposed)));
-    group.clear();
+    assert!(matches!(group.clear(), Err(VmxError::Disposed)));
     assert_eq!(group.len(), 1);
 }
 
