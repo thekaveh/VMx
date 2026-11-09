@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `COMP-049` conformance tests (ADR-0190, #1351). A container whose disposal is
   requested during a change sends no hub message for it. TypeScript already
   behaved this way.
+- `markSchedulerCancelled(scheduler)` (ADR-0200, #1481). A custom scheduler
+  that cancels its queued work calls it before it unsubscribes, so VMx runs no
+  hook and publishes no status for that work.
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
@@ -79,6 +82,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A shared-scheduler flush no longer drops a lifecycle failure (ADR-0200,
+  spec/02 §6.1, #1481). The first failure to leave the flush is still thrown.
+  Every other failure of the flush, including a failure of recovered work
+  (#1052), is reported once through rxjs `config.onUnhandledError` after the
+  flush returns.
+- A pending lifecycle-failure throw that any foreground scheduler unsubscribes
+  before it runs is now reported through rxjs `config.onUnhandledError`
+  (ADR-0200 §2.3). Before, the failure was dropped. This covers a separate
+  scheduler and a cancelled scheduler, such as `ManualDispatcher.dispose()`.
+  With no `config.onUnhandledError` handler, rxjs rethrows the report on a
+  timer. In Node, that is an uncaught exception.
 - A refused child `select()` or `deselect()` now changes nothing and raises
   nothing (ADR-0188, #1424). Before, it raised inside the caller's own
   uncommitted membership transaction and while disposal of the composite was
@@ -116,6 +130,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   changes nothing and publishes nothing. `attachMany` rejects a candidate
   under a disposed parent, and `invalidateSubtree` skips a disposed
   descendant. A refused call throws `Error`.
+- A current `AsyncResourceVM` loader that ends with its own cancellation now
+  restores the saved stable state, as `cancel()` does, instead of installing
+  `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The cancellation can come
+  from any source, such as a shared request that another owner cancels. A
+  superseded loader's cancellation changes nothing. The signal is a rejection
+  whose `name` is `"AbortError"`.
 - Disposing the current child of a composite now clears the composite's
   `current` before `dispose()` returns (ADR-0189, #1317). The composite
   publishes the change once and calls `onCurrentChanged(null)` once. The
@@ -243,7 +263,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A background VM now settles when non-VMx work throws in the same scheduler
   flush (#1052). VMx runs its lifecycle actions that the flush error dropped;
   `ManualDispatcher.dispose()` still cancels them. A flush surfaces one error
-  (#1053 rule); a failure of recovered work is dropped.
+  (#1053 rule); a failure of recovered work is reported (ADR-0200).
 - `observeHub` now labels a tree message from a second package copy as
   `TreeStructureChangedMessage` (#1079). It classifies tree messages with
   `isTreeStructureChanged`, which matches by class and then by shape (ADR-0163).

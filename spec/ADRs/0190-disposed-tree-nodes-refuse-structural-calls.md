@@ -177,7 +177,7 @@ new conformance test.
   through `ObservableMembershipSource::subscribe_membership`, so its test
   covers all the cases.
 
-The catalog grows from 451 to 453 library IDs (458 in total).
+The catalog grows by these two library IDs.
 
 ## 5. Consequences
 

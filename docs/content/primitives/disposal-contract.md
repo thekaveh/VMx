@@ -116,7 +116,11 @@ model.
   hook settles. Terminal resource and stream teardown follow.
 - Opposing hooks that cross-dispose use cycle-aware deferral. Neither thread
   deadlocks, and no post-hook child work begins after the parent becomes
-  terminal.
+  terminal. The admitted hook's lifecycle call runs the deferred cleanup. When
+  the hook succeeds, that call reports the cleanup's first failure (ADR-0200).
+  A hook failure stays first. The cycle-broken `dispose()` returns normally.
+  Swift disposal does not throw, so Swift reports nothing. TypeScript runs on
+  one thread and cannot form the cycle.
 - A forwarding VM delegates disposal to the wrapped VM; it does not introduce
   reference counting. Resources registered through a forwarding VM belong to
   the wrapped VM and are released with its other registrations (`FWD-005`).

@@ -14,6 +14,9 @@ below for them.
 
 ### Added
 
+- `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
+  cancellation restores the saved stable state. Python already behaved this
+  way.
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
@@ -91,6 +94,11 @@ below for them.
   disposes the container now suppresses the hub message of that change. In a
   transfer whose old container disposes itself, the hub receives only the new
   container's `Add`.
+- A terminal cleanup that a wait cycle deferred to an admitted hook's thread
+  no longer loses its failure (ADR-0200, spec/02 §2.4 and §7, #1297). When the
+  hook succeeds, the hook's `construct()`, `destruct()` or `reconstruct()` call
+  now raises the cleanup's first failure, such as a failing child disposal. A
+  hook failure stays first. The cycle-broken `dispose()` call returns normally.
 - Disposing the current child of a composite now clears the composite's
   `current` before `dispose()` returns (ADR-0189, #1317). The composite
   publishes the change once and calls `on_current_changed` with `None` once.
