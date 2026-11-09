@@ -77,13 +77,13 @@ jobs:
           cache-dependency-path: langs/typescript/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
 
       - name: Validate dependency graph
         run: npm run check:deps
 
       - name: Audit dependencies
-        run: npm audit --package-lock-only --audit-level=low
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --package-lock-only --audit-level=low
 
       - name: Sync spec fixtures
         run: npm run sync-fixtures
@@ -140,7 +140,8 @@ jobs:
 
   runtime-floor:
     needs: build
-    timeout-minutes: 10
+    # Fits the worst case of the retried npm ci (tools/ci-retry.mjs, #1360).
+    timeout-minutes: 15
     name: runtime floor (node20.5.0)
     runs-on: ubuntu-latest
     steps:
@@ -155,7 +156,7 @@ jobs:
 
       - name: Build public artifacts
         run: |
-          npm ci
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
           npm run build
 
       - name: Set up minimum Node.js
@@ -195,10 +196,10 @@ jobs:
             packages/react/package-lock.json
       - name: Build VMx core
         run: |
-          npm ci --prefix langs/typescript
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix langs/typescript
           npm run build --prefix langs/typescript
       - name: Install adapter dependencies
-        run: npm ci --prefix packages/react
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix packages/react
       - name: Select React matrix version
         run: >-
           npm install --prefix packages/react --no-save --package-lock=false
@@ -208,7 +209,7 @@ jobs:
       - name: Validate dependency graph
         run: npm run check:deps --prefix packages/react
       - name: Audit dependencies
-        run: npm audit --prefix packages/react --package-lock-only --audit-level=low
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --prefix packages/react --package-lock-only --audit-level=low
       - name: Type-check
         run: npm run typecheck --prefix packages/react
       - name: Lint
@@ -244,7 +245,7 @@ jobs:
           cache-dependency-path: langs/typescript/package-lock.json
 
       - name: Install package dependencies
-        run: npm ci --prefix langs/typescript
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix langs/typescript
 
       - name: Check npm package contents
         run: python3 tools/check-typescript-package.py
@@ -296,7 +297,7 @@ jobs:
         # package "vmx"` because dist/ is absent in the packed snapshot.
         working-directory: langs/typescript
         run: |
-          npm ci
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
           npm run build
 
       - name: Install React adapter deps + build dist
@@ -305,11 +306,11 @@ jobs:
         # Prepare its exported dist entry before the file dependency is packed.
         working-directory: packages/react
         run: |
-          npm ci
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
           npm run build
 
       - name: console example install
-        run: npm ci --prefix examples/typescript/console/hello-vmx
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix examples/typescript/console/hello-vmx
 
       - name: console example dependency graph
         run: npm run check:deps --prefix examples/typescript/console/hello-vmx
@@ -328,13 +329,13 @@ jobs:
         # the prior .gitignore entry hid it from the repo, silently disabling
         # the actions/setup-node cache above). No `npm install` fallback: a
         # drifted lockfile must fail loudly, not silently install unpinned.
-        run: npm ci --prefix examples/typescript/react/notes-showcase
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix examples/typescript/react/notes-showcase
 
       - name: notes-showcase dependency graph
         run: npm run check:deps --prefix examples/typescript/react/notes-showcase
 
       - name: notes-showcase audit
-        run: npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
 
       - name: notes-showcase test (includes the executed React recipe)
         run: npm test --prefix examples/typescript/react/notes-showcase --ignore-scripts
@@ -353,13 +354,13 @@ jobs:
       - name: integration recipes install
         # Executes the Vue, Solid and Svelte guide snippets (docs/content/integration)
         # against the host versions pinned in this fixture's package.json.
-        run: npm ci --prefix examples/typescript/integration-recipes
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix examples/typescript/integration-recipes
 
       - name: integration recipes dependency graph
         run: npm run check:deps --prefix examples/typescript/integration-recipes
 
       - name: integration recipes audit
-        run: npm audit --prefix examples/typescript/integration-recipes --package-lock-only --audit-level=moderate
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --prefix examples/typescript/integration-recipes --package-lock-only --audit-level=moderate
 
       - name: integration recipes test (executed on jsdom - Vue, Solid, Svelte)
         run: npm test --prefix examples/typescript/integration-recipes --ignore-scripts

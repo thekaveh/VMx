@@ -82,6 +82,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 
 ### 1.1 Release, package, and coverage checks
 
+- `ci-retry.mjs` — Runs a CI command up to three times, 20 s apart, and kills each attempt after 240 s. With `--retry-on=npm-network` it retries only a registry or network error, so an `npm audit` advisory fails after one attempt. Every workflow `npm ci` and `npm audit` runs through it; `tools/tests/test_ci_retry.py` checks that each retried step fits inside its job timeout.
 - `check-cobertura-threshold.py` — Fails when aggregate Cobertura line or branch coverage drops below a floor (C# coverage gate).
 - `check-conformance-execution.py` — Checks that every library conformance ID has a passing executed test case, not only a marker.
 - `check-coverage-floor.py` — Checks an llvm-cov coverage export against a flavor's recorded floor in `coverage-floors.json` (Rust and Swift).
