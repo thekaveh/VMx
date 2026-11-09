@@ -673,20 +673,176 @@ fn manual_clock_expiry_is_deterministic() {
 fn hub_dispose_resolves_waiters_pending() {
     let hub = NotificationHub::new();
     let (_notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
+    let recorder = hub.pending_changed().record(16);
+    let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = values.clone();
     let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let observed = completed.clone();
     let _subscription = hub.pending_stream().subscribe_with_completion(
-        |_| {},
+        move |pending| seen.lock().unwrap().push(pending),
         move || {
             observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         },
     );
+    let values_before = values.lock().unwrap().len();
+    let snapshots_before = hub.pending_snapshots().len();
 
     hub.dispose();
 
     assert_eq!(waiter.wait(), NotificationReaction::Pending);
     assert!(hub.pending().is_empty());
     assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        values.lock().unwrap().len(),
+        values_before,
+        "dispose sends no final snapshot (ADR-0197)"
+    );
+    assert!(
+        recorder.is_empty(),
+        "dispose sends no pending message (ADR-0197)"
+    );
+    assert_eq!(hub.pending_snapshots().len(), snapshots_before);
+}
+
+/// NOTIF-019 — NotificationVM remaining time and opacity stop at resolution or disposal
+#[test]
+fn notification_vm_render_state_stops_at_resolution_or_disposal() {
+    let hub = NotificationHub::new();
+
+    let dismissed = NotificationVm::with_hub(
+        hub.post(NotificationType::Notification, "dismissed"),
+        hub.clone(),
+        10_000,
+    );
+    dismissed.dismiss_command().execute();
+    dismissed.advance_by_ms(10_000);
+    assert_eq!(dismissed.remaining_time_ms(), 10_000);
+    assert_eq!(dismissed.opacity(), 1.0);
+
+    let disposed = NotificationVm::with_hub(
+        hub.post(NotificationType::Notification, "disposed"),
+        hub.clone(),
+        10_000,
+    );
+    disposed.dispose();
+    disposed.advance_by_ms(10_000);
+    assert_eq!(disposed.remaining_time_ms(), 10_000);
+    assert_eq!(disposed.opacity(), 1.0);
+
+    let partial = NotificationVm::with_hub(
+        hub.post(NotificationType::Notification, "partial"),
+        hub.clone(),
+        10_000,
+    );
+    partial.advance_by_ms(4_000);
+    partial.dismiss_command().execute();
+    partial.advance_by_ms(6_000);
+    assert_eq!(partial.remaining_time_ms(), 6_000);
+    assert!((partial.opacity() - 0.6).abs() <= 0.01);
+}
+
+#[test]
+fn confirmation_and_hub_resolution_keep_the_render_state() {
+    let hub = NotificationHub::new();
+    let confirmation = ConfirmationVm::with_hub(
+        hub.post(NotificationType::Confirmation, "confirm?"),
+        hub.clone(),
+    );
+    confirmation.advance_by_ms(60_000);
+    confirmation.approve();
+    confirmation.advance_by_ms(240_000);
+    assert_eq!(confirmation.remaining_time_ms(), 240_000);
+    assert!((confirmation.opacity() - 0.8).abs() <= 0.01);
+
+    let notification = hub.post(NotificationType::Notification, "external");
+    let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+    vm.advance_by_ms(3_000);
+    hub.resolve(notification.id, NotificationReaction::Reject);
+    vm.advance_by_ms(10_000);
+    assert_eq!(vm.remaining_time_ms(), 7_000);
+    assert!((vm.opacity() - 0.7).abs() <= 0.01);
+}
+
+/// NOTIF-020 — A Pending subscription made after hub dispose receives completion only
+#[test]
+fn pending_subscription_after_dispose_receives_completion_only() {
+    let hub = NotificationHub::new();
+    hub.post(NotificationType::Notification, "info");
+    hub.dispose();
+
+    let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Vec<Notification>>::new()));
+    let seen = values.clone();
+    let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = completed.clone();
+    let _subscription = hub.pending_stream().subscribe_with_completion(
+        move |pending| seen.lock().unwrap().push(pending),
+        move || {
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        },
+    );
+    let plain_values = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Vec<Notification>>::new()));
+    let plain_seen = plain_values.clone();
+    let _plain = hub
+        .pending_stream()
+        .subscribe(move |pending| plain_seen.lock().unwrap().push(pending));
+
+    assert!(
+        values.lock().unwrap().is_empty(),
+        "no snapshot after dispose"
+    );
+    assert!(plain_values.lock().unwrap().is_empty());
+    assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn subscription_inside_a_disposing_callback_receives_completion_only() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    let hub = NotificationHub::new();
+    let late_values = Arc::new(Mutex::new(Vec::<Vec<Notification>>::new()));
+    let late_completions = Arc::new(AtomicUsize::new(0));
+    let late_subscription = Arc::new(Mutex::new(None));
+    let fired = Arc::new(AtomicBool::new(false));
+    let callback_hub = hub.clone();
+    let callback_values = late_values.clone();
+    let callback_completions = late_completions.clone();
+    let callback_subscription = late_subscription.clone();
+    let _subscription = hub.pending_stream().subscribe(move |pending| {
+        if pending.is_empty() || fired.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        callback_hub.dispose();
+        let values = callback_values.clone();
+        let completions = callback_completions.clone();
+        let subscription = callback_hub.pending_stream().subscribe_with_completion(
+            move |pending| values.lock().unwrap().push(pending),
+            move || {
+                completions.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        *callback_subscription.lock().unwrap() = Some(subscription);
+    });
+
+    hub.post(NotificationType::Notification, "info");
+
+    assert!(late_values.lock().unwrap().is_empty(), "no replay");
+    assert_eq!(late_completions.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn notification_vm_over_a_disposed_hub_constructs_normally() {
+    let hub = NotificationHub::new();
+    let notification = Notification::new(NotificationType::Notification, "late");
+    hub.dispose();
+
+    let vm = NotificationVm::with_hub(notification, hub.clone(), 10_000);
+    assert!(!vm.is_resolved());
+
+    vm.dismiss();
+
+    assert!(vm.is_resolved());
+    assert!(hub.pending().is_empty());
 }
 
 #[test]
@@ -755,9 +911,9 @@ fn concurrent_dispose_returns_after_queued_terminal_publication_and_completions(
 /// DISP-003 — concurrent disposal of a thread-safe hub performs terminal work once
 ///
 /// `dispose()` returns `()`, so "exactly one caller claims teardown" is observed
-/// through its single-shot effects: one terminal snapshot and one completion.
+/// through its single-shot effects: one completion and no snapshot.
 #[test]
-fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
+fn concurrent_notification_hub_dispose_completes_once_without_a_snapshot() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{mpsc, Arc, Barrier};
     use std::time::Duration;
@@ -790,7 +946,11 @@ fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
             thread.join().unwrap();
         }
 
-        assert_eq!(hub.pending_snapshots().len(), before + 1);
+        assert_eq!(
+            hub.pending_snapshots().len(),
+            before,
+            "iteration {iteration}: dispose publishes no snapshot"
+        );
         assert_eq!(
             completions.load(Ordering::SeqCst),
             1,

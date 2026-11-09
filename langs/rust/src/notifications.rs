@@ -115,7 +115,9 @@ impl PendingPublicationCompletion {
 }
 
 struct PendingPublication {
-    snapshot: Vec<Notification>,
+    /// The committed snapshot, or `None` for a dispose, which publishes no
+    /// snapshot (ADR-0197).
+    snapshot: Option<Vec<Notification>>,
     completions: Vec<(AsyncValue<NotificationReaction>, NotificationReaction)>,
     terminal: bool,
     completion: Arc<PendingPublicationCompletion>,
@@ -175,8 +177,12 @@ impl NotificationHub {
                     .completions
                     .insert(notification_id, completion.clone());
                 let snapshot = state.pending.clone();
-                let admission =
-                    Self::enqueue_pending_publication(&mut state, snapshot, Vec::new(), false);
+                let admission = Self::enqueue_pending_publication(
+                    &mut state,
+                    Some(snapshot),
+                    Vec::new(),
+                    false,
+                );
                 (completion, Some(admission))
             }
         };
@@ -225,7 +231,7 @@ impl NotificationHub {
                 .map(|completion| (completion, reaction))
                 .collect();
             let snapshot = state.pending.clone();
-            Self::enqueue_pending_publication(&mut state, snapshot, completions, false)
+            Self::enqueue_pending_publication(&mut state, Some(snapshot), completions, false)
         };
         self.complete_pending_publication(admission);
     }
@@ -266,6 +272,14 @@ impl NotificationHub {
     }
 
     /// Resolves all pending waiters as pending and closes the hub.
+    ///
+    /// Dispose publishes no snapshot of its own: it sends no value on
+    /// [`pending_stream`](Self::pending_stream), no `pending` message on
+    /// [`pending_changed`](Self::pending_changed), and adds no
+    /// [`pending_snapshots`](Self::pending_snapshots) entry. Snapshots queued
+    /// before dispose are still delivered, and then both streams complete
+    /// once. A `pending_stream()` subscription made after dispose returns
+    /// completes at once with no replay (ADR-0197, `NOTIF-020`).
     pub fn dispose(&self) {
         let current = thread::current().id();
         let admission = {
@@ -294,23 +308,26 @@ impl NotificationHub {
                 .map(|(_, completion)| (completion, NotificationReaction::Pending))
                 .collect::<Vec<_>>();
             state.pending.clear();
-            let admission =
-                Self::enqueue_pending_publication(&mut state, Vec::new(), completions, true);
+            let admission = Self::enqueue_pending_publication(&mut state, None, completions, true);
             state.dispose_completion = Some(admission.completion.clone());
             admission
         };
+        // Late subscribers receive completion only, not the last snapshot.
+        self.pending_stream.refuse_new_subscriptions();
         self.complete_pending_publication(admission);
     }
 
     fn enqueue_pending_publication(
         state: &mut NotificationHubState,
-        snapshot: Vec<Notification>,
+        snapshot: Option<Vec<Notification>>,
         completions: Vec<(AsyncValue<NotificationReaction>, NotificationReaction)>,
         terminal: bool,
     ) -> PendingPublicationAdmission {
         let current = thread::current().id();
         let completion = Arc::new(PendingPublicationCompletion::default());
-        state.pending_snapshots.push(snapshot.clone());
+        if let Some(snapshot) = &snapshot {
+            state.pending_snapshots.push(snapshot.clone());
+        }
         state.pending_publications.push_back(PendingPublication {
             snapshot,
             completions,
@@ -349,12 +366,14 @@ impl NotificationHub {
                 debug_assert_eq!(state.publishing_owner, Some(current));
                 publication
             };
-            self.pending_stream.send(publication.snapshot);
-            self.pending_changed.send(Message::Custom {
-                sender_id: 0,
-                sender_name: "NotificationHub".to_string(),
-                name: "pending".to_string(),
-            });
+            if let Some(snapshot) = publication.snapshot {
+                self.pending_stream.send(snapshot);
+                self.pending_changed.send(Message::Custom {
+                    sender_id: 0,
+                    sender_name: "NotificationHub".to_string(),
+                    name: "pending".to_string(),
+                });
+            }
             if publication.terminal {
                 self.pending_stream.dispose();
                 self.pending_changed.dispose();
