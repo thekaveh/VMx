@@ -390,11 +390,17 @@ class _NestedScenario:
         self.nested = nested
         self.requests = WaitRequests(monkeypatch)
         self.hub: MessageHub[Any] = MessageHub()
-        self.form = FormVM(Model("initial"), _noop, validators={"value": self._validate})
+        self.form_hub: MessageHub[Any] = MessageHub()
+        self.form = FormVM(
+            Model("initial"), _noop, validators={"value": self._validate}, hub=self.form_hub
+        )
         self.failures: list[BaseException] = []
         self.y_draining = Event()
         self.y_release = Event()
         self.x_sink_returned = Event()
+        # Set by X's model message, which X's update sends after its
+        # outermost scope closes (spec/20 §5.4).
+        self.x_scope_closed = Event()
         self.x_ident = 0
         self.y_ident = 0
         self.nested_calls = 0
@@ -403,8 +409,18 @@ class _NestedScenario:
         self.x_scope_open_after_nested_call: bool | None = None
         self.approved_completions: list[bool] = []
         self.form.on_approved.subscribe(
-            on_completed=lambda: self.approved_completions.append(self.x_sink_returned.is_set())
+            on_completed=lambda: self.approved_completions.append(self.x_scope_closed.is_set())
         )
+
+        def x_model_message(message: object) -> None:
+            if (
+                isinstance(message, PropertyChangedMessage)
+                and message.property_name == "model"
+                and threading.get_ident() == self.x_ident
+            ):
+                self.x_scope_closed.set()
+
+        self.form_hub.messages.subscribe(x_model_message)
         armed = [True]
 
         def x_sink(_: object) -> None:
@@ -505,5 +521,6 @@ def test_a_nested_dispose_never_waits_for_another_threads_scope(
 
     scenario.run()
 
-    # on_approved completed once, after X's sink returned inside X's scope.
+    # on_approved completed once, after X's outermost scope closed and X sent
+    # its model message.
     assert scenario.approved_completions == [True]

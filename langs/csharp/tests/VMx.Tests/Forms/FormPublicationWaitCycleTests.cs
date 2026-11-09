@@ -487,6 +487,10 @@ public class FormPublicationWaitCycleTests
         Exception? xError = null;
         Exception? yError = null;
         using var xSinkReturned = new ManualResetEventSlim();
+        // Set by X's Model notification, which X's update sends after its
+        // outermost scope closes (spec/20 §5.4).
+        using var xScopeClosed = new ManualResetEventSlim();
+        var formHub = new MessageHub();
         using var yDraining = new ManualResetEventSlim();
         using var releaseY = new ManualResetEventSlim();
         NestedRun? run = null;
@@ -495,6 +499,7 @@ public class FormPublicationWaitCycleTests
             .Initial(new Model("initial"))
             .Persister(_ => Task.CompletedTask)
             .Snapshotter(model => model)
+            .Hub(formHub)
             .Validator("Value", model =>
             {
                 if (model.Value == "outer" && Environment.CurrentManagedThreadId == Volatile.Read(ref yThread))
@@ -528,7 +533,13 @@ public class FormPublicationWaitCycleTests
         {
             using var approvedSubscription = form.OnApproved.Subscribe(
                 _ => { },
-                () => run.ApprovedCompletions.Add(xSinkReturned.IsSet));
+                () => run.ApprovedCompletions.Add(xScopeClosed.IsSet));
+            using var formHubSubscription = formHub.Messages.Subscribe(message =>
+            {
+                if (message is PropertyChangedMessage<FormVM<Model>> { PropertyName: "Model" }
+                    && Environment.CurrentManagedThreadId == Volatile.Read(ref xThread))
+                    xScopeClosed.Set();
+            });
             using var errorsSubscription = form.ErrorsChanged.Subscribe(_ =>
             {
                 if (Environment.CurrentManagedThreadId != Volatile.Read(ref xThread)) return;
@@ -576,6 +587,7 @@ public class FormPublicationWaitCycleTests
             WaitForGraph.Shared.WaitDecidedForTesting -= OnWaitDecided;
             releaseY.Set();
             hub.Dispose();
+            formHub.Dispose();
         }
 
         xError.Should().BeNull();
@@ -613,6 +625,6 @@ public class FormPublicationWaitCycleTests
         var run = RunNestedCall(dispose: true);
 
         run.ApprovedCompletions.Should().Equal(
-            [true], "OnApproved completes once, after X's sink returned inside X's scope");
+            [true], "OnApproved completes once, after X's outermost scope closed and X sent its Model notification");
     }
 }

@@ -476,10 +476,12 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
         line: UInt = #line
     ) -> (run: NestedRun, form: FormVM<String>)? {
         let hub = MessageHub()
+        let formHub = MessageHub()
         let run = NestedRun()
         let form = FormVM<String>(
             initial: "initial",
             persister: { _ in },
+            hub: formHub,
             validators: ["value": { value in
                 if value == "outer" && ThreadWaitGraph.currentThread == run.drainer {
                     run.nestedCall {
@@ -511,6 +513,16 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
         form.onApproved
             .sink(receiveCompletion: { _ in run.approvedCompleted() }, receiveValue: { _ in })
             .store(in: &cancellables)
+        // X's update sends its `model` message after its outermost scope
+        // closes (spec/20 §5.4).
+        formHub.messages
+            .sink { message in
+                guard (message as? PropertyChangedMessage)?.propertyName == "model",
+                      ThreadWaitGraph.currentThread == run.publisher
+                else { return }
+                run.publisherScopeClosed()
+            }
+            .store(in: &cancellables)
         hub.messages
             .sink { message in
                 guard message.senderName == "drainer" else { return }
@@ -539,6 +551,7 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
         }.start()
         guard wait(drainerEntered, "Y never took the drain", file: file, line: line) else { return nil }
         Thread {
+            run.publisher = ThreadWaitGraph.currentThread
             boxedForm.value.setModel("bad")
             publisherDone.signal()
         }.start()
@@ -570,12 +583,12 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
     }
 
     /// A nested dispose returns at once; `onApproved` completes after X's
-    /// scope ends.
+    /// outermost scope closes.
     func testANestedDisposeNeverWaitsForAnotherThreadsScope() {
         guard let (run, _) = runNestedCall(dispose: true) else { return }
 
         XCTAssertEqual(run.approvedCompletions, [true],
-            "onApproved completes once, after X's sink returned inside X's scope")
+            "onApproved completes once, after X's outermost scope closed and X sent its model message")
     }
 }
 
@@ -583,10 +596,12 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
 private final class NestedRun: @unchecked Sendable {
     private let lock = NSLock()
     private var drainerThread: UInt64 = 0
+    private var publisherThread: UInt64 = 0
     private var allRequests: [Bool] = []
     private var nestedActive = false
     private var nestedRequests: [Bool] = []
     private var sinkReturned = false
+    private var scopeClosed = false
     private var completions: [Bool] = []
     private var calls = 0
     private var scopeOpen: Bool?
@@ -602,6 +617,11 @@ private final class NestedRun: @unchecked Sendable {
     var drainer: UInt64 {
         get { lock.withLock { drainerThread } }
         set { lock.withLock { drainerThread = newValue } }
+    }
+
+    var publisher: UInt64 {
+        get { lock.withLock { publisherThread } }
+        set { lock.withLock { publisherThread = newValue } }
     }
 
     var requests: [Bool] { lock.withLock { allRequests } }
@@ -638,7 +658,12 @@ private final class NestedRun: @unchecked Sendable {
         lock.withLock { sinkReturned = true }
     }
 
+    /// X's `model` message arrived, so X's outermost scope has closed.
+    func publisherScopeClosed() {
+        lock.withLock { scopeClosed = true }
+    }
+
     func approvedCompleted() {
-        lock.withLock { completions.append(sinkReturned) }
+        lock.withLock { completions.append(scopeClosed) }
     }
 }
