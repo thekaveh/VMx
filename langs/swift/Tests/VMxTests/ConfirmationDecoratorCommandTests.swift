@@ -102,6 +102,8 @@ final class ConfirmationDecoratorCommandTests: XCTestCase {
     }
 
     /// CMDD-010 — a throwing confirm surfaces the error on `errors`; inner has no side effect.
+    /// Swift `Command.execute()` cannot throw, so CMDD-010's throwing-inner clause
+    /// does not apply to Swift (spec/04-commands.md §8.3.1, ADR-0184).
     func testCmdd010ThrowingConfirmSurfacesOnErrors() async {
         let box = ErrorBox()
         let rec = Recorder()

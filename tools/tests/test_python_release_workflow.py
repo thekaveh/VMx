@@ -12,7 +12,7 @@ def _workflow(name: str) -> str:
 def test_python_release_jobs_use_the_tracked_lockfile() -> None:
     workflow = _workflow("release.yml")
     python_jobs = workflow.split("\n  python-test:\n", maxsplit=1)[1].split(
-        "\n  typescript:\n", maxsplit=1
+        "\n  typescript-build:\n", maxsplit=1
     )[0]
 
     assert "langs/python/uv.lock" in python_jobs
@@ -28,22 +28,28 @@ def test_python_build_backend_is_exactly_pinned() -> None:
 
 
 def test_python_release_smokes_local_wheel_before_publish() -> None:
-    workflow = _workflow("release.yml")
-    publish_job = workflow.split("\n  python-build-and-publish:\n", maxsplit=1)[1].split(
-        "\n  python-verify-published:\n", maxsplit=1
-    )[0]
+    jobs = _jobs("release.yml")
+    build_job = jobs["python-build"]
+    publish_job = jobs["python-publish"]
 
-    build_index = publish_job.index("uv build --project langs/python --out-dir dist")
-    install_index = publish_job.index("uv pip install --python .package-venv/bin/python dist/*.whl")
-    smoke_index = publish_job.index(
+    build_index = build_job.index("uv build --project langs/python --out-dir dist")
+    install_index = build_job.index("uv pip install --python .package-venv/bin/python dist/*.whl")
+    smoke_index = build_job.index(
         ".package-venv/bin/python tools/check-python-interpreter.py "
         "--expected-version 3.12 --venv .package-venv -- "
         'langs/python/scripts/smoke_test.py "$tag_version"'
     )
-    publish_index = publish_job.index("pypa/gh-action-pypi-publish@")
+    upload_index = build_job.index("name: python-dist-${{ github.run_id }}")
 
-    assert build_index < install_index < smoke_index < publish_index
+    assert build_index < install_index < smoke_index < upload_index
+    # #1333: the publish job uploads the checked files and builds nothing.
+    assert "needs: [python-build, release-metadata]" in publish_job
+    download_index = publish_job.index("name: python-dist-${{ github.run_id }}")
+    publish_index = publish_job.index("pypa/gh-action-pypi-publish@")
+    assert download_index < publish_index
     assert "pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086" in publish_job
+    assert "      id-token: write\n" not in build_job
+    assert "      id-token: write\n" in publish_job
 
 
 def test_python_ci_and_release_test_the_extracted_sdist() -> None:
@@ -103,10 +109,10 @@ def test_release_metadata_is_validated_before_python_publication() -> None:
     workflow = _workflow("release.yml")
     metadata = workflow.index("release-metadata:")
     checker = workflow.index("tools/check-version-consistency.py", metadata)
-    publish_job = workflow.index("python-build-and-publish:")
+    publish_job = workflow.index("python-publish:")
     publish = workflow.index("pypa/gh-action-pypi-publish@", publish_job)
 
-    assert "needs: [python-test, release-metadata]" in workflow
+    assert "needs: [python-build, release-metadata]" in workflow
     assert "uv --project langs/python sync --locked --extra tools" in workflow
     assert "uv --project langs/python run --locked --extra tools" in workflow
     assert (

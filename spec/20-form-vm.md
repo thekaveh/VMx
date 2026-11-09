@@ -474,7 +474,10 @@ Flavor notes:
 
 - Rust's failure is a panic. Each replay runs under its own unwind guard. After
   the last replay, the first replay panic resumes, unless the approval already
-  carries a panic, which wins (#740).
+  carries a panic, which wins (#740). It resumes from `approve()` and, on the
+  command path, from `approve_command().execute()`. `approve_errors` receives
+  no replay panic: it carries only the `Err` that `approve()` returns
+  (ADR-0185).
 - Swift validators, the injected `equals`, the snapshotter, and the sinks
   cannot throw. Only the queue, call-time staleness, replay, and wait rules
   apply.
@@ -595,8 +598,8 @@ Flavor notes:
 - Rust validators return no error value; a panic in a validator, equality
   implementation, or snapshotter is the failure. It unwinds through the update
   with the form unchanged and leaves no lock poisoned or held.
-- Swift validators and the injected `equals` cannot throw, so only the
-  re-entrancy and disposal rules apply.
+- Swift validators, the injected `equals`, and the deny snapshotter cannot
+  throw, so only the re-entrancy and disposal rules apply (ADR-0184).
 - Rust `approve()` is synchronous. A nested `approve()` returns `Ok(())` once
   it is admitted. Its deferred approval routes a failure to `approve_errors`,
   as the command path does. A panic resumes from the outermost update after

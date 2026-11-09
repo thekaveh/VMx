@@ -12,19 +12,29 @@
 
 use std::panic::{catch_unwind, panic_any, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc, Mutex, OnceLock};
-use std::thread::{self, JoinHandle, ThreadId};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::thread;
+use std::time::Duration;
 
 use vmx::{
-    wait_registered_for_testing, ApprovalSubscription, Command, FormVm, FormVmBuilder, Message,
-    MessageHub, Subscription, VmxError,
+    ApprovalSubscription, Command, FormVm, FormVmBuilder, Message, MessageHub, Subscription,
+    VmxError,
+};
+
+// The cross-thread case observes the wait-for graph through a test seam.
+#[cfg(feature = "test-seams")]
+use {
+    std::sync::mpsc,
+    std::thread::{JoinHandle, ThreadId},
+    std::time::Instant,
+    vmx::wait_registered_for_testing,
 };
 
 /// How long a test waits for work that must not happen.
 const SETTLE: Duration = Duration::from_millis(50);
 
 /// The hang guard of every cross-thread wait.
+#[cfg(feature = "test-seams")]
 const BOUND: Duration = Duration::from_secs(10);
 
 type Model = &'static str;
@@ -538,6 +548,7 @@ fn disposal_after_the_approve_command_keeps_the_persister_count() {
 
 /// Polls `condition` until it holds or [`BOUND`] passes, and reports whether
 /// it held, so a callback never panics inside the library.
+#[cfg(feature = "test-seams")]
 fn eventually(condition: impl Fn() -> bool) -> bool {
     let deadline = Instant::now() + BOUND;
     while !condition() {
@@ -551,6 +562,7 @@ fn eventually(condition: impl Fn() -> bool) -> bool {
 
 /// Joins `handle`, failing instead of hanging when it does not return by
 /// `deadline`.
+#[cfg(feature = "test-seams")]
 fn join_by<T>(handle: JoinHandle<T>, deadline: Instant, what: &str) -> T {
     while !handle.is_finished() {
         assert!(Instant::now() < deadline, "{what} did not return: deadlock");
@@ -559,6 +571,7 @@ fn join_by<T>(handle: JoinHandle<T>, deadline: Instant, what: &str) -> T {
     handle.join().unwrap()
 }
 
+#[cfg(feature = "test-seams")]
 fn custom(name: &str) -> Message {
     Message::Custom {
         sender_id: 0,
@@ -575,6 +588,7 @@ fn custom(name: &str) -> Message {
 /// is refused and prepares at once (spec/20 §5.5). Its validator calls
 /// `set_model` again. That nested call does not commit while X holds its
 /// scope: it joins X's queue and replays when X's publication ends.
+#[cfg(feature = "test-seams")]
 #[test]
 fn a_nested_call_takes_the_refused_wait_result_while_another_thread_holds_a_scope() {
     const OUTER: i32 = 42;
