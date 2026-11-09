@@ -95,6 +95,12 @@ holds and delegates to.
   post-dispose behavior (chapter 01 §4).
 - Another thread's membership transaction never makes a selection fail or wait
   (§4.3, ADR-0173).
+- A `Disposed` child is not selectable. Setting `Current` to it raises the
+  non-member error (§4.3 rule 2, ADR-0189).
+- When the child that is `Current` publishes `Disposed` from its own
+  `dispose()`, the composite clears `Current` (§4.3 rule 9, ADR-0189).
+- While the composite is `Destructing`, a non-null selection changes nothing
+  and raises nothing (§4.3 rule 8, ADR-0188).
 - A change to `Current` fires `PropertyChangedMessage("Current")` and updates the
   affected children's `IsCurrent` (raising their `PropertyChangedMessage("IsCurrent")`).
 - If the builder enabled `AsyncSelection(true)`, the setter dispatches the work via
@@ -107,7 +113,8 @@ holds and delegates to.
 ### 3.1 `select_component(vm)` / `deselect_component(vm)`
 
 - `select_component(vm)` sets `Current = vm` after verifying `can_select_component(vm)`.
-  If the predicate is false, the call raises.
+  If the predicate is false, the call raises. The one exception is a call
+  that only §4.3 rule 8 refuses: it changes nothing and raises nothing.
 - `deselect_component(vm)` sets `Current = null` after verifying `Current == vm`.
   If `Current != vm`, the call raises. This is a guarded convenience; the raw
   `Current = null` setter (§3) checks nothing else. Like every selection call,
@@ -115,8 +122,12 @@ holds and delegates to.
   transaction (§4.3).
 - `can_select_component(vm)` returns `true` iff `vm ∈ children` and `vm.Status == Constructed`,
   and `select_component(vm)` would not be refused now: `vm` is admitted, no
-  disposal of the composite is pending, and the caller is not inside its own
-  uncommitted membership transaction (§3, §4.3, ADR-0173).
+  disposal of the composite is pending, the composite is not `Destructing`,
+  and the caller is not inside its own uncommitted membership transaction
+  (§3, §4.3, ADR-0173, ADR-0188).
+- The child `select()` and `deselect()` paths run the same checks. A refusal
+  there changes nothing and raises nothing, in every flavor (chapter 05 §6,
+  ADR-0188).
 
 ### 3.2 Initial `Current` selection and change callback (spec v2.6.0)
 
@@ -287,10 +298,11 @@ the wrapped component (ADR-0123).
 The selection paths are the `Current` setter, `select_component`,
 `deselect_component`, the child `Select` and `Deselect` paths, the
 `AsyncSelection(true)` setter and its delivery, the construct walk's
-assignment (§3.2), the destruct clear (§5) and the clear that a detach
-commits. The selection calls are the setter, synchronous or asynchronous,
-`select_component`, `deselect_component` and the child `Select` and `Deselect`
-paths. Every flavor follows these rules (ADR-0165, ADR-0173):
+assignment (§3.2), the destruct clear (§5), the clear that a detach commits
+and the clear that a child's dispose commits (rule 9). The selection calls
+are the setter, synchronous or asynchronous, `select_component`,
+`deselect_component` and the child `Select` and `Deselect` paths. Every flavor follows these rules (ADR-0165, ADR-0173, ADR-0188,
+ADR-0189):
 
 1. **No transaction.** No selection path opens, joins or waits for a membership
    transaction, on any thread. It validates and commits `Current` and the
@@ -306,6 +318,9 @@ paths. Every flavor follows these rules (ADR-0165, ADR-0173):
    When the add moves the child from another parent, it admits the child
    after that parent's detach commit, so the old parent's detach clear never
    resets the `IsCurrent` flag of a selection in the new parent (`COMP-006`).
+   A `Disposed` child is not a member for selection either. The setter
+   raises the non-member error, the walk's assignment and an asynchronous
+   delivery are silent no-ops, and `can_select_component` returns `false`.
 1. **Disposal.** While disposal of the composite is requested or deferred, a
    non-null selection is refused. A null clear is never refused because of
    disposal.
@@ -336,11 +351,30 @@ paths. Every flavor follows these rules (ADR-0165, ADR-0173):
    under rules 1 and 5 and validates membership and rules 2, 3 and 4 again; a
    delivery that is no longer valid is a silent no-op. The walk's assignment
    and the destruct clear stay synchronous.
+1. **Destructing.** While the composite is `Destructing`, a non-null selection
+   that rules 2, 3 and 4 admit changes nothing and raises nothing, on every
+   path. This covers the setter, `select_component`, the child `select` path,
+   and the asynchronous call and its delivery. `can_select_component` returns
+   `false`. A null clear commits as usual. The rule also applies in the
+   destruct phase of `reconstruct()`.
+1. **Dispose clear.** When a child publishes `Disposed` from its own
+   `dispose()` while it is `Current`, the composite clears `Current` before
+   that `dispose()` returns. The clear runs after the child publishes
+   `Disposed`, in both disposal orders of chapter 02 §7. Like the detach clear,
+   it clears `Current` only while that child is still current, and it commits
+   under rules 1 and 5. It is not a selection call, so rules 3, 4 and 8 never
+   refuse it. It publishes `PropertyChangedMessage("Current")` once and runs
+   `OnCurrentChanged(null)` once. The child's `IsCurrent` becomes `false`, and
+   the child publishes no message for it (chapter 02 §3 invariant 3). The
+   composite's own dispose cascade does not clear `Current`. The clear does
+   not run while disposal of the composite is requested or deferred, or after
+   `Disposed`.
 
 Each surface reports a refusal through the channel it already uses for that
 case. The Swift `current` property setter cannot throw, so it traps
-(ADR-0009); `setCurrent(_:)` is its catchable form. Swift `selectChild` and
-`deselectChild` stay silent no-ops.
+(ADR-0009); `setCurrent(_:)` is its catchable form. Two refusals are silent in
+every flavor: a refused child `select()` or `deselect()` (chapter 05 §6), and a
+selection that only rule 8 refuses (ADR-0188).
 
 ## 5. Children construction orchestration
 
@@ -363,6 +397,7 @@ children:
   the composite first sets `Current = null`. It then calls `destruct()` on every
   child; each call returns once that child reaches `Destructed`. Once every
   child is `Destructed`, the composite transitions to `Destructed`.
+- Both walks skip a child that is `Disposed` (chapter 02 §6, ADR-0189).
 - The destruct clear, also in the destruct phase of `reconstruct()`, commits
   under §4.3 rules 1 and 5. It is not a selection call, so §4.3 rules 3 and 4
   never refuse it. It never raises, waits or is skipped: it also clears while
@@ -370,8 +405,10 @@ children:
   transaction and while disposal is deferred (`COMP-005`, ADR-0173). A disposal
   from `OnCurrentChanged(null)` is deferred through its lease. A rollback does
   not restore a `Current` that the destruct cleared. A consumer selection made
-  after the clear, while the composite is `Destructing`, is not refused;
-  `COMP-005` assumes none.
+  while the composite is `Destructing` changes nothing and raises nothing
+  (§4.3 rule 8, ADR-0188). This covers a selection from
+  `OnCurrentChanged(null)`, from a child's destruct hook and from another
+  thread. `COMP-005` therefore holds when `destruct()` returns (`COMP-051`).
 
 The order in which children are visited is unspecified by default. Chapter 02
 §6 says which reference implementations drive container children sequentially
@@ -651,6 +688,17 @@ Hub publication of collection changes (chapter 01 §1.4, ADR-0142) is covered by
   failed preflight, rollback, and same-index moves publish nothing.
 - `COMP-045` — hub transactions defer the messages in order, a disposed
   composite publishes nothing, and a forwarding wrapper adds no publication.
+
+The `Disposed`-child, `Destructing` and child-`select()` rules of §3, §3.1,
+§4.3 and §5 are covered by:
+
+- `COMP-050` — disposing the current child clears `Current` once. The
+  child's `IsCurrent` becomes false with no child message, and the child is
+  not selectable. The composite's own dispose cascade does not clear.
+- `COMP-051` — a non-null selection while the composite is `Destructing`
+  changes nothing and raises nothing; a null clear commits.
+- `COMP-052` — a refused child `select()` or `deselect()` changes nothing and
+  raises nothing.
 
 The `DestructOrder` option introduced in §5 is covered by:
 

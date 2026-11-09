@@ -19,9 +19,11 @@ import { afterEach } from "vitest";
 
 let _expecting = false;
 const _recorded: unknown[] = [];
+let _captures: unknown[][] = [];
 
 config.onUnhandledError = (err: unknown) => {
   _recorded.push(err);
+  for (const capture of _captures) capture.push(err);
 };
 
 /**
@@ -33,12 +35,25 @@ export function allowRxUnhandledErrors(): void {
   _expecting = true;
 }
 
+/**
+ * Opt the current test in to rxjs unhandled-error reports, as
+ * {@link allowRxUnhandledErrors} does, and return a live list of the reports
+ * that arrive from now until the test ends (ADR-0200).
+ */
+export function captureRxUnhandledErrors(): unknown[] {
+  allowRxUnhandledErrors();
+  const capture: unknown[] = [];
+  _captures.push(capture);
+  return capture;
+}
+
 afterEach(async () => {
   // rxjs surfaces unhandled errors on a macrotask (setTimeout(0)); drain the
   // queue so a throw from the just-finished test is captured here before we
   // decide whether it was expected.
   await new Promise((resolve) => setTimeout(resolve, 0));
   const recorded = _recorded.splice(0);
+  _captures = [];
   const expecting = _expecting;
   _expecting = false;
   if (!expecting && recorded.length > 0) {
