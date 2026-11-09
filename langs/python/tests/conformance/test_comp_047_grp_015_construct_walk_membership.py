@@ -9,12 +9,14 @@ disposes the child (ADR-0186, spec/06 §5.1, spec/07 §4).
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
+from tests.liveness import HANG_GUARD
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
@@ -74,11 +76,22 @@ class _Scene:
         for member in (self.anchor, *self.extra):
             self.root.add(member)
 
-    def child(self, name: str, *, background: bool = False, fails: bool = False) -> ComponentVM:
+    def child(
+        self,
+        name: str,
+        *,
+        background: bool = False,
+        fails: bool = False,
+        hold: tuple[threading.Event, threading.Event] | None = None,
+    ) -> ComponentVM:
         self.runs[name] = 0
 
         def hook() -> None:
             self.runs[name] += 1
+            if hold is not None:
+                entered, release = hold
+                entered.set()
+                assert release.wait(HANG_GUARD), "the test releases the hook"
             if fails:
                 raise RuntimeError(f"{name} hook failed")
 
@@ -162,12 +175,30 @@ def _late_child_removed_before_the_walk_reaches_it(kind: str) -> None:
 def _late_child_whose_add_fails_is_undone(kind: str) -> None:
     scene = _Scene(kind, lambda _s: [])
     scene.construct()
-    late = scene.child("l", fails=True)
+    entered = threading.Event()
+    release = threading.Event()
+    late = scene.child("l", fails=True, hold=(entered, release))
+    errors: list[BaseException] = []
 
-    with pytest.raises(RuntimeError, match="l hook failed"):
-        scene.root.add(late)  # the add's own construct fails; the add is undone
+    def add() -> None:
+        try:
+            scene.root.add(late)  # the add's own construct fails; the add is undone
+        except BaseException as error:
+            errors.append(error)
+
+    adder = threading.Thread(target=add, daemon=True)
+    adder.start()
+    try:
+        assert entered.wait(HANG_GUARD), "the add starts the late child"
+        scene.bg.run(0)  # the anchor settles; the walk waits on the add's attempt
+        assert scene.root.status is S.CONSTRUCTING, "the walk waits on the add"
+    finally:
+        release.set()  # the late child's hook fails now
+        adder.join(HANG_GUARD)
+    assert not adder.is_alive(), "the failed add completes"
     scene.bg.run_all()
 
+    assert [str(error) for error in errors] == ["l hook failed"]
     scene.assert_constructed_without(late)
     assert scene.runs["l"] == 1
 
