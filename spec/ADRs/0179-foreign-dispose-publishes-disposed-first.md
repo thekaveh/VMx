@@ -77,7 +77,7 @@ flavors.
 
 No conformance ID changes. `LIFE-013`, `LIFE-018`, `COMP-046` and `GRP-014`
 dispose with no hook admitted, so rule 1 covers them. `LIFE-015` covers the
-wait of rule 2. The catalog stays at 448 library IDs (453 in total).
+wait of rule 2. The catalog stays at 449 library IDs (454 in total).
 
 ## 4. Consequences
 
