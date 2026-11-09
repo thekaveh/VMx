@@ -224,8 +224,8 @@ def test_codeql_covers_every_implementation_language() -> None:
     assert codeql.count("            build-mode: none\n") == 4
     assert "swift build -c release --package-path langs/swift" in codeql
     assert "swift build -c release --package-path examples/swift/notes-showcase" in codeql
-    assert "github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370" in codeql
-    assert "github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370" in codeql
+    assert "github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066" in codeql
+    assert "github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066" in codeql
 
 
 def test_release_workflow_defaults_to_read_only() -> None:
