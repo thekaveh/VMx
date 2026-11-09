@@ -1,0 +1,52 @@
+#nullable enable
+VMx.Notifications.ConfirmHelper
+VMx.Notifications.ConfirmationVM
+VMx.Notifications.ConfirmationVM.ApproveCommand.get -> System.Windows.Input.ICommand!
+VMx.Notifications.ConfirmationVM.ConfirmationVM(VMx.Notifications.Notification! notification, VMx.Notifications.INotificationHub! hub, System.Reactive.Concurrency.IScheduler! scheduler, System.TimeSpan? lifespan = null, System.TimeSpan? tickInterval = null) -> void
+VMx.Notifications.ConfirmationVM.RejectCommand.get -> System.Windows.Input.ICommand!
+VMx.Notifications.FluentNotificationExtensions
+VMx.Notifications.INotificationHub
+VMx.Notifications.INotificationHub.Pending.get -> System.IObservable<System.Collections.Generic.IReadOnlyList<VMx.Notifications.Notification!>!>!
+VMx.Notifications.INotificationHub.Post(VMx.Notifications.Notification! notification) -> System.Threading.Tasks.Task<VMx.Notifications.NotificationReaction>!
+VMx.Notifications.INotificationHub.Resolve(VMx.Notifications.Notification! notification, VMx.Notifications.NotificationReaction reaction) -> void
+VMx.Notifications.Notification
+VMx.Notifications.Notification.Message.get -> string!
+VMx.Notifications.Notification.Notification(VMx.Notifications.NotificationType type, string! message) -> void
+VMx.Notifications.Notification.Type.get -> VMx.Notifications.NotificationType
+VMx.Notifications.NotificationHub
+VMx.Notifications.NotificationHub.Dispose() -> void
+VMx.Notifications.NotificationHub.NotificationHub() -> void
+VMx.Notifications.NotificationHub.Pending.get -> System.IObservable<System.Collections.Generic.IReadOnlyList<VMx.Notifications.Notification!>!>!
+VMx.Notifications.NotificationHub.Post(VMx.Notifications.Notification! notification) -> System.Threading.Tasks.Task<VMx.Notifications.NotificationReaction>!
+VMx.Notifications.NotificationHub.Resolve(VMx.Notifications.Notification! notification, VMx.Notifications.NotificationReaction reaction) -> void
+VMx.Notifications.NotificationReaction
+VMx.Notifications.NotificationReaction.Approve = 1 -> VMx.Notifications.NotificationReaction
+VMx.Notifications.NotificationReaction.Pending = 0 -> VMx.Notifications.NotificationReaction
+VMx.Notifications.NotificationReaction.Reject = 2 -> VMx.Notifications.NotificationReaction
+VMx.Notifications.NotificationType
+VMx.Notifications.NotificationType.Confirmation = 2 -> VMx.Notifications.NotificationType
+VMx.Notifications.NotificationType.Error = 0 -> VMx.Notifications.NotificationType
+VMx.Notifications.NotificationType.Notification = 1 -> VMx.Notifications.NotificationType
+VMx.Notifications.NotificationVM
+VMx.Notifications.NotificationVM.Dismiss() -> void
+VMx.Notifications.NotificationVM.DismissCommand.get -> System.Windows.Input.ICommand!
+VMx.Notifications.NotificationVM.Dispose() -> void
+VMx.Notifications.NotificationVM.IsResolved.get -> bool
+VMx.Notifications.NotificationVM.Lifespan.get -> System.TimeSpan
+VMx.Notifications.NotificationVM.Notification.get -> VMx.Notifications.Notification!
+VMx.Notifications.NotificationVM.NotificationVM(VMx.Notifications.Notification! notification, VMx.Notifications.INotificationHub! hub, System.Reactive.Concurrency.IScheduler! scheduler, System.TimeSpan? lifespan = null, System.TimeSpan? tickInterval = null) -> void
+VMx.Notifications.NotificationVM.NotifyExternalResolve() -> void
+VMx.Notifications.NotificationVM.Opacity.get -> double
+VMx.Notifications.NotificationVM.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+VMx.Notifications.NotificationVM.RaisePropertyChanged(string! propertyName) -> void
+VMx.Notifications.NotificationVM.RemainingTime.get -> System.TimeSpan
+VMx.Notifications.NotificationVM.ResolveWith(VMx.Notifications.NotificationReaction reaction) -> void
+VMx.Notifications.NullNotificationHub
+VMx.Notifications.NullNotificationHub.Pending.get -> System.IObservable<System.Collections.Generic.IReadOnlyList<VMx.Notifications.Notification!>!>!
+VMx.Notifications.NullNotificationHub.Post(VMx.Notifications.Notification! notification) -> System.Threading.Tasks.Task<VMx.Notifications.NotificationReaction>!
+VMx.Notifications.NullNotificationHub.Resolve(VMx.Notifications.Notification! notification, VMx.Notifications.NotificationReaction reaction) -> void
+static VMx.Notifications.ConfirmHelper.MakeConfirm(VMx.Notifications.INotificationHub! hub, string! prompt) -> System.Func<System.Threading.Tasks.Task<bool>!>!
+static VMx.Notifications.FluentNotificationExtensions.Confirm(this System.Windows.Input.ICommand! command, VMx.Notifications.INotificationHub! hub, string! prompt) -> System.Windows.Input.ICommand!
+static VMx.Notifications.NullNotificationHub.Instance.get -> VMx.Notifications.NullNotificationHub!
+virtual VMx.Notifications.NotificationVM.Dispose(bool disposing) -> void
+virtual VMx.Notifications.NotificationVM.OnExpire() -> void
