@@ -1,5 +1,5 @@
 use notes_showcase::models::note_matches;
-use notes_showcase::viewmodels::NoteFormVm;
+use notes_showcase::viewmodels::{NoteFormVm, NotificationEntry};
 use notes_showcase::{InMemoryNoteRepository, NoteModel, NotebookModel, WorkspaceVm};
 use pretty_assertions::assert_eq;
 use std::sync::{mpsc, Arc, Barrier, Mutex};
@@ -396,24 +396,45 @@ fn a_notification_expires_after_its_lifespan() {
 }
 
 #[test]
-fn an_expired_delete_confirmation_deletes_nothing_and_frees_the_slot() {
+fn a_delete_confirmation_stays_pending_past_its_lifespan() {
     let scheduler = VirtualTimeScheduler::new();
     let repository = InMemoryNoteRepository::seeded();
     let workspace = WorkspaceVm::with_scheduler(repository.clone(), scheduler.clone())
         .expect("workspace builds");
 
     workspace.request_delete_current();
-    scheduler.advance_by(Duration::from_secs(60));
-    assert!(workspace.notifications().messages().is_empty());
+    scheduler.advance_by(Duration::from_secs(600));
+    assert_eq!(
+        workspace.notifications().messages(),
+        vec!["Delete note 'Rust flavor parity'?"]
+    );
+
+    workspace.approve_delete_current();
+    assert!(repository.note("rust-parity").is_none());
+}
+
+#[test]
+fn a_delete_confirmation_dropped_over_the_cap_deletes_nothing_and_frees_the_slot() {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let notifications = workspace.notifications();
+
+    workspace.request_delete_current();
+    let NotificationEntry::Confirmation(confirmation) = notifications.visible()[0].clone() else {
+        panic!("a delete request posts a confirmation");
+    };
+    for index in 0..5 {
+        notifications.post(NotificationType::Notification, format!("n{index}"));
+    }
+    assert_eq!(confirmation.reaction(), NotificationReaction::Reject);
 
     workspace.approve_delete_current();
     assert!(repository.note("rust-parity").is_some());
 
     workspace.request_delete_current();
-    assert_eq!(
-        workspace.notifications().messages(),
-        vec!["Delete note 'Rust flavor parity'?"]
-    );
+    assert!(notifications
+        .messages()
+        .contains(&"Delete note 'Rust flavor parity'?".to_string()));
 }
 
 #[test]
@@ -470,7 +491,7 @@ fn notifications_over_the_cap_are_dismissed() {
 }
 
 /// A disposed notification entry has an inert dismiss command.
-fn is_disposed(vm: &vmx::NotificationVm) -> bool {
+fn is_disposed(vm: &NotificationEntry) -> bool {
     !vm.dismiss_command().can_execute()
 }
 
