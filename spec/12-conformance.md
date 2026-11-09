@@ -1646,7 +1646,8 @@ ______________________________________________________________________
 Each CMDD-NNN test verifies behaviour of the three decorators added in
 spec/04-commands.md §Decorators (CMDD-010 added in spec v3, ADR-0049;
 CMDD-011..CMDD-013 added in spec v3.24, ADR-0134; CMDD-014..CMDD-017 added in
-spec v3.29, ADR-0145; CMDD-019 added in spec v3.30, ADR-0222).
+spec v3.29, ADR-0145; CMDD-018 added in spec v3.30, ADR-0195; CMDD-019 added
+in spec v3.30, ADR-0222).
 
 ### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
 

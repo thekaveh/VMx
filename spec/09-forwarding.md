@@ -85,8 +85,9 @@ act on the canonical ownership identity (ADR-0221):
   which is the wrapped component's stream, emits the name once.
 - One call of the local-only raise primitive emits the name once on that
   stream and sends no hub message. Rust has no local-only primitive.
-- After the wrapped component is disposed, neither helper emits on either
-  channel.
+- After the wrapped component is disposed, the dual-channel helper emits on
+  neither channel (`05-component-vm.md` §2.3). Chapter 05 gives the local-only
+  primitive no disposal rule, and the C# primitive still raises the event.
 
 C# decorators expose the helpers as protected `NotifyPropertyChanged` and
 `RaisePropertyChanged`. In C#, Python, and TypeScript, a decorator can wrap a

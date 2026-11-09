@@ -1178,8 +1178,8 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-067`, `COL-069`, `COL-071`, `COL-072`, `AGCH-001`
-through `AGCH-011`, and `AGCH-012` in `12-conformance.md`. Applicable ADRs:
+`COL-001` through `COL-072`, and `AGCH-001` through `AGCH-012`, in
+`12-conformance.md`. Applicable ADRs:
 ADR-0024, ADR-0096, ADR-0097, ADR-0171, ADR-0191, and ADR-0220 (§2), ADR-0026,
 ADR-0089, and ADR-0220 (§3), ADR-0025, ADR-0177, and ADR-0220 (§4), ADR-0023
 (§5), ADR-0069 and ADR-0202 (§6), and ADR-0085 (shared Move semantics),

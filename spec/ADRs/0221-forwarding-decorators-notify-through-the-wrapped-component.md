@@ -46,8 +46,10 @@ and the simplest common-sense form is chosen. Rust already used it.
    stream, which is the wrapped component's stream, emits the name once.
 1. One call of the local-only raise primitive emits the name once on that
    stream and sends no hub message. Rust has no such primitive.
-1. After the wrapped component is disposed, neither helper emits on either
-   channel (chapter 05 §2.3).
+1. After the wrapped component is disposed, the dual-channel helper emits on
+   neither channel (chapter 05 §2.3). Chapter 05 gives the local-only
+   primitive no disposal rule, and the C# primitive still raises the event.
+   This ADR adds no such rule.
 1. C# `ForwardingComponentVM` and `ForwardingCompositeVM` gain protected
    `NotifyPropertyChanged` and `RaisePropertyChanged`.
 1. In C#, Python and TypeScript a decorator may wrap a component that does not

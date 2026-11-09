@@ -6,7 +6,7 @@
   §4.6 and `COL-072`)
 - **Extends:** [ADR-0171](0171-failing-local-subscriber-does-not-suppress-the-hub-message.md)
   and [ADR-0191](0191-subscriber-failures-do-not-stop-delivery-or-detach.md).
-  Related: [ADR-0026](0026-observable-list.md),
+  Related: [ADR-0026](0026-granular-observable-list.md),
   [ADR-0177](0177-dictionary-key-views-update-before-dictionary-events.md),
   #1367, #1430.
 
