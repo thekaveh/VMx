@@ -228,3 +228,45 @@ describe("CompositeVM – non-integer indices", () => {
     expect(composite.count).toBe(3);
   });
 });
+
+describe("CompositeVM – a null child in the selection calls (#1467)", () => {
+  function setupPair() {
+    const hub = makeHub();
+    const a = makeChild(hub, "a");
+    const b = makeChild(hub, "b");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, makeDisp())
+      .children(() => [a, b])
+      .build();
+    composite.construct();
+    return { composite, a };
+  }
+  const absent = null as unknown as ComponentVM;
+
+  it("canSelectComponent(null) returns false", () => {
+    const { composite } = setupPair();
+    expect(composite.canSelectComponent(absent)).toBe(false);
+  });
+
+  it("selectComponent(null) raises the predicate error and keeps Current", () => {
+    const { composite, a } = setupPair();
+    composite.current = a;
+    expect(() => composite.selectComponent(absent)).toThrow(/canSelectComponent returned false/);
+    expect(composite.current).toBe(a);
+  });
+
+  it("deselectComponent(null) with a current child raises the not-current error", () => {
+    const { composite, a } = setupPair();
+    composite.current = a;
+    expect(() => composite.deselectComponent(absent)).toThrow(/not the current selection/);
+    expect(composite.current).toBe(a);
+  });
+
+  it("deselectComponent(null) with no current child does nothing", () => {
+    const { composite } = setupPair();
+    expect(composite.current).toBeNull();
+    expect(() => composite.deselectComponent(absent)).not.toThrow();
+    expect(composite.current).toBeNull();
+  });
+});

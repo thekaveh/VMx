@@ -1536,6 +1536,18 @@ export abstract class ComponentVMBase {
 
   /** Queue `work` on the foreground as a counted completion (#1053). */
   #queueCompletion(work: () => void): void {
+    this._scheduleForegroundCounted(work);
+  }
+
+  /**
+   * Queue `work` through `_scheduleForeground` as a counted foreground
+   * action (#1053). A flush error from other work, also work that
+   * VMx did not queue, does not drop it: its finalizer runs it (#1052). A
+   * composite queues an asynchronous selection delivery here (#1421). A
+   * scheduler that marks itself cancelled, such as a disposed
+   * `ManualDispatcher`, does not run it.
+   */
+  protected _scheduleForegroundCounted(work: () => void): void {
     scheduleCounted(this.#dispatcher.foreground, (w) => this.#scheduleForegroundTracked(w), work);
   }
 

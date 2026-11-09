@@ -21,6 +21,7 @@ import {
   CompositeVM,
   ConstructionStatus as S,
   ConstructionStatusChangedMessage,
+  ForwardingCompositeVM,
   MessageHub,
   PropertyChangedMessage,
   RxDispatcher,
@@ -408,6 +409,33 @@ describe("selection calls during the composite's own transaction (ADR-0173 rules
     expect(root.current).toBe(x);
     expect(fixture.changes).toEqual([x]);
     expect(outsider.isCurrent).toBe(false);
+  });
+
+  it("deselectComponent of a child that is not current reports rule 4 first (#1422)", () => {
+    const fixture = setup({ withFirst: false, extra: ["x", "y"] });
+    const { root } = fixture;
+    const [x, y] = fixture.extra as [ComponentVM, ComponentVM];
+    const forwarding = new ForwardingCompositeVM(root);
+    const errors: string[] = [];
+    const attempt = (action: () => void): void => {
+      try { action(); errors.push("none"); } catch (error) { errors.push((error as Error).message); }
+    };
+    const late = fixture.child("late", {
+      onConstruct: () => {
+        attempt(() => root.deselectComponent(y));
+        attempt(() => forwarding.deselectComponent(y));
+      },
+    });
+    root.construct();
+    expect(root.current).toBe(x);
+
+    root.add(late);
+
+    expect(errors).toEqual([expect.stringMatching(TRANSACTION), expect.stringMatching(TRANSACTION)]);
+    expect(root.current).toBe(x);
+    expect(fixture.changes).toEqual([x]);
+    // Outside a transaction the not-current error stays (COMP-011).
+    expect(() => root.deselectComponent(y)).toThrow(/not the current selection/);
   });
 
   it("a failed add needs no Current restore", () => {
