@@ -64,6 +64,7 @@ export {
   type ItemRemovedEvent,
   type ItemReplacedEvent,
 } from "./collections/observableList.js";
+export { ReadOnlyObservableList } from "./collections/readOnlyObservableList.js";
 export {
   ObservableDictionary,
   type DictionaryEntry,
