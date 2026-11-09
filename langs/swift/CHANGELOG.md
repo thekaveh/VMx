@@ -17,6 +17,17 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- Catchable `Result` forms for three operations that trap on invalid input
+  (ADR-0217, #1349). `FilteredCompositeVM.setCurrentResult(_:)` returns a
+  `CompositeMembershipError` failure for an item that is not visible and
+  changes nothing. `removeAtResult(_:)` on `CompositeVM`, `GroupVM` and
+  `ForwardingCompositeVM` returns `.attachmentFailed(VMCollectionIndexError)`
+  for an index outside `[0, count)`. `DerivedProperty.fromSourcesResult`
+  returns `.failure(.noSources)` for an empty source list, through the new
+  `DerivedPropertySourcesError` type; `DerivedPropertyError` does not change.
+  `FilteredCompositeVM.setCurrent(_:)`, its `current` setter and
+  `fromSources` still trap; the ADR-0009 section "Swift traps that remain"
+  lists the remaining Swift traps.
 - `NotificationVM` and `ConfirmationVM` accept any `NotificationScheduler`,
   so an app can drive them in real time (#1347, spec/16 §6). The new public
   protocol refines the Combine `Scheduler` with `seconds(from:to:)`. VMx
@@ -153,6 +164,18 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   decision and its version consequence.
 
 ### Fixed
+
+- While disposal of a composite is requested or deferred, `setCurrent(_:)` on
+  a non-member, or on a disposed child, now throws the `.disposing`
+  `CompositeMembershipError`, not `.nonMember` (ADR-0217, #1423). The
+  disposal refusal applies before the non-member refusal, as in C#, Python,
+  TypeScript and Rust, and `canSetCurrent(_:)` returns `false`. After
+  `Disposed`, a non-member selection also throws `.disposing`; a member
+  selection stays an inert no-op.
+
+- `CompositeVM.removeAt(_:)` and `GroupVM.removeAt(_:)` no longer trap on an
+  index outside `[0, count)` (ADR-0217, #1349). They change nothing and emit
+  nothing, as `insert` and `replace` do for a refused index.
 
 - An aggregate population that its ownership preflight refuses now disposes
   the candidates it built (#1324). The old slots and parent links stay. A

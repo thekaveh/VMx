@@ -375,8 +375,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         """
         return self._can_select_component(vm, destructing_refuses=True)
 
-    def _can_select_component(self, vm: VM, *, destructing_refuses: bool) -> bool:
-        if vm.status != ConstructionStatus.CONSTRUCTED:
+    def _can_select_component(self, vm: VM | None, *, destructing_refuses: bool) -> bool:
+        # A None vm from unchecked code is never a child (spec/06 §3.1, #1467).
+        if vm is None or vm.status != ConstructionStatus.CONSTRUCTED:
             return False
         with self._membership_gate:
             return (

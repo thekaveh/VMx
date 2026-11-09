@@ -198,6 +198,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An `asyncSelection` delivery queued behind a throw from work that VMx did
+  not queue, in one flush of the shared `queueScheduler`, now commits (#1421).
+  The delivery is a counted foreground action, so the flush error's finalizer
+  runs it, as it runs a dropped lifecycle action (#1052). The outer `schedule`
+  still throws the first error of the flush. A disposed `ManualDispatcher`
+  still cancels the delivery.
+
+- `deselectComponent` inside the composite's own uncommitted membership
+  transaction now throws the "membership transaction in progress" error for a
+  child that is not current, as C#, Python, Swift and Rust do (spec/06 §4.3
+  rule 4, #1422). `ForwardingCompositeVM.deselectComponent` follows.
+
+- A `null` or `undefined` child from untyped code no longer causes a
+  `TypeError` in the selection calls (#1467). `canSelectComponent` returns
+  `false`, `selectComponent` throws its predicate error, and
+  `deselectComponent` throws the "not the current selection" error when a
+  child is current and does nothing otherwise.
+
 - A population that fails before its commit now disposes the candidates it
   built (#1324). This covers a throwing `AggregateVM2` to `AggregateVM6`
   factory on `construct()` or `reconstruct()`, a refused aggregate preflight,

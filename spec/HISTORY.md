@@ -887,6 +887,14 @@ handler. The catalog now contains 480 library IDs plus 5 scenario IDs.
 
 See ADR-0214 and chapter 21 §2.10, §4.1, and §9.4.
 
+v3.30.0 also orders two selection refusals. For a non-null selection, the
+disposal refusal applies before the non-member refusal, so a non-member
+selected while disposal of the composite is pending gets the disposal error
+in every flavor. Swift `FilteredCompositeVM` gains the catchable
+`setCurrentResult(_:)` (chapter 06 §9).
+
+See ADR-0217 and chapter 06 §3, §4.3 and §9.
+
 See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
-ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204, ADR-0214, ADR-0215, ADR-0216
-and the affected behavior chapters.
+ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204, ADR-0214, ADR-0215, ADR-0216,
+ADR-0217 and the affected behavior chapters.

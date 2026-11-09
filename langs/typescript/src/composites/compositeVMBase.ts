@@ -48,6 +48,24 @@ import type {
 } from "../collections/index.js";
 import type { Subscription } from "rxjs";
 
+/** Spec/06 §4.3 rule 4: the caller's own membership transaction is uncommitted. */
+function transactionInProgress(): Error {
+  return new Error("Container membership transaction is already in progress");
+}
+
+/**
+ * A selection call can receive `null` or `undefined` from untyped code. It is
+ * never a child (spec/06 §3.1, #1467).
+ */
+function isAbsent(vm: unknown): vm is null | undefined {
+  return vm === null || vm === undefined;
+}
+
+/** The name of `vm` for an error message, also for an absent `vm` (#1467). */
+function nameOf(vm: ComponentVMBase | null | undefined): string {
+  return isAbsent(vm) ? String(vm) : vm.name;
+}
+
 export abstract class CompositeVMBase<VM extends ComponentVMBase>
   extends ComponentVMBase
   implements
@@ -237,10 +255,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   selectComponent(vm: VM): void {
     // A call that only rule 8 (Destructing) refuses is silent in _setCurrent
-    // (spec/06 §3.1, ADR-0188).
+    // (spec/06 §3.1, ADR-0188). A null `vm` is never a child, so it gets the
+    // predicate error (#1467).
     if (!this.#admitsSelectComponent(vm)) {
       throw new Error(
-        `Cannot select '${vm.name}': canSelectComponent returned false.`,
+        `Cannot select '${nameOf(vm)}': canSelectComponent returned false.`,
       );
     }
     // An asynchronous delivery checks Constructed again (#1220).
@@ -248,9 +267,15 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   deselectComponent(vm: VM): void {
-    if (this.#current !== vm) {
+    // Rule 4 comes first: inside the caller's own uncommitted transaction,
+    // every selection call fails with the transaction error (spec/06 §4.3,
+    // #1422).
+    if (this.#uncommitted) throw transactionInProgress();
+    // An absent `vm` (`null` or `undefined`) matches only an empty selection
+    // (#1467).
+    if (this.#current !== (isAbsent(vm) ? null : vm)) {
       throw new Error(
-        `Cannot deselect '${vm.name}': it is not the current selection.`,
+        `Cannot deselect '${nameOf(vm)}': it is not the current selection.`,
       );
     }
     this.current = null;
@@ -269,6 +294,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   /** Every `canSelectComponent` check except rule 8 (Destructing). */
   #admitsSelectComponent(vm: VM): boolean {
     return (
+      !isAbsent(vm) &&
       !this.#uncommitted &&
       !this.#disposePending() &&
       this.#isSelectableMember(vm) &&
@@ -901,7 +927,9 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     if (value !== null && this.status === ConstructionStatus.Destructing) return;
     if (asyncSel) {
       const captured = value;
-      this._scheduleForeground(() => this.#deliverSelection(captured, requireConstructed));
+      // A counted action, so a flush error from other work does not drop the
+      // delivery (#1421).
+      this._scheduleForegroundCounted(() => this.#deliverSelection(captured, requireConstructed));
     } else {
       this.#commitCurrent(value);
     }
@@ -910,9 +938,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   /** The raising refusals of rules 2, 3 and 4, or null when none applies. */
   #selectionRefusal(value: VM | null): Error | null {
     // Rule 4: the caller owns an uncommitted transaction of this composite.
-    if (this.#uncommitted) {
-      return new Error("Container membership transaction is already in progress");
-    }
+    if (this.#uncommitted) return transactionInProgress();
     // Rule 3 for a non-null value; after Disposed every call keeps its
     // documented refusal (chapter 01 §4).
     if (

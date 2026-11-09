@@ -130,6 +130,10 @@ below for them.
 
 ### Fixed
 
+- `can_select_component(None)` and `select_component(None)` no longer raise
+  `AttributeError` (#1467). The predicate returns `False`, and
+  `select_component` raises its predicate `ValueError`. A `None` value is never
+  a child.
 - `AsyncRelayCommand.execute()` raises `can_execute_changed` again when a
   start-notification observer throws (#1328, spec/04 §10.2). The command
   releases its admission, and observers that saw the start edge then see

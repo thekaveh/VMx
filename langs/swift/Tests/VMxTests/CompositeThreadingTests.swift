@@ -110,6 +110,8 @@ final class CompositeThreadingTests: XCTestCase {
                 error is CompositeMembershipError,
                 "expected CompositeMembershipError, got \(error)"
             )
+            // With no pending disposal, the non-member refusal applies (ADR-0217).
+            XCTAssertEqual((error as? CompositeMembershipError)?.reason, .nonMember)
         }
         // Current slot must remain unchanged.
         XCTAssertNil(composite.current, "a failed setCurrent must not change the current slot")

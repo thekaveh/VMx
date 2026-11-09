@@ -14,6 +14,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [3.30.0] — unreleased source version
 
+- Fixed: A null child from code that suppresses the nullable warning no longer
+  causes a `NullReferenceException` in the composite selection calls (#1467).
+  `CanSelectComponent(null)` returns false, `SelectComponent(null)` throws its
+  predicate `InvalidOperationException`, and `DeselectComponent(null)` throws
+  the "not the current selection" `InvalidOperationException` when a child is
+  current and does nothing otherwise.
+
 - Fixed: `PagedComposition<T>` paging calls after `Dispose()` are inert
   (#1299, ADR-0214). `PageSize` and `CurrentPageIndex` writes and the four
   move calls change no state and raise no `PropertyChanged` event. Reads keep

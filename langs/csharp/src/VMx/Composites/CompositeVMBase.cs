@@ -861,8 +861,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         SetCurrent(vm, _asyncSelection, requireConstructed: true);
     }
 
+    // A null vm reaches here from code that suppresses the nullable warning
+    // (#1467): it is never a child, so it gets the documented error.
     private static InvalidOperationException CannotSelect(VM vm)
-        => new($"Cannot select '{vm.Name}': can_select_component returned false.");
+        => new($"Cannot select '{vm?.Name ?? "null"}': can_select_component returned false.");
 
     /// <inheritdoc/>
     public void DeselectComponent(VM vm)
@@ -874,7 +876,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             if (CallerOwnsUncommittedTransactionLocked()) throw TransactionInProgress();
             if (!ReferenceEquals(_current, vm))
                 throw new InvalidOperationException(
-                    $"Cannot deselect '{vm.Name}': it is not the current selection.");
+                    $"Cannot deselect '{vm?.Name ?? "null"}': it is not the current selection.");
         }
         Current = null;
     }
@@ -895,7 +897,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <summary>The <see cref="CanSelectComponent"/> checks except the Destructing rule.</summary>
     private bool CanSelectComponentIgnoringDestructing(VM vm)
     {
-        if (vm.Status != ConstructionStatus.Constructed) return false;
+        // A null vm is never a child (spec/06 §3.1, #1467).
+        if (vm is null || vm.Status != ConstructionStatus.Constructed) return false;
         lock (_membershipGate)
             return !CallerOwnsUncommittedTransactionLocked() &&
                 !DisposalPendingLocked() &&

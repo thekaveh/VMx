@@ -612,7 +612,24 @@ the waiting container remains (#1280).
   flavors keep the container reachable through the child. A host that needs
   the terminal status keeps a handle until the transition completes.
 
-### 2.34 Historical: divergences resolved in v1.2.0 (pre-v2 era)
+### 2.34 Swift traps that remain (ADR-0217)
+
+A Swift property setter cannot throw, and adding `throws` to a public method
+breaks every caller. These Swift operations therefore still trap on input that
+the other flavors reject with a catchable error. Each has a catchable form.
+
+| Operation                                                                                                                | Trapping input                          | Catchable form                                                |
+| ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- | ------------------------------------------------------------- |
+| `CompositeVM.current` setter                                                                                             | any refused selection (chapter 06 §4.3) | `setCurrent(_:)` throws `CompositeMembershipError` (ADR-0053) |
+| `FilteredCompositeVM.current` setter and `setCurrent(_:)`                                                                | a non-`nil` item that is not visible    | `setCurrentResult(_:)`                                        |
+| `DerivedProperty.fromSources`                                                                                            | an empty source list                    | `fromSourcesResult(_:_:canSet:setAction:)`                    |
+| `ServicedObservableCollection`, `KeyedServicedObservableCollection` and `ObservableList` indexed removal and replacement | an index outside `[0, count)`           | none; the host array idiom of §2.14                           |
+| `HierarchicalVM.children` and `isLeaf`                                                                                   | invalid factory output                  | `tryChildren()` (chapter 18, ADR-0170)                        |
+
+Rust `DerivedProperty::from_sources` keeps its documented panic on an empty
+source list.
+
+### 2.35 Historical: divergences resolved in v1.2.0 (pre-v2 era)
 
 - C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
 - TypeScript `ConstructionStatusChangedMessage.sender` getter (additive). In
@@ -622,7 +639,7 @@ the waiting container remains (#1280).
 - C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
   on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
 
-### 2.35 Historical: divergences resolved in v3.x
+### 2.36 Historical: divergences resolved in v3.x
 
 - Python removed the deprecated `RelayCommandOfT` / `RelayCommandOfTBuilder`
   and `AggregateVMBuilderN` aliases in favor of `RelayCommandOf` and
@@ -633,6 +650,14 @@ the waiting container remains (#1280).
 
 - Modeled assignment after disposal is inert in all five flavors (ADR-0091,
   `DISP-014`).
+
+- Swift `CompositeVM` and `GroupVM` `removeAt(_:)` no longer trap on an index
+  outside `[0, count)`. They change nothing, and `removeAtResult(_:)` reports
+  the index error (ADR-0217).
+
+- During a pending disposal and after `Disposed`, a Swift selection of a
+  non-member reports the disposal refusal, as in the other flavors
+  (ADR-0217).
 
 - A refused child `select()` or `deselect()` changes nothing and raises
   nothing in all five flavors (ADR-0188, `COMP-052`). C# used to throw

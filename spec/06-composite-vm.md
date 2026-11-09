@@ -92,7 +92,8 @@ holds and delegates to.
   caller's own uncommitted membership transaction (§4.3).
 - While disposal of the composite is requested or deferred, setting a non-null
   `Current` MUST raise. After `Disposed`, the composite keeps its documented
-  post-dispose behavior (chapter 01 §4).
+  post-dispose behavior (chapter 01 §4). When the value is also not a member,
+  the disposal refusal applies, not the non-member refusal (§4.3, ADR-0217).
 - Another thread's membership transaction never makes a selection fail or wait
   (§4.3, ADR-0173).
 - A `Disposed` child is not selectable. Setting `Current` to it raises the
@@ -328,7 +329,8 @@ ADR-0189):
    delivery are silent no-ops, and `can_select_component` returns `false`.
 1. **Disposal.** While disposal of the composite is requested or deferred, a
    non-null selection is refused. A null clear is never refused because of
-   disposal.
+   disposal. For a non-null selection, this rule applies before rule 2: a
+   value that is not a member gets the disposal refusal (ADR-0217).
 1. **The caller's own uncommitted transaction.** A membership transaction is
    uncommitted while its rollback could still undo a staged change: a child
    attached but not admitted, a staged population, or a child detached for a
@@ -656,6 +658,11 @@ FilteredCompositeVM<VM>:
     MoveToPreviousVisible()
     Dispose()
 ```
+
+`SetCurrent` raises for a non-null item that is not visible and changes
+nothing. Swift `setCurrent(_:)` and the `current` setter cannot throw without
+a source break, so they trap; `setCurrentResult(_:)` returns the refusal as a
+failure (ADR-0217).
 
 The source composite remains the owner of child membership and lifecycle. The
 filtered view owns the visible projection and its own current slot in the visible
