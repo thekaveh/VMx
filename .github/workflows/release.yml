@@ -72,7 +72,7 @@ jobs:
             echo "::error::Release tags must point at commits reachable from origin/main." >&2
             exit 1
           fi
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: |
             8.0.x
@@ -167,7 +167,7 @@ jobs:
             echo "::error::The protected environment must define NUGET_USER." >&2
             exit 1
           fi
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 8.0.x
       - name: NuGet login (OIDC to temporary API key)
@@ -207,7 +207,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 8.0.x
       - name: Download release manifest
@@ -360,23 +360,16 @@ jobs:
         working-directory: langs/python
         run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m pytest
 
-  python-build-and-publish:
-    # OIDC-based PyPI trusted publishing — no API token in repo secrets.
-    # The PyPI project `vmx` is configured with a Trusted Publisher pointing
-    # to this repo + workflow + environment `pypi-python`. The environment
-    # has a required-reviewer rule (see langs/python/RELEASING.md §1.2), so
-    # the publish job pauses for approval before any irreversible PyPI
-    # upload.
-    name: python — build & publish
-    needs: [python-test, release-metadata]
+  python-build:
+    # Build and check the exact distributions without id-token: write, so no
+    # dependency install, build backend or test can request the publishing
+    # OIDC token (#1333). python-publish uploads these files unchanged.
+    name: python — build & check distributions
+    needs: python-test
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment:
-      name: pypi-python
-      url: https://pypi.org/p/vmx
     permissions:
-      id-token: write
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -444,6 +437,46 @@ jobs:
           uv pip install --python .package-venv/bin/python dist/*.whl
           .package-venv/bin/python tools/check-python-interpreter.py --expected-version 3.12 --venv .package-venv -- langs/python/scripts/smoke_test.py "$tag_version"
 
+      - name: Upload checked distributions
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-dist-${{ github.run_id }}
+          path: dist/
+          if-no-files-found: error
+
+  python-publish:
+    # OIDC-based PyPI trusted publishing — no API token in repo secrets.
+    # The PyPI project `vmx` is configured with a Trusted Publisher pointing
+    # to this repo + workflow + environment `pypi-python`. The environment
+    # has a required-reviewer rule (see langs/python/RELEASING.md §1.2), so
+    # the publish job pauses for approval before any irreversible PyPI
+    # upload. Only this job holds id-token: write, and it installs, builds
+    # and tests nothing: it uploads the files python-build checked (#1333).
+    name: python — publish
+    needs: [python-build, release-metadata]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi-python
+      url: https://pypi.org/p/vmx
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download checked distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-dist-${{ github.run_id }}
+          path: dist/
+      - name: Verify the distributions match the tag
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/python-v}"
+          test -f "dist/vmx-${tag_version}.tar.gz"
+          test -f "dist/vmx-${tag_version}-py3-none-any.whl"
+          test "$(find dist -mindepth 1 | wc -l)" -eq 2
+
       - name: Publish to PyPI
         # Sigstore attestations (`attestations: true`, PEP 740) ship signed
         # provenance alongside the sdist and wheel.
@@ -460,7 +493,7 @@ jobs:
     # regression on attempt N+1. No pip cache — fresh resolution catches
     # PyPI propagation lag honestly.
     name: python — verify published
-    needs: python-build-and-publish
+    needs: python-publish
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -504,8 +537,10 @@ jobs:
     needs: python-verify-published
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
+    # pull-requests: write lets the last step relabel the merged release PR.
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Extract CHANGELOG section
@@ -533,30 +568,25 @@ jobs:
             --title "Python v${version} (PyPI)" \
             --notes-file /tmp/release-notes.md \
             --target "$GITHUB_SHA"
+      - name: Mark the merged release PR as tagged
+        # release-please creates no Python release, so it never relabels its
+        # merged PR; a PR left at `autorelease: pending` stops new release PRs
+        # (#1447). A manual tag release has no release PR and changes nothing.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/release-please-labels.py relabel --version "${GITHUB_REF#refs/tags/python-v}"
 
-  typescript:
+  typescript-build:
+    # Every install, build, lint, test, audit and consumer smoke runs here,
+    # without id-token: write or the publishing environment (#1333).
+    # typescript-publish publishes the tarball this job packs.
     timeout-minutes: 30
-    needs: release-metadata
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
-    environment:
-      name: npm-typescript
-      url: https://www.npmjs.com/package/@thekaveh/vmx
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Select npm publication authentication
-        id: npm-auth
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -n "$NPM_TOKEN" ]; then
-            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
-          fi
       - name: Verify tag commit is on main
         run: |
           set -euo pipefail
@@ -569,7 +599,7 @@ jobs:
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-      - name: Install trusted-publishing npm CLI
+      - name: Install the pinned npm CLI
         run: npm install --global npm@11.18.0
       - name: Verify tag matches package version
         working-directory: langs/typescript
@@ -616,20 +646,83 @@ jobs:
           python3 tools/smoke-npm-consumer.py
           --package-dir langs/typescript
           --version "${GITHUB_REF#refs/tags/typescript-v}"
+      - name: Pack the release tarball
+        working-directory: langs/typescript
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/npm-release
+          npm pack --pack-destination /tmp/npm-release
+          test -f "/tmp/npm-release/thekaveh-vmx-${GITHUB_REF#refs/tags/typescript-v}.tgz"
+          test "$(find /tmp/npm-release -mindepth 1 | wc -l)" -eq 1
+      - name: Upload the release tarball
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: typescript-release-${{ github.run_id }}
+          path: /tmp/npm-release
+          if-no-files-found: error
+
+  typescript-publish:
+    # Only this job holds id-token: write. Apart from the pinned npm CLI it
+    # installs, builds and tests nothing: it publishes the checked tarball.
+    timeout-minutes: 15
+    needs: [typescript-build, release-metadata]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/typescript-v')
+    runs-on: ubuntu-latest
+    environment:
+      name: npm-typescript
+      url: https://www.npmjs.com/package/@thekaveh/vmx
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Select npm publication authentication
+        id: npm-auth
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download the release tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: typescript-release-${{ github.run_id }}
+          path: /tmp/npm-release
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install trusted-publishing npm CLI
+        run: npm install --global npm@11.18.0
+      - name: Verify the tarball matches the tag
+        id: tarball
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF#refs/tags/typescript-v}"
+          tarball="/tmp/npm-release/thekaveh-vmx-${tag_version}.tgz"
+          test -f "$tarball"
+          test "$(find /tmp/npm-release -mindepth 1 | wc -l)" -eq 1
+          identity="$(tar -xzOf "$tarball" package/package.json | node -e \
+            'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); console.log(p.name + "@" + p.version)')"
+          test "$identity" = "@thekaveh/vmx@${tag_version}"
+          echo "path=$tarball" >> "$GITHUB_OUTPUT"
       - name: Publish initial package with bootstrap token
         if: steps.npm-auth.outputs.bootstrap == 'true'
-        working-directory: langs/typescript
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+          TARBALL: ${{ steps.tarball.outputs.path }}
+        run: npm publish "$TARBALL" --access public --provenance
       - name: Publish with npm trusted publishing
         if: steps.npm-auth.outputs.bootstrap != 'true'
-        working-directory: langs/typescript
-        run: npm publish --access public
+        env:
+          TARBALL: ${{ steps.tarball.outputs.path }}
+        run: npm publish "$TARBALL" --access public
 
   typescript-verify-published:
     timeout-minutes: 20
-    needs: typescript
+    needs: typescript-publish
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
     strategy:
@@ -681,17 +774,15 @@ jobs:
             --notes-file /tmp/typescript-release-notes.md \
             --target "$GITHUB_SHA"
 
-  react:
+  react-build:
+    # Every install, build, lint, test, audit and consumer smoke runs here,
+    # without id-token: write or the publishing environment (#1333).
+    # react-publish publishes the tarball this job packs.
     timeout-minutes: 30
-    needs: release-metadata
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/react-v')
     runs-on: ubuntu-latest
-    environment:
-      name: npm-react
-      url: https://www.npmjs.com/package/@thekaveh/vmx-react
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify tag commit is on main
@@ -706,14 +797,8 @@ jobs:
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-      - name: Install trusted-publishing npm CLI
+      - name: Install the pinned npm CLI
         run: npm install --global npm@11.18.0
-      - name: Select publication authentication
-        id: npm-auth
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -n "$NPM_TOKEN" ]; then echo "bootstrap=true" >> "$GITHUB_OUTPUT"; else echo "bootstrap=false" >> "$GITHUB_OUTPUT"; fi
       - name: Verify tag and public core prerequisite
         run: |
           set -euo pipefail
@@ -747,20 +832,79 @@ jobs:
           python3 tools/check-react-package.py
           python3 tools/smoke-react-consumer.py --react 18.3.1
           python3 tools/smoke-react-consumer.py --react 19.2.8
+      - name: Pack the release tarball
+        working-directory: packages/react
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/npm-release
+          npm pack --pack-destination /tmp/npm-release
+          test -f "/tmp/npm-release/thekaveh-vmx-react-${GITHUB_REF#refs/tags/react-v}.tgz"
+          test "$(find /tmp/npm-release -mindepth 1 | wc -l)" -eq 1
+      - name: Upload the release tarball
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: react-release-${{ github.run_id }}
+          path: /tmp/npm-release
+          if-no-files-found: error
+
+  react-publish:
+    # Only this job holds id-token: write. Apart from the pinned npm CLI it
+    # installs, builds and tests nothing: it publishes the checked tarball.
+    timeout-minutes: 15
+    needs: [react-build, release-metadata]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/react-v')
+    runs-on: ubuntu-latest
+    environment:
+      name: npm-react
+      url: https://www.npmjs.com/package/@thekaveh/vmx-react
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Select publication authentication
+        id: npm-auth
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then echo "bootstrap=true" >> "$GITHUB_OUTPUT"; else echo "bootstrap=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Download the release tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: react-release-${{ github.run_id }}
+          path: /tmp/npm-release
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install trusted-publishing npm CLI
+        run: npm install --global npm@11.18.0
+      - name: Verify the tarball matches the tag
+        id: tarball
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF#refs/tags/react-v}"
+          tarball="/tmp/npm-release/thekaveh-vmx-react-${version}.tgz"
+          test -f "$tarball"
+          test "$(find /tmp/npm-release -mindepth 1 | wc -l)" -eq 1
+          identity="$(tar -xzOf "$tarball" package/package.json | node -e \
+            'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); console.log(p.name + "@" + p.version)')"
+          test "$identity" = "@thekaveh/vmx-react@${version}"
+          echo "path=$tarball" >> "$GITHUB_OUTPUT"
       - name: Publish initial package with bootstrap token
         if: steps.npm-auth.outputs.bootstrap == 'true'
-        working-directory: packages/react
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+          TARBALL: ${{ steps.tarball.outputs.path }}
+        run: npm publish "$TARBALL" --access public --provenance
       - name: Publish with npm trusted publishing
         if: steps.npm-auth.outputs.bootstrap != 'true'
-        working-directory: packages/react
-        run: npm publish --access public
+        env:
+          TARBALL: ${{ steps.tarball.outputs.path }}
+        run: npm publish "$TARBALL" --access public
 
   react-verify-published:
     timeout-minutes: 20
-    needs: react
+    needs: react-publish
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/react-v')
     runs-on: ubuntu-latest
     strategy:
@@ -954,13 +1098,11 @@ jobs:
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: stable
-      - name: Recheck package contents before authentication
+      # rust-test already ran the packaged-consumer check without
+      # id-token: write (#1333). cargo publish still runs its verification
+      # build here, which compiles the crate's dependencies.
+      - name: Recheck package contents
         run: python3 tools/check-rust-package.py
-      - name: Recheck packaged consumer before authentication
-        run: >-
-          python3 tools/smoke-rust-consumer.py
-          --package-dir langs/rust
-          --version "${GITHUB_REF#refs/tags/rust-v}"
       - name: Authenticate with crates.io trusted publishing
         id: auth
         if: steps.crates-auth-mode.outputs.bootstrap != 'true'

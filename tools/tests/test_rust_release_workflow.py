@@ -144,6 +144,41 @@ def test_contributing_rust_commands_match_release_baseline() -> None:
     assert "--allow-dirty" not in rust
 
 
+def test_local_rust_gates_run_the_package_check_after_packaging() -> None:
+    sections = {
+        "AGENTS.md": ("### 3.5 Rust", "### 3.6 "),
+        "CONTRIBUTING.md": ("### 2.5 Rust", "### 2.6 Cross-cutting"),
+    }
+    for name, (start, end) in sections.items():
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        block = text.split(start, maxsplit=1)[1].split(end, maxsplit=1)[0]
+        assert "cd langs/rust" in block, name
+        package = block.index("cargo package --locked")
+        check = block.index("python3 ../../tools/check-rust-package.py")
+        assert package < check, name
+        assert (REPO_ROOT / "langs/rust/../../tools/check-rust-package.py").is_file()
+
+
+def test_branch_rust_ci_runs_every_gate_on_the_msrv() -> None:
+    workflow = _workflow("rust.yml")
+    job = workflow.split("\n  msrv:\n", maxsplit=1)[1].split("\n  examples:\n", maxsplit=1)[0]
+    manifest = "--manifest-path langs/rust/Cargo.toml"
+
+    assert "toolchain: 1.88.0" in job
+    assert "components: rustfmt, clippy" in job
+    for command in (
+        f"cargo fmt {manifest} -- --check",
+        f"cargo clippy --locked {manifest} --all-features --all-targets -- -D warnings",
+        f"cargo clippy --locked {manifest} --all-targets -- -D warnings",
+        f"cargo test --locked {manifest} --all-features\n",
+        f"cargo test --locked {manifest}\n",
+        f"cargo doc --locked {manifest} --all-features --no-deps",
+        "RUSTDOCFLAGS: -D warnings",
+    ):
+        assert command in job, command
+    assert "needs: [audit, build, msrv, examples, package, coverage]" in workflow
+
+
 def test_branch_rust_ci_treats_rustdoc_warnings_as_errors() -> None:
     workflow = _workflow("rust.yml")
 
