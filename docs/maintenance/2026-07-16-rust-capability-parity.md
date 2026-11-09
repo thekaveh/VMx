@@ -3,7 +3,8 @@
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Items found
 after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7.
 §12.8, §12.10, §12.11 and §12.12 are now closed (ADR-0205, ADR-0197, ADR-0208
-and ADR-0207, in that order).
+and ADR-0207, in that order). §12.9 and the §12.4.7 notes are resolved
+(ADR-0210, and ADR-0207 with ADR-0210). §12.7 is a recorded difference.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -254,11 +255,18 @@ command, and composite suites contain focused assertions for each edge.
 `relay_disposal_emits_one_final_can_execute_notification` observe terminal
 callbacks directly and assert value-before-completion ordering.
 
-Still open (recorded in spec chapter 06): `ModeledCrudCommands` has no
-`confirm_update` and a synchronous `with_confirm_delete`, which takes no
-`current_changed` trigger (`with_current_changed` takes the trigger but no
-confirmation). `FilteredCompositeVm` now has a `changed()` stream (ADR-0207,
-#1259).
+Resolved (ADR-0207, #1259): `FilteredCompositeVm` now has a `changed()`
+stream.
+
+Resolved (ADR-0210, #1258): `ModeledCrudCommands::with_options` takes
+optional async `confirm_update` and `confirm_delete` gates and an optional
+`current_changed` trigger. A supplied gate wraps that command in a
+`ConfirmationDecoratorCommand`, and the trigger also refreshes a gated
+command. The synchronous `with_confirm_delete` is removed, and the Update and
+Delete accessors return `Arc<dyn Command>`. `update_confirmation()` and
+`delete_confirmation()` return a gated command with its concrete type, and
+`dispose()` disposes every command the helper built. Evidence: the `COMP-024`
+conformance test and the `modeled_crud` unit tests.
 
 Selection follows the shared rules of spec/06 §4.3 (ADR-0173). `set_current`,
 `select_component` and `deselect_component` open no membership transaction. A
@@ -331,7 +339,8 @@ The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
 parameter in §12.2.2 are the intentional flavor-specific shapes in this
 ledger. The §12.5 editorial note applies to all five flavors and is not a
 parity backlog. §12.7 to §12.12 record the items and differences found
-after closure; §12.8, §12.10, §12.11 and §12.12 are now closed. Future differences still require
+after closure; §12.8 to §12.12 are now closed or resolved, and §12.7 is a
+recorded difference. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
@@ -361,12 +370,15 @@ forwards the rest of the `CompositeVm` surface: selection, expansion, the
 commands, `on_current_changed`, `background_errors`, and the configuration
 setters (#1271). It forwards the lifecycle hooks (ADR-0203).
 
-## 12.9. Open Item: FormVm Approval Completion
+## 12.9. Resolved: FormVm Approval Completion
 
-`FormVm::subscribe_approved` (ADR-0139) has no completion callback, so a
-subscriber is not told when the form is disposed. The other flavors complete
-`OnApproved` on dispose (spec/20 §10). `errors_changed` and `approve_errors`
-do complete in Rust.
+**Resolved (ADR-0210, #1270).** `FormVm::subscribe_approved_with_completion`
+takes an approval callback and a completion callback. Disposal calls the
+completion once, after `errors_changed` and `approve_errors` complete, as the
+other flavors complete `OnApproved` (spec/20 §10). A subscription on a
+disposed form completes at once, and a detached one is not completed.
+`subscribe_approved` keeps its signature. Evidence:
+`tests/conformance/form_approval_completion.rs`.
 
 ## 12.10. Recorded Difference: Notification Hub Disposal Snapshot
 

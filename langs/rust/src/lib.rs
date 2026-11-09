@@ -157,7 +157,7 @@ mod searchable_state;
 pub use searchable_state::SearchableState;
 
 mod modeled_crud;
-pub use modeled_crud::ModeledCrudCommands;
+pub use modeled_crud::{ModeledCrudCommands, NO_CONFIRM};
 
 mod derived_property;
 pub use derived_property::DerivedProperty;

@@ -19,7 +19,7 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The
   [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  lists the open items and recorded differences in §12.4.7, §12.7 and §12.9.
+  lists the recorded difference in §12.7.
 
 For hub delivery and callback ordering, see
 [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering).

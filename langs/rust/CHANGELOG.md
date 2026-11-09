@@ -97,6 +97,39 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `localize(key)`, so existing implementors compile unchanged and
   `NullLocalizer` returns the key.
 
+- `ModeledCrudCommands::with_options` and the `NO_CONFIRM` constant (#1258,
+  ADR-0210, `COMP-024`). The constructor takes optional `confirm_update` and
+  `confirm_delete` gates of type `Fn() -> AsyncValue<bool>` and an optional
+  `current_changed` trigger. A supplied gate wraps that command in a
+  `ConfirmationDecoratorCommand`, so execution waits for the answer and only
+  `true` runs the action. The trigger also refreshes a gated command.
+
+- `ModeledCrudCommands::update_confirmation()`, `delete_confirmation()` and
+  `dispose()` (#1258, ADR-0210). `Command` has no downcast, so the two
+  accessors return the gated command as a
+  `ConfirmationDecoratorCommand<RelayCommand>`, or `None` without a gate. Use
+  them for `error_stream()`, where a fire-and-forget `execute()` reports a
+  panicking gate or action, and for `execute_async()`. `dispose()` detaches the
+  trigger, disposes the confirmation decorators and disposes the create,
+  update and delete relays, as the helper's `Dispose` does in the other
+  flavors.
+
+- `DialogService::present`, a provided method that presents a `ModalVm<T>`
+  and returns its result (#1267, ADR-0210, `DIA-009`, `DIA-010`). A host
+  adapter overrides it. The default dismisses the modal with its cancellation
+  result, so existing implementations compile unchanged. The method has a
+  `where Self: Sized` bound: `dyn DialogService` stays usable for the other
+  methods, but `present` needs a concrete or generic service type.
+  `NullDialogService::present` remains and runs the trait default.
+
+- `FormVm::subscribe_approved_with_completion(on_approved, on_completed)`
+  (#1270, ADR-0210). Disposal calls `on_completed` once, after
+  `errors_changed()` and `approve_errors()` complete, with no form lock held.
+  A subscription on a disposed form completes at once and is inactive. A
+  handle detached before disposal is not completed. A panicking completion is
+  contained, and a panicking approval callback still propagates out of
+  `approve()`. `subscribe_approved` keeps its signature.
+
 - A regression test for a cycle-deferred disposal failure (ADR-0200,
   #1297). Rust already returned the failure from the hook thread's call.
 
@@ -368,6 +401,20 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   The node keeps no children cache, and a later walk retries the factory.
   `children` and `is_leaf` still panic on such output. Migration: handle or
   propagate the `VmxResult` at each call site (#1413).
+
+- Breaking: `ModeledCrudCommands::update_current_command()` and
+  `delete_current_command()` now return `Arc<dyn Command>` instead of
+  `RelayCommand` (#1258, ADR-0210). A gated command is a
+  `ConfirmationDecoratorCommand`; await it through `Command::as_async`. An
+  ungated command is still the plain relay, and its `execute()` still runs at
+  once. `ModeledCrudCommands::with_confirm_delete` and its synchronous
+  `Fn() -> bool` gate are removed. Migration: call `with_options` with
+  `Some(move || AsyncValue::ready(confirm()))` as `confirm_delete`, or with an
+  asynchronous gate. The returned `Arc<dyn Command>` exposes only the
+  `Command` methods. To dispose the commands, call
+  `ModeledCrudCommands::dispose()` instead of `RelayCommand::dispose()`. To
+  observe a gated command's errors or call `execute_async()`, use
+  `update_confirmation()` or `delete_confirmation()`.
 
 - Breaking: `NullNotificationHub` functions are instance methods that mirror
   `NotificationHub` (ADR-0211, #1264): `new`, `post_notification`, `post`,

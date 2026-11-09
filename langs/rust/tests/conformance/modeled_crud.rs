@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
-use vmx::{Command, ModeledCrudCommands};
+use vmx::{AsyncValue, Command, ModeledCrudCommands, NO_CONFIRM};
 
 /// COMP-019 — CreateNewCommand invokes create-new action
 #[test]
@@ -75,26 +77,37 @@ fn delete_current_command_can_execute_false_without_current() {
 #[test]
 fn delete_current_command_confirm_gate_blocks_and_allows_delete() {
     let deleted = Arc::new(Mutex::new(Vec::new()));
-    let blocked_seen = deleted.clone();
-    let blocked = ModeledCrudCommands::with_confirm_delete(
-        || Some(1),
-        || {},
-        |_| {},
-        move |item| blocked_seen.lock().unwrap().push(item),
-        || false,
-    );
-    blocked.delete_current_command().execute();
+    // The gate answers later, from another thread, as a dialog would.
+    let answers = Arc::new(Mutex::new(vec![true, false]));
+    let crud = {
+        let deleted = deleted.clone();
+        let answers = answers.clone();
+        ModeledCrudCommands::with_options(
+            || Some(2),
+            || {},
+            |_| {},
+            move |item| deleted.lock().unwrap().push(item),
+            NO_CONFIRM,
+            Some(move || {
+                let answer = answers.lock().unwrap().pop().expect("one answer per call");
+                let decision = AsyncValue::pending();
+                let resolver = decision.clone();
+                thread::spawn(move || {
+                    thread::sleep(Duration::from_millis(5));
+                    resolver.resolve(answer);
+                });
+                decision
+            }),
+            None,
+        )
+    };
+    let delete = crud.delete_current_command();
+
+    let execution = delete.as_async().expect("a gated command is awaitable")();
+    execution.wait().expect("the rejected execution completed");
     assert!(deleted.lock().unwrap().is_empty());
 
-    let allowed_seen = deleted.clone();
-    let allowed = ModeledCrudCommands::with_confirm_delete(
-        || Some(2),
-        || {},
-        |_| {},
-        move |item| allowed_seen.lock().unwrap().push(item),
-        || true,
-    );
-    allowed.delete_current_command().execute();
-
+    let execution = delete.as_async().expect("a gated command is awaitable")();
+    execution.wait().expect("the confirmed execution completed");
     assert_eq!(deleted.lock().unwrap().clone(), vec![2]);
 }

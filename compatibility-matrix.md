@@ -48,8 +48,8 @@ version that SwiftPM cannot resolve from the repository URL.
 Every flavor covers every library conformance ID in `spec/12-conformance.md`.
 The `THEME-00x` scenario IDs live in the flagship example apps. `spec/HISTORY.md` records the
 release and ADR that added each group of IDs. Swift has member-level parity with C#,
-Python, and TypeScript. Rust's remaining public-surface and behavior gaps are
-the open items and recorded differences in §12.4.7, §12.7 and §12.9 in
+Python, and TypeScript. Rust's remaining public-surface and behavior difference is
+recorded in §12.7 of
 `docs/maintenance/2026-07-16-rust-capability-parity.md`.
 
 [^current]: C# 3.30.0, Python 3.30.0, TypeScript 3.31.0, and Swift 4.0.0 are
@@ -75,7 +75,7 @@ point to the same verified `main` commit.
 is at source version 0.36.0, declares `MIN_SPEC_VERSION = "3.30.0"`, and carries
 behavioral tests for every library conformance ID. The parity ledger
 `docs/maintenance/2026-07-16-rust-capability-parity.md` records its member
-evidence and the open items and recorded differences in §12.4.7, §12.7 and §12.9. Rust is not published to crates.io.
+evidence and the recorded difference in §12.7. Rust is not published to crates.io.
 
 [^rust-source]: Rust `0.1.0`, `0.2.0`, and `0.3.0` record historical
 source-tree parity for spec 3.1.x through 3.3.x. Rust `0.13.0`, `0.14.0`,
