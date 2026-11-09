@@ -672,3 +672,46 @@ describe("CMD-012", () => {
     cmd.dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+// CMD-020 — fire-and-forget fault order (spec/04-commands.md §10.4, ADR-0195)
+// ---------------------------------------------------------------------------
+
+describe("CMD-020", () => {
+  it.each([
+    ["rejects at once", (e: Error) => () => Promise.reject(e)],
+    [
+      "throws after an await",
+      (e: Error) => async () => {
+        await Promise.resolve();
+        throw e;
+      },
+    ],
+  ])(
+    "a fire-and-forget fault reaches errors after the completion notification (%s)",
+    async (_, makeTask) => {
+      const e = new Error("boom");
+      const cmd = AsyncRelayCommand.builder().task(makeTask(e)).build();
+      const log: unknown[] = [];
+      cmd.canExecuteChanged.subscribe(() => log.push("change"));
+      let reported!: () => void;
+      const errorSeen = new Promise<void>((resolve) => {
+        reported = resolve;
+      });
+      cmd.errors.subscribe((err) => {
+        log.push(["error", err, cmd.isExecuting]);
+        reported();
+      });
+
+      cmd.execute();
+      await Promise.race([
+        errorSeen,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("no fault reported")), 1_000),
+        ),
+      ]);
+
+      expect(log).toEqual(["change", "change", ["error", e, false]]);
+    },
+  );
+});
