@@ -197,6 +197,12 @@ and `GroupVM.clear()` cannot throw either. A call refused because a membership
 transaction is open returns with no change, so the caller cannot see the
 refusal (ADR-0187). The other flavors raise or return an error.
 
+Swift `add(_:)`, `insert(_:at:)` and `replace(at:with:)` on `CompositeVM` and
+`GroupVM` cannot throw either. A refused `add(_:)` traps in a debug build. In
+a release build, each refused call returns with no change and no signal. Since
+ADR-0187, another thread's open transaction refuses them at once. Callers use
+`addResult`, `insertResult` and `replaceResult` to see the refusal.
+
 Other Swift operations that trap instead of throwing are listed under ADR-0009,
 ADR-0037 and ADR-0053.
 

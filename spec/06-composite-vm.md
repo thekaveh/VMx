@@ -240,9 +240,12 @@ uses the "membership transaction in progress" error of a re-entrant change:
 C# `InvalidOperationException`, Python `RuntimeError`, TypeScript `Error`,
 Swift `ContainerOwnershipError.attachmentFailed`, and Rust
 `VmxError::OwnershipTransactionInProgress`. Swift `remove(_:)` returns
-`false`. Swift `removeAt(_:)` and `clear()` cannot throw, so a refused call
-returns with no change. Rust `clear()` returns `VmxResult<()>` and reports the
-refusal. Only disposal waits for another thread's transaction, as the
+`false`. Swift `add(_:)` cannot throw: a refused call fails a debug
+assertion, and a release build returns with no change. Swift `insert(_:at:)`,
+`replace(at:with:)`, `removeAt(_:)` and `clear()` cannot throw, so a refused
+call returns with no change. A Swift caller that must see the refusal uses
+`addResult`, `insertResult` or `replaceResult`. Rust `clear()` returns
+`VmxResult<()>` and reports the refusal. Only disposal waits for another thread's transaction, as the
 disposal paragraph below says. Selection follows §4.3, and a wait for a
 child's ownership gate follows chapter 03 §4.1 (`COMP-048`).
 

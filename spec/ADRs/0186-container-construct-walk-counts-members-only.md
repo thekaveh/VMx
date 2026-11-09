@@ -141,7 +141,8 @@ and the container does not roll back.
 - Decided under the owner's 2026-11-07 delegation: rule 6 applies to every
   threaded flavor, not only to Python. The same check-then-write order exists
   in C# and Swift. Rust checks the transition generation in the locked
-  section, and its implementation PR confirms it with the same test.
+  section. Its implementation PR confirms with a test that a walk that
+  disposal stopped commits nothing.
 - Decided under the owner's 2026-11-07 delegation: `COMP-047` and `GRP-015`
   cover rules 1 to 4, because a host can drive the four cases on one thread
   in every flavor. The commit-step window and rule 6 need test seams that
@@ -149,21 +150,24 @@ and the container does not roll back.
 
 ## 3. Flavor impact
 
-- **C#.** `ContainerConstructWalk.Enumerate` yields a snapshot child only if
-  it is still in `_children` under `_membershipGate`. `TransitionChildrenAsync`
-  takes a membership predicate from the container. After a child settles, a
-  child that is not a member does not fail the walk. A late child's join after
-  its add's attempt also checks membership first. `MarkConstructedBeforePublication`
+- **C#.** The walk enumerators do not change. `TransitionChildrenAsync` takes
+  a membership predicate from the container. It checks membership under
+  `_membershipGate` before it starts or joins each child. After a child
+  settles, a child that is not a member does not fail the walk. A late
+  child's join after its add's attempt also checks membership first. A failed
+  add marks its start record done only after it undid the attach. `MarkConstructedBeforePublication`
   also checks that the hook scope is not abandoned. `RunLifecycleHook` sets
   `Abandoned` under `_gate`.
-- **Python.** `construct_walk` yields a snapshot child only if it is a
-  member. `_transition_container_children` takes a membership predicate and
-  applies it before the start or join and after the settle. The commit step
-  checks under `_lifecycle_lock` that the walk is not cancelled. The hook's
-  cancel of the walk is recorded under the same lock.
-- **TypeScript.** `constructWalk` yields a snapshot child only if it is in the
-  live children. `#walkChildren` takes a membership predicate and ignores the
-  settle of a child that is not a member. Late children already follow the
+- **Python.** The walk enumerators do not change.
+  `_transition_container_children` takes a membership predicate and applies
+  it before each start or join and after each settle. A failed add marks its
+  start record done only after its undo. A raising hook marks its lease
+  abandoned under `_lifecycle_lock`. The commit step is bound to the lease of
+  the hook that started its walk, and checks it under the same lock. A later
+  hook therefore cannot clear the mark of a stale walk.
+- **TypeScript.** The walk enumerators do not change. `#walkChildren` takes a
+  membership predicate. `advance()` skips a child that is not a member, and
+  the walk ignores the settle of a child that is not a member. Late children already follow the
   rule. TypeScript has no commit-step window.
 - **Swift.** `ChildTransitionWalker` takes a membership predicate. It skips a
   child that is not a member before it starts or joins it, and it ignores the
@@ -172,8 +176,8 @@ and the container does not roll back.
 - **Rust.** `construct_children` checks membership in each snapshot child step.
   `await_child` and `await_add_then_child` take the membership check, so a
   settle of a removed child does not fail the transition. `flip_constructed`
-  keeps its generation check. A test confirms that an abandoned walk commits
-  nothing.
+  keeps its generation check. A test confirms that a walk that disposal
+  stopped commits nothing.
 
 Tests that assert the old results change. They are the failed-add late-child
 tests in C#, Python, Swift and Rust: the add still fails and is undone, and

@@ -71,9 +71,11 @@ groups.
    - TypeScript throws `Error`.
    - Swift returns `ContainerOwnershipError.attachmentFailed` from the result
      forms (`addResult`, `insertResult`, `replaceResult`). A population
-     failure propagates from `construct()`. `remove(_:)` returns `false`. `add(_:)`, `insert` and
-     `replace` keep their debug assertion on a failure. `removeAt(_:)` and
-     `clear()` cannot throw, so a refused call returns with no change.
+     failure propagates from `construct()`. `remove(_:)` returns `false`.
+     `add(_:)` keeps its debug assertion: a refused call traps in a debug
+     build and returns with no change in a release build. `insert(_:at:)`,
+     `replace(at:with:)`, `removeAt(_:)` and `clear()` cannot throw, so a
+     refused call returns with no change.
    - Rust returns `VmxError::OwnershipTransactionInProgress`. `clear()`
      returns `VmxResult<()>`, and a refused `clear()` returns that error.
 1. **Disposal still waits.** A disposal from another thread waits for the
@@ -150,6 +152,12 @@ With ADR-0186, the catalog grows from 451 to 455 library IDs (460 in total).
 - A cross-thread add, insert, replacement or population no longer waits in a
   C# group or in Swift. It fails at once, and the caller can retry after the
   other transaction ends.
+- A Swift `add(_:)` that another thread's transaction refuses now traps in a
+  debug build. Before, it waited and then succeeded. In a release build, it
+  returns with no change and no signal, as `insert(_:at:)` and
+  `replace(at:with:)` do. A caller that can meet another thread's
+  transaction uses `addResult`, `insertResult` or `replaceResult` to see the
+  refusal and retry.
 - A cross-thread `remove`, `removeAt` or `clear` no longer waits in Swift.
 - Rust `clear()` reports a refusal. A caller that ignored the unit return now
   handles a `VmxResult<()>`.

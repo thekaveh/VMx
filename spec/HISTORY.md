@@ -706,3 +706,25 @@ before a persister starts prevents the persister call (`FORM-041`,
 `FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
 
 See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also makes the construct walk of a composite or group count members
+only. The walk checks membership before it starts or joins a child, and again
+after the child settles. A child that a removal or a failed add takes out
+during the walk does not roll the container back. A removal never cancels,
+destructs, or disposes the child. The commit step writes `Constructed` and
+reserves its publication. An add between the two follows the
+add-after-`Constructed` rule. A walk that disposal stopped, or that a raising
+hook abandoned, commits nothing (`COMP-047`, `GRP-015`). The catalog now
+contains 453 library IDs plus 5 scenario IDs.
+
+See ADR-0186 and chapter 06 §5.1, chapter 07 §4, and chapter 02 §2.4.
+
+v3.30.0 also makes a container membership change fail at once while another
+thread holds the container's membership transaction. This covers add, insert,
+index replacement, population, transfer detach, remove, `RemoveAt`, and
+`Clear`. Each change fails before mutation with the error of a re-entrant
+change. Only disposal still waits for the transaction. Rust `clear()` now
+returns `VmxResult<()>` (`COMP-048`, `GRP-016`). The catalog now contains 455
+library IDs plus 5 scenario IDs.
+
+See ADR-0187 and chapter 06 §4.2 and chapter 07 §1.1.

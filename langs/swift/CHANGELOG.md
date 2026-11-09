@@ -86,7 +86,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `COMP-048` and `GRP-016` cover the rule. Before, `CompositeVM` and
   `GroupVM` waited. The result forms return
   `ContainerOwnershipError.attachmentFailed`, `remove(_:)` returns `false`,
-  and `removeAt(_:)` and `clear()` return with no change.
+  and `removeAt(_:)` and `clear()` return with no change. A refused
+  `add(_:)` now traps in a debug build, where it waited and succeeded
+  before. In a release build, `add(_:)`, `insert(_:at:)` and
+  `replace(at:with:)` return with no change and no signal. Use `addResult`,
+  `insertResult` or `replaceResult` to see the refusal.
 
 ### Fixed
 
