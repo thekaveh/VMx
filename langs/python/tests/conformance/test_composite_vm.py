@@ -16,6 +16,7 @@ import textwrap
 import time
 from collections.abc import Callable
 from threading import Barrier, BrokenBarrierError, Event, Thread
+from typing import Any
 
 import pytest
 
@@ -1685,6 +1686,62 @@ def test_COMP_040_lifecycle_compensation_failure_is_surfaced() -> None:
 
 
 @pytest.mark.conformance("COMP-040")
+@pytest.mark.parametrize("kind", ["composite", "group"])
+@pytest.mark.parametrize("operation", ["add", "insert", "replace"])
+def test_COMP_040_rollback_error_carries_original_and_compensation_failure(
+    kind: str, operation: str
+) -> None:
+    """COMP-040: a failed add, insert or replacement whose compensation also
+    fails raises the first compensation failure from the original failure, so
+    ``__cause__`` is the original failure (ADR-0218)."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+    builder: Any = CompositeVMBuilder() if kind == "composite" else GroupVMBuilder()
+    container: Any = (
+        builder.name("container")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+    member = _build_child("member", hub=hub, dispatcher=dispatcher)
+    container.add(member)
+    container.construct()
+
+    def fail_compensation() -> None:
+        raise RuntimeError("compensation failed")
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_destruct(fail_compensation)
+        .build()
+    )
+    hub.messages.subscribe(
+        lambda m: (
+            container.dispose()
+            if isinstance(m, ConstructionStatusChangedMessage)
+            and m.sender is child
+            and m.status is ConstructionStatus.CONSTRUCTED
+            else None
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="compensation failed") as failure:
+        if operation == "add":
+            container.add(child)
+        elif operation == "insert":
+            container.insert(0, child)
+        else:
+            container[0] = child
+
+    assert isinstance(failure.value.__cause__, RuntimeError)
+    assert "disposing" in str(failure.value.__cause__)
+    assert child._parent is None
+
+
+@pytest.mark.conformance("COMP-040")
 def test_COMP_040_deferred_disposal_failure_follows_committed_transfer_events() -> None:
     hub = _hub()
     dispatcher = _dispatcher()
@@ -1961,12 +2018,119 @@ def test_LIFE_015_dispose_during_admitted_hook_defers_cleanup_once() -> None:
     assert composite.status is ConstructionStatus.DISPOSED
     assert ConstructionStatus.CONSTRUCTED not in statuses
     assert statuses.count(ConstructionStatus.DISPOSED) == 1
-    # Terminal supersession: post-hook population is refused admission, so no
-    # child is attached or constructed by the superseded construct.
+    # Terminal supersession: the superseded construct calls no factory and
+    # attaches nothing, and construct() returns without an error (ADR-0218).
     assert list(composite) == []
     assert child._parent is None
     assert child.status is ConstructionStatus.DESTRUCTED
-    assert all("disposing" in str(error) for error in construct_errors)
+    assert construct_errors == []
+    assert factory_calls == 0
+
+
+def _superseded_container(
+    kind: str,
+    hub: MessageHub[object],
+    factory: Callable[[], list[object]],
+    on_construct: Callable[[], None],
+) -> object:
+    """A container of *kind* with children factory *factory* and hook *on_construct*."""
+    dispatcher = _dispatcher()
+    if kind == "composite":
+        return (
+            CompositeVMBuilder()
+            .name("comp")
+            .services(hub, dispatcher)
+            .on_construct(on_construct)
+            .children(factory)  # type: ignore[arg-type]
+            .build()
+        )
+    if kind == "composite-of":
+        return (
+            CompositeVMOfBuilder()
+            .name("comp")
+            .services(hub, dispatcher)
+            .on_construct(on_construct)
+            .children_models(factory)
+            .child_model_to_child_view_model(
+                lambda model: (
+                    ComponentVMOfBuilder()
+                    .name("child")
+                    .services(hub, dispatcher)
+                    .model(model)
+                    .build()
+                )
+            )
+            .build()
+        )
+    return (
+        GroupVMBuilder()
+        .name("group")
+        .services(hub, dispatcher)
+        .on_construct(on_construct)
+        .children(factory)  # type: ignore[arg-type]
+        .build()
+    )
+
+
+@pytest.mark.conformance("LIFE-015")
+@pytest.mark.parametrize("kind", ["composite", "composite-of", "group"])
+@pytest.mark.parametrize("returns_child", [False, True], ids=["empty", "one-child"])
+def test_LIFE_015_superseded_construct_calls_no_factory(kind: str, returns_child: bool) -> None:
+    """LIFE-015: a foreign dispose() that supersedes a container's construct
+    hook stops the factory population. The factory is not called, nothing is
+    attached, and construct() returns without an error (ADR-0218)."""
+    hook_entered = Event()
+    release_hook = Event()
+    factory_calls = 0
+
+    def factory() -> list[object]:
+        nonlocal factory_calls
+        factory_calls += 1
+        if not returns_child:
+            return []
+        if kind == "composite-of":
+            return [object()]
+        return [_build_child("child")]
+
+    def block_construct() -> None:
+        hook_entered.set()
+        assert wait_event(release_hook)
+
+    hub = _hub()
+    container: Any = _superseded_container(kind, hub, factory, block_construct)
+    statuses: list[ConstructionStatus] = []
+    hub.messages.subscribe(
+        lambda m: (
+            statuses.append(m.status)
+            if isinstance(m, ConstructionStatusChangedMessage) and m.sender is container
+            else None
+        )
+    )
+    construct_errors: list[BaseException] = []
+
+    def construct() -> None:
+        try:
+            container.construct()
+        except BaseException as error:
+            construct_errors.append(error)
+
+    constructor = Thread(target=construct, daemon=True)
+    constructor.start()
+    assert wait_event(hook_entered)
+    disposer = Thread(target=container.dispose, daemon=True)
+    disposer.start()
+    disposer.join(0.1)
+    release_hook.set()
+    join_thread(constructor)
+    join_thread(disposer)
+    assert not constructor.is_alive()
+    assert not disposer.is_alive()
+
+    assert construct_errors == []
+    assert factory_calls == 0
+    assert statuses == [ConstructionStatus.CONSTRUCTING, ConstructionStatus.DISPOSED]
+    assert list(container) == []
+    assert container.status is ConstructionStatus.DISPOSED
 
 
 @pytest.mark.conformance("LIFE-015")

@@ -1069,6 +1069,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ComponentV
         self.core.when_settled(callback)
     }
 
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.core.background_errors())
+    }
+
     fn is_current(&self) -> bool {
         self.core.is_selected()
     }
@@ -1379,6 +1383,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ReadonlyCo
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.inner.core.when_settled(callback)
+    }
+
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.inner.core.background_errors())
     }
 
     fn is_current(&self) -> bool {

@@ -95,11 +95,13 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
         XCTAssertEqual(currentChanges(), 0)
     }
 
-    /// The walk resumes on the adding thread before that add admits its child.
-    /// Under ADR-0173 rule 4 the assignment there is a silent no-op, so the
-    /// composite reaches Constructed with no current child. (#705 selected the
-    /// pick by joining the add's transaction; ADR-0173 replaced the join.)
-    func testWalkResumingInsideTheAddersUncommittedTransactionIsANoOp() throws {
+    /// A late add's start attempt ends only after the add ended its
+    /// membership transaction, and the resumed walk runs on the composite's
+    /// foreground (ADR-0218 rules 3 and 4). The walk therefore never resumes
+    /// inside the add's uncommitted transaction, and the selector's pick is
+    /// assigned. (Before ADR-0218 the walk resumed inside that transaction,
+    /// where ADR-0173 rule 4 made the assignment a silent no-op.)
+    func testWalkNeverResumesInsideTheAddersUncommittedTransaction() throws {
         let hub = MessageHub()
         let dispatcher = ManualDispatcher()
         let lateStarted = DispatchSemaphore(value: 0)
@@ -108,8 +110,8 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
 
         // A background sibling defers the walk. `late` is then added from
         // another thread and auto-constructed inside that add; its hook holds
-        // until the background sibling has settled, so the walk resumes on
-        // the adding thread inside its membership transaction.
+        // until the background sibling has settled, so the walk waits on the
+        // add's start attempt while the add's transaction is open.
         let late = try ComponentVM.builder()
             .name("late")
             .services(hub: hub, dispatcher: dispatcher)
@@ -151,8 +153,7 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
         }
 
         XCTAssertEqual(composite.status, .constructed)
-        XCTAssertNil(composite.current)
-        XCTAssertEqual(currentChanges(), 0)
-        XCTAssertTrue(composite.canSelectComponent(picked))
+        XCTAssertTrue(composite.current === picked)
+        XCTAssertEqual(currentChanges(), 1)
     }
 }

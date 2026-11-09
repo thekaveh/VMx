@@ -9,6 +9,7 @@ use super::{
 };
 use crate::wait_for_graph::{waits, Resource};
 use crate::{ValueStream, ValueSubscription};
+use std::sync::atomic::AtomicU8;
 use std::sync::mpsc;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
@@ -214,6 +215,32 @@ pub enum VmxError {
     #[error("{0}")]
     /// An application-defined error message.
     Other(String),
+    #[error(
+        "container change failed: {original}; lifecycle compensation also failed: {compensation}"
+    )]
+    /// A failed add, insert, replacement or population whose lifecycle
+    /// compensation also failed (spec/06 §4.2, ADR-0218). `original` is the
+    /// failure that started the rollback, and `compensation` is the first
+    /// compensation failure.
+    ContainerRollback {
+        /// The failure that started the rollback.
+        original: Box<VmxError>,
+        /// The first failure of the lifecycle compensation.
+        compensation: Box<VmxError>,
+    },
+}
+
+/// The error of a failed container change: `original`, or
+/// [`VmxError::ContainerRollback`] when the compensation also failed
+/// (ADR-0218 rule 1).
+pub(crate) fn rollback_error(original: VmxError, compensation: Option<VmxError>) -> VmxError {
+    match compensation {
+        Some(compensation) => VmxError::ContainerRollback {
+            original: Box::new(original),
+            compensation: Box::new(compensation),
+        },
+        None => original,
+    }
 }
 
 /// Result type used by fallible VMx operations.
@@ -2686,10 +2713,26 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     fn lifecycle_publication_pending(&self) -> bool {
         false
     }
+    /// Returns the stream on which the node reports a failed fire-and-forget
+    /// background hook. A failed deferred compensation destruct of the node
+    /// goes there too (spec/06 §4.2, ADR-0218 rule 7). Wrapper nodes should
+    /// forward it. The default returns `None`, and that failure is dropped.
+    #[doc(hidden)]
+    fn background_failure_stream(&self) -> Option<LifecycleErrorStream> {
+        None
+    }
 }
 
 /// Continuation run after a node's in-flight lifecycle transition settles.
 pub type LifecycleSettleCallback = Box<dyn FnOnce() + Send + 'static>;
+
+/// A child wait's settle callback is being registered.
+const WAIT_REGISTERING: u8 = 0;
+/// The settle callback ran while it was being registered: the wait ended at
+/// once (ADR-0218 rule 3).
+const WAIT_ENDED_AT_ONCE: u8 = 1;
+/// The registration returned before the settle callback ran.
+const WAIT_PENDING: u8 = 2;
 
 type ChildStep = Box<dyn FnOnce() -> VmxResult<()> + Send + 'static>;
 
@@ -2942,6 +2985,72 @@ impl Drop for LateWalk {
     }
 }
 
+/// Constructs `child` for an add or a walk that read it `Destructed`. When
+/// another starter began its construct after that read, the call fails as an
+/// invalid transition; the construct is then left to that starter and this
+/// returns `Ok(())` (ADR-0218 rule 6).
+fn start_unless_started<N: VmNode>(child: &N) -> VmxResult<()> {
+    match child.construct() {
+        Err(VmxError::InvalidLifecycleTransition { .. }) if construct_started(child) => Ok(()),
+        result => result,
+    }
+}
+
+/// Whether a construct of `child` is in flight or done: it is Constructing,
+/// publishing a sealed construct, or Constructed.
+fn construct_started<N: VmNode>(child: &N) -> bool {
+    matches!(
+        child.status(),
+        ConstructionStatus::Constructing | ConstructionStatus::Constructed
+    ) || child.lifecycle_publication_pending()
+}
+
+/// Compensates the auto-start of `child` after a failed container change
+/// and returns the compensation failure (spec/06 §4.2, ADR-0218 rule 7).
+/// Only a child that was `Destructed` before the change is compensated. A
+/// `Constructed` child is destructed now. A child whose construct is still
+/// in flight is not awaited: once it settles `Constructed` with no parent,
+/// its `destruct()` runs. A failure of that call goes to the child's own
+/// background-failure stream while that stream is open, never to the
+/// container. A child that settles elsewhere, or that has a parent by then,
+/// is left alone.
+pub(crate) fn compensate_auto_start<N: VmNode>(
+    child: &N,
+    original_status: ConstructionStatus,
+) -> Option<VmxError> {
+    if original_status != ConstructionStatus::Destructed {
+        return None;
+    }
+    let in_flight =
+        child.status() == ConstructionStatus::Constructing || child.lifecycle_publication_pending();
+    if in_flight {
+        let settled = child.clone();
+        if child.when_lifecycle_settled(Box::new(move || {
+            if let Some(error) = destruct_if_orphaned(&settled) {
+                if let Some(errors) = settled.background_failure_stream() {
+                    if let Some(emission) = errors.begin_emission() {
+                        errors.send(error);
+                        drop(emission);
+                    }
+                }
+            }
+        })) {
+            return None;
+        }
+    }
+    (child.status() == ConstructionStatus::Constructed)
+        .then(|| child.destruct().err())
+        .flatten()
+}
+
+/// Destructs `child` when it is `Constructed` with no parent, and returns the
+/// failure of that call.
+fn destruct_if_orphaned<N: VmNode>(child: &N) -> Option<VmxError> {
+    (child.status() == ConstructionStatus::Constructed && child.parent_handle().is_none())
+        .then(|| child.destruct().err())
+        .flatten()
+}
+
 /// An add's attempt to auto-start the child it attached; see [`LateStarts`].
 pub(crate) struct StartAttempt {
     /// The walk scope the record was registered in, if a walk still scanned.
@@ -2952,12 +3061,14 @@ pub(crate) struct StartAttempt {
 }
 
 impl StartAttempt {
-    /// Constructs `item` when it is Destructed, then marks the attempt done.
-    /// A walk waiting on the attempt resumes here, before the add publishes
-    /// its collection change. When the construct fails, the attempt stays
-    /// open: the add undoes the attach, and the attempt ends when the add
-    /// drops it, so the waiting walk sees a non-member (ADR-0186). A panic
-    /// still marks the attempt done here.
+    /// Constructs `item` when it is Destructed. A construct that another
+    /// starter began after the status read is left to it, without a wait
+    /// (ADR-0218 rule 6). The attempt stays open: the add ends it when it
+    /// drops the attempt after it ended its membership transaction, on
+    /// success or after its undo (ADR-0218 rule 4). So a walk waiting on the
+    /// attempt resumes outside that transaction, and after a failed add it
+    /// sees a non-member (ADR-0186). A panic still marks the attempt done
+    /// here.
     pub(crate) fn run<N: VmNode, D: Dispatcher>(
         &mut self,
         core: &ComponentCore<D>,
@@ -2965,7 +3076,7 @@ impl StartAttempt {
     ) -> VmxResult<()> {
         let attempt = catch_unwind(AssertUnwindSafe(|| {
             if item.status() == ConstructionStatus::Destructed {
-                item.construct()
+                start_unless_started(item)
             } else {
                 Ok(())
             }
@@ -2973,12 +3084,12 @@ impl StartAttempt {
         if core.status() != ConstructionStatus::Constructing {
             self.forget();
         }
-        if !matches!(attempt, Ok(Err(_))) {
-            self.finish();
-        }
         match attempt {
             Ok(result) => result,
-            Err(payload) => resume_unwind(payload),
+            Err(payload) => {
+                self.finish();
+                resume_unwind(payload)
+            }
         }
     }
 
@@ -4825,6 +4936,14 @@ impl<D: Dispatcher> ComponentCore<D> {
         // a node without settle notification is still waited for (ADR-0205).
         let observer = ChildObserver::start(self.hub(), child, ConstructionStatus::Constructing);
         if let Err(error) = child.construct() {
+            // Another starter began the construct after the status read: the
+            // walk joins it (ADR-0218 rule 6).
+            if matches!(error, VmxError::InvalidLifecycleTransition { .. })
+                && construct_started(child)
+            {
+                drop(observer);
+                return self.await_child(child, ConstructionStatus::Constructed, Some(member));
+            }
             return if member(child.id()) {
                 Err(error)
             } else {
@@ -4951,7 +5070,9 @@ impl<D: Dispatcher> ComponentCore<D> {
         let awaited_member = Arc::clone(&member);
         if record.when_done(Box::new(move || {
             if let Some(core) = core.upgrade() {
-                core.join_after_add(generation, &awaited, awaited_member);
+                core.resume_walk(move |core| {
+                    core.join_after_add(generation, &awaited, awaited_member);
+                });
             }
         })) {
             return Ok(());
@@ -5154,15 +5275,9 @@ impl<D: Dispatcher> ComponentCore<D> {
                 .and_then(|settle| settle.awaited.replace(awaited))
         };
         drop(displaced);
-        let core = self.downgrade();
-        if ChildObserver::arm(
-            &state,
-            Box::new(move || {
-                if let Some(core) = core.upgrade() {
-                    core.child_settled(generation);
-                }
-            }),
-        ) {
+        let (callback, wait) = self.settle_continuation(generation);
+        if ChildObserver::arm(&state, callback) {
+            self.end_settle_registration(&wait, generation);
             return true;
         }
         let unused = {
@@ -5207,12 +5322,9 @@ impl<D: Dispatcher> ComponentCore<D> {
                 .and_then(|settle| settle.awaited.replace(awaited))
         };
         drop(displaced);
-        let core = self.downgrade();
-        if child.when_lifecycle_settled(Box::new(move || {
-            if let Some(core) = core.upgrade() {
-                core.child_settled(generation);
-            }
-        })) {
+        let (callback, wait) = self.settle_continuation(generation);
+        if child.when_lifecycle_settled(callback) {
+            self.end_settle_registration(&wait, generation);
             return true;
         }
         let unused = {
@@ -5225,6 +5337,64 @@ impl<D: Dispatcher> ComponentCore<D> {
         };
         drop(unused);
         false
+    }
+
+    /// The settle callback of a child wait, and the state that tells whether
+    /// it ran while its registration was still running. Such a wait ended at
+    /// once: the registering thread continues the walk when the registration
+    /// returns (see [`Self::end_settle_registration`]). A later callback
+    /// resumes the walk on this component's foreground (ADR-0218 rule 3).
+    fn settle_continuation(&self, generation: u64) -> (LifecycleSettleCallback, Arc<AtomicU8>) {
+        let wait = Arc::new(AtomicU8::new(WAIT_REGISTERING));
+        let state = Arc::clone(&wait);
+        let core = self.downgrade();
+        let callback: LifecycleSettleCallback = Box::new(move || {
+            if state
+                .compare_exchange(
+                    WAIT_REGISTERING,
+                    WAIT_ENDED_AT_ONCE,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                return;
+            }
+            if let Some(core) = core.upgrade() {
+                core.resume_walk(move |core| core.child_settled(generation));
+            }
+        });
+        (callback, wait)
+    }
+
+    /// Ends the registration of a settle callback from
+    /// [`Self::settle_continuation`]. When the callback already ran, the wait
+    /// ended at once, so the walk continues on this thread.
+    fn end_settle_registration(&self, wait: &AtomicU8, generation: u64) {
+        if wait
+            .compare_exchange(
+                WAIT_REGISTERING,
+                WAIT_PENDING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            self.child_settled(generation);
+        }
+    }
+
+    /// Continues a walk that waited and did not continue at once: `resume`
+    /// runs on this component's foreground dispatcher, not in the callback of
+    /// the child or the add that ended the wait (spec/02 §6, ADR-0218 rule
+    /// 3). The queued action holds the component weakly (#750).
+    fn resume_walk(&self, resume: impl FnOnce(&Self) + Send + 'static) {
+        let core = self.downgrade();
+        self.dispatch(Box::new(move || {
+            if let Some(core) = core.upgrade() {
+                resume(&core);
+            }
+        }));
     }
 
     /// The settle callback of the child this transition waits on.
@@ -6042,5 +6212,86 @@ mod message_recorder_tests {
 
         assert!(lock(&hub.inner.state).recorders.is_empty());
         assert!(!recorder.is_active());
+    }
+}
+
+// A deferred compensation destruct reports its failure on the child's own
+// background-failure stream, never on the container's (ADR-0218 rule 7).
+#[cfg(test)]
+mod deferred_compensation_tests {
+    use super::{
+        compensate_auto_start, lock, ConstructionStatus, LifecycleErrorStream,
+        LifecycleSettleCallback, VmNode, VmxError, VmxResult,
+    };
+    use std::sync::{Arc, Mutex};
+
+    /// A background child whose construct is in flight and whose destruct fails.
+    #[derive(Clone)]
+    struct Child {
+        status: Arc<Mutex<ConstructionStatus>>,
+        settle: Arc<Mutex<Option<LifecycleSettleCallback>>>,
+        errors: LifecycleErrorStream,
+    }
+
+    impl PartialEq for Child {
+        fn eq(&self, other: &Self) -> bool {
+            Arc::ptr_eq(&self.status, &other.status)
+        }
+    }
+
+    impl VmNode for Child {
+        fn id(&self) -> usize {
+            1
+        }
+        fn construct(&self) -> VmxResult<()> {
+            Ok(())
+        }
+        fn destruct(&self) -> VmxResult<()> {
+            Err(VmxError::Other("destruct failed".into()))
+        }
+        fn dispose(&self) -> VmxResult<()> {
+            Ok(())
+        }
+        fn status(&self) -> ConstructionStatus {
+            *lock(&self.status)
+        }
+        fn set_parent_id(&self, _parent_id: Option<usize>) {}
+        fn parent_id(&self) -> Option<usize> {
+            None
+        }
+        fn when_lifecycle_settled(&self, callback: LifecycleSettleCallback) -> bool {
+            *lock(&self.settle) = Some(callback);
+            true
+        }
+        fn background_failure_stream(&self) -> Option<LifecycleErrorStream> {
+            Some(self.errors.clone())
+        }
+    }
+
+    #[test]
+    fn deferred_destruct_failure_reaches_the_child_stream() {
+        let child = Child {
+            status: Arc::new(Mutex::new(ConstructionStatus::Constructing)),
+            settle: Arc::new(Mutex::new(None)),
+            errors: LifecycleErrorStream::new(),
+        };
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let _subscription = {
+            let received = received.clone();
+            child
+                .errors
+                .subscribe(move |error| lock(&received).push(error.to_string()))
+        };
+
+        assert!(compensate_auto_start(&child, ConstructionStatus::Destructed).is_none());
+        *lock(&child.status) = ConstructionStatus::Constructed;
+        let settle = lock(&child.settle)
+            .take()
+            .expect("the rollback defers the destruct");
+        settle();
+
+        let received = lock(&received);
+        assert_eq!(received.len(), 1);
+        assert!(received[0].contains("destruct failed"));
     }
 }

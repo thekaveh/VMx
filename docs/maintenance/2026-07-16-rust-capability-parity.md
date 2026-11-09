@@ -1,11 +1,11 @@
 # 12. Rust Parity Status
 
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Items found
-after closure: §12.7 to §12.13, plus the "Still open" notes in §12.4.7.
+after closure: §12.7 to §12.14, plus the "Still open" notes in §12.4.7.
 §12.8, §12.10, §12.11 and §12.12 are now closed (ADR-0205, ADR-0197, ADR-0208
 and ADR-0207, in that order). §12.9 and the §12.4.7 notes are resolved
 (ADR-0210, and ADR-0207 with ADR-0210). §12.7 is a recorded difference.
-§12.13 is open.
+§12.13 and §12.14 are open.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -339,9 +339,9 @@ observable behavior covered by this review.
 The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
 parameter in §12.2.2 are the intentional flavor-specific shapes in this
 ledger. The §12.5 editorial note applies to all five flavors and is not a
-parity backlog. §12.7 to §12.13 record the items and differences found
+parity backlog. §12.7 to §12.14 record the items and differences found
 after closure; §12.8 to §12.12 are now closed or resolved, §12.7 is a
-recorded difference, and §12.13 is open. Future differences still require
+recorded difference, and §12.13 and §12.14 are open. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
@@ -430,3 +430,22 @@ slot keeps its existing value.
 
 Spec/08 §2 and §4 do not state the rule yet. #1324 stays open for the ADR, the
 spec/08 and spec/06 text, any conformance ID, and the Rust cleanup.
+
+## 12.14. Open Item: Container Destruct Walk Join
+
+Chapter 02 §6 says that a destruct walk joins a child whose destruct is in
+flight, also one that another thread started after the walk read the status
+(ADR-0218, #754, #1375). C#, Python and Swift join it. TypeScript has one
+thread, so the case does not arise.
+
+Rust containers do not join it. The `CompositeVm`, `GroupVm` and
+`AggregateVm1` to `AggregateVm6` destruct walks call `transition_child` for
+each child, and that call runs `destruct()` with no join. `destruct()` returns
+`VmxError::InvalidLifecycleTransition` from `Destructing` while the child's
+transition is in flight, so the container destruct fails. The `ComponentVm`
+child walk already joins through `transition_or_join_child`. Only the
+aggregate construct join is closed (§12.7).
+
+The fix moves the container destruct walks to a join that also covers a
+destruct started between the status read and the call. #1375 stays the
+evidence for this item.

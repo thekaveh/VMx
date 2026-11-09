@@ -9,6 +9,9 @@ enum LateChildStage {
     /// An add attached the child, registered its start record and has not
     /// tried to start the child yet.
     case attached
+    /// The add read the attached child's status as `Destructed` and has not
+    /// called its `construct()` yet (#1370).
+    case starting
     /// The walk waits for an add to finish its start attempt.
     case walkWaitingOnAdd
     /// The walk's late pull found no further late child; its commit-time
@@ -28,8 +31,9 @@ enum LateChildStage {
 /// attaches a child while the container is `Constructing` registers a record
 /// under the membership gate, in the section that attaches the child, and
 /// starts the child only after it releases the gate. The record marks that
-/// this add tries to start the child; the add marks it done right after its
-/// construct attempt. The construct walk never starts a late child: it takes
+/// this add tries to start the child; the add marks it done only after it
+/// ended its membership transaction, on success or after its undo
+/// (ADR-0218 rule 4). The construct walk never starts a late child: it takes
 /// the child's record, waits until the attempt is done, then joins the child.
 /// A late child without a record was not started by any add, so the walk
 /// skips it.
@@ -63,9 +67,11 @@ final class LateChildStarts {
             }
         }
 
-        /// Marks the attempt done and runs the waiting callbacks. A failed
-        /// add calls it after it undid the attach (ADR-0186). Call it with no
-        /// lock held: a waiting walk resumes on this thread.
+        /// Marks the attempt done and runs the waiting callbacks. The add
+        /// calls it after it ended its membership transaction, so a failed
+        /// add calls it after it undid the attach (ADR-0186, ADR-0218 rule 4).
+        /// Call it with no lock held: a waiting walk resumes through the
+        /// container's foreground dispatcher (ADR-0218 rule 3).
         func finish() {
             let callbacks: [() -> Void] = lock.withLock {
                 done = true

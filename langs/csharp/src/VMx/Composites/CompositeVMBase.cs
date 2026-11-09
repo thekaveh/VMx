@@ -185,14 +185,89 @@ internal static class ContainerMembership
             return;
         }
         // The construct walk never starts a late child; it waits for this
-        // attempt, then joins the child (spec/06 §5.1). The record is done
-        // before this add publishes or ends its transaction. A failed attempt
-        // leaves it to the add's rollback, which marks it done after it undid
-        // the attach (LateChildStarts.Remove), so the walk sees no member.
+        // attempt, then joins the child (spec/06 §5.1). The add marks the
+        // record done only after it ends its membership transaction, on
+        // success or after its rollback undid the attach, so the walk sees no
+        // failed member and publishes Constructed outside the transaction
+        // (ADR-0186, ADR-0218 rule 4).
         lateStarts.Probe(item, LateChildStage.Attached);
-        if (item.Status == ConstructionStatus.Destructed) item.Construct();
-        record.MarkDone();
+        if (item.Status == ConstructionStatus.Destructed)
+        {
+            lateStarts.Probe(item, LateChildStage.Starting);
+            StartUnlessInFlight(item);
+        }
         if (container.Status != ConstructionStatus.Constructing) lateStarts.Remove(item, record);
+    }
+
+    /// <summary>
+    /// Starts <paramref name="item"/>, or leaves a construct of it that
+    /// another starter, such as the construct walk, began after the add read
+    /// its status (ADR-0218 rule 6). The add does not wait for it: the walk
+    /// joins it.
+    /// </summary>
+    private static void StartUnlessInFlight(IComponentVM item)
+    {
+        try
+        {
+            item.Construct();
+        }
+        catch (StatusTransitionException) when (
+            item is IComponentVMInternals internals && internals.ConstructInFlightOrConstructed())
+        {
+        }
+    }
+
+    /// <summary>
+    /// The lifecycle compensation of a failed add, insert, replacement or
+    /// population for one child (spec/06 §4.2). Only a child that was
+    /// Destructed before the attempt is compensated. A Constructed child is
+    /// destructed now, and a failure joins <paramref name="failures"/>. A
+    /// child whose construct is still in flight is not waited for: once it
+    /// settles Constructed with no parent, it is destructed (ADR-0218 rule 7).
+    /// </summary>
+    internal static void Compensate(
+        IComponentVM child, ConstructionStatus originalStatus, List<Exception> failures)
+    {
+        if (originalStatus != ConstructionStatus.Destructed) return;
+        var status = child.Status;
+        if (status == ConstructionStatus.Constructed)
+        {
+            try { child.DestructAsync().GetAwaiter().GetResult(); }
+            catch (Exception error) { failures.Add(error); }
+            return;
+        }
+        if (status != ConstructionStatus.Constructing || child is not IComponentVMInternals internals) return;
+        _ = internals.JoinConstructAsync().ContinueWith(
+            static (settled, state) =>
+            {
+                // A failed construct leaves the child Destructed: nothing to undo.
+                _ = settled.Exception;
+                DestructIfOrphaned((IComponentVM)state!);
+            },
+            child,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// The deferred compensation: destructs a child that settled Constructed
+    /// with no parent. A child that another container adopted is left alone.
+    /// The failed operation already returned, so a failure here is not
+    /// reported to it; a background child reports a hook failure through its
+    /// own background path (spec/02 §2.5).
+    /// </summary>
+    private static void DestructIfOrphaned(IComponentVM child)
+    {
+        if (child.Status != ConstructionStatus.Constructed || child.GetParent() is not null) return;
+        Task destruct;
+        try { destruct = child.DestructAsync(); }
+        catch (Exception) { return; }
+        _ = destruct.ContinueWith(
+            static failed => _ = failed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 }
 
@@ -297,6 +372,9 @@ internal enum LateChildStage
     /// <summary>An add attached the child with a start record and has not started it.</summary>
     Attached,
 
+    /// <summary>An add read the child Destructed and is about to start it.</summary>
+    Starting,
+
     /// <summary>The walk waits for an add to finish its start attempt.</summary>
     WalkWaitingOnAdd,
 
@@ -316,7 +394,7 @@ internal enum LateChildStage
 /// child under the membership gate and starts it only after it releases the
 /// gate, so the construct walk can pull the child first. The add registers a
 /// record in the current walk's scope as it attaches the child, and marks it
-/// done right after its construct attempt. The walk never starts a late
+/// done after it ends its membership transaction. The walk never starts a late
 /// child: it waits for that attempt, then joins the child. Each walk owns its
 /// scope, so a stale walk (abandoned, failed, or no longer current) never
 /// takes or clears another walk's records, and a scope's records go with it.
@@ -341,7 +419,10 @@ internal sealed class LateChildStarts
         /// <summary>The walk scope the record was registered in, if any.</summary>
         internal Walk? Scope { get; init; }
 
-        /// <summary>Completes once the add's construct attempt returned or threw.</summary>
+        /// <summary>
+        /// Completes once the add ended its membership transaction after its
+        /// construct attempt, on success or after its rollback (ADR-0218 rule 4).
+        /// </summary>
         internal Task Attempted => _attempted.Task;
 
         internal void MarkDone() => _attempted.TrySetResult(true);
@@ -467,16 +548,22 @@ internal sealed class LateChildStarts
 
     /// <summary>
     /// Removes <paramref name="record"/> from its scope if it is still
-    /// <paramref name="child"/>'s, and marks the add's start attempt done. A
-    /// failed add calls it after it undid its attach, so the walk then finds
-    /// the child gone (ADR-0186).
+    /// <paramref name="child"/>'s. A failed add calls it as it undoes its
+    /// attach, so the walk then finds the child gone (ADR-0186).
     /// </summary>
     internal void Remove(IComponentVM child, Record? record)
     {
-        record?.MarkDone();
         if (record?.Scope is not { } scope) return;
         lock (_gate) scope.RemoveLocked(child, record);
     }
+
+    /// <summary>
+    /// Marks the add's start attempt done. The add calls it after it ended its
+    /// membership transaction, on success or after its rollback, so a walk
+    /// that waits on the attempt resumes outside that transaction (ADR-0218
+    /// rule 4).
+    /// </summary>
+    internal static void Finish(Record? record) => record?.MarkDone();
 
     internal void Probe(IComponentVM child, LateChildStage stage)
         => ProbeForTesting?.Invoke(child, stage);
@@ -597,85 +684,87 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         get { lock (_membershipGate) return _children[index]; }
         set
         {
-            ThrowHelper.ThrowIfNull(value, nameof(value));
-            BeginMembershipTransaction();
-            ParentTransferToken? transfer = null;
-            VM? old = null;
+            // The start record ends after the transaction (ADR-0218 rule 4).
             LateChildStarts.Record? record = null;
-            var admissionComplete = false;
-            var propagateDisposeFailure = true;
-            var originalStatus = value.Status;
-            try
-            {
-                transfer = ComponentOwnership.BeginTransfer(value, this);
-                lock (_membershipGate)
-                {
-                    EnsureTransactionCanContinueLocked();
-                    // old keeps this composite as its parent until the commit,
-                    // which frees it and clears Current in one locked section.
-                    // No other container can adopt it while it is still
-                    // current here (COMP-006), and a rollback can always put
-                    // it back (#1219).
-                    old = _children[index];
-                    _children[index] = value;
-                    value.SetParent(this);
-                    StageAdmissionLocked(value);
-                    record = AttachLateStartLocked(value);
-                }
-                AutoConstructAttached(value, record);
-                lock (_membershipGate) EnsureTransactionCanContinueLocked();
-                admissionComplete = true;
-                ComponentOwnership.CommitThenPublish(transfer, () =>
-                {
-                    // Admitted after the old parent's detach commit (COMP-006).
-                    AdmitAfterTransferCommit();
-                    PublishEvery(
-                        // Frees old, and clears Current only while it is still
-                        // the replaced child, in one locked section.
-                        () => DetachClearingCurrent(old),
-                        () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                            NotifyCollectionChangedAction.Remove, old, index)),
-                        () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                            NotifyCollectionChangedAction.Add, value, index)));
-                });
-            }
-            catch (Exception originalError) when (!admissionComplete)
-            {
-                propagateDisposeFailure = false;
-                var rollbackFailures = new List<Exception>();
-                lock (_membershipGate)
-                {
-                    if (old is not null && _children.Any(child => ReferenceEquals(child, value)))
-                    {
-                        var actualIndex = _children.FindIndex(
-                            child => ReferenceEquals(child, value));
-                        _children[actualIndex] = old;
-                        value.SetParent(null);
-                    }
-                    _pendingAdmission = null;
-                    _lateStarts.Remove(value, record);
-                }
-                if (originalStatus == ConstructionStatus.Destructed &&
-                    value.Status == ConstructionStatus.Constructed)
-                {
-                    try { value.DestructAsync().GetAwaiter().GetResult(); }
-                    catch (Exception error) { rollbackFailures.Add(error); }
-                }
-                try { transfer?.Rollback(); }
-                catch (Exception error) { rollbackFailures.Add(error); }
-                if (rollbackFailures.Count > 0)
-                    throw new AggregateException(
-                        "Container replacement failed and rollback could not restore lifecycle state.",
-                        new[] { originalError }.Concat(rollbackFailures));
-                throw;
-            }
-            catch
-            {
-                propagateDisposeFailure = false;
-                throw;
-            }
-            finally { EndMembershipTransaction(propagateDisposeFailure); }
+            try { Replace(index, value, ref record); }
+            finally { LateChildStarts.Finish(record); }
         }
+    }
+
+    private void Replace(int index, VM value, ref LateChildStarts.Record? record)
+    {
+        ThrowHelper.ThrowIfNull(value, nameof(value));
+        BeginMembershipTransaction();
+        ParentTransferToken? transfer = null;
+        VM? old = null;
+        var admissionComplete = false;
+        var propagateDisposeFailure = true;
+        var originalStatus = value.Status;
+        try
+        {
+            transfer = ComponentOwnership.BeginTransfer(value, this);
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                // old keeps this composite as its parent until the commit,
+                // which frees it and clears Current in one locked section.
+                // No other container can adopt it while it is still
+                // current here (COMP-006), and a rollback can always put
+                // it back (#1219).
+                old = _children[index];
+                _children[index] = value;
+                value.SetParent(this);
+                StageAdmissionLocked(value);
+                record = AttachLateStartLocked(value);
+            }
+            AutoConstructAttached(value, record);
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
+            admissionComplete = true;
+            ComponentOwnership.CommitThenPublish(transfer, () =>
+            {
+                // Admitted after the old parent's detach commit (COMP-006).
+                AdmitAfterTransferCommit();
+                PublishEvery(
+                    // Frees old, and clears Current only while it is still
+                    // the replaced child, in one locked section.
+                    () => DetachClearingCurrent(old),
+                    () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Remove, old, index)),
+                    () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Add, value, index)));
+            });
+        }
+        catch (Exception originalError) when (!admissionComplete)
+        {
+            propagateDisposeFailure = false;
+            var rollbackFailures = new List<Exception>();
+            lock (_membershipGate)
+            {
+                if (old is not null && _children.Any(child => ReferenceEquals(child, value)))
+                {
+                    var actualIndex = _children.FindIndex(
+                        child => ReferenceEquals(child, value));
+                    _children[actualIndex] = old;
+                    value.SetParent(null);
+                }
+                _pendingAdmission = null;
+                _lateStarts.Remove(value, record);
+            }
+            ContainerMembership.Compensate(value, originalStatus, rollbackFailures);
+            try { transfer?.Rollback(); }
+            catch (Exception error) { rollbackFailures.Add(error); }
+            if (rollbackFailures.Count > 0)
+                throw new AggregateException(
+                    "Container replacement failed and rollback could not restore lifecycle state.",
+                    new[] { originalError }.Concat(rollbackFailures));
+            throw;
+        }
+        catch
+        {
+            propagateDisposeFailure = false;
+            throw;
+        }
+        finally { EndMembershipTransaction(propagateDisposeFailure); }
     }
 
     // ── Constructor ───────────────────────────────────────────────────────────
@@ -928,12 +1017,19 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void Add(VM item)
     {
+        // The start record ends after the transaction (ADR-0218 rule 4).
+        LateChildStarts.Record? record = null;
+        try { AddItem(item, ref record); }
+        finally { LateChildStarts.Finish(record); }
+    }
+
+    private void AddItem(VM item, ref LateChildStarts.Record? record)
+    {
         ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
         var originalStatus = item.Status;
-        LateChildStarts.Record? record = null;
         int idx;
         try
         {
@@ -967,12 +1063,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 _pendingAdmission = null;
                 _lateStarts.Remove(item, record);
             }
-            if (originalStatus == ConstructionStatus.Destructed &&
-                item.Status == ConstructionStatus.Constructed)
-            {
-                try { item.DestructAsync().GetAwaiter().GetResult(); }
-                catch (Exception error) { rollbackFailures.Add(error); }
-            }
+            ContainerMembership.Compensate(item, originalStatus, rollbackFailures);
             try { transfer?.Rollback(); }
             catch (Exception error) { rollbackFailures.Add(error); }
             EndMembershipTransaction(propagateDisposeFailure: false);
@@ -1046,12 +1137,19 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void Insert(int index, VM item)
     {
+        // The start record ends after the transaction (ADR-0218 rule 4).
+        LateChildStarts.Record? record = null;
+        try { InsertItem(index, item, ref record); }
+        finally { LateChildStarts.Finish(record); }
+    }
+
+    private void InsertItem(int index, VM item, ref LateChildStarts.Record? record)
+    {
         ThrowHelper.ThrowIfNull(item, nameof(item));
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
         var originalStatus = item.Status;
-        LateChildStarts.Record? record = null;
         try
         {
             transfer = ComponentOwnership.BeginTransfer(item, this);
@@ -1085,12 +1183,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 _pendingAdmission = null;
                 _lateStarts.Remove(item, record);
             }
-            if (originalStatus == ConstructionStatus.Destructed &&
-                item.Status == ConstructionStatus.Constructed)
-            {
-                try { item.DestructAsync().GetAwaiter().GetResult(); }
-                catch (Exception error) { rollbackFailures.Add(error); }
-            }
+            ContainerMembership.Compensate(item, originalStatus, rollbackFailures);
             try { transfer?.Rollback(); }
             catch (Exception error) { rollbackFailures.Add(error); }
             EndMembershipTransaction(propagateDisposeFailure: false);
@@ -1303,6 +1396,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     protected override void OnConstruct()
     {
         base.OnConstruct(); // invoke user's onConstruct callback if any
+        // Population and the walk are post-hook container actions: a foreign
+        // dispose that superseded this hook stops them, and Construct()
+        // returns without an error (spec/02 §2.4, ADR-0218 rule 5).
+        if (DisposalStarted()) return;
         // Populate children from factory (lazy: only on first construct).
         // Children whose construct population started are joined, not restarted.
         var joined = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
@@ -1437,13 +1534,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     if (attached >= 0) _children.RemoveAt(attached);
                 }
                 var originalStatus = originalStatuses[candidateIndex];
-                if (originalStatus == ConstructionStatus.Destructed &&
-                    child.Status == ConstructionStatus.Constructed)
-                {
-                    try { child.DestructAsync().GetAwaiter().GetResult(); }
-                    catch (Exception error) { rollbackFailures.Add(error); }
-                }
+                // Detached first: a deferred compensation destructs only a
+                // child with no parent (ADR-0218 rule 7).
                 if (ReferenceEquals(child.GetParent(), this)) child.SetParent(null);
+                ContainerMembership.Compensate(child, originalStatus, rollbackFailures);
             }
             // Every candidate is detached: none is left to select (spec/06 §4.3 rule 2).
             lock (_membershipGate) _stagedPopulation = null;
@@ -1701,6 +1795,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     private bool DisposalPendingLocked()
         => Volatile.Read(ref _disposeRequested) != 0 || _disposeDeferred;
+
+    /// <summary>Whether this composite's disposal started or ended.</summary>
+    private bool DisposalStarted() => Volatile.Read(ref _disposeRequested) != 0 || IsDisposed();
 
     /// <summary>
     /// Contained, not Disposed, and not staged by an add or population

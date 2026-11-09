@@ -134,7 +134,7 @@ holds and delegates to.
 
 `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
 
-- `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked during every construct phase of the composite, including the construct phase of `reconstruct()`, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. Destruct first sets `Current` to `null` (§5), which reports `null` to `OnCurrentChanged`, so each construct selects again. To restore the previous selection, record only the non-null values that `OnCurrentChanged` receives and return the last one from the selector; if that child is no longer contained, the assignment is the no-op described below (ADR-0158). The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
+- `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked during every construct phase of the composite, including the construct phase of `reconstruct()`, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The selector receives the composite's membership when it runs, so it sees a late child (§5.1). Its pick goes through the assignment below, so a pick that is not an admitted member is a no-op (ADR-0218, `COMP-053`). Destruct first sets `Current` to `null` (§5), which reports `null` to `OnCurrentChanged`, so each construct selects again. To restore the previous selection, record only the non-null values that `OnCurrentChanged` receives and return the last one from the selector; if that child is no longer contained, the assignment is the no-op described below (ADR-0158). The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
 - `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the current-publication lease and completes after publication without deadlocking selection (§4.3). The shared cross-composite coordinator protects validation and the committed state update only; hub publication and consumer callbacks execute after it is released.
 
 The construct walk's assignment uses committed membership and never waits
@@ -270,8 +270,30 @@ their pre-call values. Bulk population rolls earlier transfers back in reverse
 order if a later child fails. Lifecycle compensation is attempted. If a
 consumer lifecycle hook makes compensation fail, that failure MUST be surfaced
 and MUST NOT be swallowed; exact lifecycle restoration is then not claimed.
+The reported failure MUST give access to the original operation failure and
+to the first compensation failure (spec v3.30, ADR-0218):
+
+- C# throws an `AggregateException`. `InnerExceptions[0]` is the original
+  failure, and the compensation failures follow in order.
+- Python raises the first compensation failure `from` the original failure.
+- TypeScript throws `ContainerRollbackError`, with the original failure as
+  `cause` and the compensation failure as `rollbackError`.
+- Swift returns `ContainerOwnershipError.attachmentFailed` with a
+  `ContainerRollbackError` payload, which has `originalError` and
+  `compensationError`.
+- Rust returns `VmxError::ContainerRollback { original, compensation }`.
+
 In particular, when this attempt auto-constructed a previously destructed child
 before admission failed, compensation destructs it back to its original state.
+When that child's construct is still in flight at the rollback (a background
+child), compensation does not wait. When the child's construct settles at
+`Constructed` and the child has no parent, VMx calls the child's
+`destruct()`. Neither the failed operation nor the container reports a
+failure of that call. The failure goes where a failed fire-and-forget
+background hook of that child goes (chapter 02 §2.5). In Rust that is the
+child's `background_errors()` stream. A child that settles anywhere else, or
+that has a parent by then, is left alone (ADR-0218, `COMP-054`). The rollback
+clears the child's parent before it compensates the child.
 Add, insert, replacement, and factory or bulk population MUST recheck destination
 viability after successful construction hooks; destination disposal at that
 point rejects admission and performs the same exact rollback. Replacement
@@ -479,6 +501,19 @@ takes its membership snapshot (for example by the construct hook) is walked
 like any other member. A child added after the snapshot is a late child: the
 walk joins it and never restarts it, and if it fails while it is still a
 member, the composite rolls back.
+
+A child added before the snapshot has two possible starters: the add and the
+walk. Each starts the child only when no construct of the child is in flight,
+and checks this together with its start call (spec v3.30, ADR-0218). When the
+walk finds the construct in flight, it joins it. When the add finds it in
+flight, it does not start it again and does not wait for it. So neither the
+add nor the composite fails because the other side started the child.
+
+An add marks its start attempt done only after it ends its membership
+transaction: after its commit, its local event and its hub message, or after
+its rollback. A walk that waits on the attempt resumes only then, so the
+composite publishes `Constructed` outside that transaction. A resumed walk
+continues on the composite's foreground dispatcher (chapter 02 §6).
 
 The construct walk counts members only (spec v3.30, ADR-0186). A member is a
 child in the composite's membership when the walk checks it. These rules hold
@@ -825,6 +860,8 @@ The builder hooks introduced in §3.2 are covered by:
 
 - `COMP-025` — `Current(selector)` builder hook drives selection during every construct.
 - `COMP-026` — `OnCurrentChanged(callback)` fires synchronously after each `Current` change.
+- `COMP-053` — the selector receives the live membership, so it can pick a
+  late child.
 
 The `Parent` back-reference wiring (declared in `01-concepts.md` §1.3 and
 `05-component-vm.md` §6.1) is covered by:
@@ -837,7 +874,10 @@ The `Parent` back-reference wiring (declared in `01-concepts.md` §1.3 and
 - `COMP-039` — duplicate and self/ancestor-cycle attempts fail before mutation.
 - `COMP-040` — failed attachment or auto-construction isolates and restores both
   containers, the parent link, index, and selection state; failed lifecycle
-  compensation is surfaced rather than hidden.
+  compensation is surfaced rather than hidden, and the reported failure gives
+  access to the original failure and to the first compensation failure.
+- `COMP-054` — a failed add, insert or replacement that started a background
+  child returns it to `Destructed` with no parent once its construct settles.
 - `COMP-041` — successful transfer publishes old removal before new addition;
   failed transfer publishes neither.
 

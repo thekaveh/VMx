@@ -349,17 +349,21 @@ def test_late_child_hook_selects_during_another_threads_add_without_rolling_back
 
         def settled() -> bool:
             bg.run_all()  # late's hook runs here, on a non-owner thread
-            return root.vm.status is not S.CONSTRUCTING
+            return late.status is S.CONSTRUCTED
 
         assert _wait_until(settled)
         assert hook_errors == []
-        assert root.vm.status is S.CONSTRUCTED
         assert root.vm.current is first
         assert first.is_current
-        assert root.changes == ["first"]
-        assert late.status is S.CONSTRUCTED
+        # The walk waits on the add's start attempt, which ends only with the
+        # add's transaction (ADR-0218).
+        assert root.vm.status is S.CONSTRUCTING
     finally:
         add.finish()
+    bg.run_all()
+    assert root.vm.status is S.CONSTRUCTED
+    assert root.vm.current is first
+    assert root.changes == ["first"]
 
 
 # ── #1146: the caller's own uncommitted transaction ────────────────────────

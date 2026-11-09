@@ -18,6 +18,7 @@ from vmx.collections.batch import BatchUpdateHandle
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.components._late_child_starts import _LateChildStage
 from vmx.components.base import _ComponentVMBase
+from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
 
 if TYPE_CHECKING:
@@ -157,32 +158,79 @@ def auto_construct_attached(
         container._maybe_auto_construct(child)
         return
     # The construct walk never starts a late child; it waits for this
-    # attempt, then joins the child (spec/06 §5.1). The record is done
-    # before this add publishes or ends its transaction. A failed attempt
-    # leaves it to the add's undo (``finish_failed_add_start``), so the walk
-    # resumes only after the child left the container (ADR-0186).
-    started = False
+    # attempt, then joins the child (spec/06 §5.1). The add marks the record
+    # done only after it ends its membership transaction, on success and on
+    # failure (``finish_add_start``, ADR-0218). After a failure, the walk
+    # then resumes only after the child left the container (ADR-0186).
     try:
         container._late_starts.probe(child, _LateChildStage.ATTACHED)
         if child.status is ConstructionStatus.DESTRUCTED:
-            child.construct()
-        started = True
+            start_unless_constructing(child)
     finally:
-        if started:
-            record.mark_done()
         if container._status is not ConstructionStatus.CONSTRUCTING:
             container._late_starts.remove(child, record)
 
 
-def finish_failed_add_start(record: _StartRecord | None) -> None:
-    """Mark a failed add's start attempt done, after its undo detached the child.
+def start_unless_constructing(child: VM) -> None:
+    """Construct *child*, unless another caller started its construct meanwhile.
 
-    The undo counts as a removal (ADR-0186): a walk that waits on the attempt
-    then reads the child as a non-member and does not join it. Call it
-    outside the membership gate, because the walk may resume inline.
+    The construct walk may start a child that this add attached before the
+    walk's snapshot. When it does so between the add's status read and this
+    call, the add leaves the construct to the walk and does not wait for it
+    (spec/06 §5.1, ADR-0218). A child whose own construction fails still
+    fails the add.
+    """
+    try:
+        child.construct()
+    except StatusTransitionError:
+        if child._join_raced_transition(construct=True) is None:
+            raise
+
+
+def finish_add_start(record: _StartRecord | None) -> None:
+    """Mark an add's start attempt done, after the add ended its transaction.
+
+    Call it after ``_end_membership_transaction``, on success and on
+    failure (ADR-0218). A walk that waits on the attempt resumes only then,
+    so the container publishes Constructed outside this add's transaction.
+    After a failure, the undo counts as a removal (ADR-0186): the walk reads
+    the child as a non-member and does not join it.
     """
     if record is not None:
         record.mark_done()
+
+
+def compensate_auto_construct(
+    child: VM, original_status: ConstructionStatus | None
+) -> BaseException | None:
+    """Return a child that a failed attempt auto-constructed to Destructed.
+
+    Only a child that was Destructed before the attempt is compensated
+    (spec/06 §4.2). A Constructed child is destructed now, and the failure
+    of that call is returned. A child whose construct is still in flight (a
+    background child) is not waited for. Once its construct settles at
+    Constructed with no parent, it is destructed. The failed operation does
+    not report a failure of that later call (ADR-0218).
+    """
+    if original_status is not ConstructionStatus.DESTRUCTED:
+        return None
+    if child.status is ConstructionStatus.CONSTRUCTED:
+        try:
+            child.destruct()
+        except BaseException as error:
+            return error
+        return None
+    if child.status is ConstructionStatus.CONSTRUCTING:
+        settled = child._join_transition_future(construct=True)
+
+        def destruct_if_detached(_: object) -> None:
+            # A failure of this call reaches the future's callback logger,
+            # not the failed operation.
+            if child.status is ConstructionStatus.CONSTRUCTED and child._parent is None:
+                child.destruct()
+
+        settled.add_done_callback(destruct_if_detached)
+    return None
 
 
 def is_member(container: ChildContainer[VM], child: object) -> bool:

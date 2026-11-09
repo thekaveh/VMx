@@ -235,6 +235,148 @@ public class DestructJoinsDestructingChildTests
         aggregate.Component1!.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
+    /// <summary>
+    /// Another thread starts the child's destruct after the walk's join check
+    /// found none and before the walk's own call (ADR-0218 rule 6, #1375). The
+    /// walk joins that destruct instead of failing.
+    /// </summary>
+    private static void ShouldJoinADestructStartedInTheWindow(
+        ManualDispatcher dispatcher,
+        IComponentVM container,
+        ComponentVM<string> child,
+        Counter childDestructs)
+    {
+        dispatcher.RunUntil(() =>
+            container.Status == ConstructionStatus.Constructed &&
+            child.Status == ConstructionStatus.Constructed);
+        Task? childDestruct = null;
+        child.DestructOrJoinProbeForTesting = () =>
+        {
+            child.DestructOrJoinProbeForTesting = null;
+            childDestruct = Task.Run(child.DestructAsync);
+            SpinWait.SpinUntil(() => child.Status == ConstructionStatus.Destructing, HangGuard)
+                .Should().BeTrue("another thread starts the child's destruct in the window");
+        };
+
+        Action destruct = container.Destruct;
+
+        destruct.Should().NotThrow("the walk joins the destruct that started in the window");
+        childDestruct.Should().NotBeNull("the walk reached the window");
+        dispatcher.RunUntil(() =>
+            container.Status == ConstructionStatus.Destructed &&
+            child.Status == ConstructionStatus.Destructed &&
+            childDestruct!.IsCompleted);
+        childDestruct!.Status.Should().Be(TaskStatus.RanToCompletion);
+        childDestructs.Value.Should().Be(1, "the child's OnDestruct runs once");
+        dispatcher.BackgroundQueue.Faults.Should().BeEmpty();
+        dispatcher.ForegroundQueue.Faults.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Composite_Destruct_Joins_A_Destruct_Started_In_The_Window()
+    {
+        var dispatcher = new ManualDispatcher();
+        var childDestructs = new Counter();
+        var child = BackgroundChild(dispatcher, childDestructs);
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite")
+            .Services(NullMessageHub.Instance, dispatcher)
+            .Children(() => [child, SyncChild(dispatcher)])
+            .Build();
+        _ = composite.ConstructAsync();
+
+        ShouldJoinADestructStartedInTheWindow(dispatcher, composite, child, childDestructs);
+    }
+
+    [Fact]
+    public void Group_Destruct_Joins_A_Destruct_Started_In_The_Window()
+    {
+        var dispatcher = new ManualDispatcher();
+        var childDestructs = new Counter();
+        var child = BackgroundChild(dispatcher, childDestructs);
+        var group = GroupVM<ComponentVM<string>>.Builder()
+            .Name("group")
+            .Services(NullMessageHub.Instance, dispatcher)
+            .Children(() => [SyncChild(dispatcher), child])
+            .Build();
+        _ = group.ConstructAsync();
+
+        ShouldJoinADestructStartedInTheWindow(dispatcher, group, child, childDestructs);
+    }
+
+    [Fact]
+    public void Aggregate_Destruct_Joins_A_Destruct_Started_In_The_Window()
+    {
+        var dispatcher = new ManualDispatcher();
+        var childDestructs = new Counter();
+        var aggregate = AggregateVM2<ComponentVM<string>, ComponentVM<string>>.Builder()
+            .Name("aggregate")
+            .Services(NullMessageHub.Instance, dispatcher)
+            .Component1(() => SyncChild(dispatcher))
+            .Component2(() => BackgroundChild(dispatcher, childDestructs))
+            .Build();
+        _ = aggregate.ConstructAsync();
+        dispatcher.RunUntil(() => aggregate.Status == ConstructionStatus.Constructed);
+
+        ShouldJoinADestructStartedInTheWindow(dispatcher, aggregate, aggregate.Component2!, childDestructs);
+    }
+
+    /// <summary>
+    /// A child whose reconstruct is in its destruct phase is joined and
+    /// settles Constructed (ADR-0218 rule 6). The container's destruct then
+    /// fails and the container returns to Constructed.
+    /// </summary>
+    [Fact]
+    public async Task Composite_Destruct_Fails_When_A_Child_Reconstruct_Is_In_Its_Destruct_Phase()
+    {
+        var dispatcher = new ManualDispatcher();
+        var childDestructs = new Counter();
+        using var hookEntered = new ManualResetEventSlim();
+        using var releaseHook = new ManualResetEventSlim();
+        var hold = 0;
+        // Reconstruct runs its destruct phase on the caller: the hook blocks
+        // there while the container destructs.
+        var child = ComponentVM<string>.Builder()
+            .Name("reconstructing")
+            .Services(NullMessageHub.Instance, dispatcher)
+            .Model("reconstructing")
+            .OnDestruct(() =>
+            {
+                childDestructs.Increment();
+                if (Volatile.Read(ref hold) == 0) return;
+                hookEntered.Set();
+                releaseHook.Wait(HangGuard).Should().BeTrue("the test releases the hook");
+            })
+            .Build();
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite")
+            .Services(NullMessageHub.Instance, dispatcher)
+            .Children(() => [child])
+            .Build();
+        _ = composite.ConstructAsync();
+        dispatcher.RunUntil(() => composite.Status == ConstructionStatus.Constructed);
+        Volatile.Write(ref hold, 1);
+        var reconstruct = Task.Factory.StartNew(
+            child.Reconstruct, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        hookEntered.Wait(HangGuard).Should().BeTrue("the reconstruct is in its destruct phase");
+        child.Status.Should().Be(ConstructionStatus.Destructing);
+
+        var destruct = composite.DestructAsync();
+        SpinWait.SpinUntil(() => child.LifecycleWaiterCountForTesting > 0, HangGuard)
+            .Should().BeTrue("the walk joins the reconstruct");
+        releaseHook.Set();
+        await reconstruct.WaitAsync(HangGuard);
+        dispatcher.RunUntil(() =>
+            destruct.IsCompleted &&
+            composite.Status == ConstructionStatus.Constructed &&
+            composite.CanDestruct());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => destruct);
+        composite.Status.Should().Be(ConstructionStatus.Constructed, "the container's destruct rolls back");
+        child.Status.Should().Be(ConstructionStatus.Constructed, "the joined reconstruct settles Constructed");
+        childDestructs.Value.Should().Be(1, "only the reconstruct's destruct phase ran the child's OnDestruct");
+    }
+
     private sealed class CountingDecorator(IComponentVM<string> wrapped)
         : ForwardingComponentVM<string>(wrapped)
     {
