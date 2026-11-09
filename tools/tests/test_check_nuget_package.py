@@ -72,7 +72,7 @@ def _write_packages(
     readme: str | None = None,
 ) -> None:
     if framework_dependencies is None:
-        framework_dependencies = checker._PACKAGE_DEPENDENCIES.get(package_id, {})
+        framework_dependencies = checker.package_dependencies(package_id)
     main_paths = checker.expected_paths(package_id, symbols=False)
     symbol_paths = checker.expected_paths(package_id, symbols=True)
     main = root / f"{package_id}.{version}.nupkg"
@@ -124,14 +124,18 @@ def test_validate_package_pair_accepts_nuget_named_core_properties(tmp_path: Pat
     assert checker.validate_package_pair(tmp_path, "VMx", "3.20.0", None) == []
 
 
+# The dependency IDs are the contract; the versions are the central pins (#1363).
+_PINS = checker.central_package_versions()
+
+
 def test_validate_package_pair_accepts_exact_public_dependency_contract(tmp_path: Path) -> None:
     dependencies = {
-        "net8.0": [("System.Reactive", "7.0.0")],
+        "net8.0": [("System.Reactive", _PINS["System.Reactive"])],
         ".NETStandard2.0": [
-            ("Microsoft.Bcl.AsyncInterfaces", "10.0.14"),
-            ("System.Collections.Immutable", "10.0.14"),
-            ("System.Reactive", "7.0.0"),
-            ("System.Text.Json", "10.0.14"),
+            ("Microsoft.Bcl.AsyncInterfaces", _PINS["Microsoft.Bcl.AsyncInterfaces"]),
+            ("System.Collections.Immutable", _PINS["System.Collections.Immutable"]),
+            ("System.Reactive", _PINS["System.Reactive"]),
+            ("System.Text.Json", _PINS["System.Text.Json"]),
         ],
     }
     _write_packages(
@@ -145,17 +149,18 @@ def test_validate_package_pair_accepts_exact_public_dependency_contract(tmp_path
 
 
 def test_validate_package_pair_accepts_current_di_dependency_contract(tmp_path: Path) -> None:
+    abstractions = "Microsoft.Extensions.DependencyInjection.Abstractions"
     dependencies = {
         "net8.0": [
-            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.14"),
-            ("System.Reactive", "7.0.0"),
+            (abstractions, _PINS[abstractions]),
+            ("System.Reactive", _PINS["System.Reactive"]),
         ],
         ".NETStandard2.0": [
-            ("Microsoft.Bcl.AsyncInterfaces", "10.0.14"),
-            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.14"),
-            ("System.Collections.Immutable", "10.0.14"),
-            ("System.Reactive", "7.0.0"),
-            ("System.Text.Json", "10.0.14"),
+            ("Microsoft.Bcl.AsyncInterfaces", _PINS["Microsoft.Bcl.AsyncInterfaces"]),
+            (abstractions, _PINS[abstractions]),
+            ("System.Collections.Immutable", _PINS["System.Collections.Immutable"]),
+            ("System.Reactive", _PINS["System.Reactive"]),
+            ("System.Text.Json", _PINS["System.Text.Json"]),
         ],
     }
     _write_packages(
@@ -172,6 +177,32 @@ def test_validate_package_pair_accepts_current_di_dependency_contract(tmp_path: 
         )
         == []
     )
+
+
+def test_dependency_versions_follow_the_central_package_file(tmp_path: Path) -> None:
+    # #1363: a central version update needs no edit in the checker.
+    props = tmp_path / "Directory.Packages.props"
+    props.write_text(
+        "<Project><ItemGroup>"
+        '<PackageVersion Include="System.Reactive" Version="7.0.1" />'
+        '<PackageVersion Include="System.Text.Json" Version="10.0.15" />'
+        "</ItemGroup></Project>",
+        encoding="utf-8",
+    )
+    versions = checker.central_package_versions(props)
+
+    dependencies = checker.package_dependencies("VMx", versions)
+
+    assert dependencies["net8.0"] == [("System.Reactive", "7.0.1")]
+    assert ("System.Text.Json", "10.0.15") in dependencies[".NETStandard2.0"]
+    assert ("System.Collections.Immutable", "<not pinned>") in dependencies[".NETStandard2.0"]
+    _write_packages(
+        tmp_path, "VMx", "3.20.0", framework_dependencies=checker.package_dependencies("VMx")
+    )
+    errors = checker.validate_package_pair(
+        tmp_path, "VMx", "3.20.0", None, central_versions=versions
+    )
+    assert any("net8.0 dependencies must be exactly" in error for error in errors)
 
 
 def test_main_packages_include_legal_texts_but_symbol_packages_do_not() -> None:

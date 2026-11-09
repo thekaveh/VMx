@@ -131,26 +131,46 @@ def test_contract_ledger_matches_python_reactivex_locks() -> None:
         assert match, f"{path}: missing reactivex package"
         versions.add(match.group(1))
 
-    assert versions == {"5.1.0"}
-    assert "committed locks resolve stable `5.1.0`" in ledger
+    # One stable 5.x release in every lock; the ledger names the line, not the
+    # patch, so a lock-only update needs no ledger edit (#1363).
+    assert len(versions) == 1, versions
+    assert versions.pop().split(".")[0] == "5"
+    assert "committed locks resolve one stable 5.x release" in ledger
+
+
+JSDOM_MANIFESTS = (
+    "langs/typescript/package.json",
+    "packages/react/package.json",
+    "examples/typescript/react/notes-showcase/package.json",
+)
+
+
+def test_jsdom_hold_stays_below_30() -> None:
+    # Hold: jsdom 30.0.0 drops Node 20 (contract ledger section 2). A patch or
+    # minor update inside 29.x needs no edit here (#1363).
+    config = (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
+    for relative in JSDOM_MANIFESTS:
+        manifest = (ROOT / relative).read_text(encoding="utf-8")
+        version = re.search(r'"jsdom": "\^?(\d+)\.\d+\.\d+"', manifest)
+        assert version, f"{relative} must pin jsdom"
+        assert version.group(1) == "29", (
+            f"hold: jsdom stays below 30.0.0 until the Node floor rises (contract ledger "
+            f"section 2); {relative} has jsdom {version.group(0)}"
+        )
+    assert re.search(r'dependency-name: jsdom\n\s+versions: \[">=30\.0\.0"\]', config), (
+        "hold: .github/dependabot.yml must ignore jsdom >=30.0.0"
+    )
 
 
 def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
-    requirements = (ROOT / "docs/requirements.txt").read_text(encoding="utf-8")
     ledger = (ROOT / "docs/maintenance/2026-07-01-contract-ledger.md").read_text(encoding="utf-8")
-    for package, label in (("mkdocs-material", "MkDocs Material"), ("ruff", "Ruff")):
-        version = re.search(rf"^{re.escape(package)}==([^ ]+)", requirements, re.MULTILINE)
-        assert version
-        assert f"{label} is `{version.group(1)}`" in ledger
-
-    typescript_package = (ROOT / "langs/typescript/package.json").read_text(encoding="utf-8")
-    react_package = (ROOT / "examples/typescript/react/notes-showcase/package.json").read_text(
-        encoding="utf-8"
-    )
-    assert '"jsdom": "^29.1.1"' in typescript_package
-    assert '"jsdom": "^29.1.1"' in react_package
-    assert "jsdom `29.1.1`" in ledger
-    assert "TypeScript is `6.0.3`" in ledger
+    normalized = " ".join(ledger.split())
+    # The docs versions live only in the hash-locked requirements file (#1363).
+    assert "are the hash-locked pins in `docs/requirements.txt`" in normalized
+    for label in ("MkDocs Material", "Ruff", "pytest", "pip-audit"):
+        assert re.search(rf"{label} is `\d", ledger) is None, label
+    assert "jsdom 29.x is the reviewed DOM runtime" in ledger
+    assert "TypeScript stays on the 6.0.x line" in ledger
     assert "TypeScript 7 remains outside that public contract" in ledger
     assert "jsdom `30.0.0` drops Node 20" in ledger
     for engine_range in ("^22.22.2", "^24.15.0", ">=26.0.0"):

@@ -22,26 +22,48 @@ FRAMEWORKS = {"net8.0", ".NETStandard2.0"}
 _CORE_PROPERTIES = re.compile(
     r"^package/services/metadata/core-properties/(?:[0-9a-f]+|nuget)\.psmdcp$"
 )
-_CORE_DEPENDENCIES = {
-    "net8.0": [("System.Reactive", "7.0.0")],
+CENTRAL_PACKAGES = REPO_ROOT / "langs" / "csharp" / "Directory.Packages.props"
+# The dependency IDs of each framework group are the packaging contract. Their
+# versions come from the central package file, so a Dependabot version update
+# there needs no edit here (#1363).
+_CORE_DEPENDENCY_IDS = {
+    "net8.0": ["System.Reactive"],
     ".NETStandard2.0": [
-        ("Microsoft.Bcl.AsyncInterfaces", "10.0.14"),
-        ("System.Collections.Immutable", "10.0.14"),
-        ("System.Reactive", "7.0.0"),
-        ("System.Text.Json", "10.0.14"),
+        "Microsoft.Bcl.AsyncInterfaces",
+        "System.Collections.Immutable",
+        "System.Reactive",
+        "System.Text.Json",
     ],
 }
-_PACKAGE_DEPENDENCIES = {
-    "VMx": _CORE_DEPENDENCIES,
-    "VMx.Notifications": _CORE_DEPENDENCIES,
+_PACKAGE_DEPENDENCY_IDS = {
+    "VMx": _CORE_DEPENDENCY_IDS,
+    "VMx.Notifications": _CORE_DEPENDENCY_IDS,
     "VMx.Extensions.DependencyInjection": {
-        framework: [
-            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.14"),
-            *dependencies,
-        ]
-        for framework, dependencies in _CORE_DEPENDENCIES.items()
+        framework: ["Microsoft.Extensions.DependencyInjection.Abstractions", *ids]
+        for framework, ids in _CORE_DEPENDENCY_IDS.items()
     },
 }
+
+
+def central_package_versions(props: Path = CENTRAL_PACKAGES) -> dict[str, str]:
+    """Return the PackageVersion pins of a Directory.Packages.props file."""
+    root = ET.parse(props).getroot()
+    return {
+        item.get("Include", ""): item.get("Version", "")
+        for item in root.iter()
+        if item.tag.rpartition("}")[2] == "PackageVersion"
+    }
+
+
+def package_dependencies(
+    package_id: str, versions: dict[str, str] | None = None
+) -> dict[str, list[tuple[str, str]]]:
+    """Return the expected (ID, version) dependencies of each framework group."""
+    versions = central_package_versions() if versions is None else versions
+    return {
+        framework: [(dependency, versions.get(dependency, "<not pinned>")) for dependency in ids]
+        for framework, ids in _PACKAGE_DEPENDENCY_IDS.get(package_id, {}).items()
+    }
 
 
 # A .nupkg carries none of the repository's files, so every README link and
@@ -557,6 +579,7 @@ def _validate_nuspec(
     vmx_floor: str | None,
     *,
     symbols: bool,
+    dependencies_by_framework: dict[str, list[tuple[str, str]]],
 ) -> list[str]:
     root = ET.fromstring(data)
     metadata = root.find("{*}metadata")
@@ -595,7 +618,7 @@ def _validate_nuspec(
         framework = group.get("targetFramework", "")
         expected_dependencies = [
             *([] if vmx_floor is None else [("VMx", vmx_floor)]),
-            *_PACKAGE_DEPENDENCIES.get(package_id, {}).get(framework, []),
+            *dependencies_by_framework.get(framework, []),
         ]
         if sorted(dependencies) != sorted(expected_dependencies):
             errors.append(
@@ -612,9 +635,15 @@ def validate_package_pair(
     vmx_floor: str | None,
     *,
     repo_root: Path = REPO_ROOT,
+    central_versions: dict[str, str] | None = None,
 ) -> list[str]:
-    """Return contract errors for one main/symbol package pair."""
+    """Return contract errors for one main/symbol package pair.
+
+    Dependency versions come from central_versions, by default the pins in
+    langs/csharp/Directory.Packages.props.
+    """
     errors: list[str] = []
+    dependencies_by_framework = package_dependencies(package_id, central_versions)
     for symbols, suffix in ((False, "nupkg"), (True, "snupkg")):
         archive = package_dir / f"{package_id}.{version}.{suffix}"
         if not archive.is_file():
@@ -661,6 +690,7 @@ def validate_package_pair(
                         version,
                         vmx_floor,
                         symbols=symbols,
+                        dependencies_by_framework=dependencies_by_framework,
                     ):
                         errors.append(f"{archive.name}: {error}")
         except (BadZipFile, ET.ParseError) as error:
@@ -694,7 +724,14 @@ def main(argv: list[str] | None = None) -> int:
         default=REPO_ROOT,
         help="checked-out tree that README URLs into the main branch must resolve against",
     )
+    parser.add_argument(
+        "--central-packages",
+        type=Path,
+        default=CENTRAL_PACKAGES,
+        help="Directory.Packages.props that sets the expected dependency versions",
+    )
     args = parser.parse_args(argv)
+    central_versions = central_package_versions(args.central_packages)
     expected = discover_expected(args.project_root)
     if not expected:
         print(
@@ -706,7 +743,12 @@ def main(argv: list[str] | None = None) -> int:
         error
         for package_id, (version, vmx_floor) in expected.items()
         for error in validate_package_pair(
-            args.package_dir, package_id, version, vmx_floor, repo_root=args.repo_root
+            args.package_dir,
+            package_id,
+            version,
+            vmx_floor,
+            repo_root=args.repo_root,
+            central_versions=central_versions,
         )
     ]
     if errors:
