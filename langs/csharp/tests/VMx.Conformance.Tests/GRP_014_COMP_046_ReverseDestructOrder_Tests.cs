@@ -233,10 +233,11 @@ public class GRP_014_COMP_046_ReverseDestructOrder_Tests
         /// </summary>
         public void RunUntil(Func<bool> done)
         {
-            var deadline = DateTime.UtcNow + HangGuard;
+            // A monotonic clock: a wall-clock step cannot move the deadline.
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
             while (!done())
             {
-                if (DateTime.UtcNow > deadline) throw new TimeoutException("the condition did not hold");
+                if (elapsed.Elapsed > HangGuard) throw new TimeoutException("the condition did not hold");
                 RunPending();
                 Thread.Sleep(1);
             }
