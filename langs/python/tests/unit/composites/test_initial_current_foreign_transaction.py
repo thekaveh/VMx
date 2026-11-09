@@ -685,11 +685,11 @@ def test_replacement_keeps_a_selection_that_commits_before_the_clear() -> None:
         assert not selector.is_alive(), "the selection commits before the probe returns"
         assert root.current is b
 
-    root.detach_probe_for_testing = probe
+    root._detach_probe_for_testing = probe
 
     root[0] = replacement
 
-    root.detach_probe_for_testing = None
+    root._detach_probe_for_testing = None
     assert probed == [a]
     assert errors == []
     assert list(root.snapshot()) == [replacement, b]
