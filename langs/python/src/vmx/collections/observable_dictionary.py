@@ -484,15 +484,14 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         # The hub message reads the entry's position when it is sent, as an Add
         # does: a local subscriber may have moved or removed it (ADR-0193).
         def publish() -> None:
-            if self._hub is not None:
-                self._hub.send(
-                    CollectionChangedMessage.for_replace(
-                        self,
-                        (key1, key2, new_value),
-                        (key1, key2, old_value),
-                        self._index_of(key1, key2),
-                    )
+            self._publish_to_hub(
+                CollectionChangedMessage.for_replace(
+                    self,
+                    (key1, key2, new_value),
+                    (key1, key2, old_value),
+                    self._index_of(key1, key2),
                 )
+            )
 
         # Local granular event first, then the hub (ADR-0171).
         deliver_then_publish(

@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { ObservableDictionary } from "../../src/collections/observableDictionary.js";
-import type { ObservableList } from "../../src/collections/observableList.js";
+import type { ReadOnlyObservableList } from "../../src/collections/readOnlyObservableList.js";
 import { MessageHub } from "../../src/services/messageHub.js";
 
 describe("COL-071", () => {
@@ -21,7 +21,7 @@ describe("COL-071", () => {
     dictionary.itemRemoved.subscribe(() => events.push("removed"));
     dictionary.itemReplaced.subscribe(() => events.push("replaced"));
     dictionary.reset.subscribe(() => events.push("reset"));
-    const watch = <T>(channel: string, view: ObservableList<T>): void => {
+    const watch = <T>(channel: string, view: ReadOnlyObservableList<T>): void => {
       view.itemAdded.subscribe(() => events.push(channel));
       view.itemRemoved.subscribe(() => events.push(channel));
       view.reset.subscribe(() => events.push(channel));
