@@ -623,6 +623,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         if self._dispose_requested or self._dispose_deferred:
             raise RuntimeError("cannot attach a child while the container is disposing")
 
+    def _disposal_pending_locked(self) -> bool:
+        return self._dispose_requested or self._dispose_deferred
+
     def _begin_membership_transaction(self) -> None:
         with self._membership_gate:
             self._begin_membership_transaction_locked()

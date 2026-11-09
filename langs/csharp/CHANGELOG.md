@@ -14,6 +14,21 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [3.30.0] — unreleased source version
 
+- Fixed: a disposed `HierarchicalVM` node now refuses `AddChild`,
+  `RemoveChild`, `ReparentChild`, `InvalidateChildren`, `InvalidateSubtree`
+  and `AttachMany`, also where the call would do nothing (ADR-0190, spec/18
+  §7.1, #1318). A transfer out of a disposed parent refuses too. A refused
+  call changes nothing and publishes nothing. `AttachMany` rejects a candidate
+  under a disposed parent, and `InvalidateSubtree` skips a disposed
+  descendant. A refused call throws `ObjectDisposedException`.
+
+- Fixed: a `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage`
+  once its disposal is requested, also when the disposal is deferred
+  (ADR-0190, spec/01 §1.4, #1351). A local subscriber or `OnCurrentChanged`
+  callback that disposes the container now suppresses the hub message of that
+  change. In a transfer whose old container disposes itself, the hub receives
+  only the new container's `Add`.
+
 - Fixed: a current `AsyncResourceVM` loader that ends with its own
   cancellation now restores the saved stable state, as `Cancel` does, instead
   of installing `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The

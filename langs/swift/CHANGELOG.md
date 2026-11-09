@@ -17,6 +17,8 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `HierarchyError.disposed` (ADR-0190, #1318). An exhaustive `switch` over
+  `HierarchyError` must now handle `.disposed`.
 - `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
   cancellation restores the saved stable state. Swift already behaved this
   way.
@@ -107,6 +109,23 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `try` at each call site, and handle or propagate the error.
 
 ### Fixed
+
+- A disposed `HierarchicalVM` node now refuses `addChild`, `removeChild`,
+  `reparentChild`, `invalidateChildren`, `invalidateSubtree` and
+  `attachMany`, also where the call would do nothing (ADR-0190, spec/18 §7.1,
+  #1318). A transfer out of a disposed parent refuses too. A refused call
+  changes nothing and publishes nothing. `attachMany` rejects a candidate
+  under a disposed parent, and `invalidateSubtree` skips a disposed
+  descendant. A refused call reports `HierarchyError.disposed`;
+  `attachMany` rejects every item and the invalidation methods return without
+  a change.
+
+- A `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage` once
+  its disposal is requested, also when the disposal is deferred (ADR-0190,
+  spec/01 §1.4, #1351). A local subscriber or `onCurrentChanged` callback
+  that disposes the container now suppresses the hub message of that change.
+  In a transfer whose old container disposes itself, the hub receives only
+  the new container's `Add`.
 
 - Disposing the current child of a composite now clears the composite's
   `current` before `dispose()` returns (ADR-0189, #1317). The composite
