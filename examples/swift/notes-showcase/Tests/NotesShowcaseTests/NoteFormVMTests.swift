@@ -621,6 +621,12 @@ final class NoteFormVMTests: XCTestCase {
             dispatcher.flushForeground()
             try? await Task.sleep(nanoseconds: 1_000_000)
         }
+        // Fail here, not in a hang, when the approval never finished.
+        XCTAssertFalse(finished.titles.isEmpty, "the approval finished on the deferred foreground")
+        guard !finished.titles.isEmpty else {
+            save.cancel()
+            return
+        }
         try await save.value
         XCTAssertEqual("Renamed", form.title)
     }
