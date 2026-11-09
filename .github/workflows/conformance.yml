@@ -87,6 +87,14 @@ jobs:
         # a different line-length and disagree with the format committed here).
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff format --check --config langs/python/pyproject.toml tools/
 
+      - name: Ruff lint and format check starters/python-console/
+        # The starter is its own project: `notes_app` is first-party and the
+        # published `vmx` is third-party (#1403). The tools tests below then
+        # confirm that the template folder still matches its allowlist.
+        run: |
+          uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff check --config langs/python/pyproject.toml --config "lint.isort.known-first-party = ['notes_app']" --config "lint.isort.known-third-party = ['vmx']" starters/python-console/
+          uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff format --check --config langs/python/pyproject.toml starters/python-console/
+
       - name: Run tool's own unit tests
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m pytest tools/tests/ -v
 
