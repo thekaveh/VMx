@@ -16,6 +16,8 @@ Maintainers keep these files current.
   it as chapter 12.
 - [Open cross-flavor decisions](2026-10-18-open-cross-flavor-decisions.md):
   known flavor differences and spec gaps that wait for an owner decision.
+- [Dependency lock regeneration](2026-11-09-dependency-lock-regeneration.md):
+  the regeneration command of each lock file and the CI check that names it.
 
 ## 2. Historical records
 

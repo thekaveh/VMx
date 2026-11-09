@@ -1,5 +1,6 @@
 """Contract tests for reproducible Python conformance and release jobs."""
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -47,7 +48,8 @@ def test_python_release_smokes_local_wheel_before_publish() -> None:
     download_index = publish_job.index("name: python-dist-${{ github.run_id }}")
     publish_index = publish_job.index("pypa/gh-action-pypi-publish@")
     assert download_index < publish_index
-    assert "pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086" in publish_job
+    # The action name and a full commit SHA, not one literal SHA (#1363).
+    assert re.search(r"pypa/gh-action-pypi-publish@[0-9a-f]{40}\b", publish_job)
     assert "      id-token: write\n" not in build_job
     assert "      id-token: write\n" in publish_job
 

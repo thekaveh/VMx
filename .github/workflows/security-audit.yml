@@ -155,10 +155,16 @@ jobs:
             8.0.x
             9.0.x
             10.0.x
-      - run: >
-          dotnet restore langs/csharp/VMx.sln --locked-mode
-          -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low
-          "-warnaserror:NU1901;NU1902;NU1903;NU1904"
+      - name: Restore with the NuGet audit
+        # NU1901-NU1904 name a vulnerable package. NU1004 names a lock file
+        # that differs from the project graph (#1361).
+        run: |
+          dotnet restore langs/csharp/VMx.sln --locked-mode \
+            -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low \
+            "-warnaserror:NU1901;NU1902;NU1903;NU1904" || {
+            echo "::error::The locked restore or the NuGet audit failed. For NU1901-NU1904, update the vulnerable package. For NU1004, a packages.lock.json differs from the project graph. Regenerate it with: dotnet restore langs/csharp/VMx.sln --force-evaluate (see docs/maintenance/2026-11-09-dependency-lock-regeneration.md)."
+            exit 1
+          }
       - run: >
           dotnet restore examples/csharp/Examples.sln -p:EnableWindowsTargeting=true
           -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low

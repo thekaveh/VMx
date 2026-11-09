@@ -17,6 +17,9 @@ on:
       - "langs/python/src/vmx/lifecycle/_data/**"
       - "langs/swift/Sources/VMx/Resources/**"
       - "langs/python/pyproject.toml"
+      # Inputs of the dependency-lock step; docs/** covers the docs lock.
+      - "**/uv.lock"
+      - "examples/**/pyproject.toml"
       # Inputs of the version-consistency step.
       - "compatibility-matrix.md"
       - "langs/*/CHANGELOG.md"
@@ -87,8 +90,21 @@ jobs:
         # a different line-length and disagree with the format committed here).
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff format --check --config langs/python/pyproject.toml tools/
 
+      - name: Ruff lint and format check starters/python-console/
+        # The starter is its own project: `notes_app` is first-party and the
+        # published `vmx` is third-party (#1403). The tools tests below then
+        # confirm that the template folder still matches its allowlist.
+        run: |
+          uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff check --config langs/python/pyproject.toml --config "lint.isort.known-first-party = ['notes_app']" --config "lint.isort.known-third-party = ['vmx']" starters/python-console/
+          uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff format --check --config langs/python/pyproject.toml starters/python-console/
+
       - name: Run tool's own unit tests
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m pytest tools/tests/ -v
+
+      - name: Check uv and docs locks against their regeneration commands
+        # Dependabot can write a uv lock with a newer uv, or drop pins from the
+        # docs lock (#1361). The setup-uv step above pins the uv that runs here.
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-dependency-locks.py
 
       - name: Check version consistency
         # Verifies that spec/VERSION, all flavor manifests, and compatibility-matrix.md

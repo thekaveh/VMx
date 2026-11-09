@@ -165,6 +165,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `npm run typecheck` and `npm run typecheck:tests` now copy the spec
+  fixtures first through `pretypecheck` and `pretypecheck:tests` scripts
+  (#1402). Both commands now pass after `npm ci` in a fresh clone, and they
+  read the current spec fixtures after a fixture edit.
+
 - `NotificationVM` and `ConfirmationVM` keep `remainingMs` and `opacity` from
   their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306). Before,
   both values kept decaying with the scheduler clock after resolution or

@@ -41,11 +41,12 @@ The composable has three rules:
 ## 9.9.3. Adapter skeleton
 
 The composable and component below are the exact files run by
-`examples/typescript/integration-recipes` against `vue` 3.5.44. The tests cover
-an in-place mutation announced with `republishModel()`, replacement and scalar
-updates, one synchronous watcher run per message, proxied view-models, a
-change announced before the first mount, unrelated messages, unmount and
-effect-scope cleanup, and a server render.
+`examples/typescript/integration-recipes` against `vue` 3, the major version of
+the exact pin in the fixture's `package.json`. The tests cover an in-place
+mutation announced with `republishModel()`, replacement and scalar updates, one
+synchronous watcher run per message, proxied view-models, a change announced
+before the first mount, unrelated messages, unmount and effect-scope cleanup,
+and a server render.
 
 <!-- checked-snippet: examples/typescript/integration-recipes/src/vue/composables/useVm.ts -->
 
