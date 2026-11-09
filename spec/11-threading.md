@@ -206,6 +206,16 @@ tasks preserve hook and child-cascade failures per ADR-0109. Equivalent async
 lifecycle entry points remain deliberately absent from the other flavors under
 ADR-0008/ADR-0009 rather than an active parity requirement.
 
+A child walk that waits on a background child does not keep running on the
+thread that settles the child. When a walk waited, for a child to settle or
+for an add's start attempt, and did not continue at once, it continues on the
+walking VM's own `IDispatcher.Foreground` (chapter 02 §6, ADR-0218). Later
+sibling starts, `Current` and `IsCurrent` changes, consumer callbacks and the
+terminal publication then run on that VM's foreground, also when the child
+uses another dispatcher. A walk whose waits all end at once runs on the
+calling thread to its end. TypeScript has one thread, so the rule holds there
+without a hop.
+
 ## 5. Null variant — `NullDispatcher` (spec v2.0)
 
 Every service contract in VMx has a **null-object** variant per ADR-0017. For
