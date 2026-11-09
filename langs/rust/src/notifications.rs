@@ -1,6 +1,7 @@
 //! Notification values, pending waiters, and resolution hubs.
 //!
-//! Spec: `spec/16-notifications.md`; ADR-0031.
+//! Spec: `spec/16-notifications.md`; ADR-0031. The `notifications` Cargo
+//! feature, on by default, compiles this module (ADR-0211).
 
 use super::{
     catch_unwind, lock, thread, wait, Arc, AssertUnwindSafe, AsyncValue, AtomicU64, Condvar,
@@ -87,7 +88,6 @@ struct NotificationHubState {
     /// Notifications removed by `resolve`, with any reaction (NOTIF-015).
     resolved: HashSet<u64>,
     completions: HashMap<u64, AsyncValue<NotificationReaction>>,
-    pending_snapshots: Vec<Vec<Notification>>,
     pending_publications: VecDeque<PendingPublication>,
     publishing_owner: Option<ThreadId>,
     dispose_completion: Option<Arc<PendingPublicationCompletion>>,
@@ -128,8 +128,54 @@ struct PendingPublicationAdmission {
     reentrant: bool,
 }
 
+/// The post, resolve and pending-list operations of a notification hub
+/// (spec/16 §2, ADR-0211).
+///
+/// [`NotificationHub`] and [`NullNotificationHub`] implement it, so a caller
+/// such as [`make_confirm`] accepts either one. Each implementer also has
+/// inherent methods with the same names, so a call on a concrete hub does not
+/// need this trait in scope.
+pub trait NotificationHubApi: Send + Sync {
+    /// Posts `notification` and returns the waiter for its reaction.
+    fn post_notification(&self, notification: Notification) -> NotificationWaiter;
+
+    /// Resolves the pending notification `notification_id` with `reaction`.
+    ///
+    /// Resolving a notification that is not pending has no effect.
+    fn resolve(&self, notification_id: u64, reaction: NotificationReaction);
+
+    /// Returns a snapshot of the pending notifications, in post order.
+    fn pending(&self) -> Vec<Notification>;
+
+    /// Returns the replaying stream of committed pending snapshots.
+    fn pending_stream(&self) -> ValueStream<Vec<Notification>>;
+}
+
+impl<H: NotificationHubApi + ?Sized> NotificationHubApi for Arc<H> {
+    fn post_notification(&self, notification: Notification) -> NotificationWaiter {
+        (**self).post_notification(notification)
+    }
+
+    fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
+        (**self).resolve(notification_id, reaction);
+    }
+
+    fn pending(&self) -> Vec<Notification> {
+        (**self).pending()
+    }
+
+    fn pending_stream(&self) -> ValueStream<Vec<Notification>> {
+        (**self).pending_stream()
+    }
+}
+
 #[derive(Clone)]
 /// Concurrent notification queue with pending snapshots and first-wins resolution.
+///
+/// The hub keeps the current pending list, the open waiters and the queue of
+/// undelivered snapshots. It keeps no history of delivered snapshots
+/// (ADR-0211). Subscribe to [`pending_stream`](Self::pending_stream) to
+/// observe each committed snapshot.
 pub struct NotificationHub {
     state: Arc<Mutex<NotificationHubState>>,
     pending_changed: MessageHub,
@@ -251,9 +297,17 @@ impl NotificationHub {
         self.pending_stream.clone()
     }
 
-    /// Returns the history of committed pending snapshots.
+    /// Returns an empty list. The hub keeps no snapshot history (ADR-0211).
+    ///
+    /// Migration: subscribe to [`pending_stream`](Self::pending_stream)
+    /// before the posts and resolutions to observe, and collect the values.
+    /// The first value is the snapshot that is current at subscription.
+    #[deprecated(
+        since = "0.36.0",
+        note = "the hub keeps no snapshot history, so this is always empty; subscribe to `pending_stream()`"
+    )]
     pub fn pending_snapshots(&self) -> Vec<Vec<Notification>> {
-        lock(&self.state).pending_snapshots.clone()
+        Vec::new()
     }
 
     /// Returns a pending or terminal reaction for `notification_id`.
@@ -310,7 +364,6 @@ impl NotificationHub {
     ) -> PendingPublicationAdmission {
         let current = thread::current().id();
         let completion = Arc::new(PendingPublicationCompletion::default());
-        state.pending_snapshots.push(snapshot.clone());
         state.pending_publications.push_back(PendingPublication {
             snapshot,
             completions,
@@ -367,49 +420,110 @@ impl NotificationHub {
     }
 }
 
-/// Null notification hub that returns safe immediate approvals.
+impl NotificationHubApi for NotificationHub {
+    fn post_notification(&self, notification: Notification) -> NotificationWaiter {
+        NotificationHub::post_notification(self, notification)
+    }
+
+    fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
+        NotificationHub::resolve(self, notification_id, reaction);
+    }
+
+    fn pending(&self) -> Vec<Notification> {
+        NotificationHub::pending(self)
+    }
+
+    fn pending_stream(&self) -> ValueStream<Vec<Notification>> {
+        NotificationHub::pending_stream(self)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Null notification hub that returns safe immediate approvals (spec/16 §3).
+///
+/// It keeps no notification. A post returns an approved waiter at once,
+/// `resolve` has no effect, and the pending list is always empty. It
+/// implements [`NotificationHubApi`], so it can replace a [`NotificationHub`]
+/// wherever a caller accepts that trait.
 pub struct NullNotificationHub;
 
 impl NullNotificationHub {
-    /// Returns an empty replaying stream that completes immediately.
-    pub fn pending_stream() -> ValueStream<Vec<Notification>> {
-        let pending = ValueStream::new(Vec::new());
-        pending.dispose();
-        pending
+    /// Creates a null notification hub.
+    pub fn new() -> Self {
+        Self
     }
 
     /// Returns an immediately approved waiter without retaining the notification.
-    pub fn post(_notification: Notification) -> NotificationWaiter {
+    pub fn post_notification(&self, _notification: Notification) -> NotificationWaiter {
         NotificationWaiter {
             completion: AsyncValue::ready(NotificationReaction::Approve),
         }
     }
 
+    /// Creates a notification and returns it. Nothing retains it.
+    pub fn post(&self, kind: NotificationType, message: impl Into<String>) -> Notification {
+        Notification::new(kind, message)
+    }
+
     /// Creates a notification and returns it with an immediately approved waiter.
-    pub fn post_message(message: impl Into<String>) -> (Notification, NotificationWaiter) {
-        let notification = Notification {
-            id: 0,
-            kind: NotificationType::Notification,
-            message: message.into(),
-        };
-        (
-            notification,
-            NotificationWaiter {
-                completion: AsyncValue::ready(NotificationReaction::Approve),
-            },
-        )
+    pub fn post_with_waiter(
+        &self,
+        kind: NotificationType,
+        message: impl Into<String>,
+    ) -> (Notification, NotificationWaiter) {
+        let notification = Notification::new(kind, message);
+        let waiter = self.post_notification(notification.clone());
+        (notification, waiter)
+    }
+
+    /// Has no effect: the null hub has no pending notification.
+    pub fn resolve(&self, _notification_id: u64, _reaction: NotificationReaction) {}
+
+    /// Returns an empty list.
+    pub fn pending(&self) -> Vec<Notification> {
+        Vec::new()
+    }
+
+    /// Returns a stream that replays the empty list once and completes.
+    pub fn pending_stream(&self) -> ValueStream<Vec<Notification>> {
+        let pending = ValueStream::new(Vec::new());
+        pending.dispose();
+        pending
+    }
+}
+
+impl NotificationHubApi for NullNotificationHub {
+    fn post_notification(&self, notification: Notification) -> NotificationWaiter {
+        NullNotificationHub::post_notification(self, notification)
+    }
+
+    fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
+        NullNotificationHub::resolve(self, notification_id, reaction);
+    }
+
+    fn pending(&self) -> Vec<Notification> {
+        NullNotificationHub::pending(self)
+    }
+
+    fn pending_stream(&self) -> ValueStream<Vec<Notification>> {
+        NullNotificationHub::pending_stream(self)
     }
 }
 
 /// Creates a cloneable confirmation predicate backed by `hub` and `prompt`.
-pub fn make_confirm(
-    hub: NotificationHub,
-    prompt: impl Into<String>,
-) -> impl Fn() -> AsyncValue<bool> + Clone {
+///
+/// `hub` is any [`NotificationHubApi`] implementer, such as a
+/// [`NotificationHub`], a [`NullNotificationHub`] or an
+/// `Arc<dyn NotificationHubApi>`. Each call posts a confirmation and completes
+/// with `true` only for [`NotificationReaction::Approve`].
+pub fn make_confirm<H>(hub: H, prompt: impl Into<String>) -> impl Fn() -> AsyncValue<bool> + Clone
+where
+    H: NotificationHubApi + Clone + 'static,
+{
     let prompt = Arc::new(prompt.into());
     move || {
-        let (_, waiter) = hub.post_with_waiter(NotificationType::Confirmation, (*prompt).clone());
-        waiter
+        let notification = Notification::new(NotificationType::Confirmation, (*prompt).clone());
+        hub.post_notification(notification)
             .completion
             .map(|reaction| reaction == NotificationReaction::Approve)
     }
@@ -449,5 +563,115 @@ mod blocking_wait_tests {
             result.expect("waiter worker panicked"),
             NotificationReaction::Reject
         );
+    }
+}
+
+#[cfg(test)]
+mod hub_api_tests {
+    use super::*;
+
+    type Snapshots = Arc<Mutex<Vec<Vec<Notification>>>>;
+
+    /// Subscribes to `stream` and returns the values and completions that
+    /// the subscription saw before it was dropped.
+    fn pending_values(stream: &ValueStream<Vec<Notification>>) -> (Snapshots, Arc<Mutex<usize>>) {
+        let values = Arc::new(Mutex::new(Vec::new()));
+        let completions = Arc::new(Mutex::new(0));
+        let seen = values.clone();
+        let completed = completions.clone();
+        let _subscription = stream.subscribe_with_completion(
+            move |pending| lock(&seen).push(pending),
+            move || *lock(&completed) += 1,
+        );
+        (values, completions)
+    }
+
+    #[test]
+    fn null_hub_resolve_has_no_effect_and_pending_stays_empty() {
+        let hub = NullNotificationHub::new();
+        let (notification, waiter) = hub.post_with_waiter(NotificationType::Confirmation, "ok?");
+
+        hub.resolve(notification.id, NotificationReaction::Reject);
+
+        assert_eq!(waiter.try_get(), Some(NotificationReaction::Approve));
+        assert!(hub.pending().is_empty());
+        let (values, completions) = pending_values(&hub.pending_stream());
+        assert_eq!(*lock(&values), vec![Vec::<Notification>::new()]);
+        assert_eq!(*lock(&completions), 1);
+    }
+
+    #[test]
+    fn hub_api_trait_objects_dispatch_to_either_hub() {
+        let hubs: [Arc<dyn NotificationHubApi>; 2] = [
+            Arc::new(NotificationHub::new()),
+            Arc::new(NullNotificationHub),
+        ];
+        for hub in hubs {
+            let notification = Notification::new(NotificationType::Notification, "info");
+            let waiter = hub.post_notification(notification.clone());
+            hub.resolve(notification.id, NotificationReaction::Approve);
+
+            assert_eq!(waiter.wait(), NotificationReaction::Approve);
+            assert!(hub.pending().is_empty());
+        }
+    }
+
+    #[test]
+    fn make_confirm_over_a_null_hub_completes_true() {
+        let confirm = make_confirm(NullNotificationHub, "ok?");
+
+        assert!(confirm().wait());
+        assert!(confirm().wait());
+    }
+
+    #[test]
+    fn make_confirm_accepts_a_shared_trait_object() {
+        let hub = NotificationHub::new();
+        let shared: Arc<dyn NotificationHubApi> = Arc::new(hub.clone());
+        let confirm = make_confirm(shared, "ok?");
+        let decision = confirm();
+        let posted = hub.pending();
+        assert_eq!(posted.len(), 1);
+        assert_eq!(posted[0].kind, NotificationType::Confirmation);
+
+        hub.resolve(posted[0].id, NotificationReaction::Reject);
+
+        assert!(!decision.wait());
+    }
+
+    #[test]
+    fn post_and_resolve_traffic_retains_no_snapshot_history() {
+        let hub = NotificationHub::new();
+        let kept = hub.post(NotificationType::Notification, "kept");
+
+        for _ in 0..100_000 {
+            let transient = hub.post(NotificationType::Notification, "transient");
+            hub.resolve(transient.id, NotificationReaction::Approve);
+        }
+
+        assert_eq!(hub.pending(), vec![kept.clone()]);
+        assert!(lock(&hub.state).pending_publications.is_empty());
+        #[allow(deprecated)]
+        let snapshots = hub.pending_snapshots();
+        assert!(snapshots.is_empty());
+        // The stream keeps only the current snapshot, which it replays.
+        let (values, _) = pending_values(&hub.pending_stream());
+        assert_eq!(*lock(&values), vec![vec![kept]]);
+    }
+
+    #[test]
+    fn dispose_retains_no_snapshot() {
+        let hub = NotificationHub::new();
+        let first = hub.post(NotificationType::Notification, "first");
+        hub.post(NotificationType::Notification, "second");
+        hub.resolve(first.id, NotificationReaction::Reject);
+
+        hub.dispose();
+
+        assert!(hub.pending().is_empty());
+        assert!(lock(&hub.state).pending_publications.is_empty());
+        #[allow(deprecated)]
+        let snapshots = hub.pending_snapshots();
+        assert!(snapshots.is_empty());
     }
 }

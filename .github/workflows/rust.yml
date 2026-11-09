@@ -154,6 +154,15 @@ jobs:
         # does not export the test seams (#1294).
         run: cargo test --locked --manifest-path langs/rust/Cargo.toml
 
+      - name: Clippy without default features
+        # The core builds without the `notifications` feature (ADR-0211).
+        run: cargo clippy --locked --manifest-path langs/rust/Cargo.toml --no-default-features --all-targets -- -D warnings
+
+      - name: Test without default features
+        # The compile-fail doctests in src/lib.rs prove that this build does
+        # not export the notification types (ADR-0211, #1264).
+        run: cargo test --locked --manifest-path langs/rust/Cargo.toml --no-default-features
+
       - name: Documentation
         env:
           RUSTDOCFLAGS: -D warnings

@@ -4852,6 +4852,36 @@ impl<D: Dispatcher> ComponentCore<D> {
         finish_with_first_failure(first_failure)
     }
 
+    /// Disposes a container like [`Self::dispose_with_cascade_then`], with
+    /// its registered members (spec/02 §7.1) disposed after `children`, the
+    /// container's own child cascade (ADR-0179). The members are taken when
+    /// the disposal starts, so a member registered later is disposed by its
+    /// registration. The owner calls this once, behind its own disposal
+    /// guard.
+    pub(crate) fn dispose_container_then(
+        &self,
+        children: DisposalCascade,
+        terminal: impl FnOnce() + Send + 'static,
+    ) -> VmxResult<()> {
+        let members = self.begin_member_disposal().unwrap_or_default();
+        // The cascade can be stored on the core behind a running hook, so it
+        // holds the core weakly (#750).
+        let core = self.downgrade();
+        self.dispose_with_cascade_then(
+            Box::new(move || {
+                let mut first_failure = run_disposal_cascade(children);
+                for member in members {
+                    retain_first_failure(&mut first_failure, member);
+                }
+                if let Some(core) = core.upgrade() {
+                    core.finish_member_disposal();
+                }
+                first_failure
+            }),
+            terminal,
+        )
+    }
+
     fn finish_dispose(&self) -> VmxResult<()> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             self.transition(LifecycleOperation::Dispose)
