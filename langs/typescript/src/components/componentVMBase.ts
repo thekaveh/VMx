@@ -22,6 +22,7 @@ import { RelayCommand } from "../commands/relayCommand.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { isSchedulerCancelled } from "../services/cancelledSchedulers.js";
+import { reportUnhandled } from "../services/reportUnhandled.js";
 import { declareCapabilities } from "../capabilities/registry.js";
 import { disposeBestEffort } from "./disposal.js";
 
@@ -203,7 +204,8 @@ const activeSharedDrains = new WeakMap<SchedulerLike, BackgroundScheduling>();
  * Run `schedule` as the outermost drain of `scheduler` if none is active, then
  * throw the first failure of the flush. An error that leaves the flush, for
  * example from an action that VMx did not queue, is that first failure unless
- * a failure was recorded before it (#1052).
+ * a failure was recorded before it (#1052). Then that error is reported
+ * through `reportUnhandled` (ADR-0200 §2.3).
  */
 function drainBackground(scheduler: SchedulerLike | null, schedule: () => void): void {
   const scheduling: BackgroundScheduling = { failure: null, flushFailed: false };
@@ -217,7 +219,11 @@ function drainBackground(scheduler: SchedulerLike | null, schedule: () => void):
   } finally {
     if (outermost) activeSharedDrains.delete(scheduler);
   }
-  const failure = scheduling.failure ?? thrown;
+  const recorded = scheduling.failure;
+  if (recorded !== null && thrown !== null && thrown.error !== recorded.error) {
+    reportUnhandled(thrown.error);
+  }
+  const failure = recorded ?? thrown;
   if (failure !== null) throw failure.error;
 }
 
@@ -238,8 +244,8 @@ const recoveries = new WeakMap<SchedulerLike, Array<() => void>>();
  * rxjs calls this from the finalizer of the dropped action, while the flush
  * error is on its way to the caller. That error leaves the flush first, so a
  * failure of the recovered work is a later failure of the same flush. It is
- * dropped, as #1053 drops a later failure, and is never thrown from here: a
- * throw from a finalizer would replace the flush error.
+ * reported through `reportUnhandled` (ADR-0200 §2.3) and is never thrown from
+ * here: a throw from a finalizer would replace the flush error.
  */
 function recoverDropped(scheduler: SchedulerLike, run: () => void): void {
   const drain = activeSharedDrains.get(scheduler);
@@ -255,8 +261,9 @@ function recoverDropped(scheduler: SchedulerLike, run: () => void): void {
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
       try {
         next();
-      } catch {
+      } catch (error) {
         // A later failure of a failed flush (see above).
+        reportUnhandled(error);
       }
     }
   } finally {
@@ -296,9 +303,9 @@ function countedActionsOf(scheduler: SchedulerLike): CountedActions {
  * run and `scheduler` has not marked itself cancelled, the finalizer treats
  * the action as dropped and runs `work`, so the VM still settles (#1052).
  * VMx never unsubscribes these actions itself. A custom scheduler that cancels
- * queued work by unsubscribing it should therefore expect VMx lifecycle work
- * and asynchronous selection deliveries to run unless it is VMx's own
- * `ManualDispatcher`, which marks itself.
+ * queued work by unsubscribing it calls the public `markSchedulerCancelled`
+ * first, as `ManualDispatcher` does; otherwise VMx runs that work, including
+ * lifecycle work and asynchronous selection deliveries (ADR-0200).
  * `schedule` returns null when it cannot give the action's subscription, such
  * as for an override of `_scheduleForeground`.
  */
@@ -1526,13 +1533,18 @@ export abstract class ComponentVMBase {
     this.#throwAfterCountedActions(error);
   }
 
-  /** Record `error` on the active drain of this VM's shared scheduler, if any. */
+  /**
+   * Record `error` on the active drain of this VM's shared scheduler, if any.
+   * The drain keeps the first failure of its flush. It reports every later
+   * one through `reportUnhandled` (ADR-0200 §2.3).
+   */
   #recordOnActiveDrain(error: unknown): boolean {
     const shared = this.#sharedScheduler();
     const drain = shared === null ? undefined : activeSharedDrains.get(shared);
     if (drain === undefined) return false;
     // An error that already left the flush is its first failure (#1052).
-    if (!drain.flushFailed) drain.failure ??= { error };
+    if (drain.flushFailed || drain.failure !== null) reportUnhandled(error);
+    else drain.failure = { error };
     return true;
   }
 
@@ -1588,25 +1600,42 @@ export abstract class ComponentVMBase {
    * waiting. It clears the stale count and throws.
    *
    * Two such failures in one synchronous flush both wait. Only the error of
-   * the first throw to run leaves the flush. An active drain keeps the first
-   * recorded failure instead.
+   * the first throw to run leaves the flush. A throw that the scheduler
+   * unsubscribes before it runs, for example after that error, reports
+   * `error` through `reportUnhandled` instead (ADR-0200 §2.3). It does so even
+   * on a scheduler that marked itself cancelled: cancellation stops work, not
+   * reports. An active drain keeps the first recorded failure instead.
    */
   #throwAfterCountedActions(error: unknown): void {
     // During recovery, an error is already leaving the failed flush. This
-    // failure is a later one, so it is dropped (#1052).
-    if (recoveries.has(this.#dispatcher.foreground)) return;
+    // failure is a later one, so it is reported (#1052, ADR-0200 §2.3).
+    if (recoveries.has(this.#dispatcher.foreground)) {
+      reportUnhandled(error);
+      return;
+    }
     const counted = countedActionsOf(this.#dispatcher.foreground);
     let seen = counted.version;
-    const attempt = (): void => {
-      if (counted.pending > 0 && counted.version !== seen) {
-        seen = counted.version;
-        this._scheduleForeground(attempt);
-        return;
+    const schedule = (): void => {
+      let ran = false;
+      const attempt = (): void => {
+        ran = true;
+        if (counted.pending > 0 && counted.version !== seen) {
+          seen = counted.version;
+          schedule();
+          return;
+        }
+        counted.pending = 0;
+        throw error;
+      };
+      // A custom SchedulerLike can return an object without rxjs `add`.
+      const subscription: Partial<Subscription> | null = this.#scheduleForegroundTracked(attempt);
+      if (typeof subscription?.add === "function" && subscription.closed !== true) {
+        subscription.add(() => {
+          if (!ran) reportUnhandled(error);
+        });
       }
-      counted.pending = 0;
-      throw error;
     };
-    this._scheduleForeground(attempt);
+    schedule();
   }
 
   /** The scheduler that serves both channels, or null with separate schedulers. */
