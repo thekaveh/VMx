@@ -978,7 +978,8 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
                 try? h.batch {
                     h.send(msg("b1"))
                     h2.dispose()
-                    // Hold the borrowed scope until O waits for it, or 500 ms.
+                    // Hold the borrowed scope until O waits for it, or until
+                    // hangGuard elapses. O's accepted wait edge ends it early.
                     _ = oWaiting.wait(timeout: .now() + hangGuard)
                     borrowDone.value = true
                 }
