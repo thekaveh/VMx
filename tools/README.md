@@ -72,9 +72,20 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `swift-test-watchdog.py` — runs a SwiftPM test command and watches the
   `xctest` process that `swift test --parallel` starts for each case. A case
   that outlives `--per-test-timeout` is sampled, killed, and reported by name,
-  so a hang fails within minutes instead of at the job timeout. `--timeout`
-  bounds the whole command. The Swift `examples` job runs the NotesShowcase
-  tests through it.
+  so a hang fails within minutes instead of at the job timeout. For a
+  single-process `swift test`, it reads XCTest's `Test Case '...' started.`
+  lines instead, and kills the whole run when a case does not finish in time.
+  A `--parallel` command skips that output check, because SwiftPM replays a
+  crashed case's `started` line with no finish line after it. `--timeout`
+  bounds the whole command. The Swift `examples`, `coverage floor` and `thread
+  sanitizer` jobs run their tests through it.
+
+- `ci-retry.mjs` — runs a CI command up to three times, 20 s apart, and kills
+  each attempt after 240 s. With `--retry-on=npm-network` it retries only a
+  registry or network error, so an `npm audit` advisory fails after one
+  attempt. Every workflow `npm ci` and `npm audit` runs through it;
+  `tools/tests/test_ci_retry.py` checks that each retried step fits inside its
+  job timeout.
 
 - `select-csharp-release.py` — maps the three collision-free stable C# tag
   namespaces to exactly one package ID, verifies that package's project version,
