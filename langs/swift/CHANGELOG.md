@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The `COMP-042` and `GRP-012` tests now assert that each container message
+  carries the container's name (#1309, ADR-0194). Swift already behaved this
+  way.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -70,8 +73,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   change, and every child is still disposed before the container publishes
   `.disposed` (LIFE-013). The default, `.insertion`, keeps today's order.
 
+### Changed
+
+- **Source-breaking:** `ObservableDictionary.keys1` and `keys2` now return a
+  read-only `ReadOnlyObservableList<TKey>` (#1316, ADR-0193, `COL-070`). The
+  view reads and notifies as before, but it has no mutator and no batch
+  member. Before, it was the backing `ObservableList`, and a caller edit made
+  it disagree with the entries. Migration: change an `ObservableList<TKey>`
+  annotation on a key view to `ReadOnlyObservableList<TKey>`. Change keys
+  through the dictionary.
+
 ### Fixed
 
+- `ObservableDictionary` Remove and Replace hub messages now carry the entry's
+  position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets
+  `index` and `oldIndex` to the position before the removal, and `newIndex` to
+  -1. Replace sets all three to the entry's position. Before, both sent -1.
 - A `FormVM` approval started from a preparation callback or an
   `errorsChanged` sink of `setModel` or deny now starts its persister after
   the outermost update sends all queued notifications (ADR-0180, spec/20
