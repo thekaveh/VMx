@@ -313,8 +313,9 @@ cause on `main` through the normal PR flow, bump the package to a new patch
 version, and release it with a new tag.
 
 **Spec compatibility.** Each package declares the minimum spec version it
-implements. A spec major bump requires a major bump in every active flavor
-(`README.md` §6.1).
+implements. A spec major bump requires a major bump in every active flavor,
+and a flavor's own source-breaking change requires a flavor major bump even
+under a spec minor bump (`README.md` §6.1).
 
 **Tag prefixes.** Every operational tag prefix (`csharp-*`, `python-v`,
 `typescript-v`, `react-v`, `rust-v`, `swift-v`) selects only its own release
@@ -325,6 +326,25 @@ filters jobs by prefix, so one flavor's tag never publishes another package.
 publication. The compatibility matrix must distinguish source status from
 public package status. Release automation verifies exact tag/package agreement
 before upload.
+
+**CHANGELOG placement.** Record each change in the CHANGELOG section of the
+package's current source version. While that version is unreleased, its
+heading reads `## [X.Y.Z] — unreleased source version`, and `[Unreleased]`
+stays empty. A source-version bump adds a new section above the earlier one;
+entries already recorded stay where they are. The release-prep PR replaces
+`unreleased source version` with the release date immediately before the tag,
+so the heading date equals the tag date. After a release and before the next
+bump, new entries go under `[Unreleased]`, and the bump PR moves them into the
+new section. In C#, each of `VMx`, `VMx.Notifications` and
+`VMx.Extensions.DependencyInjection` applies this rule to its own sections:
+`## [X.Y.Z]` for `VMx` and `## [<package> X.Y.Z]` for a companion. `[Unreleased]`
+keeps one `### <package>` subsection for each package, and a subsection stays
+empty while its package's current section is an unreleased source version.
+`tools/check-version-consistency.py` rejects `[Unreleased]` notes for a package
+whose current section is an unreleased source version. The React adapter
+changelog, `packages/react/CHANGELOG.md`, follows the same rule; its headings
+use ` - ` as the separator, for example
+`## [X.Y.Z] - unreleased source version`.
 
 **Publication claims.** Publication claims never precede public evidence. After
 the public artifact and a fresh consumer verify, update the repository docs and
