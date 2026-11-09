@@ -685,4 +685,149 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         XCTAssertEqual(vm.status, .disposed)
         withExtendedLifetime(subscription) {}
     }
+
+    /// ARES-012 — a loader's own cancellation restores Idle on an initial load.
+    /// The loader throws `CancellationError` while its task is not cancelled.
+    /// The intent completes normally, and nothing enters Error.
+    func testAres012LoaderSelfCancellationRestoresIdleOnInitialLoad() async {
+        let notCancelled = LockedValues<Bool>()
+        let vm: AsyncResourceVM<Int> = makeAsyncResourceVM {
+            notCancelled.append(!Task.isCancelled)
+            throw CancellationError()
+        }
+
+        await vm.load()
+
+        XCTAssertEqual(notCancelled.values, [true])
+        XCTAssertEqual(vm.state.status, .idle)
+        XCTAssertNil(vm.state.value)
+        XCTAssertNil(vm.state.error)
+        XCTAssertTrue(vm.loadCommand.canExecute())
+        XCTAssertFalse(vm.reloadCommand.canExecute())
+        XCTAssertFalse(vm.cancelCommand.canExecute())
+    }
+
+    /// ARES-012 — through the load command, a loader's own cancellation
+    /// restores Idle and reaches no command error channel.
+    func testAres012LoaderSelfCancellationThroughLoadCommandEmitsNoError() async {
+        let vm: AsyncResourceVM<Int> = makeAsyncResourceVM {
+            throw CancellationError()
+        }
+        let commandErrors = LockedCount()
+        let errorsCancellable = vm.loadCommand.errors.sink { _ in commandErrors.increment() }
+        let names = LockedValues<String>()
+        let stateCancellable = vm.propertyChanged.sink { names.append($0) }
+        let settled = names.expectation(forCount: 2, "Loading then Idle published")
+
+        vm.loadCommand.execute()
+        await fulfillment(of: [settled], timeout: signalTimeout)
+        // Let the command body settle before checking the error channel.
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        XCTAssertEqual(vm.state.status, .idle)
+        XCTAssertNil(vm.state.error)
+        XCTAssertEqual(commandErrors.value, 0)
+        XCTAssertTrue(vm.loadCommand.canExecute())
+        withExtendedLifetime((errorsCancellable, stateCancellable)) {}
+    }
+
+    /// ARES-012 — a discard reload that the loader cancels restores Idle.
+    /// The old value is cleaned once, at reload start.
+    func testAres012LoaderSelfCancellationOnDiscardReloadRestoresIdle() async {
+        let queue = LoaderQueue<Int>([
+            { 3 },
+            { throw CancellationError() },
+        ])
+        let cleaned = LockedValues<Int>()
+        let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
+        await vm.load()
+        let commandErrors = LockedCount()
+        let errorCancellables = [vm.loadCommand.errors, vm.reloadCommand.errors]
+            .map { $0.sink { _ in commandErrors.increment() } }
+
+        await vm.reload()
+
+        XCTAssertEqual(vm.state.status, .idle)
+        XCTAssertNil(vm.state.value)
+        XCTAssertNil(vm.state.error)
+        XCTAssertEqual(commandErrors.value, 0)
+        XCTAssertEqual(cleaned.values, [3])
+        XCTAssertTrue(vm.loadCommand.canExecute())
+        XCTAssertFalse(vm.reloadCommand.canExecute())
+        withExtendedLifetime(errorCancellables) {}
+    }
+
+    /// ARES-012 — a retained reload that the loader cancels restores
+    /// Ready(old) and cleans nothing.
+    func testAres012LoaderSelfCancellationOnRetainedReloadRestoresReady() async {
+        let queue = LoaderQueue<Int>([
+            { 3 },
+            { throw CancellationError() },
+        ])
+        let cleaned = LockedValues<Int>()
+        let vm = makeAsyncResourceVM(loader: queue.load, retention: .retainPrevious) {
+            cleaned.append($0)
+        }
+        await vm.load()
+        let commandErrors = LockedCount()
+        let errorCancellables = [vm.loadCommand.errors, vm.reloadCommand.errors]
+            .map { $0.sink { _ in commandErrors.increment() } }
+
+        await vm.reload()
+
+        XCTAssertEqual(vm.state.status, .ready)
+        XCTAssertEqual(vm.state.value, 3)
+        XCTAssertNil(vm.state.error)
+        XCTAssertEqual(commandErrors.value, 0)
+        XCTAssertEqual(cleaned.values, [])
+        XCTAssertTrue(vm.reloadCommand.canExecute())
+        XCTAssertFalse(vm.cancelCommand.canExecute())
+        withExtendedLifetime(errorCancellables) {}
+    }
+
+    /// ARES-012 — a superseded loader's cancellation is a stale completion.
+    /// It publishes nothing, and the newer operation stays current.
+    func testAres012SupersededLoaderCancellationIsStale() async {
+        let first = DeferredValue<Int>()
+        let second = DeferredValue<Int>()
+        let olderFinished = expectation(description: "older loader threw")
+        let queue = LoaderQueue<Int>([
+            {
+                _ = await first.get()
+                olderFinished.fulfill()
+                throw CancellationError()
+            },
+            { await second.get() },
+        ])
+        let vm = makeAsyncResourceVM(loader: queue.load)
+        let older = Task { await vm.load() }
+        await fulfillment(of: [first.parked], timeout: signalTimeout)
+        let newer = Task { await vm.reload() }
+        await fulfillment(of: [second.parked], timeout: signalTimeout)
+        let notifications = LockedCount()
+        let cancellables = [vm.propertyChanged.sink { _ in notifications.increment() }]
+            + [vm.loadCommand.canExecuteChanged, vm.reloadCommand.canExecuteChanged,
+               vm.cancelCommand.canExecuteChanged]
+            .map { $0.sink { notifications.increment() } }
+        let commandErrors = LockedCount()
+        let errorCancellables = [vm.loadCommand.errors, vm.reloadCommand.errors]
+            .map { $0.sink { _ in commandErrors.increment() } }
+
+        first.resolve(1)
+        await older.value
+        await fulfillment(of: [olderFinished], timeout: signalTimeout)
+        // Let the stale completion settle before checking that it was inert.
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        XCTAssertEqual(notifications.value, 0)
+        XCTAssertEqual(commandErrors.value, 0)
+        XCTAssertEqual(vm.state.status, .loading)
+        XCTAssertTrue(vm.cancelCommand.canExecute())
+
+        second.resolve(2)
+        await newer.value
+        XCTAssertEqual(vm.state.status, .ready)
+        XCTAssertEqual(vm.state.value, 2)
+        withExtendedLifetime((cancellables, errorCancellables)) {}
+    }
 }

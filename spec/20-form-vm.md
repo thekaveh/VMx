@@ -170,6 +170,10 @@ Each flavor uses its idiomatic value-equality, which is overridable:
 
 - C#: `object.Equals` (record types provide structural equality by default).
   Override by defining the model's own equality (`record`, `Equals`/`==`).
+  A record's synthesized equality compares a collection field by reference.
+  The default snapshotter makes a new collection, so a new form for such a
+  record is dirty before any edit. The model overrides `Equals` and
+  `GetHashCode` to compare the collection element by element.
 - Python: `__eq__` (`@dataclass(eq=True)` / `@dataclass(frozen=True)` by default).
   Override by defining the model's own `__eq__`.
 - TypeScript: an **injectable structural deep-equality predicate**. Plain objects
@@ -462,7 +466,10 @@ Flavor notes:
 
 - Rust's failure is a panic. Each replay runs under its own unwind guard. After
   the last replay, the first replay panic resumes, unless the approval already
-  carries a panic, which wins (#740).
+  carries a panic, which wins (#740). It resumes from `approve()` and, on the
+  command path, from `approve_command().execute()`. `approve_errors` receives
+  no replay panic: it carries only the `Err` that `approve()` returns
+  (ADR-0185).
 - Swift validators, the injected `equals`, the snapshotter, and the sinks
   cannot throw. Only the queue, call-time staleness, replay, and wait rules
   apply.

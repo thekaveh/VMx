@@ -98,7 +98,10 @@ no-ops.
 | any       | stale completion          | unchanged                            |
 | any       | Dispose                   | externally unchanged, terminal/inert |
 
-`previous?` is present only under `RetainPrevious`. A visible `Loading` to
+`previous?` is present only under `RetainPrevious`. Current cancellation
+covers explicit cancellation, cancellation linked from the async command, and a
+current loader that ends with its flavor's native cancellation signal (§7). A
+visible `Loading` to
 `Loading` replacement that has the same exposed snapshot MAY remain silent; the
 internal operation identity still changes and later completion admission uses
 the new identity.
@@ -132,6 +135,29 @@ Explicit cancellation and cancellation linked from the async command restore
 the operation's saved stable state. An initial cancelled load returns to `Idle`.
 A retained reload returns to the prior `Ready` or value-bearing `Error`.
 Cancellation never creates `Error` or reaches a command error channel.
+
+A current loader that ends with its flavor's native cancellation signal is
+cancelled in the same way, even when the VM did not request the cancellation
+(ADR-0199). It restores the operation's saved stable state, and the awaitable
+intent completes normally. A typical source is a shared request that another
+owner cancels. The native signals are:
+
+| Flavor     | Native cancellation signal                   |
+| ---------- | -------------------------------------------- |
+| C#         | `OperationCanceledException`, from any token |
+| Python     | `asyncio.CancelledError`                     |
+| TypeScript | a rejection whose `name` is `"AbortError"`   |
+| Swift      | `CancellationError`                          |
+| Rust       | `Err(VmxError::Cancelled)`                   |
+
+A timeout that the flavor reports with a timeout error is a failure and
+installs `Error`. These errors are Python `TimeoutError`, TypeScript
+`TimeoutError`, Swift `URLError.timedOut`, and a C# `OperationCanceledException`
+whose `InnerException` is a `TimeoutException`. A timeout that the loader
+implements by cancelling a token ends with the native signal. It is a
+cancellation and restores the saved stable state. Any other error installs
+`Error`. A superseded loader that ends with the signal is a stale completion
+(§6).
 
 ## 8. Previous-value policy
 
@@ -195,3 +221,4 @@ mapping adds no general VM/observer thread-safety or UI scheduling guarantee.
 - `ARES-009` — stale success is cleaned once without state notification.
 - `ARES-010` — replacement and disposal clean each ownership unit once.
 - `ARES-011` — disposal cancels work and makes late completion/intents inert.
+- `ARES-012` — a loader's own cancellation restores the saved stable state.
