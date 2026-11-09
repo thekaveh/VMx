@@ -595,7 +595,7 @@ declare abstract class ComponentVMBase {
     protected _abandonChildTransition(): void;
     protected _beginDisposeCascade(): void;
     protected _transitionChildren(children: Iterable<ComponentVMBase>, construct: boolean, after?: () => void): void;
-    protected _transitionChildrenJoining(children: Iterable<ComponentVMBase>, construct: boolean, after: (() => void) | undefined, joined: ReadonlySet<ComponentVMBase>): void;
+    protected _transitionChildrenJoining(children: Iterable<ComponentVMBase>, construct: boolean, after: (() => void) | undefined, joined: ReadonlySet<ComponentVMBase>, isMember?: (child: ComponentVMBase) => boolean): void;
     dispose(): void;
     canSelect(): boolean;
     select(): void;
@@ -610,6 +610,7 @@ declare abstract class ComponentVMBase {
     protected get _hub(): IMessageHub;
     protected get _dispatcher(): IDispatcher;
     protected get _name(): string;
+    protected _scheduleForegroundCounted(work: () => void): void;
     protected _scheduleForeground(work: () => void): void;
 }
 

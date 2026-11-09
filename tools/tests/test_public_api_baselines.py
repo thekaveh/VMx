@@ -381,5 +381,8 @@ def test_contributing_documents_how_to_update_each_baseline() -> None:
         "major version bump",
         "minor bump while the version is 0.x",
         "check-rust-api-baseline.py",
+        # An intended break recorded in an unreleased CHANGELOG section is
+        # accepted by moving the Rust or Swift baseline revision forward.
+        "the `develop` commit that merged the break",
     ):
         assert needle in section, needle

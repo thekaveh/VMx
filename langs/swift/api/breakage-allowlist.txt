@@ -1,9 +1,0 @@
-API breakage: var ObservableDictionary.keys1 has declared type change from VMx.ObservableList<TKey1> to VMx.ReadOnlyObservableList<TKey1>
-API breakage: accessor ObservableDictionary.keys1.Get() has return type change from VMx.ObservableList<TKey1> to VMx.ReadOnlyObservableList<TKey1>
-API breakage: var ObservableDictionary.keys2 has declared type change from VMx.ObservableList<TKey2> to VMx.ReadOnlyObservableList<TKey2>
-API breakage: accessor ObservableDictionary.keys2.Get() has return type change from VMx.ObservableList<TKey2> to VMx.ReadOnlyObservableList<TKey2>
-API breakage: enumelement HierarchyError.disposed has been added as a new enum case
-API breakage: constructor ConfirmationVM.init(notification:hub:scheduler:lifespan:tickInterval:) has generic signature change from  to <S where S : VMx.NotificationScheduler>
-API breakage: constructor ConfirmationVM.init(notification:hub:scheduler:lifespan:tickInterval:) has parameter 2 type change from VMx.VirtualTimeScheduler to S
-API breakage: constructor NotificationVM.init(notification:hub:scheduler:lifespan:tickInterval:) has generic signature change from  to <S where S : VMx.NotificationScheduler>
-API breakage: constructor NotificationVM.init(notification:hub:scheduler:lifespan:tickInterval:) has parameter 2 type change from VMx.VirtualTimeScheduler to S
