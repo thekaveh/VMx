@@ -75,7 +75,7 @@ or 24+ (jsdom 29 development-tool floor).
 ```bash
 cd langs/swift
 swift build             # compiles on CommandLineTools
-swift test              # requires full Xcode (XCTest); CI runs it on macos-latest
+swift test              # requires full Xcode (XCTest); CI runs it on macos-15
 ```
 If `swift test` reports the Xcode license is not accepted, run `sudo xcodebuild -license accept` once.
 

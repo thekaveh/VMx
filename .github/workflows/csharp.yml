@@ -26,6 +26,17 @@ defaults:
   run:
     working-directory: langs/csharp
 
+# #1440: a newer push to a pull request cancels that pull request's older run
+# of this workflow, so a superseded run frees its runners. Push, schedule and
+# workflow_dispatch runs each get a group of their own and are never cancelled
+# or replaced; a shared group would replace a pending run (#534).
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+    || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     timeout-minutes: 30
@@ -244,6 +255,21 @@ jobs:
             exit 1
           }
 
+      - name: Restore console example
+        run: dotnet restore examples/csharp/console/HelloVMx/HelloVMx.csproj
+
+      - name: Check example formatting
+        # The library format step covers only VMx.sln (#1384).
+        run: |
+          set -euo pipefail
+          for project in \
+            examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj \
+            examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj \
+            examples/csharp/console/HelloVMx/HelloVMx.csproj; do
+            echo "dotnet format $project"
+            dotnet format "$project" --verify-no-changes --no-restore
+          done
+
       - name: Build NotesShowcase
         run: dotnet build examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj --no-restore
 
@@ -271,6 +297,30 @@ jobs:
             8.0.x
             9.0.x
             10.0.x
+
+      - name: Restore WPF examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in \
+            examples/csharp/wpf/TodoApp/WpfTodoApp.csproj \
+            examples/csharp/wpf/TodoAppHostCheck/TodoAppHostCheck.csproj \
+            examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj; do
+            dotnet restore "$project"
+          done
+
+      - name: Check WPF example formatting
+        # On Windows the format check also reads the XAML code-behind (#1384).
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in \
+            examples/csharp/wpf/TodoApp/WpfTodoApp.csproj \
+            examples/csharp/wpf/TodoAppHostCheck/TodoAppHostCheck.csproj \
+            examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj; do
+            echo "dotnet format $project"
+            dotnet format "$project" --verify-no-changes --no-restore
+          done
 
       - name: Build real WPF example
         # Windows activates UseWPF and compiles App/MainWindow XAML plus their

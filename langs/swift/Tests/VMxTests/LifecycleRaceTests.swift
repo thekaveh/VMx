@@ -14,7 +14,7 @@
 // generation and aborts.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is exercised by CI (`swift.yml` on macos-latest). The
+// module); this target is exercised by CI (`swift.yml` on macos-15). The
 // assertions encode the *correct* (locked) behaviour — final status `.disposed`
 // (no resurrection) and no post-dispose `.constructed` hub message — which the
 // fixed code satisfies deterministically regardless of timing.

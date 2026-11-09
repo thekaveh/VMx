@@ -79,15 +79,35 @@ repos:
     hooks:
       - id: dotnet-format
         name: dotnet format (C# only)
-        # Build --include args via array so paths with spaces survive intact.
+        # Library files: one VMx.sln run, with --include args built via an
+        # array so paths with spaces survive intact. Example files: each file's
+        # own project, the nearest directory above it with a .csproj (#1384).
+        # Both use --no-restore, so restore the solution or project first.
         entry: |
           bash -c '
-            args=();
-            for f in "$@"; do args+=("--include" "${f#langs/csharp/}"); done;
-            cd langs/csharp && dotnet format VMx.sln --verify-no-changes --no-restore "${args[@]}"
+            status=0;
+            lib=();
+            for f in "$@"; do
+              case "$f" in
+                langs/csharp/*) lib+=("--include" "${f#langs/csharp/}") ;;
+                examples/csharp/*)
+                  dir=$(dirname "$f");
+                  until compgen -G "$dir/*.csproj" > /dev/null || [ "$dir" = "examples/csharp" ]; do
+                    dir=$(dirname "$dir");
+                  done;
+                  for project in "$dir"/*.csproj; do
+                    [ -f "$project" ] || continue;
+                    dotnet format "$project" --verify-no-changes --no-restore --include "$f" || status=1;
+                  done ;;
+              esac;
+            done;
+            if [ ${#lib[@]} -gt 0 ]; then
+              (cd langs/csharp && dotnet format VMx.sln --verify-no-changes --no-restore "${lib[@]}") || status=1;
+            fi;
+            exit $status
           ' --
         language: system
-        files: ^langs/csharp/.*\.(cs|csproj|props)$
+        files: ^(langs|examples)/csharp/.*\.(cs|csproj|props)$
         pass_filenames: true
 
       - id: eslint-typescript

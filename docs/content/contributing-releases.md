@@ -32,6 +32,13 @@ release procedure for every flavor.
   examples, security, and spec-discipline aggregate checks against the latest
   target branch. Maintainer review is expected when another reviewer is
   available; the single-collaborator repository does not require self-approval.
+- A new push to a PR cancels that PR's older run of each of the nine
+  pull-request CI workflows: `python`, `csharp`, `typescript`, `swift`, `rust`,
+  `conformance`, `spec-discipline`, `security-audit`, and
+  `examples-contract-checks`. Their runs on `develop` and `main`, scheduled
+  runs, and manual runs are never cancelled. The `docs`, `wiki`, `release`,
+  `release-please`, `starters`, and `typescript-windows-watch` workflows keep
+  their own concurrency groups.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
 
@@ -109,6 +116,14 @@ The controls establish the named paths, not exhaustive freedom from races.
 Linux CPU affinity does not represent macOS scheduling. An external watchdog
 contains a stuck process but does not prove in-process cleanup.
 
+The Swift `thread sanitizer` job runs the library tests with
+`swift test --sanitize=thread` and `TSAN_OPTIONS=halt_on_error=1`, so a
+data-race report fails the job. A single-process `swift test` also stops when
+one case hangs: the test target's `TestCaseHangGuard` prints the case name and
+ends the process after 300 s (`VMX_TEST_CASE_TIMEOUT_SECONDS` changes the
+bound). A COMP-026 test that detects a deadlock ends the process at once,
+because the stuck worker keeps the shared selection coordinator.
+
 Run the selected regressions from the repository root with the same locked
 inputs used by CI:
 
@@ -183,7 +198,8 @@ python3 tools/check-coverage-floor.py --flavor rust --report rust-coverage.json
 ```
 
 Swift runs the library tests once with coverage on `macos-15` and the default
-Xcode:
+Xcode. CI runs the test command through `tools/swift-test-watchdog.py`, which
+names and kills a case that runs longer than four minutes:
 
 ```bash
 swift test --package-path langs/swift --enable-code-coverage \

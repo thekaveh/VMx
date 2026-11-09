@@ -12,7 +12,7 @@
 // (tests/conformance/hier-001-to-014-hierarchical-vm.test.ts).
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 @testable import VMx

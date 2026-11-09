@@ -26,6 +26,17 @@ on:
     branches: [main, develop]
   workflow_dispatch:
 
+# #1440: a newer push to a pull request cancels that pull request's older run
+# of this workflow, so a superseded run frees its runners. Push, schedule and
+# workflow_dispatch runs each get a group of their own and are never cancelled
+# or replaced; a shared group would replace a pending run (#534).
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+    || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: build & test (${{ matrix.label }})
@@ -96,7 +107,7 @@ jobs:
           python3 tools/check-conformance-execution.py --flavor swift
           --report langs/swift/conformance-results.xml --evidence conformance-evidence.json
           --commit "${{ github.sha }}" --toolchain "$(swift --version 2>&1 | head -n 1)"
-          --configuration "macos-15 ${{ matrix.label }}"
+          --configuration "${{ matrix.os }} ${{ matrix.label }}"
 
       - name: Publish conformance evidence
         if: ${{ !cancelled() }}
@@ -319,9 +330,12 @@ jobs:
         # checks in the other jobs never see instrumentation. Counter updates
         # are atomic so tests that call one function from many threads (such
         # as DISP-003) cannot undercount the regions coverage derives by
-        # subtraction (#513).
+        # subtraction (#513). The run is one process, so the watchdog reads
+        # XCTest's output and kills and names a case that runs longer than
+        # four minutes, long before the job timeout (#1461).
         run: >-
-          swift test --package-path langs/swift --enable-code-coverage
+          python3 tools/swift-test-watchdog.py --per-test-timeout 240
+          -- swift test --package-path langs/swift --enable-code-coverage
           -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all
       - name: Enforce the recorded coverage floor
         run: >-
@@ -342,11 +356,29 @@ jobs:
             swift-coverage-provenance.json
           if-no-files-found: error
 
+  thread-sanitizer:
+    name: thread sanitizer
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Show Swift version
+        run: swift --version
+      - name: Test the library under Thread Sanitizer
+        # A separate debug build under .build. halt_on_error ends the test
+        # process at the first data-race report, so a TSan warning fails the
+        # step (#1407). The run is one process; the watchdog names a hung case.
+        env:
+          TSAN_OPTIONS: halt_on_error=1
+        run: >-
+          python3 tools/swift-test-watchdog.py --per-test-timeout 240
+          -- swift test --package-path langs/swift --sanitize=thread
+
   required:
     timeout-minutes: 5
     name: "required: swift"
     if: always()
-    needs: [build, platforms, examples, public-api, coverage]
+    needs: [build, platforms, examples, public-api, coverage, thread-sanitizer]
     runs-on: ubuntu-latest
     steps:
       - name: Require every Swift job

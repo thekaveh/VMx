@@ -618,7 +618,7 @@ jobs:
           echo "Tag $tag_version matches package version $pkg_version."
       - name: Install dependencies
         working-directory: langs/typescript
-        run: npm ci
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
       - name: Validate dependency graph
         working-directory: langs/typescript
         run: npm run check:deps
@@ -642,7 +642,7 @@ jobs:
         run: npm test
       - name: Audit
         working-directory: langs/typescript
-        run: npm audit --package-lock-only --audit-level=low
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --package-lock-only --audit-level=low
       - name: Check npm package contents
         run: python3 tools/check-typescript-package.py
       - name: Verify packed npm consumer
@@ -820,15 +820,15 @@ jobs:
           echo "Published @thekaveh/vmx versions in ${core_range}: ${published}"
       - name: Build core and install adapter
         run: |
-          npm ci --prefix langs/typescript
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix langs/typescript
           npm run build --prefix langs/typescript
-          npm ci --prefix packages/react
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci --prefix packages/react
       - name: Verify adapter
         run: |
           npm run check:deps --prefix packages/react
           # Production-only at release time: dev-only advisories cannot reach
           # consumers, and typescript.yml still audits the full lockfile.
-          npm audit --prefix packages/react --package-lock-only --omit=dev --audit-level=low
+          node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm audit --prefix packages/react --package-lock-only --omit=dev --audit-level=low
           npm run typecheck --prefix packages/react
           npm run lint --prefix packages/react
           npm test --prefix packages/react
@@ -1184,13 +1184,17 @@ jobs:
     # cuts a GitHub Release pointing at the tag so SwiftPM consumers get a
     # stable artifact reference. `swift.yml` only triggers on path-push /
     # pull_request, NOT on tag-push, so this job must run its own test gate
-    # before creating the release (VMX-038).
+    # before creating the release (VMX-038). It runs on the image of the
+    # swift.yml build matrix, so the release gate tests on an image that every
+    # pull request tested (#1470).
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/swift-v')
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Show Swift version
+        run: swift --version
       - name: Verify tag commit is on main
         run: |
           set -euo pipefail
@@ -1218,7 +1222,7 @@ jobs:
       - name: Check root and nested manifest parity
         run: python3 tools/check-swift-package-sync.py
       - name: Build & test root package
-        # swift test requires full Xcode (XCTest); macos-latest provides it.
+        # swift test requires full Xcode (XCTest); macos-15 provides it.
         # Combine is macOS-only so ubuntu-latest cannot run these tests.
         run: swift build -c release && swift test --parallel
       - name: Build & test nested package

@@ -13,7 +13,13 @@ Thanks for your interest in contributing!
    security, and spec-discipline aggregate checks to pass against the latest
    target branch. Obtain maintainer review when another reviewer is available.
    The repository has one direct collaborator, so the ruleset does not require
-   self-approval.
+   self-approval. A new push to a PR cancels that PR's older run of each of the
+   nine pull-request CI workflows: `python`, `csharp`, `typescript`, `swift`,
+   `rust`, `conformance`, `spec-discipline`, `security-audit`, and
+   `examples-contract-checks`. Their runs on `develop` and `main`, scheduled
+   runs, and manual runs are never cancelled. The `docs`, `wiki`, `release`,
+   `release-please`, `starters`, and `typescript-windows-watch` workflows keep
+   their own concurrency groups.
 5. Maintainers promote `develop` to protected `main` through a separate PR.
 
 ### 1.1 Branch sync policy

@@ -30,7 +30,7 @@ lines cannot compete for the same generic tag.
 
 ## 1. Prerequisites
 
-- Full Xcode is available in CI (`macos-latest`) so root and nested
+- Full Xcode is available in CI (`macos-15`) so root and nested
   `swift test --parallel` runs can load XCTest. Local Command Line Tools are
   enough for `swift build`, but not always for `swift test`.
 - `VMxVersion.current` and `VMxVersion.minSpecVersion` in

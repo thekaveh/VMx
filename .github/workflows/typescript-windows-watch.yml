@@ -33,7 +33,7 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        run: npm ci
+        run: node "${{ github.workspace }}/tools/ci-retry.mjs" --retry-on=npm-network npm ci
 
       - name: Check that a watch rerun loads the rebuilt dist
         run: node scripts/check-watch-rerun.mjs
