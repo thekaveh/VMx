@@ -230,7 +230,7 @@ fn comp_042_each_composite_mutation_publishes_one_hub_message() {
     ); // [c]
     step(&delivered, || parent.remove(&c).unwrap(), &[remove(id, 0)]); // []
     step(&delivered, || parent.add(d.clone()).unwrap(), &[add(id, 0)]); // [d]
-    step(&delivered, || parent.clear(), &[reset(id)]); // []
+    step(&delivered, || parent.clear().unwrap(), &[reset(id)]); // []
 
     assert_eq!(delivered.changes().len(), 8);
     assert!(parent.is_empty());
@@ -378,7 +378,7 @@ fn comp_044_failed_and_no_op_mutations_publish_nothing() {
     );
     assert_eq!(parent.move_item(0, 0), Ok(()));
     assert_eq!(parent.remove(&child(&hub, "stranger")), Ok(()));
-    destination.clear();
+    destination.clear().unwrap();
 
     assert_eq!(accepted(&recorder), vec![]);
     assert_eq!(parent.items(), vec![a]);
@@ -429,7 +429,7 @@ fn comp_045_disposed_composite_publishes_nothing() {
     parent.batch_update(|| {
         let _ = parent.remove(&b);
     });
-    parent.clear();
+    assert_eq!(parent.clear(), Err(VmxError::Disposed));
 
     assert_eq!(accepted(&recorder), vec![]);
 }
@@ -449,7 +449,7 @@ fn comp_045_forwarding_wrapper_publishes_each_change_once() {
     wrapper.insert(0, b.clone()).unwrap(); // [b, a]
     wrapper.move_item(0, 1).unwrap(); // [a, b]
     wrapper.remove(&a).unwrap(); // [b]
-    wrapper.batch_update(|| wrapper.clear()); // []
+    wrapper.batch_update(|| wrapper.clear().unwrap()); // []
 
     assert_eq!(
         delivered.changes(),
@@ -498,7 +498,7 @@ fn grp_012_each_group_mutation_publishes_one_hub_message() {
     ); // [b]
     step(&delivered, || peers.remove(&b).unwrap(), &[remove(id, 0)]); // []
     step(&delivered, || peers.add(d.clone()).unwrap(), &[add(id, 0)]); // [d]
-    step(&delivered, || peers.clear(), &[reset(id)]); // []
+    step(&delivered, || peers.clear().unwrap(), &[reset(id)]); // []
 
     assert_eq!(delivered.changes().len(), 8);
     assert!(peers.is_empty());
@@ -563,7 +563,7 @@ fn grp_012_no_op_and_post_dispose_mutations_publish_nothing() {
     peers.batch_update(|| {
         let _ = peers.remove(&b);
     });
-    peers.clear();
+    assert_eq!(peers.clear(), Err(VmxError::Disposed));
 
     assert_eq!(accepted(&recorder), vec![]);
 }

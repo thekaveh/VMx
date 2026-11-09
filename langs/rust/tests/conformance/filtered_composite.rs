@@ -113,7 +113,7 @@ fn source_removal_and_clear_reconcile_current() {
     source.remove(&second).unwrap();
     assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
 
-    source.clear();
+    source.clear().unwrap();
     assert!(filtered.current().is_none());
 
     let source = source_with(&[1, 2]);

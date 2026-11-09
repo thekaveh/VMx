@@ -207,7 +207,7 @@ fn forwarding_composite_delegates_complete_collection_and_selection_surface() {
     assert_eq!(forwarding.current(), Some(a.clone()));
     assert!(forwarding.can_select_component(&b));
     assert_eq!(forwarding.remove_at(3).unwrap(), c);
-    forwarding.clear();
+    forwarding.clear().unwrap();
 
     assert!(composite.is_empty());
     assert_eq!(forwarding.current(), None);
