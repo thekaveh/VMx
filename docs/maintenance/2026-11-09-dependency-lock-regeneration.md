@@ -25,14 +25,14 @@ run the uv command with the pinned uv.
 
 ## 2. CI checks
 
-| Defect                                                          | Check                                                                                                   |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| A NuGet lock file differs from the project graph                | Each `dotnet restore --locked-mode` step in `csharp.yml` fails and prints the regeneration command      |
-| A NuGet lock file lost a target-framework section (`NU1004`)    | `tools/tests/test_csharp_runtime_dependency_contracts.py` compares each lock with the project's targets |
-| A NuGet lock file differs from `Directory.Packages.props`       | The same test compares every central package in each lock with its pin                                  |
-| One package of the .NET servicing family moved alone (`NU1109`) | The same test names the family members that differ                                                      |
-| A newer uv wrote a `uv.lock`, or `uv lock` rewrites it          | `tools/check-dependency-locks.py` in the conformance workflow                                           |
-| `docs/requirements.txt` differs from its header command         | `tools/check-dependency-locks.py` in the conformance workflow                                           |
+| Defect                                                          | Check                                                                                                                                      |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| A NuGet lock file differs from the project graph                | Each `dotnet restore --locked-mode` step in `csharp.yml`, `security-audit.yml` and `release.yml` fails and prints the regeneration command |
+| A NuGet lock file lost a target-framework section (`NU1004`)    | `tools/tests/test_csharp_runtime_dependency_contracts.py` compares each lock with the project's targets                                    |
+| A NuGet lock file differs from `Directory.Packages.props`       | The same test compares every central package in each lock with its pin                                                                     |
+| One package of the .NET servicing family moved alone (`NU1109`) | The same test names the family members that differ                                                                                         |
+| A newer uv wrote a `uv.lock`, or `uv lock` rewrites it          | `tools/check-dependency-locks.py` in the conformance workflow                                                                              |
+| `docs/requirements.txt` differs from its header command         | `tools/check-dependency-locks.py` in the conformance workflow                                                                              |
 
 Each failure message names the regeneration command. The four .NET servicing
 packages are `Microsoft.Bcl.AsyncInterfaces`,
