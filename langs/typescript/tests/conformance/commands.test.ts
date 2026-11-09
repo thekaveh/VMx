@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Subject } from "rxjs";
+import { config, map, Subject, type Observable } from "rxjs";
 import {
   AsyncRelayCommand,
   RelayCommand,
@@ -671,4 +671,76 @@ describe("CMD-012", () => {
     expect(cmd.isExecuting).toBe(false);
     cmd.dispose();
   });
+});
+
+// ---------------------------------------------------------------------------
+// CMD-021 — ADR-0191
+// ---------------------------------------------------------------------------
+
+/** Runs `act` with rxjs unhandled-error reports recorded, then drains them. */
+async function withUnhandledErrors(act: () => void): Promise<unknown[]> {
+  const unhandled: unknown[] = [];
+  const previous = config.onUnhandledError;
+  config.onUnhandledError = (error) => unhandled.push(error);
+  try {
+    act();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    config.onUnhandledError = previous;
+  }
+  return unhandled;
+}
+
+interface RaisableCommand {
+  readonly canExecuteChanged: Observable<void>;
+  raiseCanExecuteChanged(): void;
+  dispose(): void;
+}
+
+const cmd021Factories: ReadonlyArray<
+  readonly [string, (trigger: Observable<unknown>) => RaisableCommand]
+> = [
+  ["RelayCommand", (trigger) => RelayCommand.builder().triggers(trigger).build()],
+  [
+    "RelayCommandOf",
+    (trigger) => RelayCommandOf.builder<number>().triggers(trigger).build(),
+  ],
+  [
+    "AsyncRelayCommand",
+    (trigger) => AsyncRelayCommand.builder().triggers(trigger).build(),
+  ],
+];
+
+describe("CMD-021", () => {
+  for (const [name, create] of cmd021Factories) {
+    it(`${name}: a failing handler stops neither other handlers nor a mapped trigger`, async () => {
+      const subject = new Subject<number>();
+      const cmd = create(subject.pipe(map(() => undefined)));
+      let a = 0;
+      let b = 0;
+      cmd.canExecuteChanged.subscribe(() => {
+        a++;
+        throw new Error("handler A failed");
+      });
+      cmd.canExecuteChanged.subscribe(() => b++);
+
+      const unhandled = await withUnhandledErrors(() => {
+        expect(() => subject.next(1)).not.toThrow();
+        expect(() => subject.next(2)).not.toThrow();
+        expect(a).toBe(2);
+        expect(b).toBe(2);
+
+        expect(() => cmd.raiseCanExecuteChanged()).not.toThrow();
+        expect(a).toBe(3);
+        expect(b).toBe(3);
+
+        // A sync relay's dispose sends a final notification, so A may fail
+        // once more inside this window.
+        cmd.dispose();
+      });
+
+      // rxjs reports each of A's failures once.
+      expect(unhandled).toHaveLength(a);
+    });
+  }
 });
