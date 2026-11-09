@@ -122,6 +122,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
   predicate and returns `VmxResult<Option<TreeNodeRef>>`. A walk therefore
   crosses containers whose children have other types. Read a node through
   `TreeNodeRef::downcast`. A handle wraps the container's child type.
+- `FilteredCompositeVm` reconciles the current item when the source
+  membership changes, not at the next `visible()` or `current()` read
+  (#1259, ADR-0207). A `changed()` notification caused by a source mutation
+  runs inside that mutation, before the source hub's `CollectionChanged`. A
+  subscriber that mutates the source there gets
+  `VmxError::OwnershipTransactionInProgress`.
+- `walk`, `walk_expanded` and `find` over a `CompositeVm` now visit its
+  children (#1262, ADR-0207). Before, they yielded only the composite itself.
 
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and

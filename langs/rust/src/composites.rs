@@ -2015,6 +2015,11 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     /// changes the current item. A subscriber reads the new state from
     /// [`visible`](Self::visible) and [`current`](Self::current).
     /// [`dispose`](Self::dispose) completes the stream.
+    ///
+    /// A notification caused by a source mutation runs inside that mutation,
+    /// before the source hub's `CollectionChanged`. A subscriber that mutates
+    /// the source membership there gets
+    /// [`VmxError::OwnershipTransactionInProgress`].
     pub fn changed(&self) -> ValueStream<()> {
         self.inner.changed.clone()
     }

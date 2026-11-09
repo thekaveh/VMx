@@ -44,6 +44,9 @@ one that matches the other flavors.
   reference to the view state, so the source never keeps a dropped view
   alive. `current()` still reconciles a membership change that published
   nothing, for example after the source's disposal closed its publication.
+- A notification caused by a source mutation runs inside that mutation,
+  before the source hub's `CollectionChanged`. A subscriber that mutates the
+  source membership there gets `OwnershipTransactionInProgress`.
 - `dispose()` freezes the projection as before, releases the source
   subscription and completes the stream. Later calls send nothing.
 - No conformance ID is added. A `Changed` conformance ID needs tests in all

@@ -312,7 +312,7 @@ fn dispose_reconciles_a_current_item_hidden_by_its_predicate() {
     assert_eq!(filtered.current().map(|vm| vm.model()), Some(2));
 }
 
-/// COMP-033 — the cursor policy given at construction sets the start state
+/// Spec/06 §9 cursor policy at construction: the policy sets the start state
 #[test]
 fn constructor_cursor_policy_sets_the_initial_current_item() {
     let all = |_: &ComponentVm<i32>| true;
@@ -341,7 +341,7 @@ fn constructor_cursor_policy_sets_the_initial_current_item() {
     assert_eq!(default.current().map(|vm| vm.model()), Some(1));
 }
 
-/// COMP-036 — a scored view takes the cursor policy at construction
+/// Spec/06 §9 cursor policy at construction: a scored view takes the policy too
 #[test]
 fn scored_constructor_cursor_policy_sets_the_initial_current_item() {
     let scorer = |vm: &ComponentVm<i32>| Some(vm.model());
