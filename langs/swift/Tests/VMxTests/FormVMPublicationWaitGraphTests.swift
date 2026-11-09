@@ -14,7 +14,7 @@
 //   (ADR-0119). Y's call proceeds when X's scope ends.
 //
 // Each test forces one arrival order through the test seams. Every wait is
-// bounded by `graphTimeout`, so a stall fails the test instead of hanging the
+// bounded by `hangGuard`, so a stall fails the test instead of hanging the
 // run. No conformance ID: this is a flavor-local repair.
 //
 
@@ -22,9 +22,6 @@ import Combine
 import Foundation
 import XCTest
 @testable import VMx
-
-/// Bound for every wait in these tests; a stall shows up as a timeout.
-private let graphTimeout: TimeInterval = 10
 
 private struct Ping: Message {
     let senderObject: AnyObject
@@ -129,7 +126,7 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
         file: StaticString,
         line: UInt
     ) -> Bool {
-        let result = semaphore.wait(timeout: .now() + graphTimeout)
+        let result = semaphore.wait(timeout: .now() + hangGuard)
         XCTAssertEqual(result, .success, message, file: file, line: line)
         return result == .success
     }
@@ -198,9 +195,9 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
                 if isPublisherMessage(message) { observations.deliver(to: "drainer subscriber") }
                 guard message.senderName == "drainer" else { return }
                 drainerEntered.signal()
-                _ = releaseDrainer.wait(timeout: .now() + graphTimeout)
+                _ = releaseDrainer.wait(timeout: .now() + hangGuard * 2)
                 if arrival == .hubWaitFirst {
-                    _ = publisherWaitsOnHub.wait(timeout: .now() + graphTimeout)
+                    _ = publisherWaitsOnHub.wait(timeout: .now() + hangGuard)
                 }
                 switch call {
                 case .setModel: boxedForm.value.setModel("y")
@@ -226,7 +223,7 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
         let publish: () -> Void = {
             releaseDrainer.signal()
             if arrival == .formWaitFirst {
-                _ = drainerWaitsOnForm.wait(timeout: .now() + graphTimeout)
+                _ = drainerWaitsOnForm.wait(timeout: .now() + hangGuard)
             }
             if sink == .onApprovedSetModel {
                 boxedForm.value.setModel("nested")
@@ -396,7 +393,7 @@ final class FormVMPublicationWaitGraphTests: XCTestCase {
         }
         attach {
             publisherEntered.signal()
-            _ = releasePublisher.wait(timeout: .now() + graphTimeout)
+            _ = releasePublisher.wait(timeout: .now() + hangGuard * 2)
             record("publisher sink returned")
         }
 

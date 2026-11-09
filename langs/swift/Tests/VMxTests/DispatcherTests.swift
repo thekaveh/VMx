@@ -26,7 +26,7 @@ final class DispatcherTests: XCTestCase {
             XCTAssertFalse(Thread.isMainThread, "background work runs off-main")
             done.fulfill()
         }
-        wait(for: [done], timeout: 2.0)
+        wait(for: [done], timeout: hangGuard)
     }
 
     /// VMX-099 — `scheduleForeground` called from a background thread hops to
@@ -41,6 +41,6 @@ final class DispatcherTests: XCTestCase {
                 done.fulfill()
             }
         }
-        wait(for: [done], timeout: 2.0)
+        wait(for: [done], timeout: hangGuard)
     }
 }

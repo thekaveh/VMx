@@ -170,8 +170,6 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         }
     }
 
-    private let timeout: TimeInterval = 10
-
     /// Lets a wrong implementation complete early before a "still pending" check.
     private func settle() async {
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -247,13 +245,13 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: inner.log, finished: finished) {
             try await decorator.executeAsync()
         }
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         await settle()
         XCTAssertEqual(inner.log.entries, ["executeAsync"],
                        "the awaiter must not complete while the inner body is blocked")
 
         inner.gate.release()
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
         assertCompletedNormally(result)
         XCTAssertEqual(inner.log.entries, ["executeAsync", "executeAsync finished", "awaiter completed"],
@@ -283,14 +281,14 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: log, finished: finished) {
             try await decorator.executeAsync()
         }
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         await settle()
         XCTAssertEqual(log.entries, ["body"],
                        "the awaiter must not complete while the inner body is blocked")
         XCTAssertTrue(inner.isExecuting)
 
         gate.release()
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
         assertCompletedNormally(result)
         XCTAssertEqual(log.entries, ["body", "body finished", "awaiter completed"])
@@ -307,7 +305,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: inner.log, finished: finished) {
             try await decorator.executeAsync()
         }
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
         assertCompletedNormally(result)
         XCTAssertEqual(inner.log.entries, ["awaiter completed"],
@@ -326,7 +324,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: log, finished: finished) {
             try await decorator.executeAsync()
         }
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
         assertCompletedNormally(result)
         XCTAssertEqual(log.entries, ["execute", "awaiter completed"])
@@ -362,9 +360,9 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: Log(), finished: finished) {
             try await decorator.executeAsync()
         }
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         gate.release()
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
         XCTAssertEqual(failure(of: result) as? TestError, .inner,
                        "the inner failure must propagate to the awaiter unchanged")
@@ -404,9 +402,9 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         }
 
         decorator.execute()
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         gate.release()
-        await fulfillment(of: [innerFailed], timeout: timeout)
+        await fulfillment(of: [innerFailed], timeout: hangGuard)
         await settle()
 
         XCTAssertEqual(innerErrors.errors.count, 1, "the inner's errors must emit the failure exactly once")
@@ -423,7 +421,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let decorator = ConfirmationDecoratorCommand(inner) { true }
 
         decorator.execute()
-        await fulfillment(of: [executeCalled], timeout: timeout)
+        await fulfillment(of: [executeCalled], timeout: hangGuard)
         await settle()
 
         XCTAssertEqual(inner.log.entries, ["execute"],
@@ -454,7 +452,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         }
 
         decorator.execute()
-        await fulfillment(of: [decoratorFailed], timeout: timeout)
+        await fulfillment(of: [decoratorFailed], timeout: hangGuard)
         await settle()
 
         XCTAssertEqual(decoratorErrors.errors.count, 1, "the decorator's errors must emit the confirm failure exactly once")
@@ -489,7 +487,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: log, finished: finished) {
             try await decorator.executeAsync()
         }
-        await fulfillment(of: [confirmation.parked], timeout: timeout)
+        await fulfillment(of: [confirmation.parked], timeout: hangGuard)
 
         // The inner becomes busy while the confirmation is pending.
         let directFinished = expectation(description: "direct execution finished")
@@ -497,11 +495,11 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
             try? await inner.executeAsync()
             directFinished.fulfill()
         }
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         XCTAssertTrue(inner.isExecuting)
 
         confirmation.resolve(.success(true))
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
         assertCompletedNormally(result, "the awaiter completes when the dropped call returns")
         XCTAssertEqual(log.entries, ["body", "awaiter completed"],
@@ -509,7 +507,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         XCTAssertTrue(inner.isExecuting, "the dropped call must leave the first execution running")
 
         gate.release()
-        await fulfillment(of: [directFinished], timeout: timeout)
+        await fulfillment(of: [directFinished], timeout: hangGuard)
         XCTAssertEqual(log.count(of: "body"), 1)
         XCTAssertFalse(inner.isExecuting)
     }
@@ -541,7 +539,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
             try? await inner.executeAsync()
             directFinished.fulfill()
         }
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         XCTAssertFalse(decorator.canExecute())
 
         try await decorator.executeAsync()
@@ -552,7 +550,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         XCTAssertEqual(log.count(of: "body"), 1)
 
         gate.release()
-        await fulfillment(of: [directFinished], timeout: timeout)
+        await fulfillment(of: [directFinished], timeout: hangGuard)
     }
 
     /// CMDD-016 — cancelling the inner completes the awaiter with the inner's default non-throwing cancellation outcome.
@@ -573,9 +571,9 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: Log(), finished: finished) {
             try await decorator.executeAsync()
         }
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         inner.cancel()
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
 
         assertCompletedNormally(result, "the inner's default cancellation completes normally")
@@ -601,9 +599,9 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: Log(), finished: finished) {
             try await decorator.executeAsync()
         }
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         inner.cancel()
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
 
         XCTAssertTrue(failure(of: result) is CancellationError,
@@ -644,13 +642,13 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: log, finished: finished) {
             try await outer.executeAsync()
         }
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         await settle()
         XCTAssertEqual(log.entries, ["outer confirm", "inner confirm", "body"],
                        "the outer awaiter must not complete while the body is blocked")
 
         gate.release()
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
         assertCompletedNormally(result)
         XCTAssertEqual(log.entries, ["outer confirm", "inner confirm", "body", "body finished", "awaiter completed"])
@@ -692,7 +690,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: log, finished: finished) {
             try await decorator.executeAsync()
         }
-        await fulfillment(of: [entered], timeout: timeout)
+        await fulfillment(of: [entered], timeout: hangGuard)
         decorator.dispose()
         await settle()
         XCTAssertFalse(decorator.canExecute())
@@ -700,7 +698,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         XCTAssertEqual(log.entries, ["body"], "the awaiter must not complete while the inner body is blocked")
 
         gate.release()
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
         assertCompletedNormally(result)
         XCTAssertEqual(log.entries, ["body", "body finished", "awaiter completed"],
@@ -729,10 +727,10 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let awaiter = startAwaiter(log: Log(), finished: finished) {
             try await awaitedDecorator.executeAsync()
         }
-        await fulfillment(of: [awaitedConfirmation.parked], timeout: timeout)
+        await fulfillment(of: [awaitedConfirmation.parked], timeout: hangGuard)
         awaitedDecorator.dispose()
         awaitedConfirmation.resolve(.success(true))
-        await fulfillment(of: [finished], timeout: timeout)
+        await fulfillment(of: [finished], timeout: hangGuard)
         let result = await awaiter.value
         assertCompletedNormally(result)
 
@@ -740,7 +738,7 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         let firedConfirmation = PendingConfirmation(expectation(description: "fire-and-forget confirm parked"))
         let firedDecorator = ConfirmationDecoratorCommand(inner) { try await firedConfirmation.wait() }
         firedDecorator.execute()
-        await fulfillment(of: [firedConfirmation.parked], timeout: timeout)
+        await fulfillment(of: [firedConfirmation.parked], timeout: hangGuard)
         firedDecorator.dispose()
         firedConfirmation.resolve(.success(true))
         await settle()

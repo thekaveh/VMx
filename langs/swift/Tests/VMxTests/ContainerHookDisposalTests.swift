@@ -15,8 +15,6 @@ import Foundation
 import XCTest
 @testable import VMx
 
-private let hookTimeout: TimeInterval = 5
-
 /// An ordered log shared with the test threads.
 private final class EventLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -93,7 +91,7 @@ final class ContainerHookDisposalTests: XCTestCase {
             guard gate.withLock({ blocking }) else { return }
             log.add("hook-enter")
             entered.signal()
-            _ = release.wait(timeout: .now() + hookTimeout)
+            _ = release.wait(timeout: .now() + hangGuard * 2)
             log.add("hook-exit")
         }
         let first = CleanupProbe("first", hub: hub, log: log)
@@ -120,7 +118,7 @@ final class ContainerHookDisposalTests: XCTestCase {
             try? container.vm.construct()
             constructed.signal()
         }
-        XCTAssertEqual(entered.wait(timeout: .now() + hookTimeout), .success, label)
+        XCTAssertEqual(entered.wait(timeout: .now() + hangGuard), .success, label)
         DispatchQueue.global().async {
             container.vm.dispose()
             disposed.signal()
@@ -133,8 +131,8 @@ final class ContainerHookDisposalTests: XCTestCase {
         XCTAssertFalse(log.all.contains { $0.hasPrefix("cleanup:") }, label)
 
         release.signal()
-        XCTAssertEqual(constructed.wait(timeout: .now() + hookTimeout), .success, label)
-        XCTAssertEqual(disposed.wait(timeout: .now() + hookTimeout), .success, label)
+        XCTAssertEqual(constructed.wait(timeout: .now() + hangGuard), .success, label)
+        XCTAssertEqual(disposed.wait(timeout: .now() + hangGuard), .success, label)
         container.vm.dispose()
 
         let hookExit = log.index("hook-exit") ?? Int.max
@@ -179,7 +177,7 @@ final class ContainerHookDisposalTests: XCTestCase {
                 let hub = MessageHub()
                 let container = Container.make(kind, hub: hub, factory: true) {
                     rendezvous.leave()
-                    _ = rendezvous.wait(timeout: .now() + hookTimeout)
+                    _ = rendezvous.wait(timeout: .now() + hangGuard)
                     containers[1 - index].vm.dispose()
                     log.add("hook-exit:\(index)")
                 }
@@ -206,7 +204,7 @@ final class ContainerHookDisposalTests: XCTestCase {
                 }
             }
 
-            XCTAssertEqual(done.wait(timeout: .now() + hookTimeout), .success, "\(kind): no deadlock")
+            XCTAssertEqual(done.wait(timeout: .now() + hangGuard), .success, "\(kind): no deadlock")
             for index in 0..<2 {
                 let hookExit = log.index("hook-exit:\(index)") ?? Int.max
                 for child in children[index] {
@@ -265,8 +263,7 @@ final class ContainerHookDisposalTests: XCTestCase {
             let second = CleanupProbe("second", hub: hub, log: log)
             container.add(first)
             container.add(second)
-            weak var owner = container.vm
-            first.onCleanup = { try? owner?.construct() }
+            first.onCleanup = { [weak owner = container.vm] in try? owner?.construct() }
 
             container.vm.dispose()
 
@@ -291,7 +288,7 @@ final class ContainerHookDisposalTests: XCTestCase {
             .onConstruct {
                 log.add("hook-enter")
                 entered.signal()
-                _ = release.wait(timeout: .now() + hookTimeout)
+                _ = release.wait(timeout: .now() + hangGuard * 2)
                 log.add("hook-exit")
             }
             .build()
@@ -302,7 +299,7 @@ final class ContainerHookDisposalTests: XCTestCase {
             try? parent.construct()
             constructed.signal()
         }
-        XCTAssertEqual(entered.wait(timeout: .now() + hookTimeout), .success)
+        XCTAssertEqual(entered.wait(timeout: .now() + hangGuard), .success)
         DispatchQueue.global().async {
             parent.dispose()
             disposed.signal()
@@ -311,8 +308,8 @@ final class ContainerHookDisposalTests: XCTestCase {
         XCTAssertEqual(disposed.wait(timeout: .now() + 0.2), .timedOut)
         XCTAssertNotEqual(member.status, .disposed)
         release.signal()
-        XCTAssertEqual(constructed.wait(timeout: .now() + hookTimeout), .success)
-        XCTAssertEqual(disposed.wait(timeout: .now() + hookTimeout), .success)
+        XCTAssertEqual(constructed.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(disposed.wait(timeout: .now() + hangGuard), .success)
         XCTAssertGreaterThan(log.index("cleanup:member") ?? -1, log.index("hook-exit") ?? Int.max)
         XCTAssertEqual(member.cleanups, 1)
         XCTAssertEqual(parent.status, .disposed)
@@ -344,7 +341,7 @@ private final class AggregateHookGate: @unchecked Sendable {
         if blocks {
             log.add("hook-enter")
             entered.signal()
-            _ = release.wait(timeout: .now() + hookTimeout)
+            _ = release.wait(timeout: .now() + hangGuard * 2)
             log.add("hook-exit")
         }
         try body()
@@ -508,7 +505,7 @@ final class AggregateHookDisposalTests: XCTestCase {
             }
             operated.signal()
         }
-        XCTAssertEqual(gate.entered.wait(timeout: .now() + hookTimeout), .success, label)
+        XCTAssertEqual(gate.entered.wait(timeout: .now() + hangGuard), .success, label)
         DispatchQueue.global().async {
             aggregate.vm.dispose()
             disposed.signal()
@@ -521,9 +518,9 @@ final class AggregateHookDisposalTests: XCTestCase {
 
         gate.release.signal()
         XCTAssertEqual(
-            operated.wait(timeout: .now() + hookTimeout), .success, "\(label): no deadlock")
+            operated.wait(timeout: .now() + hangGuard), .success, "\(label): no deadlock")
         XCTAssertEqual(
-            disposed.wait(timeout: .now() + hookTimeout), .success, "\(label): no deadlock")
+            disposed.wait(timeout: .now() + hangGuard), .success, "\(label): no deadlock")
 
         XCTAssertEqual(errors.all, [], label)
         let hookReturned = log.index("hook-returned") ?? Int.max
@@ -573,8 +570,7 @@ final class AggregateHookDisposalTests: XCTestCase {
             XCTAssertNoThrow(try aggregate.vm.construct(), label)
             XCTAssertNoThrow(try aggregate.vm.destruct(), label)
             let slots = aggregate.slots().compactMap { $0 as? CleanupProbe }
-            weak var owner = aggregate.vm
-            slots[0].onCleanup = { try? owner?.construct() }
+            slots[0].onCleanup = { [weak owner = aggregate.vm] in try? owner?.construct() }
 
             aggregate.vm.dispose()
 
@@ -626,7 +622,7 @@ final class AggregateHookDisposalTests: XCTestCase {
                 name: "agg\(index)", hub: hub, dispatcher: NullDispatcher.INSTANCE,
                 factory1: {
                     rendezvous.leave()
-                    _ = rendezvous.wait(timeout: .now() + hookTimeout)
+                    _ = rendezvous.wait(timeout: .now() + hangGuard)
                     aggregates[1 - index].dispose()
                     let slot = CleanupProbe("slot\(index)", hub: hub, log: log)
                     createdLock.withLock { created.append(slot) }
@@ -642,7 +638,7 @@ final class AggregateHookDisposalTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(done.wait(timeout: .now() + hookTimeout), .success, "no deadlock")
+        XCTAssertEqual(done.wait(timeout: .now() + hangGuard), .success, "no deadlock")
         for aggregate in aggregates { XCTAssertEqual(aggregate.status, .disposed) }
         let slots = createdLock.withLock { created }
         XCTAssertEqual(slots.count, 2)

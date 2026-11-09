@@ -109,7 +109,7 @@ private final class ReentrantAdmissionState: @unchecked Sendable {
             try? await nestedCommand.executeAsync()
             finished.signal()
         }
-        let result = finished.wait(timeout: .now() + 1)
+        let result = finished.wait(timeout: .now() + hangGuard)
         queue.sync { nestedFinished = result == .success }
         return true
     }
@@ -201,7 +201,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         let cancel = cmd.canExecuteChanged.sink { fires += 1 }
 
         let run = Task<Void, Error> { try await cmd.executeAsync() }
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
         XCTAssertEqual(fires, 1)
         cmd.raiseCanExecuteChanged()
         XCTAssertEqual(fires, 2)
@@ -254,7 +254,7 @@ final class AsyncRelayCommandTests: XCTestCase {
             try await cmd.executeAsync()
         }
 
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         // Body is now in flight — assert in-flight state.
         XCTAssertTrue(cmd.isExecuting,
@@ -299,7 +299,6 @@ final class AsyncRelayCommandTests: XCTestCase {
             description: "CMD-012 admission execution finished"
         )
         let bodyGate = AdmissionBodyReleaseGate()
-        let timeout: TimeInterval = 5.0
 
         let cmd = AsyncRelayCommand.builder()
             .task {
@@ -339,7 +338,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         }
 
         let admissionResult = await XCTWaiter.fulfillment(
-            of: [admissionCancelled], timeout: timeout
+            of: [admissionCancelled], timeout: hangGuard
         )
         XCTAssertEqual(
             admissionResult, .completed,
@@ -348,7 +347,7 @@ final class AsyncRelayCommandTests: XCTestCase {
 
         if admissionResult == .completed {
             let cancellationResult = await XCTWaiter.fulfillment(
-                of: [bodyObservedCancellation], timeout: timeout
+                of: [bodyObservedCancellation], timeout: hangGuard
             )
             XCTAssertEqual(
                 cancellationResult, .completed,
@@ -360,7 +359,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         // successful one, allowing the mutant's uncancelled body to finish.
         bodyGate.release()
         let completionResult = await XCTWaiter.fulfillment(
-            of: [runFinished], timeout: timeout
+            of: [runFinished], timeout: hangGuard
         )
         XCTAssertEqual(
             completionResult, .completed,
@@ -400,7 +399,7 @@ final class AsyncRelayCommandTests: XCTestCase {
             try await cmd.executeAsync()
         }
 
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         cmd.cancel()
 
@@ -443,7 +442,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         let run = Task<Void, Error> {
             try await cmd.executeAsync()
         }
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         run.cancel()
 
@@ -472,7 +471,7 @@ final class AsyncRelayCommandTests: XCTestCase {
             }
             .build()
         let run = Task<Void, Error> { try await cmd.executeAsync() }
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         run.cancel()
         await gate.waitUntilObserved()
@@ -500,7 +499,7 @@ final class AsyncRelayCommandTests: XCTestCase {
             }
             .build()
         let run = Task<Void, Error> { try await cmd.executeAsync() }
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         cmd.cancel()
         await gate.waitUntilObserved()
@@ -536,7 +535,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         let cancel = cmd.errors.sink { _ in noErrorExp.fulfill() }
 
         cmd.execute()
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
         cmd.cancel()
         await fulfillment(of: [noErrorExp], timeout: 0.2)
 

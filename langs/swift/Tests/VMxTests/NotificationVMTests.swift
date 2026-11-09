@@ -70,7 +70,7 @@ final class NotificationVMTests: XCTestCase {
             poster.reaction = await hub.post(n)
             poster.resolved.fulfill()
         }
-        await fulfillment(of: [registered], timeout: 2.0)
+        await fulfillment(of: [registered], timeout: hangGuard)
         cancellables.removeAll()
         return poster
     }
@@ -116,7 +116,7 @@ final class NotificationVMTests: XCTestCase {
         scheduler.advance(toSeconds: 10)
 
         XCTAssertTrue(sut.isResolved, "NOTIF-012: resolved at lifespan")
-        await fulfillment(of: [poster.resolved], timeout: 2.0)
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
         XCTAssertEqual(poster.reaction, .approve,
                        "NOTIF-012: auto-dismiss resolves with .approve")
 
@@ -156,7 +156,7 @@ final class NotificationVMTests: XCTestCase {
 
         sutA.approveCommand.execute()
         XCTAssertTrue(sutA.isResolved)
-        await fulfillment(of: [posterA.resolved], timeout: 2.0)
+        await fulfillment(of: [posterA.resolved], timeout: hangGuard)
         XCTAssertEqual(posterA.reaction, .approve,
                        "NOTIF-013: approveCommand resolves with .approve")
         sutA.dispose()
@@ -170,7 +170,7 @@ final class NotificationVMTests: XCTestCase {
 
         sutR.rejectCommand.execute()
         XCTAssertTrue(sutR.isResolved)
-        await fulfillment(of: [posterR.resolved], timeout: 2.0)
+        await fulfillment(of: [posterR.resolved], timeout: hangGuard)
         XCTAssertEqual(posterR.reaction, .reject,
                        "NOTIF-013: rejectCommand resolves with .reject")
         sutR.dispose()
@@ -193,7 +193,7 @@ final class NotificationVMTests: XCTestCase {
 
         sut.dismissCommand.execute()
         XCTAssertTrue(sut.isResolved, "NOTIF-014: dismissed manually")
-        await fulfillment(of: [poster.resolved], timeout: 2.0)
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
         XCTAssertEqual(poster.reaction, .approve)
 
         // Advance past lifespan — the cancelled timer must not fire again.
@@ -227,7 +227,7 @@ final class NotificationVMTests: XCTestCase {
 
         hub.resolve(n, .approve)  // external resolution
         XCTAssertTrue(sut.isResolved, "NOTIF-015: external resolve propagates")
-        await fulfillment(of: [poster.resolved], timeout: 2.0)
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
         XCTAssertEqual(poster.reaction, .approve)
 
         // The timer was cancelled — no further resolution emissions.
@@ -269,7 +269,7 @@ final class NotificationVMTests: XCTestCase {
         scheduler.advance(toSeconds: 10)
         XCTAssertTrue(sut.isResolved, "NOTIF-016: auto-dismissed at lifespan")
         XCTAssertEqual(sut.opacity, 0.0, accuracy: 0.01)
-        await fulfillment(of: [poster.resolved], timeout: 2.0)
+        await fulfillment(of: [poster.resolved], timeout: hangGuard)
         XCTAssertEqual(poster.reaction, .approve)
 
         // No double-resolve: advancing far past lifespan is inert.

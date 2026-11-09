@@ -96,7 +96,7 @@ final class ConfirmationDecoratorCommandTests: XCTestCase {
         // Execute through the OUTER decorator so the full chain runs:
         // dec.execute() → conf.execute() (fire-and-forget Task) → relay.
         dec.execute()
-        await fulfillment(of: [exp], timeout: 2.0)
+        await fulfillment(of: [exp], timeout: hangGuard)
         XCTAssertEqual(rec.entries, ["relay"],
                        "relay must execute exactly once via the composed decorators")
     }
@@ -121,7 +121,7 @@ final class ConfirmationDecoratorCommandTests: XCTestCase {
         }.store(in: &cancellables)
 
         cmd.execute()   // fire-and-forget; the Task catches the thrown confirm error
-        await fulfillment(of: [exp], timeout: 2.0)
+        await fulfillment(of: [exp], timeout: hangGuard)
 
         XCTAssertEqual(box.errors.count, 1,
                        "exactly one error must appear on the errors channel")

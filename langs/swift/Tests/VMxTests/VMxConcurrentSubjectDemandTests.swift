@@ -15,9 +15,6 @@ import Foundation
 import XCTest
 @testable import VMx
 
-/// Bound for every wait in these tests.
-private let demandTimeout: TimeInterval = 10
-
 /// Records values; requests `initial` on subscription and returns `more`
 /// from each `receive(_:)`.
 private final class DemandSubscriber<Input>: Subscriber {
@@ -121,12 +118,12 @@ final class VMxConcurrentSubjectDemandTests: XCTestCase {
             for await _ in publisher.value.values {}
             consumerDone.signal()
         }
-        XCTAssertEqual(consumerStarted.wait(timeout: .now() + demandTimeout), .success)
+        XCTAssertEqual(consumerStarted.wait(timeout: .now() + hangGuard), .success)
         for value in 1...2000 { form.setModel(value) }
         // Disposal completes the channel, which ends the loop.
         form.dispose()
         XCTAssertEqual(
-            consumerDone.wait(timeout: .now() + demandTimeout), .success,
+            consumerDone.wait(timeout: .now() + hangGuard), .success,
             "the async consumer never finished"
         )
     }
