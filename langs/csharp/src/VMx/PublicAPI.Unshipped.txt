@@ -13,3 +13,9 @@ VMx.Collections.ReadOnlyObservableList<T>.Reset -> System.EventHandler?
 VMx.Collections.ReadOnlyObservableList<T>.this[int index].get -> T
 VMx.Messages.CollectionChangedMessage<T>.SenderName.init -> void
 override VMx.Collections.ServicedObservableCollection<T>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Services.DelayedTask
+VMx.Services.DelayedTask.Cancel() -> void
+VMx.Services.DelayedTask.DelayedTask(System.Reactive.Concurrency.IScheduler! scheduler) -> void
+VMx.Services.DelayedTask.Dispose() -> void
+VMx.Services.DelayedTask.IsPending.get -> bool
+VMx.Services.DelayedTask.Schedule(System.TimeSpan delay, System.Action! action) -> void

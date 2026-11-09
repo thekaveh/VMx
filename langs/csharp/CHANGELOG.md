@@ -14,6 +14,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [3.30.0] — unreleased source version
 
+- Added: `DelayedTask`: a disposable helper that holds at most one delayed
+  action on an injected scheduler. `Schedule` replaces a pending action and
+  restarts its delay, `Cancel` stops it, `IsPending` reports it, and disposal
+  cancels it (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+
 - Changed: the construct walk of a composite or group now counts members only
   (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
   joins a child, and again after the child settles. A child that a removal or
