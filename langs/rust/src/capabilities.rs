@@ -171,10 +171,13 @@ pub trait Reconstructable {
     fn can_reconstruct(&self) -> bool;
     /// Reconstructs the receiver.
     ///
-    /// This method reports no destruct or construct error. When the destruct
-    /// fails, it returns without a construct. It drops any construct error,
-    /// also from the construct that a settle callback runs after a
-    /// background destruct settles.
+    /// This method discards the result of each destruct and construct call
+    /// that it makes, also of the construct that a settle callback runs after
+    /// a background destruct settles. Thus it returns no admission error and
+    /// no synchronous hook error. When the destruct call fails, it returns
+    /// without a construct. A background hook failure still goes to the
+    /// `background_errors` stream of the node type, also when this method
+    /// started the transition.
     ///
     /// To receive these errors, call the inherent `reconstruct()` method of
     /// the concrete type, for example

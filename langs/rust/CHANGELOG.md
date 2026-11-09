@@ -97,6 +97,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
   The conformance tests that call them run with `--all-features`. This is not
   a breaking change: the seams are hidden test-only API, and no published
   release exported them.
+- `PropertyChangedStream::subscriber_count_for_testing` is a fourth hidden
+  test seam (#1300). Only the non-default `test-seams` feature exports it. It
+  reports the live handler count of a property-changed stream, so AGCH-004 and
+  AGCH-006 can detect a leaked item subscription. Like the other seams, it is
+  not a breaking change.
+- The rustdoc of `Reconstructable::reconstruct` now states which errors the
+  trait method discards (#1284). It returns no admission error and no
+  synchronous hook error. A background hook failure still goes to the
+  `background_errors` stream of the node type. The inherent `reconstruct()`
+  methods return these errors.
 - Breaking: `GroupVmOptions` and `CompositeVmOptions` have a new
   `destruct_order` field, so code that builds them with a struct literal must
   now set it (#662).

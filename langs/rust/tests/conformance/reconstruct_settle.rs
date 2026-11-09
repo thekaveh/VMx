@@ -1,4 +1,4 @@
-//! Settle waiters and the deferred construct of a reconstruct (spec/02 §6).
+//! Settle waiters and the deferred construct of a reconstruct (spec/02 §5, §2.5).
 //!
 //! `ComponentCore::reconstruct` releases settle waiters through a drop guard,
 //! so a hook panic during `reconstruct()` still runs them (#738, #1284). The
