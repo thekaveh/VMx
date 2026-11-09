@@ -32,6 +32,7 @@ final class ConstructWalkMembershipTests: XCTestCase {
         let add: (ComponentVM) -> Bool
         let remove: (ComponentVM) -> Bool
         let contains: (ComponentVM) -> Bool
+        let setProbe: (((ComponentVMBase, LateChildStage) -> Void)?) -> Void
     }
 
     private func makeContainer(_ kind: String, children: [ComponentVM]) -> Container {
@@ -45,7 +46,8 @@ final class ConstructWalkMembershipTests: XCTestCase {
                 vm: composite,
                 add: { if case .success = composite.addResult($0) { return true } else { return false } },
                 remove: { composite.remove($0) },
-                contains: { child in composite.snapshot().contains { $0 === child } }
+                contains: { child in composite.snapshot().contains { $0 === child } },
+                setProbe: { composite.lateChildProbeForTesting = $0 }
             )
         }
         let group = GroupVM<ComponentVM>(
@@ -57,7 +59,8 @@ final class ConstructWalkMembershipTests: XCTestCase {
             vm: group,
             add: { if case .success = group.addResult($0) { return true } else { return false } },
             remove: { group.remove($0) },
-            contains: { child in group.snapshot().contains { $0 === child } }
+            contains: { child in group.snapshot().contains { $0 === child } },
+            setProbe: { group.lateChildProbeForTesting = $0 }
         )
     }
 
@@ -66,7 +69,8 @@ final class ConstructWalkMembershipTests: XCTestCase {
         dispatcher: Dispatcher = ImmediateDispatcher.INSTANCE,
         background: Bool = false,
         failing: Bool = false,
-        runs: Counter? = nil
+        runs: Counter? = nil,
+        hold: (entered: DispatchSemaphore, release: DispatchSemaphore)? = nil
     ) throws -> ComponentVM {
         try ComponentVM.builder()
             .name(name)
@@ -74,6 +78,10 @@ final class ConstructWalkMembershipTests: XCTestCase {
             .background(background)
             .onConstruct {
                 runs?.increment()
+                if let hold {
+                    hold.entered.signal()
+                    _ = hold.release.wait(timeout: .now() + 5)
+                }
                 if failing { throw Boom() }
             }
             .build()
@@ -167,19 +175,42 @@ final class ConstructWalkMembershipTests: XCTestCase {
     }
 
     /// A late child whose own construct fails during its add: the add fails
-    /// and is undone, and the container still reaches Constructed.
+    /// and is undone, and the container still reaches Constructed. The walk
+    /// waits on the add's start attempt while the child's hook fails.
     private func runLateChildWhoseAddFails(_ kind: String) throws {
         let anchorDispatcher = ManualDispatcher()
         let anchor = try child("a", dispatcher: anchorDispatcher, background: true)
         let p = makeContainer(kind, children: [anchor])
         XCTAssertNoThrow(try p.vm.construct(), kind)
         let runs = Counter()
-        let late = try child("l", failing: true, runs: runs)
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let late = try child("l", failing: true, runs: runs, hold: (entered, release))
+        let walkWaiting = DispatchSemaphore(value: 0)
+        p.setProbe { child, stage in
+            if child === late && stage == .walkWaitingOnAdd { walkWaiting.signal() }
+        }
+        defer { p.setProbe(nil) }
+        let finished = DispatchSemaphore(value: 0)
+        var added: Bool?
+        let adder = Thread {
+            added = p.add(late)
+            finished.signal()
+        }
+        adder.start()
 
-        XCTAssertFalse(p.add(late), "\(kind): the add fails")
-        XCTAssertFalse(p.contains(late), "\(kind): the add is undone")
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success, "\(kind): the add starts the late child")
+        settle(anchorDispatcher) // the anchor settles; the walk reaches the late child
+        XCTAssertEqual(
+            walkWaiting.wait(timeout: .now() + 5), .success, "\(kind): the walk waits on the add's attempt"
+        )
+        XCTAssertEqual(p.vm.status, .constructing, kind)
+        release.signal() // the late child's hook fails now
+        XCTAssertEqual(finished.wait(timeout: .now() + 5), .success, "\(kind): the failed add completes")
         settle(anchorDispatcher)
 
+        XCTAssertEqual(added, false, "\(kind): the add fails")
+        XCTAssertFalse(p.contains(late), "\(kind): the add is undone")
         XCTAssertEqual(p.vm.status, .constructed, kind)
         XCTAssertEqual(late.status, .destructed, kind)
         XCTAssertEqual(runs.value, 1, kind)
