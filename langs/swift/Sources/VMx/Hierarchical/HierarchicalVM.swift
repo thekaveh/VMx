@@ -217,7 +217,7 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// Fails fast (traps) when the factory returns structurally invalid
     /// output (spec/18 §4). Use `tryChildren()` to handle that case; the tree
     /// utilities `walk`, `walkExpanded` and `find` read `tryChildren()` and
-    /// throw instead (spec/13 §6, ADR-0170).
+    /// throw instead (spec/13 §6.1, ADR-0170).
     public var children: [TVM] {
         switch tryChildren() {
         case .success(let children):

@@ -707,6 +707,24 @@ before a persister starts prevents the persister call (`FORM-041`,
 
 See ADR-0180 and chapter 20 §5.4 and §10.
 
+v3.30.0 also makes two composite selection refusals silent. A refused child
+`select()` or `deselect()` changes nothing and raises nothing in every flavor.
+While a composite is `Destructing`, a non-null selection changes nothing and
+raises nothing, so `destruct()` always returns with `Current` null
+(`COMP-051`, `COMP-052`).
+
+See ADR-0188 and chapter 05 §6 and chapter 06 §3.1, §4.3 and §5.
+
+v3.30.0 also covers a child that is disposed while it is still a member.
+Container walks and the child-transition helper skip a `Disposed` child, so
+the container still destructs, constructs and reconstructs (`LIFE-022`). A
+`Disposed` child is not selectable. When the current child publishes
+`Disposed` from its own `dispose()`, the composite clears `Current`, and the
+child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 455
+library IDs plus 5 scenario IDs.
+
+See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
+
 v3.30.0 also defines structural calls on a disposed `HierarchicalVM` node. From
 the moment a node is `Disposed`, `AddChild`, `RemoveChild`, `ReparentChild`,
 `InvalidateChildren`, `InvalidateSubtree`, and `AttachMany` on it refuse, also
@@ -716,6 +734,6 @@ too. `AttachMany` rejects a candidate under a disposed parent, and
 or `GroupVM` also sends no `CollectionChangedMessage` once its disposal is
 requested or deferred. A local subscriber or `OnCurrentChanged` callback that
 disposes the container therefore suppresses the hub message of that change
-(`COMP-049`). The catalog now contains 453 library IDs plus 5 scenario IDs.
+(`COMP-049`). The catalog now contains 457 library IDs plus 5 scenario IDs.
 
 See ADR-0190, chapter 01 §1.4, chapters 06 and 07, and chapter 18 §7.1.

@@ -6,9 +6,9 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 ## 1. Status
 
 **v3.31.0 source — total parity.** Swift implements `spec-v3.30.0` and covers
-all **453 of 453** library conformance IDs. The SwiftUI notes-showcase exercises
-the five additional `THEME-00x` scenarios, for **458 total**, matching the other
-UI-backed flavors; Rust covers the 453 library IDs and has no UI scenario suite.
+every library conformance ID in `spec/12-conformance.md`. The SwiftUI
+notes-showcase exercises the additional `THEME-00x` scenarios, matching the other
+UI-backed flavors; Rust covers the library IDs and has no UI scenario suite.
 See [CHANGELOG.md](CHANGELOG.md) for history.
 
 The package requires Combine and iOS 16, macOS 13, tvOS 16, or watchOS 9. The
@@ -161,7 +161,7 @@ owns; VMx does not attach it to the observed VM's lifetime. See
 
 ## 5. Conformance
 
-Swift implements all 453 library conformance IDs. The
+Swift implements every library conformance ID. The
 `examples/swift/notes-showcase/` flagship covers `THEME-001..005` in
 `ThemeVMTests.swift`, validated by the `examples (notes-showcase)` job in
 `.github/workflows/swift.yml`. See
@@ -181,6 +181,23 @@ Known Swift divergences:
   thrown errors per subscriber; raw `messages` Combine sinks cannot throw
   (ADR-0062 §2.4).
 - `NotificationVM` time values are `TimeInterval` seconds (ADR-0063 §2.4).
+- `VMx.Notification` has the same name as `Foundation.Notification`. In a file
+  that imports both modules, the unqualified name in a type position fails with
+  `'Notification' is ambiguous for type lookup in this context`. Write
+  `VMx.Notification`, or declare a type alias:
+
+  ```swift
+  import Foundation
+  import VMx
+
+  typealias VMxNotification = VMx.Notification
+
+  func messages(of pending: [VMxNotification]) -> [String] {
+      pending.map(\.message)
+  }
+
+  let alert = VMx.Notification(type: .notification, message: "Saved")
+  ```
 
 Run the suite:
 

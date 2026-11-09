@@ -683,6 +683,8 @@ fn duplicate_and_cycle_are_rejected() {
 
 #[test]
 fn builder_population_rejects_duplicate_identity_in_composite_and_group() {
+    // The factory runs on the first construct, so a duplicate fails that
+    // construct, not `build()` (spec/06 §1, spec/07 §3, ADR-0204).
     let item = child("duplicate-factory");
     let composite = vmx::CompositeVm::<Child>::builder()
         .name("composite")
@@ -691,8 +693,11 @@ fn builder_population_rejects_duplicate_identity_in_composite_and_group() {
             let item = item.clone();
             move || vec![item.clone(), item.clone()]
         })
-        .build();
-    assert!(matches!(composite, Err(VmxError::DuplicateChild)));
+        .build()
+        .unwrap();
+    assert_eq!(composite.construct(), Err(VmxError::DuplicateChild));
+    assert_eq!(composite.len(), 0);
+    assert_eq!(composite.status(), ConstructionStatus::Destructed);
 
     let group = vmx::GroupVm::<Child>::builder()
         .name("group")
@@ -701,8 +706,11 @@ fn builder_population_rejects_duplicate_identity_in_composite_and_group() {
             let item = item.clone();
             move || vec![item.clone(), item.clone()]
         })
-        .build();
-    assert!(matches!(group, Err(VmxError::DuplicateChild)));
+        .build()
+        .unwrap();
+    assert_eq!(group.construct(), Err(VmxError::DuplicateChild));
+    assert_eq!(group.len(), 0);
+    assert_eq!(group.status(), ConstructionStatus::Destructed);
     assert_eq!(item.parent_id(), None);
 }
 

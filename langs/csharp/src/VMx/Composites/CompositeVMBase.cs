@@ -704,14 +704,39 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         get { lock (_membershipGate) return _current; }
     }
 
+    // The child Select() and Deselect() paths run the checks of
+    // SelectComponent and DeselectComponent, but a refusal changes nothing
+    // and raises nothing (spec/05 §6, spec/06 §3.1, ADR-0188).
     void IParentCompositeVM.SelectChild(IComponentVM vm)
     {
-        if (vm is VM typed) SelectComponent(typed);
+        if (vm is not VM typed || !CanSelectComponentIgnoringDestructing(typed)) return;
+        SetCurrent(typed, _asyncSelection, requireConstructed: true, silent: true);
     }
 
     void IParentCompositeVM.DeselectChild(IComponentVM vm)
     {
-        if (vm is VM typed) DeselectComponent(typed);
+        if (vm is not VM typed) return;
+        lock (_membershipGate)
+        {
+            if (CallerOwnsUncommittedTransactionLocked() || !ReferenceEquals(_current, typed)) return;
+        }
+        SetCurrent(null, _asyncSelection, silent: true);
+    }
+
+    // The dispose clear (spec/06 §4.3 rule 9, ADR-0189): a child that
+    // published Disposed from its own disposal is cleared as Current, only
+    // while it is still current. The composite's own dispose cascade skips it.
+    void IParentCompositeVM.ChildDisposed(IComponentVM vm)
+    {
+        var identity = vm.GetOwnershipIdentity();
+        VM? current;
+        lock (_membershipGate)
+        {
+            if (DisposalPendingLocked()) return;
+            current = _current;
+        }
+        if (current is null || !ReferenceEquals(current.GetOwnershipIdentity(), identity)) return;
+        ApplyCurrentChange(null, CurrentChange.DisposeClear, onlyReplacing: current);
     }
 
     bool IParentCompositeVM.ContainsChild(IComponentVM vm)
@@ -803,7 +828,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void SelectComponent(VM vm)
     {
-        if (!CanSelectComponent(vm)) throw CannotSelect(vm);
+        // A call that only the Destructing rule refuses changes nothing and
+        // raises nothing; the commit drops it (spec/06 §3.1, ADR-0188).
+        if (!CanSelectComponentIgnoringDestructing(vm)) throw CannotSelect(vm);
         // The commit checks Constructed again under its locks, so a destruct
         // on another thread after this check cannot pass it (#1220).
         SetCurrent(vm, _asyncSelection, requireConstructed: true);
@@ -830,10 +857,18 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <summary>
     /// Returns whether <see cref="SelectComponent"/> would succeed now:
     /// <paramref name="vm"/> is an admitted member and Constructed, no disposal
-    /// of this composite is pending, and the caller is not inside its own
-    /// uncommitted membership transaction (spec/06 §3.1, ADR-0173).
+    /// of this composite is pending, this composite is not Destructing, and
+    /// the caller is not inside its own uncommitted membership transaction
+    /// (spec/06 §3.1, ADR-0173, ADR-0188).
     /// </summary>
     public bool CanSelectComponent(VM vm)
+    {
+        if (!CanSelectComponentIgnoringDestructing(vm)) return false;
+        lock (_membershipGate) return !DestructingLocked();
+    }
+
+    /// <summary>The <see cref="CanSelectComponent"/> checks except the Destructing rule.</summary>
+    private bool CanSelectComponentIgnoringDestructing(VM vm)
     {
         if (vm.Status != ConstructionStatus.Constructed) return false;
         lock (_membershipGate)
@@ -1558,15 +1593,23 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         Call,
 
         /// <summary>
-        /// An asynchronous delivery or the construct walk's assignment: the
-        /// same checks as a call, but a refusal is a silent no-op.
+        /// An asynchronous delivery, the construct walk's assignment or a
+        /// child Select() or Deselect(): the same checks as a call, but a
+        /// refusal is a silent no-op (ADR-0188).
         /// </summary>
         Delivery,
 
         /// <summary>
-        /// The destruct clear or a detach clear: never refused (rules 6 and 8).
+        /// The destruct clear (§5) or a detach clear (rule 6): never refused.
         /// </summary>
         Clear,
+
+        /// <summary>
+        /// The clear that a child's own dispose commits (rule 9): like
+        /// <see cref="Clear"/>, but skipped while disposal of this composite is
+        /// requested or deferred, or after it is Disposed.
+        /// </summary>
+        DisposeClear,
     }
 
     private static InvalidOperationException TransactionInProgress()
@@ -1605,9 +1648,13 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private bool DisposalPendingLocked()
         => Volatile.Read(ref _disposeRequested) != 0 || _disposeDeferred;
 
-    /// <summary>Contained, and not staged by an add or population (rule 2).</summary>
+    /// <summary>
+    /// Contained, not Disposed, and not staged by an add or population
+    /// (rule 2, ADR-0189).
+    /// </summary>
     private bool IsCommittedMemberLocked(VM value)
-        => !ReferenceEquals(value, _pendingAdmission) &&
+        => value.Status != ConstructionStatus.Disposed &&
+            !ReferenceEquals(value, _pendingAdmission) &&
             (_stagedPopulation is not { } staged || !Array.Exists(staged, child => ReferenceEquals(child, value))) &&
             _children.Any(child => ReferenceEquals(child, value));
 
@@ -1645,22 +1692,44 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         return null;
     }
 
+    /// <summary>
+    /// This composite is Destructing (spec/06 §4.3 rule 8, ADR-0188). The
+    /// status is Destructing before the destruct clear takes the membership
+    /// gate, so a commit that reads it under the gate cannot follow the clear.
+    /// </summary>
+    private bool DestructingLocked() => Status == ConstructionStatus.Destructing;
+
     private ObjectDisposedException SelectionWhileDisposing()
         => new(GetType().Name, "Cannot select a child while the container is disposing.");
 
-    private void SetCurrent(VM? value, bool async, bool requireConstructed = false)
+    /// <param name="value">The new Current.</param>
+    /// <param name="async">Schedules the commit on the foreground dispatcher.</param>
+    /// <param name="requireConstructed">Refuses a child that is not Constructed (spec/06 §3.1).</param>
+    /// <param name="silent">
+    /// A child Select() or Deselect(): a refusal changes nothing and raises
+    /// nothing (ADR-0188).
+    /// </param>
+    private void SetCurrent(VM? value, bool async, bool requireConstructed = false, bool silent = false)
     {
         if (!async)
         {
-            ApplyCurrentChange(value, CurrentChange.Call, requireConstructed: requireConstructed);
+            ApplyCurrentChange(
+                value, silent ? CurrentChange.Delivery : CurrentChange.Call,
+                requireConstructed: requireConstructed);
             return;
         }
         // The call validates now and raises as the synchronous setter does;
-        // the delivery validates again (spec/06 §4.3 rule 7).
+        // the delivery validates again (spec/06 §4.3 rule 7). A selection that
+        // only the Destructing rule refuses schedules nothing (rule 8).
         var disposed = IsDisposed();
         lock (_membershipGate)
         {
-            if (SelectionRefusalLocked(value, disposed, requireConstructed) is { } refusal) throw refusal;
+            if (SelectionRefusalLocked(value, disposed, requireConstructed) is { } refusal)
+            {
+                if (silent) return;
+                throw refusal;
+            }
+            if (value is not null && DestructingLocked()) return;
         }
         _dispatcher.Foreground.Schedule(value, (sched, v) =>
         {
@@ -1683,13 +1752,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private void ApplyCurrentChange(
         VM? value, CurrentChange kind, VM? onlyReplacing = null, bool requireConstructed = false)
     {
-        if (kind == CurrentChange.Clear)
+        var clear = kind is CurrentChange.Clear or CurrentChange.DisposeClear;
+        if (clear)
         {
             // A clear with nothing to clear skips the global lane.
             lock (_membershipGate)
                 if (_current is null) return;
         }
-        var disposed = kind != CurrentChange.Clear && IsDisposed();
+        var disposed = !clear && IsDisposed();
         VM? previous;
         bool previousFlagChanged;
         bool valueFlagChanged;
@@ -1697,12 +1767,18 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         {
             lock (_membershipGate)
             {
-                if (kind != CurrentChange.Clear &&
+                if (!clear &&
                     SelectionRefusalLocked(value, disposed, requireConstructed) is { } refusal)
                 {
                     if (kind == CurrentChange.Call) throw refusal;
                     return;
                 }
+                // Rule 8: while Destructing, a non-null selection that rules
+                // 2-4 admit changes nothing and raises nothing (ADR-0188).
+                if (!clear && value is not null && DestructingLocked()) return;
+                // Rule 9: the dispose clear is skipped while disposal of this
+                // composite is requested or deferred, or after Disposed.
+                if (kind == CurrentChange.DisposeClear && DisposalPendingLocked()) return;
                 previous = _current;
                 if (ReferenceEquals(previous, value) ||
                     (onlyReplacing is not null && !ReferenceEquals(previous, onlyReplacing)))

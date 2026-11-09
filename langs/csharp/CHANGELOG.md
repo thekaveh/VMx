@@ -21,6 +21,24 @@ All notable changes to the C# flavor are documented here. The format is based on
   callback that disposes the container now suppresses the hub message of that
   change. In a transfer whose old container disposes itself, the hub receives
   only the new container's `Add`.
+- Added: `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
+- Fixed: Disposing the current child of a composite now clears the
+  composite's current child before `Dispose()` returns (ADR-0189, #1317). The
+  composite publishes the change once and calls `OnCurrentChanged(null)` once.
+  The disposed child reads `IsCurrent` false. A disposed child can no longer
+  become current: the setter throws the non-member error.
+- Fixed: A composite, group or aggregate that holds a directly disposed child
+  now destructs, constructs and reconstructs (ADR-0189, #1383). Container
+  walks and the child-transition helper skip a disposed child. Before, every
+  `Destruct()` failed and the container stayed `Constructed`.
+- Fixed: A non-null selection while a composite is `Destructing` now changes
+  nothing and throws nothing (ADR-0188, #1425). `Destruct()` and
+  `Reconstruct()` therefore return with no current child, also when an
+  `OnCurrentChanged` callback or a child's destruct hook selects a child.
+- Changed: A refused child `Select()` or `Deselect()` now changes nothing and
+  throws nothing (ADR-0188, #1424). Before, it threw
+  `InvalidOperationException`.
 - Added: `COL-067` conformance tests (#1176, ADR-0177). An
   `ObservableDictionary` mutation changes the entries and `Count` first. Then
   it updates each key view that changes, raises the dictionary events and
