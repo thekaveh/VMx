@@ -105,9 +105,10 @@ command without `errors`, such as `RelayCommand`, as before. `useVm` also
 re-renders a component bound to a `ForwardingComponentVM` or
 `ForwardingCompositeVM`: it matches messages from the VM that the decorator's
 `wrappedBase` chain reaches. A `ForwardingCompositeVM` needs an
-`@thekaveh/vmx` release that contains ADR-0213; 3.30.0 does not. `useDerivedProperty` renders
-`undefined` until the property's first value and renders that value as soon as
-it arrives, including from a source that first emits after mount.
+`@thekaveh/vmx` release that contains ADR-0213; 3.30.0 does not.
+`useDerivedProperty` renders `undefined` until the property's first value and
+renders that value as soon as it arrives, including from a source that first
+emits after mount.
 
 ## 4. Conditional VMs and the Rules of Hooks
 
