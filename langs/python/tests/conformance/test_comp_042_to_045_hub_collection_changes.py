@@ -129,7 +129,7 @@ def _assert_hub_follows_each_local_event(log: list[_Entry], local_events: int) -
 @pytest.mark.conformance("COMP-042")
 def test_COMP_042_publishes_one_hub_message_after_each_local_event() -> None:
     hub: MessageHub[Any] = MessageHub()
-    parent = _composite(hub)
+    parent = _composite(hub, "people")
     a, b, c, d = (_child(hub, name) for name in "abcd")
     log = _interleaved(hub, parent)
     messages = _hub_messages(hub)
@@ -146,6 +146,8 @@ def test_COMP_042_publishes_one_hub_message_after_each_local_event() -> None:
     _assert_hub_follows_each_local_event(log, 9)
     assert all(message.sender is parent for message in messages)
     assert all(message.sender_object is parent for message in messages)
+    # The container's name, not its runtime type name (ADR-0194, #1309).
+    assert all(message.sender_name == "people" for message in messages)
     assert [message.action for message in messages] == [
         "add",
         "add",
@@ -455,7 +457,7 @@ def test_COMP_045_forwarding_wrapper_publishes_once_as_the_wrapped_composite() -
 @pytest.mark.conformance("GRP-012")
 def test_GRP_012_publishes_one_hub_message_after_each_local_event() -> None:
     hub: MessageHub[Any] = MessageHub()
-    peers = _group(hub)
+    peers = _group(hub, "team")
     a, b, c, d = (_child(hub, name) for name in "abcd")
     log = _interleaved(hub, peers)
     messages = _hub_messages(hub)
@@ -473,6 +475,8 @@ def test_GRP_012_publishes_one_hub_message_after_each_local_event() -> None:
 
     _assert_hub_follows_each_local_event(log, 9)
     assert all(message.sender is peers for message in messages)
+    # The container's name, not its runtime type name (ADR-0194, #1309).
+    assert all(message.sender_name == "team" for message in messages)
     assert [message.action for message in messages] == [
         "add",
         "add",

@@ -2,9 +2,11 @@
 
 Published by ServicedObservableCollection, KeyedServicedObservableCollection,
 ObservableDictionary and, with the container as sender, by CompositeVM and
-GroupVM after each local collection change.
+GroupVM after each local collection change. A container message carries the
+container's name as its sender name.
 
-See spec/21-collections.md §2, spec/01-concepts.md §1.4, ADR-0024 and ADR-0142.
+See spec/21-collections.md §2, spec/01-concepts.md §1.4, ADR-0024, ADR-0142 and
+ADR-0194.
 """
 
 from __future__ import annotations
@@ -36,6 +38,10 @@ class CollectionChangedMessage(Generic[T]):
         Previous index of the item, or -1 when there is no old position.
     new_index:
         Current index of the item, or -1 when there is no new position.
+    sender_name:
+        Keyword-only. ``CompositeVM`` and ``GroupVM`` pass their ``name``.
+        When empty, it defaults to the sender's runtime type name, which plain
+        collections and dictionaries keep (spec §2.4, ADR-0194).
     """
 
     sender: object
@@ -45,11 +51,11 @@ class CollectionChangedMessage(Generic[T]):
     index: int = -1
     old_index: int = -1
     new_index: int = -1
+    sender_name: str = field(default="", kw_only=True)
 
-    @property
-    def sender_name(self) -> str:
-        """Derived from the sender's runtime type name; no separate name field per spec §2.4."""
-        return type(self.sender).__name__
+    def __post_init__(self) -> None:
+        if not self.sender_name:
+            object.__setattr__(self, "sender_name", type(self.sender).__name__)
 
     @property
     def sender_object(self) -> object:

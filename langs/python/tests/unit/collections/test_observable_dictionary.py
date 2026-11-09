@@ -733,3 +733,21 @@ def test_key_view_contains_a_nan_key_by_identity() -> None:
     sut.add(nan, "b", 1)
 
     assert nan in sut.keys1
+
+
+def test_replace_position_is_captured_when_the_change_commits() -> None:
+    # A local Replace handler that removes an earlier entry does not move the
+    # Replace hub message's position (spec/21 §4.7, ADR-0193, #1316).
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    d: ObservableDictionary[str, int, str] = ObservableDictionary(hub=hub)
+    d.add("a", 1, "one")
+    d.add("b", 2, "two")
+    d.add("c", 3, "three")
+    messages: list[CollectionChangedMessage[object]] = []
+    hub.messages.subscribe(messages.append)  # type: ignore[arg-type]
+    d.on_item_replaced.subscribe(lambda _: d.remove("a", 1) if ("a", 1) in d else None)
+
+    d["c", 3] = "z"
+
+    replace = next(m for m in messages if m.action == "replace")
+    assert (replace.index, replace.old_index, replace.new_index) == (2, 2, 2)

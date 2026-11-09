@@ -44,6 +44,9 @@ class ChildContainer(Protocol[VM]):
     _late_starts: _LateChildStarts
 
     @property
+    def name(self) -> str: ...
+
+    @property
     def _membership_gate(self) -> AbstractContextManager[object]: ...
 
     def snapshot(self) -> tuple[VM, ...]: ...
@@ -91,7 +94,7 @@ def deliver_collection_changed(
         first_error = error
     if not (subject.is_disposed or subject.is_stopped):
         try:
-            container._hub.send(collection_changed_message_for(container, event))
+            container._hub.send(collection_changed_message_for(container, container.name, event))
         except BaseException as error:
             if first_error is None:
                 first_error = error

@@ -278,3 +278,70 @@ def test_empty_slice_delete_and_assign_emit_nothing() -> None:
 
     assert events == []
     assert list(sut) == [1, 2, 3]
+
+
+# ---------------------------------------------------------------------------
+# reverse() — one Reset, no interim order (spec/21 §2.3.6, ADR-0193, #1316)
+# ---------------------------------------------------------------------------
+
+
+def test_reverse_sends_one_reset_and_observers_see_only_the_final_order() -> None:
+    hub = _hub()
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection(hub)
+    sut.extend([1, 2, 3, 4])
+    local: list[tuple[str, int, list[int]]] = []
+    published: list[CollectionChangedMessage[int]] = []
+    sut.on_collection_changed.subscribe(lambda m: local.append((m.action, m.index, list(sut))))
+    hub.messages.subscribe(published.append)  # type: ignore[arg-type]
+
+    sut.reverse()
+
+    assert local == [("reset", -1, [4, 3, 2, 1])]
+    assert [(m.action, m.index) for m in published] == [("reset", -1)]
+    assert list(sut) == [4, 3, 2, 1]
+
+
+@pytest.mark.parametrize("items", [[], [1]])
+def test_reverse_of_zero_or_one_item_sends_nothing(items: list[int]) -> None:
+    hub = _hub()
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection(hub)
+    sut.extend(items)
+    local: list[CollectionChangedMessage[int]] = []
+    published: list[CollectionChangedMessage[int]] = []
+    sut.on_collection_changed.subscribe(local.append)
+    hub.messages.subscribe(published.append)  # type: ignore[arg-type]
+
+    sut.reverse()
+
+    assert local == []
+    assert published == []
+    assert list(sut) == items
+
+
+# ---------------------------------------------------------------------------
+# Sender name (ADR-0194, #1309)
+# ---------------------------------------------------------------------------
+
+
+def test_plain_collection_message_keeps_its_type_name() -> None:
+    hub = _hub()
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection(hub)
+    published: list[CollectionChangedMessage[int]] = []
+    hub.messages.subscribe(published.append)  # type: ignore[arg-type]
+
+    sut.append(1)
+
+    assert [m.sender_name for m in published] == ["ServicedObservableCollection"]
+
+
+def test_direct_message_derives_the_sender_type_name_unless_given() -> None:
+    sender = ServicedObservableCollection[int]()
+
+    derived: CollectionChangedMessage[int] = CollectionChangedMessage(sender=sender, action="reset")
+    named: CollectionChangedMessage[int] = CollectionChangedMessage(
+        sender=sender, action="reset", sender_name="people"
+    )
+
+    assert derived.sender_name == "ServicedObservableCollection"
+    assert named.sender_name == "people"
+    assert named.sender_object is sender
