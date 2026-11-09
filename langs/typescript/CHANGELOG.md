@@ -100,6 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `npm run typecheck` and `npm run typecheck:tests` now copy the spec
+  fixtures first through `pretypecheck` and `pretypecheck:tests` scripts
+  (#1402). Both commands now pass after `npm ci` in a fresh clone, and they
+  read the current spec fixtures after a fixture edit.
 - A `FormVM` call nested in a preparation callback or an `errorsChanged`
   observer of `setModel` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,

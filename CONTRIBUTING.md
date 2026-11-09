@@ -81,8 +81,7 @@ seeds a 3.14 environment and checks that a selected sync repairs it.
 ```bash
 cd langs/typescript
 npm ci
-npm run sync-fixtures   # copy spec/fixtures/*.json → src/fixtures/
-npm run typecheck
+npm run typecheck       # pre-script copies spec/fixtures/*.json → src/fixtures/
 npm run typecheck:tests # type-check tests/ separately; CI runs this too
 npm run lint
 npm run build
