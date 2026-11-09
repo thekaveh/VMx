@@ -403,6 +403,11 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     }
 }
 
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> crate::TreeNode
+    for ForwardingComponentVm<M, D>
+{
+}
+
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ForwardingComponentVm<M, D> {
     fn id(&self) -> usize {
         self.id()

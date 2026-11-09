@@ -10,6 +10,31 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `FilteredCompositeVm::changed()`, a hot `ValueStream<()>` (#1259,
+  ADR-0207, spec/06 §9). It sends once after each source membership change,
+  `set_predicate`, `refresh` and `refresh_scores`, and once when
+  `set_current`, `move_next_visible` or `move_previous_visible` changes the
+  current item. A subscriber reads the new `visible()` and `current()`.
+  `dispose()` releases the source subscription and completes the stream, and
+  later calls send nothing. The view now subscribes to the source's local
+  membership stream and reconciles the current item at each source change,
+  not at the next read. The subscription holds the view weakly.
+- `FilteredCompositeVm::with_cursor_policy` and `scored_with_cursor_policy`
+  take the cursor policy at construction (#1260, ADR-0207). A `Clear` or
+  `PreserveIfVisible` view starts with no current item, as in the other
+  flavors. `new` and `scored` keep `SnapToFirst`.
+- `TreeNodeRef`, a type-erased handle that the tree walks yield (#1262,
+  ADR-0207). It has `id()`, `status()`, `type_name()`, `is`, `downcast_ref`,
+  `downcast`, `try_children_nodes()` and `expandable()`, and two handles are
+  equal for the same node identity. `CompositeVm`, `ModeledCompositeVm` and
+  `GroupVm` now list their children for `walk`, `walk_expanded` and `find`,
+  `AggregateVm1` to `AggregateVm6` and `ForwardingComponentVm` implement
+  `TreeNode`, and an aggregate lists its present components in slot order.
+- `HierarchicalVm::compose_expansion(ExpandableState)` and `expansion()`
+  (#1262, ADR-0207). `walk_expanded` yields a node whose composed state is
+  collapsed but not its descendants. A second composition returns
+  `VmxError::InvalidArgument`. The node does not dispose the state.
+
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
@@ -90,6 +115,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Breaking:** `TreeNode::try_children_nodes` returns
+  `VmxResult<Vec<TreeNodeRef>>`, and `TreeNode::children_nodes` is removed
+  (#1262, ADR-0207). `walk` and `walk_expanded` return
+  `VmxResult<Vec<TreeNodeRef>>`. `find` takes a `Fn(&TreeNodeRef) -> bool`
+  predicate and returns `VmxResult<Option<TreeNodeRef>>`. A walk therefore
+  crosses containers whose children have other types. Read a node through
+  `TreeNodeRef::downcast`. A handle wraps the container's child type.
+
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default
@@ -150,6 +183,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
   cycle.
 
 ### Fixed
+
+- `TreeSelection::dispose` resets the value that `current_changed()` retains
+  to `None` before it completes the stream (#1286, ADR-0207). A kept stream
+  clone no longer keeps the last selected node alive after disposal.
 
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications

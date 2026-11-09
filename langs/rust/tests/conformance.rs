@@ -26,7 +26,6 @@ mod conformance {
     mod discriminator;
     mod drop_reentry;
     mod expandable;
-    mod expandable_support;
     mod filtered_composite;
     mod form_approval_admission;
     mod form_approval_subscription;

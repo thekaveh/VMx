@@ -311,3 +311,172 @@ fn dispose_reconciles_a_current_item_hidden_by_its_predicate() {
     assert_eq!(visible, vec![2]);
     assert_eq!(filtered.current().map(|vm| vm.model()), Some(2));
 }
+
+/// COMP-033 — the cursor policy given at construction sets the start state
+#[test]
+fn constructor_cursor_policy_sets_the_initial_current_item() {
+    let all = |_: &ComponentVm<i32>| true;
+    let clear = FilteredCompositeVm::with_cursor_policy(
+        source_with(&[1, 2, 3]),
+        all,
+        FilteredCursorPolicy::Clear,
+    );
+    assert!(clear.current().is_none());
+
+    let preserve = FilteredCompositeVm::with_cursor_policy(
+        source_with(&[1, 2, 3]),
+        all,
+        FilteredCursorPolicy::PreserveIfVisible,
+    );
+    assert!(preserve.current().is_none());
+
+    let snap = FilteredCompositeVm::with_cursor_policy(
+        source_with(&[1, 2, 3]),
+        all,
+        FilteredCursorPolicy::SnapToFirst,
+    );
+    assert_eq!(snap.current().map(|vm| vm.model()), Some(1));
+
+    let default = FilteredCompositeVm::new(source_with(&[1, 2, 3]), all);
+    assert_eq!(default.current().map(|vm| vm.model()), Some(1));
+}
+
+/// COMP-036 — a scored view takes the cursor policy at construction
+#[test]
+fn scored_constructor_cursor_policy_sets_the_initial_current_item() {
+    let scorer = |vm: &ComponentVm<i32>| Some(vm.model());
+    let clear = FilteredCompositeVm::scored_with_cursor_policy(
+        source_with(&[1, 2, 3]),
+        scorer,
+        FilteredCursorPolicy::Clear,
+    );
+    assert_eq!(clear.visible_count(), 3, "the scorer scores every item");
+    assert!(clear.current().is_none());
+
+    let default = FilteredCompositeVm::scored(source_with(&[1, 2, 3]), scorer);
+    assert_eq!(default.current().map(|vm| vm.model()), Some(3));
+}
+
+/// The visible models and the current model that one notification saw.
+type Seen = Arc<Mutex<Vec<(Vec<i32>, Option<i32>)>>>;
+
+/// Counts `changed()` notifications and records the state each one sees.
+fn record_changes(
+    filtered: &FilteredCompositeVm<ComponentVm<i32>>,
+) -> (Seen, Arc<Mutex<bool>>, vmx::ValueSubscription) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let completed = Arc::new(Mutex::new(false));
+    let (sink, done, view) = (Arc::clone(&seen), Arc::clone(&completed), filtered.clone());
+    let subscription = filtered.changed().subscribe_with_completion(
+        move |()| {
+            let visible = view.visible().iter().map(|vm| vm.model()).collect();
+            sink.lock()
+                .unwrap()
+                .push((visible, view.current().map(|vm| vm.model())));
+        },
+        move || *done.lock().unwrap() = true,
+    );
+    (seen, completed, subscription)
+}
+
+/// Spec/06 §9 `Changed`: `set_current` notifies once per effective change
+#[test]
+fn changed_notifies_once_for_each_current_change() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    let (seen, _, _subscription) = record_changes(&filtered);
+
+    filtered
+        .set_current(Some(source.items()[1].clone()))
+        .unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    assert_eq!(seen.lock().unwrap()[0].1, Some(2));
+
+    filtered
+        .set_current(Some(source.items()[1].clone()))
+        .unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 1, "the same item sends nothing");
+
+    filtered.move_next_visible();
+    assert_eq!(seen.lock().unwrap().last().unwrap().1, Some(3));
+    filtered.move_next_visible();
+    assert_eq!(
+        seen.lock().unwrap().len(),
+        2,
+        "a clamped move sends nothing"
+    );
+}
+
+/// Spec/06 §9 `Changed`: each recompute notifies once with the new state
+#[test]
+fn changed_notifies_once_for_each_recompute() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source, |_| true);
+    let (seen, _, _subscription) = record_changes(&filtered);
+
+    filtered.set_predicate(|vm: &ComponentVm<i32>| vm.model() >= 2);
+    assert_eq!(*seen.lock().unwrap(), vec![(vec![2, 3], Some(2))]);
+
+    filtered.refresh();
+    filtered.refresh_scores();
+    assert_eq!(seen.lock().unwrap().len(), 3);
+    assert_eq!(seen.lock().unwrap()[2], (vec![2, 3], Some(2)));
+}
+
+/// Spec/06 §9 `Changed`: a source mutation notifies without a projection read
+#[test]
+fn changed_notifies_once_for_each_source_mutation() {
+    let source = source_with(&[1, 2]);
+    let filtered =
+        FilteredCompositeVm::new(source.clone(), |vm: &ComponentVm<i32>| vm.model() != 2);
+    let (seen, _, _subscription) = record_changes(&filtered);
+
+    let added = child(3);
+    source.add(added.clone()).unwrap();
+    assert_eq!(*seen.lock().unwrap(), vec![(vec![1, 3], Some(1))]);
+
+    source.remove(&source.items()[0].clone()).unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 2);
+    assert_eq!(seen.lock().unwrap()[1], (vec![3], Some(3)));
+}
+
+/// Spec/06 §9 `Changed`: disposal completes the stream, and later calls send
+/// nothing
+#[test]
+fn dispose_completes_changed_and_silences_later_calls() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    let (seen, completed, _subscription) = record_changes(&filtered);
+
+    filtered.dispose();
+    assert!(*completed.lock().unwrap());
+
+    filtered.set_predicate(|vm: &ComponentVm<i32>| vm.model() == 3);
+    filtered.refresh();
+    filtered.refresh_scores();
+    filtered
+        .set_current(Some(source.items()[2].clone()))
+        .unwrap();
+    filtered.move_next_visible();
+    source.add(child(4)).unwrap();
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+/// The source holds the view only weakly: dropping the view releases it.
+#[test]
+fn source_does_not_keep_a_dropped_view_alive() {
+    let source = source_with(&[1]);
+    let token = Arc::new(());
+    let weak_token = Arc::downgrade(&token);
+    let filtered = FilteredCompositeVm::new(source.clone(), move |_| {
+        let _ = &token;
+        true
+    });
+    drop(filtered);
+
+    assert!(
+        weak_token.upgrade().is_none(),
+        "the source subscription kept the view alive"
+    );
+    source.add(child(2)).unwrap();
+}

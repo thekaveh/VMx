@@ -4,10 +4,10 @@
 
 use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
-    ConstructionStatus, Expandable, Hash, HashMap, HashSet, Message, MessageHub, Mutex,
-    NullDispatcher, ParentHandle, PropertyChangedMessage, PropertyChangedStream, ThreadId,
-    TreeNode, TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak,
-    HIERARCHY_TOPOLOGY_GATE,
+    ConstructionStatus, Expandable, ExpandableState, Hash, HashMap, HashSet, Message, MessageHub,
+    Mutex, NullDispatcher, OnceLock, ParentHandle, PropertyChangedMessage, PropertyChangedStream,
+    ThreadId, TreeNode, TreeNodeRef, TreeStructureChange, TreeStructureChangedMessage, VmNode,
+    VmxError, VmxResult, Weak, HIERARCHY_TOPOLOGY_GATE,
 };
 
 type HierChildrenFactory<M> =
@@ -88,8 +88,11 @@ struct ChildrenMaterializationState {
 
 /// A recursive modeled VM with lazy children and derived topology properties.
 ///
-/// Hierarchies do not implicitly opt in to expansion; consumers compose
-/// [`crate::ExpandableState`] in a wrapper when expanded traversal is needed:
+/// Hierarchies do not implicitly opt in to expansion. A consumer composes an
+/// [`ExpandableState`] with [`compose_expansion`](Self::compose_expansion)
+/// when expanded traversal is needed, and [`walk_expanded`] then stops at the
+/// node while the state is collapsed (spec/18 §9, ADR-0207). The node itself
+/// does not implement [`Expandable`]:
 ///
 /// ```compile_fail
 /// use vmx::{Expandable, HierarchicalVm};
@@ -111,6 +114,8 @@ struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static> {
     eager_children: Arc<Mutex<bool>>,
     parked_attach_items: Arc<Mutex<Vec<HierarchicalVm<M>>>>,
     hub: MessageHub,
+    /// The composed expansion capability, set at most once.
+    expansion: OnceLock<ExpandableState>,
 }
 
 impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
@@ -143,9 +148,45 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 eager_children: Arc::new(Mutex::new(eager_children)),
                 parked_attach_items: Arc::new(Mutex::new(Vec::new())),
                 hub,
+                expansion: OnceLock::new(),
             }),
             materialization_context: None,
         }
+    }
+
+    /// Composes `expansion` as this node's opt-in expansion capability.
+    ///
+    /// [`TreeNode::expandable`] then returns it, so [`walk_expanded`] yields
+    /// this node but not its descendants while `expansion` is collapsed.
+    /// Clones of the node share the composition. The node does not dispose
+    /// the state; the caller keeps that ownership.
+    ///
+    /// ```
+    /// use vmx::{walk_expanded, ExpandableState, HierarchicalVm};
+    ///
+    /// let root = HierarchicalVm::new("root", "root".to_string());
+    /// root.add_child(HierarchicalVm::new("child", "child".to_string())).unwrap();
+    /// let expansion = ExpandableState::new();
+    /// root.compose_expansion(expansion.clone()).unwrap();
+    /// assert_eq!(walk_expanded(&root).unwrap().len(), 1);
+    ///
+    /// expansion.expand();
+    /// assert_eq!(walk_expanded(&root).unwrap().len(), 2);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmxError::InvalidArgument`] when the node already composes
+    /// an expansion state; the first composition stays.
+    pub fn compose_expansion(&self, expansion: ExpandableState) -> VmxResult<()> {
+        self.inner.expansion.set(expansion).map_err(|_| {
+            VmxError::InvalidArgument("the node already composes an expansion state".to_string())
+        })
+    }
+
+    /// Returns the composed expansion state, when present.
+    pub fn expansion(&self) -> Option<&ExpandableState> {
+        self.inner.expansion.get()
     }
 
     /// Creates an immutable hierarchy builder.
@@ -996,20 +1037,24 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> 
 }
 
 impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M> {
-    /// Returns [`HierarchicalVm::children`].
-    ///
-    /// # Panics
-    ///
-    /// Panics under the same conditions as [`HierarchicalVm::children`].
-    fn children_nodes(&self) -> Vec<Self> {
-        self.children()
-    }
-
     /// Returns [`HierarchicalVm::try_children`], which [`walk`],
     /// [`walk_expanded`] and [`find`] use. Invalid factory output returns the
     /// error and leaves this node unmaterialized and retryable (ADR-0170).
-    fn try_children_nodes(&self) -> VmxResult<Vec<Self>> {
-        self.try_children()
+    fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        Ok(self
+            .try_children()?
+            .into_iter()
+            .map(TreeNodeRef::new)
+            .collect())
+    }
+
+    /// Returns the composed [`ExpandableState`], when present, so
+    /// [`walk_expanded`] stops at a collapsed node.
+    fn expandable(&self) -> Option<&dyn Expandable> {
+        self.inner
+            .expansion
+            .get()
+            .map(|expansion| expansion as &dyn Expandable)
     }
 }
 
@@ -1105,43 +1150,59 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
 
 /// Returns a depth-first pre-order snapshot rooted at `root`.
 ///
+/// The walk yields `root`, then descends through each node's
+/// [`TreeNode::try_children_nodes`]: the children of a `CompositeVm` or
+/// `GroupVm`, the present components of an aggregate in `component_1`,
+/// `component_2`, … order, and the children of a `HierarchicalVm` (spec/13
+/// §2, ADR-0207). A leaf yields only itself.
+///
+/// ```
+/// use vmx::{walk, ComponentVm, CompositeVm};
+///
+/// let root = CompositeVm::new("root");
+/// root.add(ComponentVm::<()>::new("a")).unwrap();
+/// root.add(ComponentVm::<()>::new("b")).unwrap();
+/// assert_eq!(walk(&root).unwrap().len(), 3);
+/// ```
+///
 /// # Errors
 ///
 /// Returns the error of [`TreeNode::try_children_nodes`], such as
 /// [`VmxError::InvalidArgument`] for a [`HierarchicalVm`] whose lazy children
 /// factory returns structurally invalid output (spec/13 §6, ADR-0170). That
 /// node stays unmaterialized, and a later walk retries the factory.
-pub fn walk<T: TreeNode>(root: &T) -> VmxResult<Vec<T>> {
-    let mut nodes = vec![root.clone()];
-    for child in root.try_children_nodes()? {
-        nodes.extend(walk(&child)?);
-    }
+pub fn walk<T: TreeNode>(root: &T) -> VmxResult<Vec<TreeNodeRef>> {
+    let mut nodes = Vec::new();
+    walk_into(TreeNodeRef::new(root.clone()), false, &mut nodes)?;
     Ok(nodes)
 }
 
 /// Returns the first depth-first node matching `predicate`.
+///
+/// The search visits nodes in [`walk`] order, calls `predicate` at most once
+/// per visited node, and stops at the first match.
 ///
 /// # Errors
 ///
 /// Returns the error of [`TreeNode::try_children_nodes`], as [`walk`] does,
 /// when the search reaches a node whose children fail to load before it finds
 /// a match.
-pub fn find<T: TreeNode, F>(root: &T, predicate: F) -> VmxResult<Option<T>>
+pub fn find<T: TreeNode, F>(root: &T, predicate: F) -> VmxResult<Option<TreeNodeRef>>
 where
-    F: Fn(&T) -> bool,
+    F: Fn(&TreeNodeRef) -> bool,
 {
-    find_inner(root, &predicate)
+    find_inner(TreeNodeRef::new(root.clone()), &predicate)
 }
 
-fn find_inner<T: TreeNode, F>(root: &T, predicate: &F) -> VmxResult<Option<T>>
+fn find_inner<F>(node: TreeNodeRef, predicate: &F) -> VmxResult<Option<TreeNodeRef>>
 where
-    F: Fn(&T) -> bool,
+    F: Fn(&TreeNodeRef) -> bool,
 {
-    if predicate(root) {
-        return Ok(Some(root.clone()));
+    if predicate(&node) {
+        return Ok(Some(node));
     }
-    for child in root.try_children_nodes()? {
-        if let Some(found) = find_inner(&child, predicate)? {
+    for child in node.try_children_nodes()? {
+        if let Some(found) = find_inner(child, predicate)? {
             return Ok(Some(found));
         }
     }
@@ -1150,19 +1211,37 @@ where
 
 /// Returns a depth-first snapshot while skipping collapsed descendants.
 ///
+/// It descends as [`walk`] does, but a node whose
+/// [`TreeNode::expandable`] capability reports collapsed contributes only
+/// itself (spec/13 §5). A node without the capability counts as expanded.
+///
 /// # Errors
 ///
 /// Returns the error of [`TreeNode::try_children_nodes`], as [`walk`] does,
 /// for a descended node whose children fail to load. A collapsed node's
 /// children are not read.
-pub fn walk_expanded<T: TreeNode>(root: &T) -> VmxResult<Vec<T>> {
-    let mut nodes = vec![root.clone()];
-    if root.expandable().is_none_or(Expandable::is_expanded) {
-        for child in root.try_children_nodes()? {
-            nodes.extend(walk_expanded(&child)?);
-        }
-    }
+pub fn walk_expanded<T: TreeNode>(root: &T) -> VmxResult<Vec<TreeNodeRef>> {
+    let mut nodes = Vec::new();
+    walk_into(TreeNodeRef::new(root.clone()), true, &mut nodes)?;
     Ok(nodes)
+}
+
+fn walk_into(
+    node: TreeNodeRef,
+    expanded_only: bool,
+    nodes: &mut Vec<TreeNodeRef>,
+) -> VmxResult<()> {
+    let descend = !expanded_only || node.expandable().is_none_or(Expandable::is_expanded);
+    let children = if descend {
+        Some(node.try_children_nodes())
+    } else {
+        None
+    };
+    nodes.push(node);
+    for child in children.transpose()?.unwrap_or_default() {
+        walk_into(child, expanded_only, nodes)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -12,6 +12,7 @@ use super::{
     StartAttempt, ViewModelType, VmCollection, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
+use crate::{TreeNode, TreeNodeRef};
 
 type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 
@@ -1058,6 +1059,13 @@ impl<T: VmNode, D: Dispatcher> VmCollection<T> for GroupVm<T, D> {
         F: FnOnce(),
     {
         GroupVm::batch_update(self, action);
+    }
+}
+
+impl<T: TreeNode, D: Dispatcher> TreeNode for GroupVm<T, D> {
+    /// Returns the children in order (spec/13 §2).
+    fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        Ok(self.items().into_iter().map(TreeNodeRef::new).collect())
     }
 }
 
