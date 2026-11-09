@@ -42,18 +42,24 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
             TVM item,
             TKey key,
             BatchParentKey<TKey> parentKey,
-            bool retainIfMissing)
+            bool retainIfMissing,
+            IReadOnlyList<KeyValuePair<TKey, TVM>> subtree)
         {
             Item = item;
             Key = key;
             ParentKey = parentKey;
             RetainIfMissing = retainIfMissing;
+            Subtree = subtree;
         }
 
         public TVM Item { get; }
         public TKey Key { get; }
         public BatchParentKey<TKey> ParentKey { get; }
         public bool RetainIfMissing { get; }
+
+        // Keys and nodes of the candidate's materialized descendants, in
+        // pre-order (spec/18 §6, ADR-0212). They join the index on attach.
+        public IReadOnlyList<KeyValuePair<TKey, TVM>> Subtree { get; }
     }
 
     // ── Constructor ─────────────────────────────────────────────────────────
@@ -203,10 +209,14 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// sets its <see cref="HierarchicalParent"/>, and publishes
     /// <see cref="TreeStructureChangedMessage"/> on the hub.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">
+    /// This node or the child's current parent is disposed (spec/18 §7.1).
+    /// </exception>
     public void AddChild(TVM child)
     {
         RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(child, nameof(child));
+        ThrowIfDisposed();
         AttachChild(child, explicitReparent: false);
     }
 
@@ -214,10 +224,12 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// Removes <paramref name="child"/> from this node's <see cref="Children"/> list
     /// and publishes <see cref="TreeStructureChangedMessage"/> on the hub.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">This node is disposed (spec/18 §7.1).</exception>
     public void RemoveChild(TVM child)
     {
         RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(child, nameof(child));
+        ThrowIfDisposed();
 
         EnsureChildrenMaterialized();
         // Match by identity (not Equals) so a TVM overriding Equals cannot
@@ -241,16 +253,25 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// updating parent references and publishing a
     /// <see cref="TreeStructureChange.Reparented"/> message on the hub.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">
+    /// This node or the child's current parent is disposed (spec/18 §7.1).
+    /// </exception>
     public void ReparentChild(TVM child)
     {
         RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(child, nameof(child));
+        ThrowIfDisposed();
         AttachChild(child, explicitReparent: true);
     }
 
     private void AttachChild(TVM child, bool explicitReparent)
     {
         if (ReferenceEquals(child.HierarchicalParent, this)) return;
+        // A disposed parent's child list is frozen, so a transfer out of it
+        // refuses before any materialization or mutation (spec/18 §7.1).
+        if (child._hierarchicalParent is { } current && current.IsDisposed())
+            throw new ObjectDisposedException(current.Name,
+                $"Cannot move '{child.Name}' out of a disposed parent.");
         if (Path.Any(p => ReferenceEquals(p, child)))
             throw new InvalidOperationException(
                 $"Cannot reparent '{child.Name}' under '{Name}': it is this node or one of its ancestors (HIER-018).");
@@ -294,6 +315,9 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// structural root. Ordinary ingestion anomalies are returned as typed
     /// rejections; an existing same-key node is never replaced.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">
+    /// This node or its structural root is disposed (spec/18 §7.1).
+    /// </exception>
     public BatchAttachResult<TVM> AttachMany<TKey>(
         IEnumerable<TVM> items,
         Func<TVM, TKey> keyOf,
@@ -305,8 +329,10 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         ThrowHelper.ThrowIfNull(items, nameof(items));
         ThrowHelper.ThrowIfNull(keyOf, nameof(keyOf));
         ThrowHelper.ThrowIfNull(parentKeyOf, nameof(parentKeyOf));
+        ThrowIfDisposed();
 
         var root = GetTreeRoot();
+        root.ThrowIfDisposed();
         var incoming = items.ToList();
         var parked = root._parkedAttachItems.ToList();
         root._parkedAttachItems.Clear();
@@ -337,6 +363,8 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
         var candidates = new List<BatchCandidate<TKey>>();
         var candidateKeys = new HashSet<TKey>();
+        // The descendant claims of accepted candidates, by key (ADR-0212).
+        var descendantClaims = new Dictionary<TKey, TVM>();
         foreach (var entry in parked.Select(item => (Item: item, WasParked: true))
                      .Concat(incoming.Select(item => (Item: item, WasParked: false))))
         {
@@ -366,6 +394,16 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                     BatchAttachRejectionReason.DuplicateExistingKey));
                 continue;
             }
+            if (descendantClaims.TryGetValue(key, out var claimHolder)
+                && ReferenceEquals(claimHolder, entry.Item))
+            {
+                // The item is a descendant of an earlier candidate, so it is
+                // attached outside the indexed tree (spec/18 §6, ADR-0212).
+                rejections.Add(new BatchAttachRejection<TVM>(
+                    entry.Item,
+                    BatchAttachRejectionReason.AlreadyAttached));
+                continue;
+            }
             if (candidateKeys.Contains(key))
             {
                 duplicates.Add(entry.Item);
@@ -382,13 +420,65 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                 continue;
             }
 
-            candidateKeys.Add(key);
+            // The candidate also claims every key of its materialized subtree
+            // (spec/18 §6, ADR-0212); the first claim of a key stays
+            // authoritative.
+            var subtree = new List<KeyValuePair<TKey, TVM>>();
+            var claimed = new HashSet<TKey> { key };
+            BatchAttachRejectionReason? subtreeRejection = null;
+            string? subtreeDetail = null;
+            foreach (var descendant in entry.Item.MaterializedSubtree().Skip(1))
+            {
+                TKey descendantKey;
+                try
+                {
+                    descendantKey = keyOf(descendant);
+                    if (descendantKey is null) throw new InvalidOperationException("keyOf returned null.");
+                }
+                catch (Exception exception)
+                {
+                    subtreeRejection = BatchAttachRejectionReason.SelectorFailed;
+                    subtreeDetail = exception.Message;
+                    break;
+                }
+                if (existing.ContainsKey(descendantKey))
+                {
+                    subtreeRejection = BatchAttachRejectionReason.DuplicateExistingKey;
+                    break;
+                }
+                if (candidateKeys.Contains(descendantKey) || !claimed.Add(descendantKey))
+                {
+                    subtreeRejection = BatchAttachRejectionReason.DuplicateBatchKey;
+                    break;
+                }
+                subtree.Add(new KeyValuePair<TKey, TVM>(descendantKey, descendant));
+            }
+            if (subtreeRejection == BatchAttachRejectionReason.SelectorFailed)
+            {
+                if (entry.WasParked) root._parkedAttachItems.Add(entry.Item);
+                rejections.Add(new BatchAttachRejection<TVM>(
+                    entry.Item,
+                    BatchAttachRejectionReason.SelectorFailed,
+                    subtreeDetail));
+                continue;
+            }
+            if (subtreeRejection is { } duplicateReason)
+            {
+                duplicates.Add(entry.Item);
+                rejections.Add(new BatchAttachRejection<TVM>(entry.Item, duplicateReason));
+                continue;
+            }
+
+            candidateKeys.UnionWith(claimed);
+            foreach (var claim in subtree)
+                descendantClaims.Add(claim.Key, claim.Value);
 
             candidates.Add(new BatchCandidate<TKey>(
                 entry.Item,
                 key,
                 parentKey,
-                entry.WasParked || onMissingParent == MissingParentPolicy.Park));
+                entry.WasParked || onMissingParent == MissingParentPolicy.Park,
+                subtree));
         }
 
         var unresolved = candidates;
@@ -424,6 +514,8 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                 }
 
                 existing.Add(candidate.Key, candidate.Item);
+                foreach (var claim in candidate.Subtree)
+                    existing.Add(claim.Key, claim.Value);
                 added.Add(candidate.Item);
                 progressed = true;
             }
@@ -431,7 +523,15 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
             if (!progressed) break;
         }
 
-        var unresolvedByKey = unresolved.ToDictionary(candidate => candidate.Key);
+        // A subtree key maps to the candidate that claims it, so a parent key
+        // that names the candidate's own descendant is a cycle (ADR-0212).
+        var unresolvedByKey = new Dictionary<TKey, BatchCandidate<TKey>>();
+        foreach (var candidate in unresolved)
+        {
+            unresolvedByKey.Add(candidate.Key, candidate);
+            foreach (var claim in candidate.Subtree)
+                unresolvedByKey.Add(claim.Key, candidate);
+        }
         foreach (var candidate in unresolved)
         {
             var isCycle = BatchParentChainCycles(candidate, unresolvedByKey);
@@ -454,9 +554,16 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// access invokes the children factory again. Invalidating an unmaterialized
     /// node is a no-op.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">This node is disposed (spec/18 §7.1).</exception>
     public void InvalidateChildren()
     {
         RejectStructuralReentry();
+        ThrowIfDisposed();
+        DropChildren();
+    }
+
+    private void DropChildren()
+    {
         if (_children is null) return;
         foreach (var child in _children)
         {
@@ -472,14 +579,24 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
     /// <summary>
     /// Drops cached children for this node and all materialized descendants.
+    /// A disposed descendant keeps its cache, but its materialized children
+    /// are still visited (spec/18 §7.1).
     /// </summary>
+    /// <exception cref="ObjectDisposedException">This node is disposed (spec/18 §7.1).</exception>
     public void InvalidateSubtree()
+    {
+        RejectStructuralReentry();
+        ThrowIfDisposed();
+        DropSubtree();
+    }
+
+    private void DropSubtree()
     {
         RejectStructuralReentry();
         if (_children is null) return;
         foreach (var child in _children.ToArray())
-            child.InvalidateSubtree();
-        InvalidateChildren();
+            child.DropSubtree();
+        if (!IsDisposed()) DropChildren();
     }
 
     /// <inheritdoc/>
@@ -550,6 +667,17 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         _materializationReentered = true;
         throw new InvalidOperationException(
             "The children factory re-entered a structural operation on its receiver.");
+    }
+
+    /// <summary>
+    /// A disposed node's child list is frozen: every structural call on it
+    /// refuses, also one that would do nothing (spec/18 §7.1, ADR-0190).
+    /// </summary>
+    private void ThrowIfDisposed()
+    {
+        if (IsDisposed())
+            throw new ObjectDisposedException(Name,
+                "A disposed tree node refuses structural calls.");
     }
 
     private TVM GetTreeRoot()

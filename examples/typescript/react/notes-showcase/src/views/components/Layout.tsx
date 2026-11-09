@@ -26,6 +26,7 @@ import { NotebooksTree } from "./NotebooksTree.js";
 import { NotesList } from "./NotesList.js";
 import { Notifications } from "./Notifications.js";
 import { StatusBar } from "./StatusBar.js";
+import { ThemeControls } from "./ThemeControls.js";
 
 export interface LayoutProps {
   readonly ws: WorkspaceVM;
@@ -77,6 +78,7 @@ export const Layout: React.FC<LayoutProps> = ({ ws, dialog }) => {
         >
           Export…
         </button>
+        <ThemeControls theme={ws.theme} />
       </div>
       <div className="workspace-main">
         <section className="workspace-pane" aria-label="Notebooks">

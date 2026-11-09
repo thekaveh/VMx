@@ -100,9 +100,9 @@ own the wrapped's lifetime.
 A forwarding composite used as a child of another container follows the §1
 ownership rules: one ownership identity with the wrapped composite, and
 transparent parent and current flags. Its owned-resource helper follows §1 in
-C#, Python, TypeScript, Swift, and Rust. Open gap: the Rust
-`ForwardingCompositeVm` does not implement `VmNode`, so it cannot be added to a
-container; the type checker rejects the call.
+C#, Python, TypeScript, Swift, and Rust. The Rust `ForwardingCompositeVm`
+implements `VmNode` by forwarding every node method to the wrapped composite,
+so a composite, group, or aggregate accepts it as a child (ADR-0205).
 
 ## 3. Conformance
 

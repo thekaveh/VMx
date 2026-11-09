@@ -31,16 +31,10 @@ Flavor limits (spec/09 introduction and §2):
 - Rust has no subclass overrides. `ForwardingComponentVm` offers
   `with_hint_override` and `with_model_hint`; `ForwardingCompositeVm` offers no
   override hooks.
-- Rust `ForwardingCompositeVm` cannot be a container child; the type checker
-  rejects the add.
 - Both TypeScript decorators expose the wrapped VM as `wrappedBase`. The
   wrapped VM sends every hub message the decorator causes, so the React
   `useVm` hook uses it to re-render a component bound to a decorator
   (ADR-0213).
-- Rust `ForwardingCompositeVm` forwards only part of the `CompositeVm` surface,
-  for example not the selection commands or `background_errors`. The
-  [Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
-  lists the gaps in §12.8.
 
 The wrapped component and every decorator around it have one canonical
 ownership identity. Adding a decorator to a composite or group first removes
@@ -129,10 +123,10 @@ copying or re-implementing the wrapped VM:
         NullDispatcher::new(),
     );
     let first = ForwardingComponentVm::new(inner)
-        .with_hint_override(|| Some("OVERRIDE".to_string()));
+        .with_hint_override(|| "OVERRIDE".to_string());
     let forwarding = ForwardingComponentVm::wrap(first);
 
-    assert_eq!(forwarding.hint().as_deref(), Some("OVERRIDE"));
+    assert_eq!(forwarding.hint(), "OVERRIDE");
     ```
 
 Swift is the explicit divergence here: `name` and `hint` are stored `let`

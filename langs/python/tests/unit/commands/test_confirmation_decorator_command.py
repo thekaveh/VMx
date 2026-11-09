@@ -20,7 +20,7 @@ import pytest
 from reactivex import Observable
 from reactivex.subject import Subject
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.commands import ConfirmationDecoratorCommand, RelayCommand
 
 
@@ -120,14 +120,14 @@ def test_execute_without_running_loop_returns_while_confirmation_is_pending() ->
     caller.start()
 
     try:
-        assert started.wait(HANG_GUARD), "the confirmation starts on a background event loop"
-        returned_before_release = returned.wait(HANG_GUARD)
+        assert wait_event(started), "the confirmation starts on a background event loop"
+        returned_before_release = wait_event(returned)
     finally:
         release.set()
-        caller.join(timeout=HANG_GUARD)
+        join_thread(caller)
 
     assert returned_before_release, "fire-and-forget execute must not await confirmation inline"
-    assert invoked.wait(HANG_GUARD)
+    assert wait_event(invoked)
     command.dispose()
 
 

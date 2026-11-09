@@ -504,7 +504,16 @@ describe("HIER-013", () => {
     // match "an" if it were materialized.
     let lazyFactoryRuns = 0;
     const bandana = new MyNode({ model: makeModel("bandana"), hub, dispatcher });
-    const apple = new MyNode({ model: makeModel("apple"), hub, dispatcher });
+    // "pecan" matches below the expanded "apple", so the search must cover
+    // deeper materialized nodes, not only the root's children (#1399).
+    const pecan = new MyNode({ model: makeModel("pecan"), hub, dispatcher });
+    const apple = new CollapsedNode({
+      model: makeModel("apple"),
+      hub,
+      dispatcher,
+      childrenFactory: () => [pecan],
+    });
+    apple.expand();
     const banana = new MyNode({ model: makeModel("banana"), hub, dispatcher });
     const mango = new MyNode({ model: makeModel("mango"), hub, dispatcher });
     const cherry = new CollapsedNode({
@@ -519,7 +528,8 @@ describe("HIER-013", () => {
     const root = parentNode([apple, banana, mango, cherry], hub);
 
     // The materialized portion comes from the library's expand-aware walk,
-    // which stops at the collapsed "cherry" without touching its children.
+    // which descends into the expanded "apple" and stops at the collapsed
+    // "cherry" without touching its children.
     const materialized = (): MyNode[] =>
       [...walkExpanded(root)].filter((node) => node !== root) as MyNode[];
     const search = new SearchableState<MyNode>({
@@ -539,7 +549,7 @@ describe("HIER-013", () => {
     search.searchTerm = "an";
     search.search();
 
-    expect(result).toEqual([banana, mango]);
+    expect(result).toEqual([pecan, banana, mango]);
     expect(result).not.toContain(bandana);
     expect(lazyFactoryRuns, "search must not materialize lazy children").toBe(0);
 
@@ -550,7 +560,7 @@ describe("HIER-013", () => {
     expect([...walk(root)]).toContain(bandana);
     expect(lazyFactoryRuns).toBe(1);
     search.search();
-    expect(result).toEqual([banana, mango]);
+    expect(result).toEqual([pecan, banana, mango]);
 
     search.dispose();
   });

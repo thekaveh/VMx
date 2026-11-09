@@ -22,7 +22,7 @@ fn changes_since(recorder: &MessageRecorder, start: usize) -> Vec<&'static str> 
 fn populated(items: &[i32]) -> (ObservableList<i32>, MessageRecorder, usize) {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
     for item in items {
         list.push(*item);
     }
@@ -57,7 +57,7 @@ fn replace_all_equal_count_and_identical_emit_reset() {
 
     #[derive(Clone)]
     struct NonEquatable;
-    let unconstrained = ObservableList::new(2, MessageHub::new());
+    let unconstrained = ObservableList::with_hub(2, MessageHub::new());
     unconstrained.push(NonEquatable);
     unconstrained.replace_all([NonEquatable]);
 }
@@ -133,7 +133,7 @@ fn replace_all_panic_exit_restores_batch() {
 fn replace_all_ordering_and_final_state() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
     list.push(1);
     let start = recorder.messages().len();
     let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

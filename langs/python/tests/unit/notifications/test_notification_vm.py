@@ -6,10 +6,14 @@ Conformance-level tests live in tests/conformance/test_notifications.py.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pytest
+from reactivex.abc import DisposableBase
+from reactivex.disposable import Disposable
 from reactivex.scheduler import ImmediateScheduler
+from reactivex.scheduler.scheduler import Scheduler
 from reactivex.testing import TestScheduler
 
 from vmx.notifications import (
@@ -224,4 +228,95 @@ def test_with_null_hub_does_not_auto_resolve_from_pending() -> None:
     vm = NotificationVM(notif, hub, scheduler, lifespan=timedelta(seconds=10))
     # At t=0 must not be resolved
     assert not vm.is_resolved
+    vm.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Kept render state (ADR-0197, NOTIF-019) and a disposed hub (NOTIF-020)
+# ---------------------------------------------------------------------------
+
+
+async def test_external_resolve_keeps_remaining_time() -> None:
+    vm, hub, scheduler, notification = await make_vm(lifespan=timedelta(seconds=10))
+    scheduler.advance_by(3)
+    hub.resolve(notification, NotificationReaction.APPROVE)
+    scheduler.advance_by(5)
+    assert vm.is_resolved
+    assert vm.remaining_time == timedelta(seconds=7)
+    assert vm.opacity == pytest.approx(0.7)
+    vm.dispose()
+    scheduler.advance_by(2)
+    assert vm.remaining_time == timedelta(seconds=7), "dispose keeps the first kept value"
+
+
+async def test_auto_dismiss_keeps_zero_remaining_time() -> None:
+    vm, _, scheduler, _ = await make_vm(lifespan=timedelta(seconds=10))
+    scheduler.advance_by(10)
+    assert vm.is_resolved
+    scheduler.advance_by(10)
+    assert vm.remaining_time == timedelta(0)
+    assert vm.opacity == pytest.approx(0.0)
+    vm.dispose()
+
+
+class _EarlyTimerScheduler(Scheduler):
+    """Fires a timer on request while the clock is still before its due time.
+
+    A real timer can fire slightly early (ADR-0197).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        self._timers: list[tuple[datetime, Any, Any]] = []
+
+    @property
+    def now(self) -> datetime:
+        return self._now
+
+    def schedule(self, action: Any, state: Any = None) -> DisposableBase:
+        return self.schedule_absolute(self._now, action, state)
+
+    def schedule_relative(self, duetime: Any, action: Any, state: Any = None) -> DisposableBase:
+        return self.schedule_absolute(self._now + self.to_timedelta(duetime), action, state)
+
+    def schedule_absolute(self, duetime: Any, action: Any, state: Any = None) -> DisposableBase:
+        self._timers.append((self.to_datetime(duetime), action, state))
+        return Disposable()
+
+    def fire_next_early(self, early: timedelta) -> None:
+        due, action, state = self._timers.pop(0)
+        self._now = due - early
+        action(self, state)
+
+
+async def test_auto_dismiss_keeps_zero_when_the_timer_fires_early() -> None:
+    scheduler = _EarlyTimerScheduler()
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "early")
+    hub.post(notification)
+    vm = NotificationVM(notification, hub, scheduler, lifespan=timedelta(seconds=10))
+
+    scheduler.fire_next_early(timedelta(milliseconds=1))
+
+    assert vm.is_resolved
+    assert vm.remaining_time == timedelta(0)
+    assert vm.opacity == 0.0
+    vm.dispose()
+
+
+async def test_vm_over_disposed_hub_constructs_and_dismisses() -> None:
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    hub.dispose()
+    notification = Notification(NotificationType.NOTIFICATION, "late")
+
+    vm = NotificationVM(notification, hub, scheduler, lifespan=timedelta(seconds=10))
+
+    assert not vm.is_resolved
+    vm.dismiss_command.execute()
+    assert vm.is_resolved
+    snapshots: list[list[Notification]] = []
+    hub.pending.subscribe(on_next=snapshots.append)
+    assert snapshots == [], "the disposed hub stays empty"
     vm.dispose()

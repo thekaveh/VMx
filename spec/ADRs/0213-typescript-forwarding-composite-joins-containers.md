@@ -66,5 +66,5 @@ shared hub, so a decorator would re-render for unrelated changes.
 - `useVm` supports a `ForwardingCompositeVM` only with an `@thekaveh/vmx`
   release that contains this change. A component decorator works with every
   release in the adapter's peer range, because `wrappedBase` already existed.
-- Chapter 09 §2 keeps one open gap: the Rust `ForwardingCompositeVm` does not
-  implement `VmNode`.
+- Chapter 09 §2 has no open forwarding-composite gap: ADR-0205 already lets
+  the Rust `ForwardingCompositeVm` join a container.

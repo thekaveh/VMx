@@ -38,7 +38,7 @@ final class FormVMApprovalPublicationTests: XCTestCase {
         let hubSubscription = hub.messages.sink { message in
             guard message.senderName == "drainer" else { return }
             drainerEntered.signal()
-            _ = publisherEntered.wait(timeout: .now() + 10)
+            _ = publisherEntered.wait(timeout: .now() + hangGuard)
             let dirty = form.isDirty
             readLock.lock()
             dirtyReadByDrainer = dirty
@@ -60,7 +60,7 @@ final class FormVMApprovalPublicationTests: XCTestCase {
             boxedHub.value.send(Ping(senderObject: NSObject(), senderName: "drainer"))
             drainerFinished.signal()
         }
-        XCTAssertEqual(drainerEntered.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(drainerEntered.wait(timeout: .now() + hangGuard), .success)
 
         let boxedForm = UncheckedSendableBox(form)
         Task.detached {
@@ -71,10 +71,10 @@ final class FormVMApprovalPublicationTests: XCTestCase {
         // With the lock held across `onApproved`, both threads would wait on
         // each other forever, so every wait is bounded.
         XCTAssertEqual(
-            drainerFinished.wait(timeout: .now() + 10), .success,
+            drainerFinished.wait(timeout: .now() + hangGuard * 2), .success,
             "the draining thread must read the form while the approval is published"
         )
-        XCTAssertEqual(approvalFinished.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(approvalFinished.wait(timeout: .now() + hangGuard * 2), .success)
         readLock.lock()
         let dirty = dirtyReadByDrainer
         readLock.unlock()
@@ -99,7 +99,7 @@ final class FormVMApprovalPublicationTests: XCTestCase {
 
         let approvedSubscription = form.onApproved.sink { _ in
             publisherEntered.signal()
-            _ = releasePublisher.wait(timeout: .now() + 10)
+            _ = releasePublisher.wait(timeout: .now() + hangGuard * 2)
             record("approved delivered")
         }
         defer { approvedSubscription.cancel() }
@@ -109,7 +109,7 @@ final class FormVMApprovalPublicationTests: XCTestCase {
             try? await boxedForm.value.approveAsync()
             approvalFinished.signal()
         }
-        XCTAssertEqual(publisherEntered.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(publisherEntered.wait(timeout: .now() + hangGuard), .success)
 
         DispatchQueue.global().async {
             boxedForm.value.setModel("after")
@@ -129,7 +129,7 @@ final class FormVMApprovalPublicationTests: XCTestCase {
             readFinished.signal()
         }
         XCTAssertEqual(
-            readFinished.wait(timeout: .now() + 10), .success,
+            readFinished.wait(timeout: .now() + hangGuard), .success,
             "a reader on another thread does not wait for the publication"
         )
         readLock.lock()
@@ -138,8 +138,8 @@ final class FormVMApprovalPublicationTests: XCTestCase {
         XCTAssertEqual(mutationFinished.wait(timeout: .now() + 0.2), .timedOut)
         releasePublisher.signal()
 
-        XCTAssertEqual(approvalFinished.wait(timeout: .now() + 10), .success)
-        XCTAssertEqual(mutationFinished.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(approvalFinished.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(mutationFinished.wait(timeout: .now() + hangGuard), .success)
         orderLock.lock()
         let observed = order
         orderLock.unlock()

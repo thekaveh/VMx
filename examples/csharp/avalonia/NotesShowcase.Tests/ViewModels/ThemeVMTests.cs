@@ -171,6 +171,77 @@ public sealed class ThemeVMTests
         Assert.Equal("light", vm.CurrentTheme.Value.Name);
     }
 
+    // ── ADR-0201 §2.5: accent validation ─────────────────────────────────
+
+    [Theory]
+    [InlineData("not-a-color")]
+    [InlineData("#12345")]
+    [InlineData("")]
+    public void SetAccentColor_rejects_a_value_that_is_not_hex_RGB_or_RRGGBB(string accent)
+    {
+        var (vm, hub) = Build();
+        var observed = Capture(hub);
+        var before = vm.Model;
+
+        Assert.Throws<ArgumentException>(() => vm.SetAccentColor.Execute(accent));
+
+        Assert.Empty(observed);
+        Assert.Equal(before, vm.Model);
+    }
+
+    [Fact]
+    public void SetAccentColor_with_null_changes_nothing()
+    {
+        // RelayCommand<string> never runs its task for a parameter that is not
+        // a string, so a null accent leaves the model unchanged and publishes
+        // nothing (the ADR-0201 §2.5 outcome without the exception).
+        var (vm, hub) = Build();
+        var observed = Capture(hub);
+        var before = vm.Model;
+
+        vm.SetAccentColor.Execute(null);
+
+        Assert.Empty(observed);
+        Assert.Equal(before, vm.Model);
+    }
+
+    [Theory]
+    [InlineData("#abc")]
+    [InlineData("#AABBCC")]
+    public void SetAccentColor_accepts_hex_RGB_and_RRGGBB_as_given(string accent)
+    {
+        var (vm, hub) = Build();
+        var observed = Capture(hub);
+
+        vm.SetAccentColor.Execute(accent);
+
+        Assert.Single(observed);
+        Assert.Equal(accent, vm.Model.AccentColor);
+    }
+
+    // ── ADR-0201 §2.6: follow-system with no provider ────────────────────
+
+    [Fact]
+    public void FollowSystemCommand_with_no_provider_keeps_the_theme_and_sets_FollowsSystem()
+    {
+        var initial = ThemeModel.LIGHT_PRESET with
+        {
+            AccentColor = "#123456",
+            FontScaleFactor = 1.25,
+        };
+        var (vm, hub) = Build(initial: initial);
+        var observed = Capture(hub);
+
+        vm.FollowSystemCommand.Execute(null);
+
+        Assert.Equal(initial with { FollowsSystem = true }, vm.Model);
+        Assert.Single(observed);
+
+        vm.FollowSystemCommand.Execute(null);
+
+        Assert.Single(observed);
+    }
+
     // ── Sanity: Presets registry + DerivedProperty contracts ──────────────
 
     [Fact]

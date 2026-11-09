@@ -14,6 +14,7 @@ on:
       - ".github/workflows/rust.yml"
       - "tools/check-rust-package.py"
       - "tools/check-rust-doc-snippets.py"
+      - "tools/check-rust-api-baseline.py"
       - "tools/smoke-rust-consumer.py"
       - "docs/content/getting-started/rust.md"
       - "tools/check-conformance-coverage.py"
@@ -23,6 +24,17 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
+
+# #1440: a newer push to a pull request cancels that pull request's older run
+# of this workflow, so a superseded run frees its runners. Push, schedule and
+# workflow_dispatch runs each get a group of their own and are never cancelled
+# or replaced; a shared group would replace a pending run (#534).
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+    || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   audit:
@@ -225,6 +237,56 @@ jobs:
             --package-dir langs/rust \
             --version "$version"
 
+  public-api:
+    timeout-minutes: 30
+    name: public API (cargo-semver-checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # cargo-semver-checks builds the baseline from this repository's
+          # history, so the recorded revision must be present.
+          fetch-depth: 0
+
+      - name: Install Rust 1.99.1
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
+        with:
+          # Pinned: cargo-semver-checks reads rustdoc JSON, whose format
+          # changes between toolchains. Move this pin and the tool version
+          # together.
+          toolchain: 1.99.1
+
+      - name: Install cargo-semver-checks
+        # The release binary, checked against the digest that GitHub records
+        # for the v0.51.0 asset. Compiling the tool takes several minutes.
+        env:
+          CSC_VERSION: 0.51.0
+          CSC_SHA256: cacadafaa5cd27ae6d05a74a103266917ebab4c5e43c898360e177d4fbf06a65
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$RUNNER_TEMP/csc.tar.gz" \
+            "https://github.com/obi1kenobi/cargo-semver-checks/releases/download/v${CSC_VERSION}/cargo-semver-checks-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${CSC_SHA256}  $RUNNER_TEMP/csc.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/csc.tar.gz" -C "$HOME/.cargo/bin" cargo-semver-checks
+          cargo semver-checks --version
+
+      - name: Check that the baseline revision carries the base version
+        # cargo-semver-checks accepts any break once the Cargo.toml version
+        # has moved past the baseline's version, so the baseline must declare
+        # the version of the pull request's base (CONTRIBUTING.md §2.8).
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 tools/check-rust-api-baseline.py --base-rev "$BASE_SHA"
+
+      - name: Compare the public API with the baseline revision
+        # Fails on a break that the Cargo.toml version does not allow
+        # (a minor bump at 0.x). langs/rust/api/baseline-revision records the
+        # revision (CONTRIBUTING.md, "Public API baselines").
+        run: >-
+          cargo semver-checks check-release --manifest-path langs/rust/Cargo.toml
+          --baseline-rev "$(tr -d '[:space:]' < langs/rust/api/baseline-revision)"
+          --default-features
+
   coverage:
     timeout-minutes: 30
     name: coverage floor
@@ -272,7 +334,7 @@ jobs:
     timeout-minutes: 5
     name: "required: rust"
     if: always()
-    needs: [audit, build, msrv, examples, package, coverage]
+    needs: [audit, build, msrv, examples, package, public-api, coverage]
     runs-on: ubuntu-latest
     steps:
       - name: Require every Rust job

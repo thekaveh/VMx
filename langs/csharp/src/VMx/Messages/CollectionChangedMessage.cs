@@ -7,10 +7,11 @@ namespace VMx.Messages;
 /// Published to the hub by <see cref="VMx.Collections.ServicedObservableCollection{T}"/>
 /// (including its <see cref="VMx.Collections.KeyedServicedObservableCollection{TKey, TItem}"/>
 /// subclass), by <see cref="VMx.Collections.ObservableDictionary{TKey1, TKey2, TValue}"/>,
-/// and, with the container as sender, by every
+/// and, with the container as sender and its <c>Name</c> as sender name, by every
 /// <see cref="VMx.Composites.CompositeVMBase{VM}"/> and
 /// <see cref="VMx.Groups.GroupVMBase{VM}"/> after each local collection change.
-/// See spec/21-collections.md §2, spec/01-concepts.md §1.4, ADR-0024, and ADR-0142.
+/// See spec/21-collections.md §2, spec/01-concepts.md §1.4, ADR-0024, ADR-0142,
+/// and ADR-0194.
 /// </summary>
 /// <typeparam name="T">Element type of the collection.</typeparam>
 public sealed record CollectionChangedMessage<T>(
@@ -30,8 +31,12 @@ public sealed record CollectionChangedMessage<T>(
     public object SenderObject => Sender;
 
     /// <inheritdoc/>
-    /// <remarks>Derived from the sender's runtime type name; no separate name field per spec §2.4.</remarks>
-    public string SenderName => Sender.GetType().Name;
+    /// <remarks>
+    /// Defaults to the sender's runtime type name. A <c>CompositeVM</c> or
+    /// <c>GroupVM</c> sets it to the container's <c>Name</c>
+    /// (spec/21-collections.md §2.4, ADR-0194).
+    /// </remarks>
+    public string SenderName { get; init; } = Sender.GetType().Name;
 
     /// <summary>Factory for Add.</summary>
     public static CollectionChangedMessage<T> ForAdd(object sender, T item, int index)

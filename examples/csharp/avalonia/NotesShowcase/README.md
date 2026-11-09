@@ -62,11 +62,13 @@ examples/csharp/avalonia/NotesShowcase/
     │   ├── BindableVm.cs, BindableDerived.cs
     │   ├── RelayCommandBridge.cs, ObservableCollectionBridge.cs
     │   ├── AvaloniaDispatcher.cs, AvaloniaDialogService.cs
+    │   ├── FontScaleStepConverter.cs ← A-/A+ font-scale step (row 16)
     │   └── ThemeAdapter.cs        ← ThemeVM → Avalonia resources (row 16)
     ├── Theme/DarkTheme.axaml
     ├── MainWindow.axaml(.cs)
     ├── NotebooksTreeView, NotesListView, NoteFormView, GlobalSearchView,
-    │   StatusBarView, NotificationsView, CapabilityActionsView (axaml + .axaml.cs)
+    │   StatusBarView, NotificationsView, CapabilityActionsView,
+    │   ThemeControlsView (axaml + .axaml.cs)
     └── Modals/ConfirmDialog.axaml(.cs)
 ```
 
@@ -89,7 +91,7 @@ examples/csharp/avalonia/NotesShowcase/
 | 13  | `IDialogService`                                         | Interface from VMx library (`langs/csharp/src/VMx/Dialogs/IDialogService.cs`); implemented here by `Views/Adapter/AvaloniaDialogService.cs` + `Views/Modals/ConfirmDialog.axaml`                                                                                          |
 | 14  | Capability-aware UI                                      | `ViewModels/CapabilityActionsVM.cs` + `Views/CapabilityActionsView.axaml`                                                                                                                                                                                                 |
 | 15  | `AggregateVM6` (ch. 8, ADR-0034)                         | `ViewModels/WorkspaceVM.cs` (wraps a sealed `AggregateVM6<…>` of the six children)                                                                                                                                                                                        |
-| 16  | `ThemeVM` scenario contract (THEME-001..005)             | `Models/ThemeModel.cs`, `ViewModels/ThemeVM.cs`, `Messages/ThemeChangedMessage.cs`, `Views/Adapter/ThemeAdapter.cs` (workspace-owned `ThemeVM` sibling bound through the Avalonia adapter; outside the `AggregateVM6` child list; see the parity matrix theme footnote) |
+| 16  | `ThemeVM` scenario contract (THEME-001..005)             | `Models/ThemeModel.cs`, `ViewModels/ThemeVM.cs`, `Messages/ThemeChangedMessage.cs`, `Views/Adapter/ThemeAdapter.cs`, `Views/ThemeControlsView.axaml` (theme control strip, ADR-0201 §2.4; workspace-owned `ThemeVM` sibling bound through the Avalonia adapter; outside the `AggregateVM6` child list; see the parity matrix theme footnote) |
 | 17  | `TokenPagedComposition`                                  | `ViewModels/GlobalSearchVM.cs` + repository token-paged `SearchNotesAsync`                                                                                                                                                                                                |
 | 18  | `DiscriminatorVM`                                        | `ViewModels/NoteFormVM.cs` edit/preview editor mode                                                                                                                                                                                                                       |
 | 19  | Tag autocomplete                                         | `ViewModels/NoteFormVM.cs` composes `SearchableState<string>` over workspace tags                                                                                                                                                                                         |

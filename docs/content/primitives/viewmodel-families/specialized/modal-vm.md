@@ -56,7 +56,9 @@ Relevant shipped surfaces:
 - Python: `vmx.dialogs.ModalVM`
 - TypeScript: `src/dialogs/modalVM.ts`
 - Swift: `ModalVM` protocol plus `BasicModalVM<Result>`
-- Rust: `ModalVm<T>` with executor-neutral `AsyncValue<T>` completion
+- Rust: `ModalVm<T>` with executor-neutral `AsyncValue<T>` completion, and
+  `DialogService::present(...)`, a provided trait method that a host adapter
+  overrides; it cannot be called through `dyn DialogService` (ADR-0210)
 
 Use this primitive when you need a VM-backed modal result instead of a fixed
 host dialog verb.

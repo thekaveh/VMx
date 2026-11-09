@@ -982,3 +982,93 @@ fn concurrent_edits_never_let_an_invalid_model_through_approval() {
         &leaked[..leaked.len().min(5)]
     );
 }
+
+/// The model the FORM-043 validator rejects.
+const BAD: i32 = -1;
+
+fn rejects_bad(builder: FormVmBuilder<i32>) -> FormVmBuilder<i32> {
+    builder.validator("value", |model| (*model == BAD).then(|| "bad".to_string()))
+}
+
+/// FORM-043 — an update raises the approve notification when its gates change
+#[test]
+fn a_strict_update_raises_the_approve_notification_when_its_gates_change() {
+    let persister = GatedPersister::default();
+    let form = rejects_bad(persister.builder().initial(1).strict(true))
+        .build()
+        .unwrap();
+    let command = form.approve_command();
+    form.set_model(BAD);
+    assert!(!form.is_valid() && form.is_dirty());
+    let (changes, _changes) = counter(&command.can_execute_changed());
+
+    // Dirty and invalid to clean and valid: both gates change.
+    form.set_model(1);
+    assert_eq!(changes.load(Ordering::SeqCst), 1);
+    assert!(!command.can_execute());
+
+    // Clean to dirty, still valid.
+    form.set_model(2);
+    assert_eq!(changes.load(Ordering::SeqCst), 2);
+    assert!(command.can_execute());
+
+    // Neither gate changes.
+    form.set_model(3);
+    assert_eq!(changes.load(Ordering::SeqCst), 2);
+}
+
+/// FORM-043 — an update during an approval raises its own approve notification
+#[test]
+fn an_update_during_an_approval_raises_its_own_approve_notification() {
+    let persister = GatedPersister::default();
+    let form = rejects_bad(persister.builder().initial(1)).build().unwrap();
+    let command = form.approve_command();
+    let (changes, _changes) = counter(&command.can_execute_changed());
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    persister.reenter({
+        let form = form.clone();
+        let changes = Arc::clone(&changes);
+        let reads = Arc::clone(&reads);
+        move || {
+            reads.lock().unwrap().push(changes.load(Ordering::SeqCst));
+            form.set_model(BAD);
+            reads.lock().unwrap().push(changes.load(Ordering::SeqCst));
+        }
+    });
+    let before = changes.load(Ordering::SeqCst);
+
+    assert_eq!(form.approve(), Ok(()));
+
+    let reads = reads.lock().unwrap().clone();
+    assert_eq!(reads, vec![before + 1, before + 2]);
+    assert_eq!(changes.load(Ordering::SeqCst), before + 3);
+    assert!(!command.can_execute());
+}
+
+/// FORM-043 — a validator registration during an approval raises the approve
+/// notification when it changes validity
+#[test]
+fn a_validator_registration_during_an_approval_raises_the_approve_notification() {
+    let persister = GatedPersister::default();
+    let form = persister.form(1);
+    let command = form.approve_command();
+    let (changes, _changes) = counter(&command.can_execute_changed());
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    persister.reenter({
+        let form = form.clone();
+        let changes = Arc::clone(&changes);
+        let reads = Arc::clone(&reads);
+        move || {
+            reads.lock().unwrap().push(changes.load(Ordering::SeqCst));
+            form.with_field_validator("value", |_| Some("rejected".to_string()));
+            reads.lock().unwrap().push(changes.load(Ordering::SeqCst));
+        }
+    });
+    let before = changes.load(Ordering::SeqCst);
+
+    assert_eq!(form.approve(), Ok(()));
+
+    assert_eq!(*reads.lock().unwrap(), vec![before + 1, before + 2]);
+    assert!(!form.is_valid());
+    assert!(!command.can_execute());
+}

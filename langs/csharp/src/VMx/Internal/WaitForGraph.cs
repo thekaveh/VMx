@@ -83,12 +83,14 @@ internal sealed class WaitForGraph
     /// </summary>
     internal bool TryBeginWait(object resource, int caller)
     {
+        bool accepted;
         lock (_gate)
         {
-            if (_owners.TryGetValue(resource, out var owner) && Reaches(caller, owner)) return false;
-            _waitingOn[caller] = new Edge(resource, 0);
-            return true;
+            accepted = !(_owners.TryGetValue(resource, out var owner) && Reaches(caller, owner));
+            if (accepted) _waitingOn[caller] = new Edge(resource, 0);
         }
+        WaitDecidedForTesting?.Invoke(caller, accepted);
+        return accepted;
     }
 
     /// <summary>
@@ -99,12 +101,14 @@ internal sealed class WaitForGraph
     /// </summary>
     internal bool TryBeginWait(object resource, int owner, int caller)
     {
+        bool accepted;
         lock (_gate)
         {
-            if (Reaches(caller, owner)) return false;
-            _waitingOn[caller] = new Edge(resource, owner);
-            return true;
+            accepted = !Reaches(caller, owner);
+            if (accepted) _waitingOn[caller] = new Edge(resource, owner);
         }
+        WaitDecidedForTesting?.Invoke(caller, accepted);
+        return accepted;
     }
 
     /// <summary>Removes the wait that <paramref name="caller"/> recorded.</summary>
@@ -143,6 +147,16 @@ internal sealed class WaitForGraph
             foreach (var waiter in released) _waitingOn.Remove(waiter);
         }
     }
+
+    /// <summary>
+    /// Test-only seam: raised with the caller and the decision after each
+    /// <see cref="TryBeginWait(object, int)"/> and
+    /// <see cref="TryBeginWait(object, int, int)"/>, accepted or refused, outside
+    /// the graph lock (#1472). The graph is process-wide, so a handler sees
+    /// every thread's requests and filters by thread. Production code never
+    /// subscribes.
+    /// </summary>
+    internal event Action<int, bool>? WaitDecidedForTesting;
 
     /// <summary>Test-only: whether <paramref name="thread"/> has a recorded wait.</summary>
     internal bool IsWaitingForTesting(int thread)

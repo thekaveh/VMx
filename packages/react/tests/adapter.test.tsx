@@ -407,6 +407,30 @@ describe("VM and value hooks", () => {
     expect(renders).toHaveBeenCalledTimes(baseline + 2);
   });
 
+  it("re-renders a useVm composite count selector after add (#1357)", async () => {
+    const hub = new MessageHub();
+    const composite = CompositeVM.create<ComponentVM>({
+      name: "items",
+      hub,
+      dispatcher: NullDispatcher.INSTANCE,
+      children: () => [],
+    });
+    composite.construct();
+    function Probe(): JSX.Element {
+      return <span data-testid="use-vm-count">{useVm(composite, (c) => c.count)}</span>;
+    }
+    render(<Probe />);
+    expect(screen.getByTestId("use-vm-count").textContent).toBe("0");
+
+    await act(async () => {
+      composite.add(ComponentVM.create({ name: "child", hub, dispatcher: NullDispatcher.INSTANCE }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("use-vm-count").textContent).toBe("1");
+    composite.dispose();
+  });
+
   it("re-renders whole-VM useVm on a lifecycle status change", async () => {
     const vm = modeled(new MessageHub());
     const renders = vi.fn();

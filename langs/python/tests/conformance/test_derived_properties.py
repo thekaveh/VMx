@@ -1,10 +1,11 @@
-"""Conformance tests: DPROP-001..012 — derived properties.
+"""Conformance tests: DPROP-001..013 — derived properties.
 
-Per spec/15-derived-properties.md and ADR-0011.
+Per spec/15-derived-properties.md, ADR-0011 and ADR-0191.
 """
 
 from __future__ import annotations
 
+import logging
 import operator
 from functools import reduce
 from typing import Any
@@ -342,4 +343,52 @@ def test_typed_arity_factories_support_can_set_and_set_action() -> None:
     assert dp.can_set(42) is True
     dp.set_value(42)
     assert written == [42]
+    dp.dispose()
+
+
+# ---------------------------------------------------------------------------
+# DPROP-013 — A failing ValueChanged subscriber stops neither the property nor
+# the other subscribers (spec/15 §4.1, spec/03 §3.6, ADR-0191)
+# ---------------------------------------------------------------------------
+
+
+class ValueChangedSubscriberError(Exception):
+    """Raised by the failing ``value_changed`` subscriber."""
+
+
+@pytest.mark.conformance("DPROP-013")
+@pytest.mark.parametrize("arity", ["one", "two"])
+def test_DPROP_013_failing_value_changed_subscriber_is_isolated(
+    arity: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    source: BehaviorSubject[int] = BehaviorSubject(0)
+    dp: DerivedProperty[int]
+    if arity == "one":
+        dp = from_one(source, lambda x: x * 10)
+    else:
+        other: BehaviorSubject[int] = BehaviorSubject(0)
+        dp = from_two(source, other, lambda x, y: x * 10 + y)
+    a_seen: list[int] = []
+    b_seen: list[int] = []
+
+    def failing(value: int) -> None:
+        a_seen.append(value)
+        raise ValueChangedSubscriberError
+
+    dp.value_changed.subscribe(failing)
+    dp.value_changed.subscribe(b_seen.append)
+
+    with caplog.at_level(logging.ERROR):
+        source.on_next(1)
+        source.on_next(2)
+
+    assert dp.value == 20
+    assert a_seen == [10, 20]
+    assert b_seen == [10, 20]
+    logged = [r for r in caplog.records if r.exc_info is not None]
+    assert len(logged) == 2
+    assert all(
+        r.exc_info is not None and isinstance(r.exc_info[1], ValueChangedSubscriberError)
+        for r in logged
+    )
     dp.dispose()
