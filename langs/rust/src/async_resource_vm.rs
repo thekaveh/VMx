@@ -154,6 +154,10 @@ struct Inner<T, D: Dispatcher> {
 
 #[derive(Clone)]
 /// A cancellable, command-backed asynchronous resource state machine.
+///
+/// A loader failure becomes the `Error` state. A current loader that returns
+/// `Err(VmxError::Cancelled)` restores the saved stable state, as
+/// [`cancel`](Self::cancel) does, and installs no error (ADR-0199).
 pub struct AsyncResourceVm<T, D: Dispatcher = NullDispatcher> {
     inner: Arc<Inner<T, D>>,
     load_command: AsyncRelayCommand,
@@ -984,6 +988,9 @@ where
                 notify_state(inner);
             }
         }
+        // A loader's own cancellation restores the saved stable state, as
+        // `cancel` does (ADR-0199, spec/23 §7). A stale one changes nothing.
+        Err(VmxError::Cancelled) => cancel_operation(inner, operation.identity),
         Err(error) => {
             let released = {
                 let mut machine = lock(&inner.machine);
