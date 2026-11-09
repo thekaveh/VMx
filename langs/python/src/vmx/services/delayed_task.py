@@ -48,7 +48,8 @@ class DelayedTask:
         """Replace any pending action with ``action`` after ``delay`` seconds.
 
         A zero or negative delay runs the action at the scheduler's next
-        opportunity. After ``dispose`` this call has no effect.
+        opportunity. After ``dispose`` this call has no effect. When the
+        scheduler raises, the error propagates and nothing stays pending.
         """
         with self._lock:
             if self._disposed:
@@ -66,7 +67,14 @@ class DelayedTask:
 
         # The scheduler is called without the lock: an inline scheduler may
         # run ``run`` before ``schedule_relative`` returns.
-        handle = self._scheduler.schedule_relative(_clamp(delay), run)
+        try:
+            handle = self._scheduler.schedule_relative(_clamp(delay), run)
+        except BaseException:
+            # A scheduler that refuses the action leaves nothing pending.
+            with self._lock:
+                if self._generation == generation:
+                    self._pending = False
+            raise
         with self._lock:
             keep = self._generation == generation and self._pending and not self._disposed
             if keep:

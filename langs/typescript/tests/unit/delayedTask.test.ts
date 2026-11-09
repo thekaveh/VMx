@@ -118,6 +118,20 @@ describe("DelayedTask", () => {
     expect(laterRuns).toBe(0);
   });
 
+  it("leaves nothing pending when the scheduler throws", () => {
+    const refusal = new Error("scheduler refused");
+    const throwing: SchedulerLike = {
+      now: () => 0,
+      schedule: () => {
+        throw refusal;
+      },
+    };
+    const task = new DelayedTask(throwing);
+
+    expect(() => task.schedule(10, () => {})).toThrow(refusal);
+    expect(task.isPending).toBe(false);
+  });
+
   it("makes later calls inert when the action disposes the task", () => {
     const scheduler = new FakeScheduler();
     const task = new DelayedTask(scheduler);

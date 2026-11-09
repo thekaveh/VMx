@@ -197,6 +197,11 @@ scheduler of each flavor. The VM reads the elapsed time from the scheduler's
 in `with_scheduler`, and its `new` and `with_hub` conveniences use
 `SystemScheduler`. A Rust test advances a `VirtualTimeScheduler` (ADR-0219).
 
+A VM released without `Dispose()` can still auto-dismiss in C#, Python and
+TypeScript, because the scheduler holds its timer. In Swift and Rust the timer
+holds the VM weakly. Releasing every reference cancels auto-dismiss, and the
+notification stays pending. Dispose a VM that leaves the visible list.
+
 Resolution and disposal stop the clock (ADR-0197). The VM stops it at the first
 of these steps: its own resolution, an observed hub resolution, or its
 disposal. Its own resolution includes `DismissCommand` and auto-dismiss. From

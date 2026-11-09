@@ -113,6 +113,13 @@ the portable form of a timer, a debounce and a polling loop.
   started runs to its end, and `cancel` does not wait for it.
 - A failing action follows the stream-fed route of chapter 03 §3.6. The
   failure never reaches the scheduler, and the helper stays usable.
+- When the scheduler throws from its own `schedule`, the error reaches the
+  caller, and `isPending` is false. Swift and Rust schedulers have no error
+  path.
+- A task released without `dispose` can still run its pending action. In C#,
+  Python and TypeScript the scheduler holds the action. Swift and Rust hold
+  the task weakly, so a release cancels the action. A caller disposes a task
+  that it no longer needs.
 
 The delay type is idiomatic (ADR-0006): C# `TimeSpan`, Python seconds as a
 `float` or a `timedelta`, TypeScript milliseconds, Swift `TimeInterval`
@@ -190,8 +197,8 @@ all five flavors:
 
 The existing `COMP-015`, `COMP-016`, `SRCH-004`, `SRCH-008` and
 `NOTIF-011`..`NOTIF-016` tests cover the Rust debounce and notification
-changes. `SRCH-004` drops its clause for a flavor with a synchronous term
-notification, because no flavor has one now.
+changes. `SRCH-004` and `SRCH-008` drop their clauses for a flavor with a
+synchronous term notification, because no flavor has one now.
 
 ## 3. Consequences
 

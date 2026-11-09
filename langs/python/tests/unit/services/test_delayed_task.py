@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 from datetime import timedelta
 
+import pytest
+from reactivex.internal.exceptions import WouldBlockException
 from reactivex.scheduler import ImmediateScheduler, TimeoutScheduler
 from reactivex.testing import TestScheduler
 
@@ -83,3 +85,13 @@ def test_cancel_from_another_thread_prevents_a_real_time_action() -> None:
 
     assert task.is_pending is False
     assert not ran.wait(0.2)
+
+
+def test_a_scheduler_that_raises_leaves_no_pending_action() -> None:
+    # ImmediateScheduler refuses a nonzero delay with WouldBlockException.
+    task = DelayedTask(ImmediateScheduler())
+
+    with pytest.raises(WouldBlockException):
+        task.schedule(1.0, lambda: None)
+
+    assert task.is_pending is False

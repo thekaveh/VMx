@@ -56,7 +56,9 @@ Rust's `NotificationVm::with_scheduler` takes any `Scheduler`. `new` and
 `with_hub` use `SystemScheduler`, so the lifespan runs in real time, and tests
 pass a `VirtualTimeScheduler` (ADR-0219). Its `dispose()`
 makes every clone of `dismiss_command()` inert. Dropping the VM does not, so
-call `dispose()` when a VM leaves the visible list.
+call `dispose()` when a VM leaves the visible list. Dropping every handle to
+the VM and its commands cancels auto-dismiss, and the notification stays
+pending.
 
 ## 6.2.8.4.5. Example
 

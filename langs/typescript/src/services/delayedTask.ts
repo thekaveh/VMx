@@ -35,17 +35,25 @@ export class DelayedTask {
   /**
    * Cancels the pending action, if any, and schedules `action` after
    * `delayMs` milliseconds. A zero or negative delay runs the action at the
-   * scheduler's next opportunity. Has no effect after `dispose`.
+   * scheduler's next opportunity. Has no effect after `dispose`. When the
+   * scheduler throws, the error propagates and nothing stays pending.
    */
   schedule(delayMs: number, action: () => void): void {
     if (this.#disposed) return;
     this.#cancelPending();
     const generation = ++this.#generation;
     this.#pending = true;
-    const handle = this.#scheduler.schedule(
-      () => this.#run(generation, action),
-      Math.max(0, delayMs),
-    );
+    let handle: Subscription;
+    try {
+      handle = this.#scheduler.schedule(
+        () => this.#run(generation, action),
+        Math.max(0, delayMs),
+      );
+    } catch (error) {
+      // A scheduler that refuses the action leaves nothing pending.
+      if (generation === this.#generation) this.#pending = false;
+      throw error;
+    }
     if (this.#isCurrent(generation)) {
       this.#handle = handle;
     } else {
