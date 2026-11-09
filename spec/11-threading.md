@@ -221,7 +221,110 @@ hosts, or any code path where async dispatch is not required.
 
 The null variant is conformance-tested by `NULL-002`.
 
-## 6. Conformance
+## 6. Delayed work: the scheduler and `DelayedTask` (spec v3.30, ADR-0219)
+
+Some work runs after a delay: a search-term debounce (chapter 06 §8), a
+notification lifespan (chapter 16 §6), and application timers such as polling
+or a short "Copied" state. This section defines the one clock that all such
+work uses and the `DelayedTask` helper over it.
+
+### 6.1 The scheduler
+
+A *scheduler* is the clock for delayed work:
+
+```
+Scheduler:
+    now : Time                                  # current scheduler time
+    schedule(delay, action) : Cancellation      # run action once after delay
+```
+
+Cancelling the returned handle before the action starts prevents the action.
+Each delayed-work consumer takes its scheduler at construction. There is no
+global scheduler. `SearchableState` uses the real-time scheduler below when the
+caller passes none; `DelayedTask` and the notification VMs take one
+explicitly. The Rust `new` and `with_hub` notification conveniences use
+`SystemScheduler`.
+
+| Language   | Scheduler type                                           | Real-time scheduler         | Virtual-time test scheduler                       |
+| ---------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------------- |
+| C#         | `IScheduler`                                             | `DefaultScheduler.Instance` | `Microsoft.Reactive.Testing.TestScheduler`        |
+| Python     | `SchedulerBase`                                          | `TimeoutScheduler()`        | `reactivex.testing.TestScheduler`                 |
+| TypeScript | `SchedulerLike`                                          | `asyncScheduler`            | rxjs `TestScheduler`, or any `SchedulerLike` fake |
+| Swift      | Combine `Scheduler` (`NotificationScheduler` for ch. 16) | `DispatchQueue.main`        | `VirtualTimeScheduler`                            |
+| Rust       | `Scheduler` trait                                        | `SystemScheduler`           | `VirtualTimeScheduler`                            |
+
+Rust has no reactive scheduler (ADR-0103), so it defines the trait:
+
+```rust
+pub trait Scheduler: Send + Sync + 'static {
+    fn now(&self) -> Duration;
+    fn schedule(&self, delay: Duration, action: Box<dyn FnOnce() + Send>) -> ScheduledAction;
+}
+```
+
+`ScheduledAction::cancel()` cancels the action, and a second call has no
+effect. Dropping a `ScheduledAction` does not cancel it. `SystemScheduler`
+runs actions in due-time order on one VMx timer thread, which it starts at its
+first `schedule`. Its `now` is the time since a fixed process origin.
+`VirtualTimeScheduler` is cloneable; its clones share one clock, which
+`advance_by(Duration)` moves.
+
+A *virtual-time* scheduler starts at its origin. Its `now` changes only when a
+test advances it. An advance runs each action that becomes due, in due-time
+order, on the thread that advances. Actions with the same due time run in the
+order they were scheduled. Work that an action schedules runs in the same
+advance when it is due by the end of that advance. A cancelled action never
+runs.
+
+### 6.2 Relation to `IDispatcher`
+
+Delayed work never goes through `IDispatcher`. The dispatcher channels take
+work without a delay, and their null variants cannot delay work in a portable
+way (§5). An action runs where its scheduler runs it. VMx does not marshal it
+to `IDispatcher.Foreground`, as §3.1 says for continuations. A host that needs
+UI-thread delivery passes a scheduler that runs on the UI thread, such as a C#
+`SynchronizationContextScheduler` or Swift `DispatchQueue.main`.
+
+### 6.3 `DelayedTask`
+
+`DelayedTask` holds at most one pending action on an injected scheduler. It is
+the portable form of a timer, a debounce and a polling loop.
+
+```
+DelayedTask(scheduler):
+    schedule(delay, action) : void   # replace the pending action; restart the delay
+    cancel() : void                  # cancel the pending action, if any
+    IsPending : bool                 # an action is scheduled and has not started
+    dispose() : void                 # cancel; later calls have no effect
+```
+
+- `schedule` cancels the pending action, if any, and then schedules `action`
+  after `delay`. A second call therefore restarts the delay.
+- `cancel` cancels the pending action. It has no effect when no action is
+  pending.
+- `IsPending` is true from `schedule` until the action starts, `cancel` or
+  `dispose`. When the action starts, `IsPending` is already false. The action
+  can call `schedule` again, which repeats a polling loop.
+- A zero or negative delay runs the action at the scheduler's next
+  opportunity. `schedule` never runs the action itself.
+- `dispose` cancels the pending action. Later `schedule` and `cancel` calls
+  have no effect, and `IsPending` stays false. A second `dispose` has no
+  effect. Disposal never disposes the scheduler.
+- The helper is safe to call from any thread. After `schedule`, `cancel` or
+  `dispose` returns, the replaced or cancelled action never starts. An action
+  that already started runs to its end, and `cancel` does not wait for it.
+- A failing action follows the stream-fed route of chapter 03 §3.6. The
+  failure never reaches the scheduler. The task stays usable, and a later
+  `schedule` runs. Swift actions cannot fail.
+
+The delay type is idiomatic (ADR-0006): C# `TimeSpan`, Python seconds as a
+`float` or a `timedelta`, TypeScript milliseconds, Swift `TimeInterval`
+seconds and Rust `Duration`.
+
+`DelayedTask` is a reactive helper for the disposal invariant (chapter 01 §4,
+`DISP-005`).
+
+## 7. Conformance
 
 `THR-001` through `THR-004`, plus the null-object IDs `NULL-002`
 (NullDispatcher schedules synchronously) and `NULL-003` (paired null variants
@@ -231,3 +334,12 @@ exist for the core service contracts), in `12-conformance.md` cover:
 - Background construct dispatches on background scheduler
 - `CollectionChanged` observed on foreground scheduler
 - Subscriber observes on chosen scheduler via `ObserveOn`
+
+`DLY-001` through `DLY-005` cover `DelayedTask` under a virtual-time
+scheduler (§6.3):
+
+- one run at the due time, with `IsPending` false when the action starts
+- a second `schedule` replaces the pending action and restarts the delay
+- `cancel` prevents the pending action
+- disposal cancels the pending action, and later calls have no effect
+- a failing action stays isolated, and the task stays usable

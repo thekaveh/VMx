@@ -638,9 +638,15 @@ Behavior:
   re-reads `Items`, applies the current `SearchTerm`, and emits one filtered
   snapshot. The signal payload is ignored.
 
-Open Rust gap: Rust's `SearchableState` has no debounce. `set_search_term` and each explicit `search()` send one synchronous
-`Custom("filtered")` notification on the `filtered_changed()` hub, and consumers
-pull the result with `filtered()`. ADR-0099 §2.7 records this facade mapping.
+The debounce runs on an injected scheduler (chapter 11 §6). Rust maps the
+pushed output to one `Custom("filtered")` message on the `filtered_changed()`
+hub, and consumers pull the projection with `filtered()`. Rust sets the
+debounce with `with_debounce(Duration)` and the scheduler with
+`with_scheduler(scheduler)`; the defaults are 1 second and `SystemScheduler`.
+A zero debounce sends the message before `set_search_term` returns, as the C#,
+Python and TypeScript helpers skip the debounce for zero. A `search()` call
+sends its message at once and does not cancel a pending term delivery
+(ADR-0219).
 
 ### 8.1 Source-change timing and batching (spec v3.19)
 

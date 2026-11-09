@@ -24,6 +24,7 @@ UI-backed flagship examples. CI verifies library coverage via
 | `FWD-NNN`   | Forwarding decorators                                | `09-forwarding.md`                            |
 | `BLD-NNN`   | Builders                                             | `10-builders.md`                              |
 | `THR-NNN`   | Threading & schedulers                               | `11-threading.md`                             |
+| `DLY-NNN`   | Delayed work: scheduler and `DelayedTask`            | `11-threading.md`                             |
 | `UTIL-NNN`  | Tree utilities (spec v1.1)                           | `13-tree-utilities.md`                        |
 | `CAP-NNN`   | Capability micro-interfaces                          | `14-capabilities.md`                          |
 | `NULL-NNN`  | Null-object service variants                         | `03-messages.md` + `11-threading.md`          |
@@ -2555,8 +2556,6 @@ mutated and emits a pulse
 **Then** the source pulse immediately refreshes using the current new term
 **And** the pending term delivery is neither canceled nor restarted and remains
 eligible at its original deadline
-**And** a flavor whose established reactive facade delivers term notifications
-synchronously proves the source and term notifications remain independent
 
 ### SRCH-005 — source completion or failure is isolated
 
@@ -5499,3 +5498,82 @@ exactly once at reload start
 became current
 **Then** the newer operation stays current, and the superseded completion
 causes no state or command notification
+
+______________________________________________________________________
+
+## 33. Delayed work (`DLY-NNN`) — spec v3.30
+
+Chapter 11 §6 and ADR-0219 define the scheduler and `DelayedTask`. Each test
+injects the flavor's virtual-time test scheduler (chapter 11 §6.1) and
+advances it.
+
+### DLY-001 — a scheduled action runs once at its due time
+
+**Given** a `DelayedTask` over a virtual-time scheduler at time 0
+**When** an action is scheduled with a delay of 10 s
+**Then** `IsPending` is `true`
+**When** the scheduler is advanced by 9 s
+**Then** the action has not run and `IsPending` is `true`
+**When** the scheduler is advanced by 1 s more
+**Then** the action has run once, and it read `IsPending` as `false`
+**And** `IsPending` is `false`
+**When** the scheduler is advanced by 10 s more
+**Then** the action has still run only once
+
+**Given** a `DelayedTask` whose action schedules itself again with a delay of
+5 s until it has run three times
+**When** the first schedule has a delay of 5 s and the scheduler is advanced by
+30 s
+**Then** the action ran at 5 s, 10 s and 15 s, and `IsPending` is `false`
+
+### DLY-002 — a second schedule replaces the pending action and restarts the delay
+
+**Given** a `DelayedTask` over a virtual-time scheduler at time 0
+**When** action A is scheduled with a delay of 10 s
+**And** the scheduler is advanced by 6 s
+**And** action B is scheduled with a delay of 10 s
+**And** the scheduler is advanced by 9 s, to 15 s
+**Then** neither A nor B has run and `IsPending` is `true`
+**When** the scheduler is advanced by 1 s more, to 16 s
+**Then** B has run once
+**And** A never runs, also after a further advance past 20 s
+
+### DLY-003 — cancel prevents the pending action
+
+**Given** a `DelayedTask` over a virtual-time scheduler with no pending action
+**When** `cancel()` is called
+**Then** nothing happens and `IsPending` is `false`
+**When** an action is scheduled with a delay of 10 s and `cancel()` is called
+at 4 s
+**Then** `IsPending` is `false`
+**And** the action does not run when the scheduler is advanced past 10 s
+**When** a new action is scheduled after the cancel
+**Then** the new action runs at its own due time
+
+### DLY-004 — disposal cancels the pending action, and later calls have no effect
+
+**Given** a `DelayedTask` over a virtual-time scheduler with a pending action
+**When** the task is disposed twice
+**Then** `IsPending` is `false`
+**And** the action does not run when the scheduler is advanced past its due
+time
+**When** `schedule` and `cancel` are called after disposal
+**Then** no error is raised, `IsPending` stays `false`, and the newly scheduled
+action never runs
+**And** the scheduler is still usable for other work
+
+### DLY-005 — a failing action stays isolated, and the task stays usable
+
+**Given** a `DelayedTask` over a virtual-time scheduler and an action that
+fails (throws, raises or panics)
+**When** the action is scheduled and the scheduler is advanced past its due
+time
+**Then** the failure does not reach the code that advances the scheduler, and
+it follows the stream-fed route of chapter 03 §3.6
+**And** `IsPending` is `false`
+**When** a second action is scheduled and the scheduler is advanced past its
+due time
+**Then** the second action runs once
+
+Swift actions cannot fail. The Swift test shows that the action type is a
+non-throwing closure and that a second schedule after a run still runs.

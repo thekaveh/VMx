@@ -917,6 +917,16 @@ in every flavor. Swift `FilteredCompositeVM` gains the catchable
 
 See ADR-0217 and chapter 06 §3, §4.3 and §9.
 
+v3.30.0 also defines one clock for delayed work. The scheduler has `now` and a
+cancellable delayed `schedule`, and each flavor names one virtual-time test
+scheduler. Delayed work never goes through `IDispatcher`. Every flavor gains
+`DelayedTask`, which holds at most one pending action (`DLY-001`..`DLY-005`).
+Rust gains a `Scheduler` trait, `SystemScheduler` and `VirtualTimeScheduler`.
+Rust `SearchableState` now debounces its term, and Rust notification VMs take a
+scheduler in place of `advance_by_ms`. The catalog gains five library IDs.
+
+See ADR-0219, chapter 06 §8, chapter 11 §6, and chapter 16 §6 and §8.1.
+
 See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
 ADR-0190, ADR-0199, ADR-0200, ADR-0202, ADR-0204, ADR-0214, ADR-0215, ADR-0216,
-ADR-0217 and the affected behavior chapters.
+ADR-0217, ADR-0219 and the affected behavior chapters.
