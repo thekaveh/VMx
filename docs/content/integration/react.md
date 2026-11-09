@@ -16,14 +16,14 @@ default or an explicit equality function such as `shallowEqual`.
 
 ## 9.8.2. Mapping
 
-| React binding                           | VMx source                                        |
-| --------------------------------------- | ------------------------------------------------- |
-| `createVmxStore` / `useVmx`             | one shared `IMessageHub` selector boundary        |
-| `useVm`                                 | every hub message sent by one VM                  |
-| `useCommand`                            | `ICommand.canExecuteChanged` and stable execution |
-| `useObservableList` / `useVmCollection` | identity-preserving collection snapshots          |
-| `useDerivedProperty`                    | first and later derived values; unseeded state    |
-| `useAsyncResource`                      | discriminated async-resource state                |
+| React binding                           | VMx source                                                                    |
+| --------------------------------------- | ----------------------------------------------------------------------------- |
+| `createVmxStore` / `useVmx`             | one shared `IMessageHub` selector boundary                                    |
+| `useVm`                                 | every hub message sent by one VM, or by the VM a forwarding decorator wraps   |
+| `useCommand`                            | `ICommand.canExecuteChanged`, stable execution, and an optional `errors` hook |
+| `useObservableList` / `useVmCollection` | identity-preserving collection snapshots                                      |
+| `useDerivedProperty`                    | first and later derived values; unseeded state                                |
+| `useAsyncResource`                      | discriminated async-resource state                                            |
 
 ## 9.8.3. Install and create the shared store
 
@@ -85,6 +85,28 @@ const resource = useAsyncResource(screen.data);
 `useCommand` accepts an `ICommand` separately from its owning VM. Invoke the
 stable callback returned by the binding; the equivalent direct VMx intent is
 `saveCommand.execute()`.
+
+`execute()` of an `AsyncRelayCommand` returns before its task settles, so a
+rejected task goes to the command's `errors` channel, not to the caller. Pass
+`onError` to observe each failure while the component is mounted:
+
+```tsx
+const save = useCommand(noteVm.saveCommand, {
+  onError: (error) => showToast(`Save failed: ${String(error)}`),
+});
+```
+
+The hook subscribes to `errors` only when the command has that channel and an
+`onError` is given, and it unsubscribes on unmount. A command with no `errors`
+channel, such as `RelayCommand`, binds as before. The hook always calls the
+latest `onError`, so the function does not need to be memoized.
+
+`useVm` also re-renders a component bound to a forwarding decorator. The
+wrapped VM sends every hub message the decorator causes, so the hook matches
+the senders that the decorator's `wrappedBase` chain reaches (ADR-0213).
+`ForwardingComponentVM` works with every supported `@thekaveh/vmx`.
+`ForwardingCompositeVM` needs an `@thekaveh/vmx` release that contains
+ADR-0213; 3.30.0 does not.
 
 `useDerivedProperty` returns `undefined` until the property holds a value and
 renders the first value as soon as a delayed source emits it. A

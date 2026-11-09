@@ -17,6 +17,8 @@ import {
   DecoratorCommand,
   DerivedProperty,
   FormVM,
+  ForwardingComponentVM,
+  ForwardingCompositeVM,
   HierarchicalVM,
   HierarchicalVMBuilder,
   MessageHub,
@@ -312,6 +314,99 @@ describe("VM and value hooks", () => {
     expect(selectorRenders).toHaveBeenCalledTimes(selectorBaseline + 1);
   });
 
+  it("re-renders whole-VM useVm bound to a forwarding decorator", async () => {
+    const inner = modeled(new MessageHub());
+    const decorator = new ForwardingComponentVM(inner);
+    function Probe(): JSX.Element {
+      return <span data-testid="decorated-whole">{useVm(decorator).model}</span>;
+    }
+    render(<Probe />);
+    expect(screen.getByTestId("decorated-whole").textContent).toBe("0");
+
+    await act(async () => { decorator.model = 5; await Promise.resolve(); });
+
+    expect(decorator.model).toBe(5);
+    expect(screen.getByTestId("decorated-whole").textContent).toBe("5");
+  });
+
+  it("re-renders a useVm selector bound to a forwarding decorator", async () => {
+    const inner = modeled(new MessageHub());
+    const decorator = new ForwardingComponentVM(inner);
+    function Probe(): JSX.Element {
+      return <span data-testid="decorated-selector">{useVm(decorator, (d) => d.model)}</span>;
+    }
+    render(<Probe />);
+
+    await act(async () => { decorator.model = 3; await Promise.resolve(); });
+    expect(screen.getByTestId("decorated-selector").textContent).toBe("3");
+
+    await act(async () => { inner.model = 4; await Promise.resolve(); });
+    expect(screen.getByTestId("decorated-selector").textContent).toBe("4");
+  });
+
+  it("re-renders whole-VM useVm bound to a forwarding composite decorator", async () => {
+    const hub = new MessageHub();
+    const dispatcher = RxDispatcher.immediate();
+    const first = ComponentVM.builder().name("first").services(hub, dispatcher).build();
+    const second = ComponentVM.builder().name("second").services(hub, dispatcher).build();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite").services(hub, dispatcher).children(() => [first, second]).build();
+    composite.construct();
+    const decorator = new ForwardingCompositeVM(composite);
+    function Probe(): JSX.Element {
+      return <span data-testid="decorated-composite">{useVm(decorator).current?.name ?? "none"}</span>;
+    }
+    render(<Probe />);
+    expect(screen.getByTestId("decorated-composite").textContent).toBe("none");
+
+    await act(async () => { composite.current = second; await Promise.resolve(); });
+
+    expect(screen.getByTestId("decorated-composite").textContent).toBe("second");
+  });
+
+  it("re-renders whole-VM useVm bound to a decorator around another decorator", async () => {
+    const inner = modeled(new MessageHub());
+    const outer = new ForwardingComponentVM(new ForwardingComponentVM(inner));
+    function Probe(): JSX.Element {
+      return <span data-testid="decorated-nested">{useVm(outer).model}</span>;
+    }
+    render(<Probe />);
+
+    await act(async () => { inner.model = 7; await Promise.resolve(); });
+
+    expect(screen.getByTestId("decorated-nested").textContent).toBe("7");
+  });
+
+  it("ends the wrappedBase chain at a throwing getter or a cycle", async () => {
+    const hub = new MessageHub();
+    const other = modeled(hub);
+    const throwing = {
+      hub,
+      label: "throwing",
+      get wrappedBase(): never { throw new TypeError("not a ComponentVMBase"); },
+    };
+    const cyclic: { hub: IMessageHub; label: string; wrappedBase?: object } = { hub, label: "cyclic" };
+    cyclic.wrappedBase = cyclic;
+    const renders = vi.fn();
+    function Probe({ value }: { value: { hub: IMessageHub; label: string } }): JSX.Element {
+      const live = useVm(value);
+      renders(live.label);
+      return <span>{live.label}</span>;
+    }
+    render(<><Probe value={throwing} /><Probe value={cyclic} /></>);
+    const baseline = renders.mock.calls.length;
+
+    await act(async () => { other.model = 1; await Promise.resolve(); });
+    expect(renders).toHaveBeenCalledTimes(baseline);
+
+    await act(async () => {
+      hub.send(PropertyChangedMessage.create(throwing, "label", "label"));
+      hub.send(PropertyChangedMessage.create(cyclic, "label", "label"));
+      await Promise.resolve();
+    });
+    expect(renders).toHaveBeenCalledTimes(baseline + 2);
+  });
+
   it("re-renders whole-VM useVm on a lifecycle status change", async () => {
     const vm = modeled(new MessageHub());
     const renders = vi.fn();
@@ -410,6 +505,64 @@ describe("command and collection hooks", () => {
     act(() => button.click());
     expect(task).toHaveBeenCalledTimes(1);
     expect(renders).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports each failure on the command's errors channel to onError", async () => {
+    const command = AsyncRelayCommand.builder()
+      .task(async () => { throw new Error("disk full"); })
+      .build();
+    const failures: unknown[] = [];
+    function Probe(): JSX.Element {
+      const binding = useCommand(command, { onError: (error) => failures.push(error) });
+      return <button onClick={binding.execute}>run</button>;
+    }
+    render(<Probe />);
+    const button = screen.getByRole("button");
+
+    await act(async () => { button.click(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    await act(async () => { button.click(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+    expect(failures).toHaveLength(2);
+    expect((failures[0] as Error).message).toBe("disk full");
+  });
+
+  it("calls the latest onError and stops observing errors after unmount", async () => {
+    const command = AsyncRelayCommand.builder()
+      .task(async () => { throw new Error("disk full"); })
+      .build();
+    const first = vi.fn();
+    const second = vi.fn();
+    function Probe({ onError }: { onError: (error: unknown) => void }): JSX.Element {
+      useCommand(command, { onError });
+      return <span>bound</span>;
+    }
+    const view = render(<Probe onError={first} />);
+    view.rerender(<Probe onError={second} />);
+
+    await act(async () => { command.execute(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    command.execute();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds a command without an errors channel when onError is given", () => {
+    const task = vi.fn();
+    const command = RelayCommand.builder().task(task).build();
+    const onError = vi.fn();
+    function Probe(): JSX.Element {
+      const binding = useCommand(command, { onError });
+      return <button disabled={!binding.canExecute} onClick={binding.execute}>run</button>;
+    }
+    render(<Probe />);
+    act(() => screen.getByRole("button").click());
+
+    expect(task).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("renders a disposed async command as disabled", () => {
