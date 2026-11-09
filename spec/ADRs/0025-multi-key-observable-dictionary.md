@@ -1,6 +1,6 @@
 # ADR 0025 — `ObservableDictionary` (multi-key observable dictionary)
 
-**Status:** Accepted (2026-05-27)
+**Status:** Accepted (2026-05-27; §3 rule 1 amended by ADR-0193)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context
@@ -89,3 +89,8 @@ Key rules:
   serialized-string implementation detail for TypeScript. Nested native `Map`
   storage preserves standard key equality without coercing types or object
   identities.
+- **ADR-0193** (2026-11-09, spec v3.30.0) amends §3 rule 1. `Keys1` and `Keys2`
+  return a read-only `ReadOnlyObservableList<TKeyN>` facade in C#, Python,
+  TypeScript and Swift, not the backing `ObservableList<TKeyN>`. Rust keeps its
+  `Vec` snapshots. The dictionary's Remove and Replace hub messages also carry
+  the entry's position.

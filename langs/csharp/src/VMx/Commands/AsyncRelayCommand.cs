@@ -197,9 +197,14 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
                     CommandCancellation,
                     NoCancellation);
         }
+        AfterCancelReleasesGateForTesting?.Invoke();
         if (cts is not null)
             CancelIgnoringDisposed(cts);
     }
+
+    // Test-only probe: runs in Cancel() after it releases _gate and before it
+    // cancels the captured source (#1342). Production code never sets it.
+    internal Action? AfterCancelReleasesGateForTesting { get; set; }
 
     // ExecuteAsync's finally disposes the CTS off-gate right after nulling _cts.
     // Cancel()/Dispose() capture _cts under the gate but must invoke Cancel()

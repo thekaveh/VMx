@@ -318,21 +318,22 @@ ADR-0006 and require no further action:
 - **Rationale**: TS follows the `Map.prototype.get` no-throw convention. C# and Python
   match the dictionary-throws idiom of their standard libraries.
 
-### 2.21 `ObservableDictionary` key-axis view mutability (Python read-only)
+### 2.21 `ObservableDictionary` key-axis view mutability (resolved by ADR-0193)
 
-- **C# / TypeScript / Swift**: `Keys1`/`Keys2` return the live **mutable**
-  `ObservableList<TKey>` — spec-literal (spec/21 §4.1 declares
-  `Keys1 : ObservableList<TKey1>`, "live view").
-- **Python**: `keys1`/`keys2` return a `ReadOnlyObservableList` facade over the same
-  live key axis — identical read + subscribe surface, but no mutators (VMX-014), so a
-  caller cannot desync the view from the entries.
-- **Rationale**: the documented use (spec/21 §4.2 — bind to `Keys1`/`Keys2` for
-  category-view UIs) is read/subscribe-only, which the facade serves fully. Directly
-  mutating the view in the spec-literal flavors (e.g. `Keys1.Clear()`) desyncs it from
-  the entries — an unsupported footgun Python structurally prevents. Every
-  event/order/count thread is identical across all four. Converging the three mutable
-  flavors to a read-only view (and tightening spec/21 §4.1's declared type) is a
-  reasonable future spec decision for the maintainer.
+No divergence remains. Before ADR-0193, C#, TypeScript and Swift returned the
+mutable backing `ObservableList<TKey>` from `Keys1`/`Keys2`, and Python
+returned a `ReadOnlyObservableList` facade (VMX-014). A caller edit in the
+mutable flavors desynced the view from the entries. Now C#, Python, TypeScript
+and Swift all return a `ReadOnlyObservableList<TKey>` facade with no mutator
+and no batch member (spec/21 §4.2). Rust keeps its `Vec` snapshots.
+
+One 3.x exception to the major-version deferral: the C#, TypeScript and Swift
+change breaks source in a minor version. Only code that edits a view, or that
+names the view's type as `ObservableList`, fails to compile. An edit corrupted
+the dictionary, so no correct program depended on it, and read and subscribe
+code compiles unchanged. Each CHANGELOG lists the change as source-breaking,
+with a migration line. Where a flavor's current source version is already a
+major, the change rides in it.
 
 ### 2.22 `ServicedObservableCollection` append method
 
@@ -448,7 +449,17 @@ here so audits don't reopen them prematurely:
   currently spread `hub`/`dispatcher` conditionally). Until then the
   constructor overload without services is `@deprecated`, which
   `@typescript-eslint/no-deprecated` and editors report (#665). Documented here
-  so audits don't re-flag it as accidental drift.
+  so audits don't re-flag it as accidental drift. One 3.x exception to the
+  major-version deferral: TypeScript 3.31.0 types `hub` and `dispatcher` as
+  required on `HierarchicalVMConstructionContext`, the context that
+  `HierarchicalVMBuilder.build()` passes to `vmFactory` (#1354). In 3.30.0 the
+  type was an alias for `HierarchicalVMOptions`. The change breaks only code
+  that builds this context without both services. It is accepted in a minor
+  version because the builder is the only producer of the type and always
+  supplies both, the C# context also requires both, and keeping the alias would
+  bind the recommended builder path's `super(context)` to the deprecated
+  overload. The TypeScript CHANGELOG lists it as source-breaking, with a
+  migration line.
 - **Rust conveniences that build a private hub (ADR-0150).**
   `ComponentVm::new`, `CompositeVm::new`, `GroupVm::new`,
   `HierarchicalVm::new`, `FormVm::new`, `AggregateVm1::new` / `try_new` to
@@ -462,6 +473,14 @@ here so audits don't reopen them prematurely:
   likewise build a private `NotificationHub`; `with_hub` takes the shared one.
   Removing the conveniences would break Rust callers and is not scheduled.
   Documented here so audits don't re-flag it as accidental drift.
+- **Rust `HierarchicalVmBuilder` keeps only the hub (ADR-0206).**
+  `HierarchicalVmBuilder::services(hub, dispatcher)` accepts any `Dispatcher`,
+  as the other Rust builders do, but the built hierarchy drops the dispatcher.
+  `HierarchicalVm<M>` has no dispatcher type parameter, and every node uses
+  `NullDispatcher`, because the hierarchy runs no dispatched work and has no
+  background option. C# `HierarchicalVM` passes the builder dispatcher to its
+  base class. No observable behavior differs today. Documented here so audits
+  don't re-flag it as accidental drift (#1268).
 - **Swift `TokenPagedComposition` default page-equality comparer.** Swift defaults
   `pagesEqual` to `{ _, _ in false }` — the unconstrained generic `TVM` cannot
   synthesize a universal equality — so a redundant `refresh()` of a byte-identical

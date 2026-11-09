@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Restore VMx's canonical Unreleased section after Release Please runs."""
+"""Restore VMx's canonical Unreleased section after Release Please runs.
+
+The script also rewrites the Markdown that Release Please generates into the
+form that the pinned mdformat check in ``conformance.yml`` accepts: ``-`` for
+top-level bullets and one blank line between blocks (#1391). It uses only the
+standard library, so the release workflow needs no extra install.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +22,37 @@ BRACKETED_HEADING = re.compile(
 )
 NUMBERED_RELEASE = re.compile(r"\d+\.\d+\.\d+")
 CANONICAL_UNRELEASED = "## [Unreleased]"
+FENCE_OPENING = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def normalize_release_please_markdown(content: str) -> str:
+    """Rewrite Release Please's ``*`` bullets and blank-line runs as mdformat does.
+
+    Fenced code blocks stay unchanged.
+    """
+    lines = content.split("\n")
+    normalized: list[str] = []
+    fence = ""
+    for line in lines:
+        if fence:
+            normalized.append(line)
+            if line.strip().startswith(fence) and not line.strip().strip(fence[0]):
+                fence = ""
+            continue
+        opening = FENCE_OPENING.match(line)
+        if opening:
+            fence = opening.group(1)
+            normalized.append(line)
+            continue
+        if not line.strip():
+            if normalized and normalized[-1] == "":
+                continue
+            normalized.append("")
+            continue
+        if line.startswith("* "):
+            line = "- " + line[2:]
+        normalized.append(line)
+    return "\n".join(normalized)
 
 
 def _replace_atomically(path: Path, content: str) -> None:
@@ -38,8 +75,22 @@ def _replace_atomically(path: Path, content: str) -> None:
 
 
 def ensure_unreleased(path: Path) -> bool:
-    """Ensure *path* starts its bracketed release sections with Unreleased."""
+    """Ensure *path* starts its bracketed release sections with Unreleased.
+
+    The rewritten file also gets the Release Please normalization above.
+    Returns whether the file changed.
+    """
     content = path.read_text(encoding="utf-8")
+    repaired = _repair_unreleased(content)
+    normalized = normalize_release_please_markdown(repaired)
+    if normalized == content:
+        return False
+    _replace_atomically(path, normalized)
+    return True
+
+
+def _repair_unreleased(content: str) -> str:
+    """Return *content* with one empty [Unreleased] before the first release."""
     headings = list(BRACKETED_HEADING.finditer(content))
     unreleased = [match for match in headings if match.group(1) == "Unreleased"]
 
@@ -65,25 +116,21 @@ def ensure_unreleased(path: Path) -> bool:
         ):
             raise ValueError("changelog must have a first numbered release section")
         if headings[0] == unreleased[0]:
-            return False
+            return content
 
         without_unreleased = content[: unreleased[0].start()] + content[section_end:]
         insertion = f"{CANONICAL_UNRELEASED}\n\n"
-        repaired = (
+        return (
             without_unreleased[: headings[0].start()]
             + insertion
             + without_unreleased[headings[0].start() :]
         )
-        _replace_atomically(path, repaired)
-        return True
 
     if not headings or NUMBERED_RELEASE.fullmatch(headings[0].group(1)) is None:
         raise ValueError("changelog must contain a first numbered release section")
 
     insertion = f"{CANONICAL_UNRELEASED}\n\n"
-    repaired = content[: headings[0].start()] + insertion + content[headings[0].start() :]
-    _replace_atomically(path, repaired)
-    return True
+    return content[: headings[0].start()] + insertion + content[headings[0].start() :]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -95,7 +142,11 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    print("restored [Unreleased]" if changed else "[Unreleased] already canonical")
+    print(
+        "restored [Unreleased] and normalized the changelog"
+        if changed
+        else "[Unreleased] and changelog already canonical"
+    )
     return 0
 
 

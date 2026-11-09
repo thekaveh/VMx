@@ -116,6 +116,17 @@ export class WorkspaceVM {
       .searchDebounceMs(150)
       .dialogService(opts.dialogService)
       .notificationHub(opts.notificationHub)
+      // ADR-0201 §2.3: the action-bar Save on the note the editor holds is
+      // the editor Save, with its dirty and valid gate; any other note saves
+      // its stored model.
+      .saveNote(async (note) => {
+        const form = this.#noteForm;
+        if (form.hasBoundNote && form.snapshot.id === note.model.id) {
+          if (form.isDirty && form.isValid) await form.approveAsync();
+        } else {
+          await opts.repository.saveNote(note.model);
+        }
+      })
       .build();
     this.#noteForm = NoteFormVM.builder()
       .name("form")

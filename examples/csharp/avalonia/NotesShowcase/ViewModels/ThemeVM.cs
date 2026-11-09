@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reactive.Subjects;
+using System.Text.RegularExpressions;
 using System.Windows.Input;
 using NotesShowcase.Messages;
 using NotesShowcase.Models;
@@ -43,6 +44,11 @@ namespace NotesShowcase.ViewModels;
 /// </summary>
 public sealed class ThemeVM : ComponentVMBase
 {
+    // ADR-0201 §2.5: an accent is #RGB or #RRGGBB, hex digits in either case.
+    private static readonly Regex AccentPattern = new(
+        @"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\z",
+        RegexOptions.CultureInvariant);
+
     private readonly BehaviorSubject<ThemeModel> _modelSubject;
     private readonly IReadOnlyList<ThemeModel> _presets;
     private readonly Func<string>? _systemThemeProvider;
@@ -101,9 +107,10 @@ public sealed class ThemeVM : ComponentVMBase
     public ICommand ToggleHighContrast { get; }
 
     /// <summary>
-    /// Replaces <see cref="ThemeModel.AccentColor"/>. Argument is a hex
-    /// string; no parsing is performed — the adapter layer interprets it
-    /// per framework.
+    /// Replaces <see cref="ThemeModel.AccentColor"/>. The argument must be
+    /// <c>#RGB</c> or <c>#RRGGBB</c> and is stored as given. Any other string
+    /// throws <see cref="ArgumentException"/> without publishing a
+    /// <see cref="ThemeChangedMessage"/> (ADR-0201 §2.5).
     /// </summary>
     public ICommand SetAccentColor { get; }
 
@@ -186,6 +193,10 @@ public sealed class ThemeVM : ComponentVMBase
     {
         if (hex is null)
             throw new ArgumentNullException(nameof(hex));
+        if (!AccentPattern.IsMatch(hex))
+            throw new ArgumentException(
+                $"Invalid accent color: '{hex}'. Expected #RGB or #RRGGBB.",
+                nameof(hex));
         SetModel(_model with { AccentColor = hex });
     }
 

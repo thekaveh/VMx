@@ -3,11 +3,46 @@
 //! Spec: `spec/17-localization.md` and `spec/19-dialogs.md`.
 
 use super::{AsyncValue, ModalVm};
+use std::fmt::Display;
 
 /// Resolves localization keys to user-facing strings.
+///
+/// ```
+/// use std::fmt::Display;
+/// use vmx::Localizer;
+///
+/// struct Greeting;
+///
+/// impl Localizer for Greeting {
+///     fn localize(&self, key: &str) -> String {
+///         key.to_string()
+///     }
+///
+///     fn localize_with_args(&self, key: &str, args: &[&dyn Display]) -> String {
+///         let mut text = self.localize(key);
+///         for (index, arg) in args.iter().enumerate() {
+///             text = text.replace(&format!("{{{index}}}"), &arg.to_string());
+///         }
+///         text
+///     }
+/// }
+///
+/// assert_eq!(Greeting.localize_with_args("Hello, {0}!", &[&"Ada"]), "Hello, Ada!");
+/// ```
 pub trait Localizer: Send + Sync {
     /// Returns the localized value for `key`.
     fn localize(&self, key: &str) -> String;
+
+    /// Returns the localized value for `key`, formatted with the positional
+    /// `args` (spec/17 §1 `Localize(key, args)`).
+    ///
+    /// The default implementation ignores `args` and returns
+    /// [`localize(key)`](Self::localize), so [`NullLocalizer`] returns `key`
+    /// unchanged. An implementation that formats overrides this method.
+    fn localize_with_args(&self, key: &str, args: &[&dyn Display]) -> String {
+        let _ = args;
+        self.localize(key)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]

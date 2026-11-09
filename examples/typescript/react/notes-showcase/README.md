@@ -77,7 +77,8 @@ examples/typescript/react/notes-showcase/
 │       ├── components/
 │       │   ├── Layout.tsx, NotebooksTree.tsx, NotesList.tsx,
 │       │   │   NoteForm.tsx, StatusBar.tsx, Notifications.tsx,
-│       │   │   CapabilityActions.tsx, GlobalSearch.tsx, DialogOverlay.tsx
+│       │   │   CapabilityActions.tsx, GlobalSearch.tsx, DialogOverlay.tsx,
+│       │   │   ThemeControls.tsx    ← theme control strip (ADR-0201 §2.4)
 │       │   └── modals/{ModalShell,ConfirmModal,SaveFileModal,NotifyModal}.tsx
 │       └── hooks/useHotkeys.ts
 └── tests/{models,recipes,viewmodels,views}/, sharedScenario.test.ts, edgeCases.test.ts
@@ -102,7 +103,7 @@ examples/typescript/react/notes-showcase/
 | 13  | `IDialogService`                                         | `viewmodels/dialogService.ts`; implemented by `views/adapter/ReactDialogService.tsx` + `views/components/modals/`. Export saves a browser download through `views/adapter/downloadExporter.ts`                                                                  |
 | 14  | Capability-aware UI                                      | `viewmodels/capabilityActionsVM.ts` + `views/components/CapabilityActions.tsx`                                                                                                                                                                                  |
 | 15  | `AggregateVM6` (ch. 8, ADR-0034)                         | `viewmodels/workspaceVM.ts` (wraps an `AggregateVM6<…>` of the six children)                                                                                                                                                                                    |
-| 16  | `ThemeVM` scenario contract (THEME-001..005)             | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (workspace-owned `ThemeVM` sibling bound through the React adapter; outside the `AggregateVM6` child list; see the parity matrix theme footnote) |
+| 16  | `ThemeVM` scenario contract (THEME-001..005)             | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts`, `views/components/ThemeControls.tsx` (workspace-owned `ThemeVM` sibling bound through the React adapter; outside the `AggregateVM6` child list; see the parity matrix theme footnote) |
 | 17  | `TokenPagedComposition`                                  | `viewmodels/globalSearchVM.ts` + repository token-paged `searchNotes`                                                                                                                                                                                           |
 | 18  | `DiscriminatorVM`                                        | `viewmodels/noteFormVM.ts` edit/preview editor mode                                                                                                                                                                                                             |
 | 19  | Tag autocomplete                                         | `viewmodels/noteFormVM.ts` composes `SearchableState<string>` over workspace tags                                                                                                                                                                               |

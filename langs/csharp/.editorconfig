@@ -26,3 +26,14 @@ dotnet_diagnostic.CA1716.severity = none
 # CA1816: Dispose methods should call GC.SuppressFinalize. No type in this
 #   assembly declares a finalizer, so SuppressFinalize is dead weight (VMX-066).
 dotnet_diagnostic.CA1816.severity = none
+
+# --- Public-API baseline (#1365) ---
+# Microsoft.CodeAnalysis.PublicApiAnalyzers runs on the three library projects
+# only for its baseline rules: RS0016 (a public symbol is missing from
+# PublicAPI.*.txt) and RS0017 (a baseline entry has no public symbol). Its
+# API-design rules are not part of the baseline check, so they stay off:
+# RS0026/RS0027 (optional parameters across overloads) and RS0041 (oblivious
+# reference types in a public signature).
+dotnet_diagnostic.RS0026.severity = none
+dotnet_diagnostic.RS0027.severity = none
+dotnet_diagnostic.RS0041.severity = none

@@ -206,18 +206,18 @@ final class CompositeThreadingTests: XCTestCase {
             composite.current = first
             firstDone.signal()
         }
-        XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(entered.wait(timeout: .now() + hangGuard), .success)
         DispatchQueue.global().async {
             composite.current = second
             secondDone.signal()
         }
         XCTAssertEqual(
-            secondDone.wait(timeout: .now() + 2),
+            secondDone.wait(timeout: .now() + hangGuard),
             .success,
             "consumer notification must not retain the global current coordinator"
         )
         release.signal()
-        XCTAssertEqual(firstDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(firstDone.wait(timeout: .now() + hangGuard), .success)
 
         XCTAssertTrue(composite.current === second)
         XCTAssertFalse(first.isCurrent)
@@ -239,7 +239,7 @@ final class CompositeThreadingTests: XCTestCase {
                     right.selectChild(rightChild)
                     workerDone.signal()
                 }
-                callbackObservedProgress = workerDone.wait(timeout: .now() + 1) == .success
+                callbackObservedProgress = workerDone.wait(timeout: .now() + hangGuard) == .success
             }.build()
         right = try CompositeVM<ComponentVM>.builder().name("right")
             .withNullServices().children { [rightChild] }.build()

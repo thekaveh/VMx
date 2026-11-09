@@ -56,6 +56,8 @@ pub fn handle_key(workspace: &WorkspaceVm, code: KeyCode) -> bool {
         KeyCode::Char('x') => workspace.set_search_term(""),
         KeyCode::Char('n') => workspace.next_page(),
         KeyCode::Char('p') => workspace.previous_page(),
+        KeyCode::Char('j') => workspace.select_next_note(),
+        KeyCode::Char('k') => workspace.select_previous_note(),
         KeyCode::Char('m') => workspace.editor().toggle(),
         KeyCode::Char('d') => workspace.request_delete_current(),
         KeyCode::Char('y') => workspace.approve_delete_current(),
