@@ -7,10 +7,17 @@
 // rule extended to non-VMx work: each flush surfaces one error. The outermost
 // background construct() or destruct() throws the first failure of its flush,
 // where a throw out of the flush counts when it throws. Without such a call,
-// the first throw to leave the flush leaves it. Later failures are dropped.
+// the first throw to leave the flush leaves it. ADR-0200 §2.3: every other
+// failure of the flush goes once to rxjs config.onUnhandledError after the
+// flush returns.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { queueScheduler, type SchedulerLike } from "rxjs";
+import {
+  queueScheduler,
+  Subscription,
+  type SchedulerAction,
+  type SchedulerLike,
+} from "rxjs";
 import { TestScheduler } from "rxjs/testing";
 import {
   ComponentVM,
@@ -20,10 +27,21 @@ import {
   MessageHub,
   NullDispatcher,
   RxDispatcher,
+  markSchedulerCancelled,
   type IDispatcher,
   type IMessageHub,
 } from "../../src/index.js";
 import { ManualDispatcher } from "../../src/testing/index.js";
+import { captureRxUnhandledErrors } from "../setup.js";
+
+/** Let rxjs deliver the unhandled-error reports it queued on a timer. */
+async function afterReports(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function messagesOf(errors: unknown[]): string[] {
+  return errors.map((error) => (error as Error).message);
+}
 
 interface Hooks {
   construct?: () => void;
@@ -101,7 +119,8 @@ const sharedSchedulerDispatchers: Array<[string, () => IDispatcher]> = [
 
 describe.each(sharedSchedulerDispatchers)("non-VMx throw on %s", (_name, dispatcher) => {
   describe("case 1: a failing hook queues a throwing action", () => {
-    it("construct() rolls back to Destructed and throws the hook failure", () => {
+    it("construct() rolls back to Destructed, throws the hook failure and reports the other", async () => {
+      const reports = captureRxUnhandledErrors();
       const d = dispatcher();
       const vm = backgroundVM(d, new MessageHub(), "vm", {
         construct: () => {
@@ -112,9 +131,13 @@ describe.each(sharedSchedulerDispatchers)("non-VMx throw on %s", (_name, dispatc
 
       expect(() => vm.construct()).toThrow("hook failed");
       expectSettled(vm, ConstructionStatus.Destructed);
+      expect(reports).toEqual([]);
+      await afterReports();
+      expect(messagesOf(reports)).toEqual(["queued work failed"]);
     });
 
-    it("destruct() rolls back to Constructed and throws the hook failure", () => {
+    it("destruct() rolls back to Constructed, throws the hook failure and reports the other", async () => {
+      const reports = captureRxUnhandledErrors();
       const d = dispatcher();
       const hooks: Hooks = {};
       const vm = backgroundVM(d, new MessageHub(), "vm", hooks);
@@ -126,6 +149,9 @@ describe.each(sharedSchedulerDispatchers)("non-VMx throw on %s", (_name, dispatc
 
       expect(() => vm.destruct()).toThrow("hook failed");
       expectSettled(vm, ConstructionStatus.Constructed);
+      expect(reports).toEqual([]);
+      await afterReports();
+      expect(messagesOf(reports)).toEqual(["queued work failed"]);
     });
   });
 
@@ -265,7 +291,8 @@ describe.each(sharedSchedulerDispatchers)("non-VMx throw on %s", (_name, dispatc
   });
 
   describe("a recovered action that fails", () => {
-    it("settles the VM and keeps the caller's error", () => {
+    it("settles the VM, keeps the caller's error and reports the recovered failure", async () => {
+      const reports = captureRxUnhandledErrors();
       const d = dispatcher();
       guardAgainstSpin(d.foreground);
       const bad = backgroundVM(d, new MessageHub(), "bad", {
@@ -284,9 +311,14 @@ describe.each(sharedSchedulerDispatchers)("non-VMx throw on %s", (_name, dispatc
       expect(thrown).toBeInstanceOf(Error);
       expect((thrown as Error).message).toBe("caller failed");
       expectSettled(bad, ConstructionStatus.Destructed);
+      // Nothing is reported before the flush's caller returns.
+      expect(reports).toEqual([]);
+      await afterReports();
+      expect(messagesOf(reports)).toEqual(["bad failed"]);
     });
 
-    it("keeps the non-VMx error that left first under an active construct()", () => {
+    it("keeps the non-VMx error that left first under an active construct()", async () => {
+      const reports = captureRxUnhandledErrors();
       const d = dispatcher();
       const hub = new MessageHub();
       const bad = backgroundVM(d, hub, "bad", {
@@ -304,6 +336,9 @@ describe.each(sharedSchedulerDispatchers)("non-VMx throw on %s", (_name, dispatc
       expect(() => outer.construct()).toThrow("queued work failed");
       expectSettled(outer, ConstructionStatus.Constructed);
       expectSettled(bad, ConstructionStatus.Destructed);
+      expect(reports).toEqual([]);
+      await afterReports();
+      expect(messagesOf(reports)).toEqual(["bad failed"]);
     });
   });
 
@@ -439,5 +474,121 @@ describe("a scheduler that cancels its queued work", () => {
 
     expect(published).toEqual(before);
     expect(vm.status).toBe(ConstructionStatus.Constructing);
+  });
+});
+
+/**
+ * A custom SchedulerLike that queues work until `runNext()` or `flush()`. Like
+ * rxjs, a throw from `flush()` unsubscribes every action queued behind it.
+ */
+class CustomScheduler implements SchedulerLike {
+  readonly #queue: Array<{ run: () => void; subscription: Subscription }> = [];
+
+  now(): number {
+    return Date.now();
+  }
+
+  schedule<T>(
+    work: (this: SchedulerAction<T>, state?: T) => void,
+    _delay?: number,
+    state?: T,
+  ): Subscription {
+    const subscription = new Subscription();
+    const action = subscription as unknown as SchedulerAction<T>;
+    this.#queue.push({ run: () => work.call(action, state), subscription });
+    return subscription;
+  }
+
+  /** Run the next queued action. */
+  runNext(): void {
+    const next = this.#queue.shift();
+    if (next === undefined || next.subscription.closed) return;
+    try {
+      next.run();
+    } finally {
+      next.subscription.unsubscribe();
+    }
+  }
+
+  flush(): void {
+    while (this.#queue.length > 0) {
+      try {
+        this.runNext();
+      } catch (error) {
+        this.cancel(false);
+        throw error;
+      }
+    }
+  }
+
+  /** Unsubscribe every queued action, marking this scheduler first if `mark`. */
+  cancel(mark: boolean): void {
+    if (mark) markSchedulerCancelled(this);
+    for (let next = this.#queue.shift(); next !== undefined; next = this.#queue.shift()) {
+      next.subscription.unsubscribe();
+    }
+  }
+}
+
+describe("a custom scheduler and markSchedulerCancelled", () => {
+  function setup(hooks: Hooks = {}) {
+    const scheduler = new CustomScheduler();
+    const hub = new MessageHub();
+    let hookRuns = 0;
+    const vm = backgroundVM({ foreground: scheduler, background: scheduler }, hub, "vm", {
+      construct: () => {
+        hookRuns++;
+        hooks.construct?.();
+      },
+    });
+    const published: ConstructionStatus[] = [];
+    hub.messages.subscribe((message) => {
+      if (message instanceof ConstructionStatusChangedMessage && message.sender === vm) {
+        published.push(message.status);
+      }
+    });
+    return { scheduler, vm, published, hookRuns: () => hookRuns };
+  }
+
+  it("runs no VMx hook and publishes no status for work that a marked cancel drops", () => {
+    const { scheduler, vm, published, hookRuns } = setup();
+    vm.construct();
+    const before = [...published];
+
+    scheduler.cancel(true);
+
+    expect(hookRuns()).toBe(0);
+    expect(published).toEqual(before);
+    expect(vm.status).toBe(ConstructionStatus.Constructing);
+  });
+
+  it("still reports a failure that happened before a marked cancel", async () => {
+    const reports = captureRxUnhandledErrors();
+    const { scheduler, vm, published } = setup({
+      construct: () => {
+        throw new Error("hook failed");
+      },
+    });
+    vm.construct();
+    scheduler.runNext();
+    const before = [...published];
+
+    scheduler.cancel(true);
+
+    expect(published).toEqual(before);
+    expect(reports).toEqual([]);
+    await afterReports();
+    expect(messagesOf(reports)).toEqual(["hook failed"]);
+  });
+
+  it("settles a VM whose action a flush error dropped on a scheduler that did not mark itself", () => {
+    const { scheduler, vm, hookRuns } = setup();
+    queueThrow(scheduler, "foreign failed");
+    vm.construct();
+
+    expect(() => scheduler.flush()).toThrow("foreign failed");
+
+    expect(hookRuns()).toBe(1);
+    expectSettled(vm, ConstructionStatus.Constructed);
   });
 });
