@@ -181,12 +181,14 @@ parent, lifecycle, subscriptions, and `Current`.
 
 After each local event, the composite publishes the equivalent
 `CollectionChangedMessage` to its hub, sending it as itself (chapter 01 §1.4,
-ADR-0142, `COMP-042`).
+ADR-0142, `COMP-042`). Once its disposal is requested or deferred, it publishes
+nothing, also for a change whose local event it has delivered (chapter 01 §1.4,
+ADR-0190, `COMP-049`).
 
-Open Rust gap: Rust `CompositeVm` and `GroupVm` have no public local
-collection-change stream; consumers observe membership through the hub
-`CollectionChanged` messages. The local-recorder clauses of `COMP-041` and
-`COMP-042` apply to Rust through the hub messages only.
+Rust `CompositeVm`, `GroupVm`, and `ModeledCompositeVm` expose the local
+stream as `collection_changed()`, the name that `ServicedObservableCollection`
+uses. It returns a `MessageHub` that receives each `CollectionChangedMessage`
+before the container's hub. A hub batch never defers it (ADR-0208).
 
 ### 4.1 Batch updates (spec v1.1)
 
@@ -221,7 +223,8 @@ destination performs one transaction:
 1. Attach it to the destination and perform any required auto-construction.
 1. Commit the old `Remove` notification before the new `Add` notification.
    Each container's hub message follows its own local event, so the hub also
-   receives the old `Remove` before the new `Add` (`COMP-044`).
+   receives the old `Remove` before the new `Add` (`COMP-044`). An old parent
+   whose disposal is requested sends no hub message (`COMP-049`).
 
 The destination and any staged old parent remain under an exclusive membership
 transaction through hooks and commit or rollback. Re-entrant structural
@@ -275,8 +278,10 @@ as disposal in progress. Destination disposal requested by its own hook still
 causes attachment to fail and roll back (ADR-0122).
 
 If deferred old-parent disposal fails after a successful transfer, both
-committed membership notifications still publish in old-remove/new-add order
-before a throwing or result-based flavor propagates that disposal failure. If
+committed local membership events still publish in old-remove/new-add order
+before a throwing or result-based flavor propagates that disposal failure. Only
+the new parent sends its hub message, because the old parent's disposal is
+requested (chapter 01 §1.4). If
 attachment has already failed, that earlier attachment failure remains the
 reported first failure; deferred disposal still completes but cannot replace
 it. Non-throwing flavors complete the same state and notification sequence
@@ -342,7 +347,8 @@ ADR-0189):
    active after that, the disposal is deferred. A deferred disposal starts when
    the last lease ends and no membership transaction is open. The deferral
    stays set until the disposal starts, so no transaction and no non-null
-   selection is admitted in between.
+   selection is admitted in between. The composite sends no collection hub
+   message in between either (chapter 01 §1.4).
 1. **Detach clear.** A transaction that detached the current child clears
    `Current` only while that child is still current.
 1. **Asynchronous selection.** With `AsyncSelection(true)`, the setter
@@ -552,6 +558,11 @@ Behavior:
   debounce is **1 second**; consumers may override via builder/constructor. No
   flavor exposes the debounced term as a public stream; consumers observe
   `Filtered`.
+- Construction starts no debounce, whatever the debounce length. The initial
+  empty term is not a new value. After construction, `Filtered` emits only
+  for a term change after its debounce, a `search()` call, or a source signal
+  (ADR-0198). A replay of the current value to a new subscriber is not a new
+  emission.
 - After the debounce, the helper recomputes `Filtered` by applying
   `Predicate(item, search_term)` to each item in `Items` and emitting the
   list of matches.
@@ -601,6 +612,18 @@ is not forwarded to `Filtered`. Term changes and explicit `search()` remain
 operational until helper disposal. Swift encodes the signal with
 `Failure == Never`; Rust's message-hub signal likewise has no error channel.
 
+**Failing predicate or subscriber (spec v3.30, ADR-0191).** A predicate or
+item supplier that fails during a recompute stops that recompute. `Filtered`
+keeps its last snapshot and emits nothing. The failure is stream-fed under
+chapter 03 §3.6, even for a zero debounce or a `search()` call, so it never
+reaches the caller. The recompute subscription stays attached, and the next
+term change, source signal or `search()` recomputes as usual. A failing
+`Filtered` subscriber also follows chapter 03 §3.6. A failure in the
+constructor's first filter still reaches the constructor's caller. Swift
+predicates cannot fail. Rust evaluates the predicate when the caller pulls
+`filtered()` or calls `search()`, so a panic reaches that caller, and a later
+pull with a valid term returns the filtered items.
+
 The helper owns only the subscription it creates. It MUST NOT dispose the source
 signal, item collection, supplied items, predicate, or an upstream aggregate.
 Disposal cancels the owned subscription exactly once, completes the
@@ -634,9 +657,6 @@ FilteredCompositeVM<VM>:
     Dispose()
 ```
 
-Open Rust gap: Rust's `FilteredCompositeVm` has no `Changed` stream, so a view
-reads `visible()` and `current()` on demand.
-
 The source composite remains the owner of child membership and lifecycle. The
 filtered view owns the visible projection and its own current slot in the visible
 domain. When the source mutates or the predicate changes, the projection is
@@ -645,6 +665,16 @@ recomputed and current is reconciled according to a cursor policy:
 - `SnapToFirst`: if current is filtered out, select the first visible item.
 - `Clear`: if current is filtered out, clear current.
 - `PreserveIfVisible`: keep current only if it remains visible, otherwise clear.
+
+The policy is a construction argument, `SnapToFirst` by default. It also sets
+the start state: a `SnapToFirst` view starts on the first visible item, and a
+`Clear` or `PreserveIfVisible` view starts with no current item.
+
+`Changed` fires once after each projection recompute (a source mutation, a
+predicate change, or a refresh), and once when `SetCurrent` or a visible move
+changes `Current`. A handler reads the new `Visible` and `Current`. `Dispose()`
+completes the stream where the flavor's stream completes, and later calls fire
+nothing (ADR-0207).
 
 `ScoredFilteredCompositeVM<VM>` filters out null/absent scores and orders visible
 items by descending score with source-order stable tie breaks. `RefreshScores()`
@@ -656,7 +686,7 @@ forces a recompute when external score state changes.
 modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, and
 the builder hooks `COMP-025` and `COMP-026` (see below), plus filtered/scored
 view IDs `COMP-028` through `COMP-037`, plus source-reactivity IDs `SRCH-001`
-through `SRCH-007`, in
+through `SRCH-008` and the failure ID `SRCH-009`, in
 `12-conformance.md` cover:
 
 - collection-change events on add/remove
@@ -676,6 +706,8 @@ through `SRCH-007`, in
 - scored filtering with stable score ordering
 - optional source-change refresh, independent debounce timing, termination,
   batching transparency, and subscription-only ownership
+- no term debounce and no filtered emission from construction (`SRCH-008`,
+  ADR-0198)
 
 Hub publication of collection changes (chapter 01 §1.4, ADR-0142) is covered by:
 
@@ -688,6 +720,9 @@ Hub publication of collection changes (chapter 01 §1.4, ADR-0142) is covered by
   failed preflight, rollback, and same-index moves publish nothing.
 - `COMP-045` — hub transactions defer the messages in order, a disposed
   composite publishes nothing, and a forwarding wrapper adds no publication.
+- `COMP-049` — a composite or group whose disposal a local subscriber or an
+  `OnCurrentChanged` callback requests sends no hub message for that change,
+  whether the disposal runs at once or is deferred (ADR-0190).
 
 The `Disposed`-child, `Destructing` and child-`select()` rules of §3, §3.1,
 §4.3 and §5 are covered by:

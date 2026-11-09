@@ -107,6 +107,24 @@ describe("COL-026", () => {
     expect(sut.hasMore).toBe(false);
     expect(sut.loadMoreCommand.canExecute()).toBe(false);
   });
+
+  // ADR-0169: TypeScript runs the load body up to its first await in the
+  // admission turn, so a terminal token cannot land between admission and the
+  // body's hasMore check. This pins that admission-turn start (#1484).
+  it("loadMore calls fetchNext in the admission turn, before executeAsync's promise is awaited", async () => {
+    const calls: Array<string | null> = [];
+    const sut = new TokenPagedComposition<number, string>((token) => {
+      calls.push(token);
+      return Promise.resolve({ items: [1], nextToken: null });
+    });
+
+    const run = sut.loadMoreCommand.executeAsync();
+    expect(calls).toEqual([null]);
+
+    await run;
+    expect(calls).toEqual([null]);
+    expect(sut.items).toEqual([1]);
+  });
 });
 
 describe("COL-027", () => {

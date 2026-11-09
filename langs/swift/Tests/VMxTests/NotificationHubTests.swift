@@ -50,7 +50,7 @@ final class NotificationHubTests: XCTestCase {
         }.store(in: &cancellables)
 
         let t = Task { await hub.post(n) }
-        await fulfillment(of: [appeared], timeout: 2.0)
+        await fulfillment(of: [appeared], timeout: hangGuard)
 
         hub.resolve(n, .approve)
         let reaction = await t.value
@@ -76,7 +76,7 @@ final class NotificationHubTests: XCTestCase {
         }.store(in: &cancellables)
 
         let t = Task { await hub.post(n) }
-        await fulfillment(of: [appeared], timeout: 2.0)
+        await fulfillment(of: [appeared], timeout: hangGuard)
 
         XCTAssertTrue(
             recorder.snapshots.last?.contains(where: { $0 === n }) == true,
@@ -105,7 +105,7 @@ final class NotificationHubTests: XCTestCase {
         }.store(in: &cancellables)
 
         let t = Task { await hub.post(n) }
-        await fulfillment(of: [appeared], timeout: 2.0)
+        await fulfillment(of: [appeared], timeout: hangGuard)
 
         hub.resolve(n, .approve)
         _ = await t.value  // drain so pending has updated before we assert
@@ -155,7 +155,7 @@ final class NotificationHubTests: XCTestCase {
         }.store(in: &cancellables)
 
         let t = Task { await hub.post(n) }
-        await fulfillment(of: [appeared], timeout: 2.0)
+        await fulfillment(of: [appeared], timeout: hangGuard)
 
         hub.resolve(n, .reject)
         let reaction = await t.value
@@ -183,7 +183,7 @@ final class NotificationHubTests: XCTestCase {
 
         let tA = Task { await hub.post(nA) }
         let tR = Task { await hub.post(nR) }
-        await fulfillment(of: [bothAppeared], timeout: 2.0)
+        await fulfillment(of: [bothAppeared], timeout: hangGuard)
 
         hub.resolve(nA, .approve)
         hub.resolve(nR, .reject)
@@ -213,7 +213,7 @@ final class NotificationHubTests: XCTestCase {
         }.store(in: &cancellables)
 
         let t = Task { await hub.post(posted) }
-        await fulfillment(of: [appeared], timeout: 2.0)
+        await fulfillment(of: [appeared], timeout: hangGuard)
 
         // Resolve an orphan — must not crash and must not alter pending.
         let countBefore = recorder.snapshots.count

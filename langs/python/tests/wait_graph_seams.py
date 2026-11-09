@@ -71,3 +71,40 @@ class WaitDecisions:
         """The hub wait decisions of *thread*: True recorded a wait, False refused it."""
         with self._condition:
             return list(self._decisions[thread])
+
+
+class WaitRequests:
+    """Record every wait request in ``WAITS``, accepted or refused (#1472).
+
+    Both ``try_begin_wait`` and ``try_begin_owner_wait`` report the calling
+    thread and the decision, so a test can show that a thread made no wait
+    request at all in some window, not only that it holds no recorded wait.
+    """
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._lock = threading.Lock()
+        self._requests: dict[int, list[bool]] = defaultdict(list)
+        begin_wait = WAITS.try_begin_wait
+        begin_owner_wait = WAITS.try_begin_owner_wait
+
+        def recording_begin_wait(resource: object, caller: int) -> bool:
+            accepted = begin_wait(resource, caller=caller)
+            self._record(caller, accepted)
+            return accepted
+
+        def recording_begin_owner_wait(resource: object, owner: int, caller: int) -> bool:
+            accepted = begin_owner_wait(resource, owner=owner, caller=caller)
+            self._record(caller, accepted)
+            return accepted
+
+        monkeypatch.setattr(WAITS, "try_begin_wait", recording_begin_wait)
+        monkeypatch.setattr(WAITS, "try_begin_owner_wait", recording_begin_owner_wait)
+
+    def _record(self, caller: int, accepted: bool) -> None:
+        with self._lock:
+            self._requests[caller].append(accepted)
+
+    def of(self, thread: int) -> list[bool]:
+        """The wait requests of *thread*: True recorded a wait, False was refused."""
+        with self._lock:
+            return list(self._requests[thread])

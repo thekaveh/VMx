@@ -123,8 +123,8 @@ pub(crate) use runtime::{
 
 mod components;
 pub use components::{
-    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ReadonlyComponentVm,
-    ReadonlyComponentVmBuilder, ViewModelType,
+    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ModelChangedCallback,
+    ReadonlyComponentVm, ReadonlyComponentVmBuilder, ViewModelType,
 };
 
 mod commands;
@@ -136,8 +136,9 @@ pub use commands::{
 
 mod collections;
 pub use collections::{
+    EventStream, EventSubscription, ItemAddedEvent, ItemRemovedEvent, ItemReplacedEvent,
     KeyedServicedObservableCollection, ObservableDictionary, ObservableList,
-    ObservableMultiDictionary, ServicedObservableCollection,
+    ObservableMultiDictionary, ReadOnlyObservableList, ServicedObservableCollection,
 };
 
 mod composites;

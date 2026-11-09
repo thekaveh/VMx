@@ -1,6 +1,7 @@
 using System.Reactive;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -32,7 +33,7 @@ public sealed class RelayCommand : ICommand, IDisposable
         _task = task;
         _predicate = predicate;
         foreach (var t in triggers)
-            _triggerSubscriptions.Add(t.Subscribe(_ => RaiseCanExecuteChanged()));
+            _triggerSubscriptions.Add(t.Subscribe(_ => RaiseFromTrigger()));
     }
 
     /// <inheritdoc/>
@@ -41,12 +42,25 @@ public sealed class RelayCommand : ICommand, IDisposable
     /// <summary>
     /// Notifies subscribers that <see cref="CanExecute"/> may have changed without
     /// evaluating the predicate or invoking the task. A no-op after disposal.
+    /// Every handler runs, even when an earlier one throws; the first failure
+    /// is then rethrown (spec/03 §3.6, ADR-0191).
     /// </summary>
     public void RaiseCanExecuteChanged()
     {
         if (_disposed) return;
-        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        RaiseToHandlers()?.Throw();
     }
+
+    // A trigger emission is stream-fed: a handler failure is discarded so it
+    // never reaches the trigger publisher (spec/03 §3.6, ADR-0191).
+    private void RaiseFromTrigger()
+    {
+        if (_disposed) return;
+        _ = RaiseToHandlers();
+    }
+
+    private ExceptionDispatchInfo? RaiseToHandlers()
+        => FanOut.Raise(CanExecuteChanged, handler => handler(this, EventArgs.Empty));
 
     /// <summary>
     /// Returns true if no predicate is configured; otherwise returns the predicate's result.
@@ -77,8 +91,7 @@ public sealed class RelayCommand : ICommand, IDisposable
         if (_disposed) return;
         _disposed = true;
         ExceptionDispatchInfo? firstError = null;
-        try { CanExecuteChanged?.Invoke(this, EventArgs.Empty); }
-        catch (Exception error) { firstError = ExceptionDispatchInfo.Capture(error); }
+        firstError = RaiseToHandlers();
         foreach (var subscription in _triggerSubscriptions)
         {
             try { subscription.Dispose(); }

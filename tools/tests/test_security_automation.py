@@ -81,8 +81,14 @@ def test_typescript_projects_track_the_latest_peer_supported_compiler() -> None:
         REPO_ROOT / "examples/typescript/console/hello-vmx/package.json",
         REPO_ROOT / "examples/typescript/react/notes-showcase/package.json",
     )
-    for manifest in manifests:
-        assert '"typescript": "^6.0.3"' in manifest.read_text(encoding="utf-8")
+    # Hold: typescript-eslint's peer range accepts TypeScript below 6.1.0. Every
+    # manifest pins one 6.0.x patch; a patch update needs no edit here (#1363).
+    pins = {
+        manifest: re.search(r'"typescript": "\^(6\.0\.\d+)"', manifest.read_text(encoding="utf-8"))
+        for manifest in manifests
+    }
+    assert all(pins.values()), "every TypeScript project must pin a 6.0.x compiler"
+    assert len({match.group(1) for match in pins.values() if match}) == 1
 
     vite_types = REPO_ROOT / "examples/typescript/react/notes-showcase/src/vite-env.d.ts"
     assert vite_types.read_text(encoding="utf-8") == '/// <reference types="vite/client" />\n'
@@ -205,7 +211,8 @@ def test_required_security_gate_scans_committed_secrets() -> None:
 
     assert "  secrets:\n    timeout-minutes: 10" in workflow
     assert "fetch-depth: 0" in workflow
-    assert "gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e" in workflow
+    # The action name and a full commit SHA, not one literal SHA (#1363).
+    assert re.search(r"gitleaks/gitleaks-action@[0-9a-f]{40}\b", workflow)
     assert 'GITLEAKS_VERSION: "8.30.1"' in workflow
     assert "needs: [secrets, codeql, npm, cargo, python, docs, nuget]" in workflow
     assert "currently has no secret-scanner\nallowlist entries" in policy
@@ -224,8 +231,10 @@ def test_codeql_covers_every_implementation_language() -> None:
     assert codeql.count("            build-mode: none\n") == 4
     assert "swift build -c release --package-path langs/swift" in codeql
     assert "swift build -c release --package-path examples/swift/notes-showcase" in codeql
-    assert "github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066" in codeql
-    assert "github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066" in codeql
+    init = re.search(r"github/codeql-action/init@([0-9a-f]{40})\b", codeql)
+    analyze = re.search(r"github/codeql-action/analyze@([0-9a-f]{40})\b", codeql)
+    assert init and analyze
+    assert init.group(1) == analyze.group(1), "init and analyze must use one CodeQL release"
 
 
 def test_release_workflow_defaults_to_read_only() -> None:

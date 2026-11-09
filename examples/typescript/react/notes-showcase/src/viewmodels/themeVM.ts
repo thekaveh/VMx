@@ -33,9 +33,10 @@
  * - The presets list is a snapshot of the three named presets at
  *   construction time. The fourth pseudo-preset `"system"` is NOT a
  *   ThemeModel value — it's a transient state requested via
- *   `followSystemCommand`; the resulting model adopts the host's
- *   currently-resolved theme (defaulting to `DARK_PRESET` when the
- *   host has no `prefers-color-scheme` signal).
+ *   `followSystemCommand`. With a host resolver that reports a preset
+ *   name, the model adopts that preset. With no resolver, or a name that
+ *   is not a preset, the model keeps its values and sets only
+ *   `followsSystem` (ADR-0201 §2.6). The VM never reads `window`.
  */
 import { BehaviorSubject, map } from "rxjs";
 import {
@@ -58,30 +59,19 @@ import {
 } from "../models/themeModel.js";
 import { ThemeChangedMessage } from "../messages/themeChanged.js";
 
-/** Host-supplied probe returning the OS-level preferred theme name. */
-export type SystemThemeResolver = () => "dark" | "light";
-
 /**
- * Default system-theme resolver that consults `window.matchMedia`.
- * Falls back to `"dark"` when the media-query API is unavailable
- * (Node / jsdom in default config). Pure function — no listeners
- * are attached; the VM re-probes on each `followSystemCommand`.
+ * Host-supplied probe returning the OS-level preferred theme name. The VM
+ * calls it on each `followSystemCommand`; a name that is not a preset keeps
+ * the current theme (ADR-0201 §2.6).
  */
-const defaultSystemResolver: SystemThemeResolver = () => {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return "dark";
-  }
-  return window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "light"
-    : "dark";
-};
+export type SystemThemeResolver = () => string;
 
 export class ThemeVM extends ComponentVMOf<ThemeModel> {
   readonly #subject: BehaviorSubject<ThemeModel>;
   readonly #currentTheme: DerivedProperty<ThemeModel>;
   readonly #followsSystem: DerivedProperty<boolean>;
   readonly #presets: readonly ThemeModel[];
-  readonly #systemResolver: SystemThemeResolver;
+  readonly #systemResolver: SystemThemeResolver | null;
 
   readonly #setThemeCommand: RelayCommandOf<string>;
   readonly #toggleHighContrast: RelayCommand;
@@ -107,7 +97,7 @@ export class ThemeVM extends ComponentVMOf<ThemeModel> {
       modeledHinter: (m): string => m.name,
     });
 
-    this.#systemResolver = opts.systemResolver ?? defaultSystemResolver;
+    this.#systemResolver = opts.systemResolver ?? null;
     this.#presets = Object.freeze([
       DARK_PRESET,
       LIGHT_PRESET,
@@ -279,8 +269,17 @@ export class ThemeVM extends ComponentVMOf<ThemeModel> {
   }
 
   #applyFollowSystem(): void {
-    const resolved = this.#systemResolver();
-    const base = PRESETS[resolved] ?? DARK_PRESET;
+    // ADR-0201 §2.6: with no resolver, or a name that is not a preset, keep
+    // the theme and set only followsSystem.
+    const resolved = this.#systemResolver?.();
+    const base =
+      resolved !== undefined && Object.hasOwn(PRESETS, resolved)
+        ? PRESETS[resolved]
+        : undefined;
+    if (base === undefined) {
+      this.#commit({ ...this.model, followsSystem: true });
+      return;
+    }
     const next: ThemeModel = {
       name: base.name,
       accentColor: base.accentColor,

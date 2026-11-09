@@ -19,6 +19,9 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
 - `WorkspaceVm` composes six child surfaces through `AggregateVm6`.
 - `NotesViewVm` uses `CompositeVm`, `FilteredCompositeVm`, and
   `PagedComposition`.
+- A search or a page change keeps the selected note and its editor draft
+  (ADR-0201 §2.1). The `j` and `k` keys select the next or the previous note
+  on the visible page.
 - `NoteFormVm` uses strict `FormVm<NoteDraft>` validation with `save()` and
   `revert()` methods. The terminal app does not bind keys to them.
 - `GlobalSearchVm` keeps its term in a `SearchableState` and pages repository

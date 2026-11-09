@@ -185,14 +185,19 @@ describe("HUB-007", () => {
     // scoped suppression instead of relying on a suite-wide global no-op.
     allowRxUnhandledErrors();
     const hub = new MessageHub();
+    let aRuns = 0;
     hub.messages.subscribe(() => {
+      aRuns += 1;
       throw new Error("subscriber A blows up");
     });
     const received: IMessage[] = [];
     hub.messages.subscribe((m) => received.push(m));
 
-    hub.send(makeMsg("msg1"));
-    hub.send(makeMsg("msg2"));
+    expect(() => hub.send(makeMsg("msg1"))).not.toThrow();
+    expect(() => hub.send(makeMsg("msg2"))).not.toThrow();
+
+    // ADR-0191: subscriber A stays attached and runs for both messages.
+    expect(aRuns).toBe(2);
 
     // Assert content + order (not just length), matching the Python/C#
     // HUB-007 corpus — a throwing subscriber must not drop, reorder, or

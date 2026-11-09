@@ -1,4 +1,3 @@
-using System.Reactive;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
@@ -35,7 +34,11 @@ public sealed class FormVM<TM> : IDisposable
     private readonly Subject<TM> _onApproved = new();
     private readonly Subject<Exception> _approveErrors = new();
     private readonly Subject<IReadOnlyDictionary<string, string>> _errorsChanged = new();
-    private readonly Subject<Unit> _canExecuteChangedTrigger = new();
+    // ApproveCommand, kept typed so the form raises CanExecuteChanged through
+    // the call-fed RaiseCanExecuteChanged: a failing observer still reaches
+    // the form's caller after every observer has run (spec/03 §3.6 rule 5,
+    // spec/20 §5.3, ADR-0191). A trigger would discard that failure.
+    private readonly RelayCommand _approveCommand;
     private readonly object _stateGate = new();
     // The form's publication scope as one resource of the shared wait-for
     // graph (spec/20 §5.5, ADR-0176). Waits on it name a publisher thread.
@@ -153,17 +156,15 @@ public sealed class FormVM<TM> : IDisposable
         _snapshot = snapshot;
         _errors = errors;
 
-        IObservable<Unit> canExecuteTrigger = _canExecuteChangedTrigger;
-
         DenyCommand = RelayCommand.Builder()
             .Task(Deny)
             .Build();
 
-        ApproveCommand = RelayCommand.Builder()
+        _approveCommand = RelayCommand.Builder()
             .Task(ApproveCommandExecute)
             .Predicate(CanApprove)
-            .Triggers(canExecuteTrigger)
             .Build();
+        ApproveCommand = _approveCommand;
     }
 
     // Approval is disabled while invalid, while strict and pristine, and while
@@ -507,7 +508,7 @@ public sealed class FormVM<TM> : IDisposable
     {
         // Best-effort terminal teardown (mirrors ComponentVMBase.Dispose): a
         // throwing OnCompleted observer must not abort the rest and leak the
-        // remaining subjects or the two commands' live trigger subscriptions.
+        // remaining subjects or the two commands.
         // Capture the first failure and run every step.
         ExceptionDispatchInfo? firstError = null;
         FirstFailure.Capture(ref firstError, _approveErrors.OnCompleted);
@@ -516,8 +517,6 @@ public sealed class FormVM<TM> : IDisposable
         FirstFailure.Capture(ref firstError, _onApproved.Dispose);
         FirstFailure.Capture(ref firstError, _errorsChanged.OnCompleted);
         FirstFailure.Capture(ref firstError, _errorsChanged.Dispose);
-        FirstFailure.Capture(ref firstError, _canExecuteChangedTrigger.OnCompleted);
-        FirstFailure.Capture(ref firstError, _canExecuteChangedTrigger.Dispose);
         if (DenyCommand is IDisposable d1)
             FirstFailure.Capture(ref firstError, d1.Dispose);
         if (ApproveCommand is IDisposable d2)
@@ -638,7 +637,7 @@ public sealed class FormVM<TM> : IDisposable
             own.AddAfterScope(RaiseCanExecuteChanged);
     }
 
-    private void RaiseCanExecuteChanged() => _canExecuteChangedTrigger.OnNext(Unit.Default);
+    private void RaiseCanExecuteChanged() => _approveCommand.RaiseCanExecuteChanged();
 
     // Approval runs single-flight (spec/20 §5.3, ADR-0143). Admission and the
     // in-flight mark are one critical section; the mark is cleared before any
@@ -832,7 +831,7 @@ public sealed class FormVM<TM> : IDisposable
             if (errorsChanged)
                 _errorsChanged.OnNext(publishedErrors!);
             if (!_disposed)
-                _canExecuteChangedTrigger.OnNext(Unit.Default);
+                RaiseCanExecuteChanged();
             if (!_disposed)
             {
                 lock (_stateGate)
@@ -856,7 +855,7 @@ public sealed class FormVM<TM> : IDisposable
         var admissionFailed = false;
         try
         {
-            _canExecuteChangedTrigger.OnNext(Unit.Default);
+            RaiseCanExecuteChanged();
         }
         catch
         {
@@ -867,7 +866,7 @@ public sealed class FormVM<TM> : IDisposable
             admissionFailed = true;
             lock (_stateGate)
                 _approvalInFlight = false;
-            try { _canExecuteChangedTrigger.OnNext(Unit.Default); }
+            try { RaiseCanExecuteChanged(); }
             catch { /* The admission failure is the one the caller sees. */ }
             throw;
         }
@@ -907,7 +906,7 @@ public sealed class FormVM<TM> : IDisposable
 
         try
         {
-            _canExecuteChangedTrigger.OnNext(Unit.Default);
+            RaiseCanExecuteChanged();
         }
         catch (Exception)
         {

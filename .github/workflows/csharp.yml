@@ -56,8 +56,14 @@ jobs:
         # --locked-mode pairs with <RestorePackagesWithLockFile> in
         # Directory.Build.props: CI fails fast if a checked-in packages.lock.json
         # is out of date with the csproj graph, so dependency changes can't
-        # silently skip the lockfile update.
-        run: dotnet restore VMx.sln --locked-mode
+        # silently skip the lockfile update. Bash runs the error message on the
+        # Windows runner too.
+        shell: bash
+        run: |
+          dotnet restore VMx.sln --locked-mode || {
+            echo "::error::A packages.lock.json differs from the project graph. Regenerate it with: dotnet restore langs/csharp/VMx.sln --force-evaluate (see docs/maintenance/2026-11-09-dependency-lock-regeneration.md)."
+            exit 1
+          }
 
       - name: Audit transitive dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -68,6 +74,11 @@ jobs:
         run: dotnet format VMx.sln --verify-no-changes
 
       - name: Build
+        # Also the public-API baseline check: PublicApiAnalyzers fails the
+        # build (RS0016/RS0017) when the public API of VMx, VMx.Notifications
+        # or VMx.Extensions.DependencyInjection differs from the project's
+        # PublicAPI.Shipped.txt + PublicAPI.Unshipped.txt (CONTRIBUTING.md,
+        # "Public API baselines").
         run: dotnet build VMx.sln -c Release --no-restore
 
       - name: Test
@@ -166,7 +177,11 @@ jobs:
           cache: true
           cache-dependency-path: langs/csharp/**/packages.lock.json
       - name: Restore
-        run: dotnet restore langs/csharp/VMx.sln --locked-mode
+        run: |
+          dotnet restore langs/csharp/VMx.sln --locked-mode || {
+            echo "::error::A packages.lock.json differs from the project graph. Regenerate it with: dotnet restore langs/csharp/VMx.sln --force-evaluate (see docs/maintenance/2026-11-09-dependency-lock-regeneration.md)."
+            exit 1
+          }
       - name: Build
         run: dotnet build langs/csharp/VMx.sln -c Release --no-restore --nologo
       - name: Pack all public projects
@@ -216,10 +231,18 @@ jobs:
             examples/csharp/avalonia/**/packages.lock.json
 
       - name: Restore NotesShowcase app
-        run: dotnet restore examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj --locked-mode
+        run: |
+          dotnet restore examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj --locked-mode || {
+            echo "::error::A packages.lock.json differs from the project graph. Regenerate it with: dotnet restore examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj --force-evaluate (see docs/maintenance/2026-11-09-dependency-lock-regeneration.md)."
+            exit 1
+          }
 
       - name: Restore NotesShowcase tests
-        run: dotnet restore examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj --locked-mode
+        run: |
+          dotnet restore examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj --locked-mode || {
+            echo "::error::A packages.lock.json differs from the project graph. Regenerate it with: dotnet restore examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj --force-evaluate (see docs/maintenance/2026-11-09-dependency-lock-regeneration.md)."
+            exit 1
+          }
 
       - name: Build NotesShowcase
         run: dotnet build examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj --no-restore

@@ -17,6 +17,9 @@ on:
       - "langs/python/src/vmx/lifecycle/_data/**"
       - "langs/swift/Sources/VMx/Resources/**"
       - "langs/python/pyproject.toml"
+      # Inputs of the dependency-lock step; docs/** covers the docs lock.
+      - "**/uv.lock"
+      - "examples/**/pyproject.toml"
       # Inputs of the version-consistency step.
       - "compatibility-matrix.md"
       - "langs/*/CHANGELOG.md"
@@ -87,8 +90,21 @@ jobs:
         # a different line-length and disagree with the format committed here).
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff format --check --config langs/python/pyproject.toml tools/
 
+      - name: Ruff lint and format check starters/python-console/
+        # The starter is its own project: `notes_app` is first-party and the
+        # published `vmx` is third-party (#1403). The tools tests below then
+        # confirm that the template folder still matches its allowlist.
+        run: |
+          uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff check --config langs/python/pyproject.toml --config "lint.isort.known-first-party = ['notes_app']" --config "lint.isort.known-third-party = ['vmx']" starters/python-console/
+          uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m ruff format --check --config langs/python/pyproject.toml starters/python-console/
+
       - name: Run tool's own unit tests
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- -m pytest tools/tests/ -v
+
+      - name: Check uv and docs locks against their regeneration commands
+        # Dependabot can write a uv lock with a newer uv, or drop pins from the
+        # docs lock (#1361). The setup-uv step above pins the uv that runs here.
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-dependency-locks.py
 
       - name: Check version consistency
         # Verifies that spec/VERSION, all flavor manifests, and compatibility-matrix.md
@@ -113,17 +129,20 @@ jobs:
       - name: Check TypeScript schema sync
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv -- tools/check-typescript-schema-sync.py
 
-      - name: mdformat check (spec/ + docs/)
+      - name: mdformat check (spec/ + docs/ + CHANGELOGs)
         # CI backstop for the pre-commit mdformat hook — contributors without
         # hooks installed could otherwise land mis-formatted markdown. Pinned
         # to the same 0.7.x + pinned plugins as .pre-commit-config.yaml.
-        # Tracked files only, matching the
-        # hook's ^(spec|docs)/.*\.md$ scope.
-        # Git pathspec `*` crosses directory separators, so these two globs
+        # Tracked files only, matching the hook's
+        # ^((spec|docs)/.*|(langs/[^/]+|packages/react)/CHANGELOG)\.md$ scope.
+        # Git pathspec `*` crosses directory separators, so the spec/ and docs/ globs
         # cover top-level AND nested files; `**/*.md` would MISS top-level
         # ones (verified: spec/**/*.md matches 41 of 64).
+        # The :(glob) pathspec keeps `*` inside one directory for the
+        # langs/<flavor>/CHANGELOG.md files.
         run: |
           git ls-files 'spec/*.md' 'docs/*.md' \
+            ':(glob)langs/*/CHANGELOG.md' 'packages/react/CHANGELOG.md' \
             | grep -Ev '^(docs/content/installation\.md|docs/content/getting-started/index\.md|docs/content/examples/rust-tui-notes-showcase\.md|docs/content/flavors/rust\.md|docs/content/primitives/(command-families|services-messages-dispatching)\.md|docs/content/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|docs/content/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md)$' \
             | xargs uv --project langs/python run \
                 --with "mdformat==0.7.22" --with "mdformat-gfm==1.0.0" --with "mdformat-tables==1.0.0" \
