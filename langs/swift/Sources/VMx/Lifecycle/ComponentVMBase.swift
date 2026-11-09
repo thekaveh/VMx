@@ -742,8 +742,12 @@ final class ChildTransitionWalker {
     }
 
     /// Whether the walk treats `child` as Disposed: its status is Disposed, or
-    /// its disposal is requested (a forwarding decorator answers for the VM
-    /// it wraps).
+    /// its disposal is committed (a forwarding decorator answers for the VM
+    /// it wraps). Swift commits a disposal under `lifecycleLock` but can apply
+    /// the queued `.disposed` status later, while another thread drains the
+    /// child's lifecycle publications. During the inline dispose cascade
+    /// neither holds, so the walk does not skip the child, and a walk call on
+    /// it fails under LIFE-021, as in the other flavors.
     private static func isDisposed(_ child: ComponentVMBase) -> Bool {
         child.status == .disposed || child._ownershipIdentity._isDisposalRequested()
     }

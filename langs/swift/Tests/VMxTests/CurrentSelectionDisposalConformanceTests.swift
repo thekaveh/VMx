@@ -58,6 +58,16 @@ private final class MemberWalkingLeaf: ComponentVMBase {
     }
 }
 
+/// A leaf whose `_onDispose()` runs a test action.
+private final class DisposeHookLeaf: ComponentVM {
+    var onCleanup: (() -> Void)?
+
+    override func _onDispose() {
+        onCleanup?()
+        super._onDispose()
+    }
+}
+
 private func isNonMember(_ error: Error) -> Bool {
     guard let membership = error as? CompositeMembershipError else { return false }
     return membership.reason == .nonMember
@@ -560,5 +570,39 @@ final class CurrentSelectionDisposalConformanceTests: XCTestCase {
         XCTAssertEqual(a.status, .disposed)
         XCTAssertEqual(b.status, .constructed)
         XCTAssertEqual(p.status, .constructed)
+    }
+
+    /// LIFE-022 (regression) — a child in its inline dispose cascade is not
+    /// `.disposed` yet, so a walk does not skip it. The walk's `destruct()`
+    /// on that child fails under LIFE-021, and the parent rolls back, as in
+    /// the other flavors (spec/02 §6, ADR-0189).
+    func testLife022WalkDoesNotSkipChildInItsDisposeCascade() throws {
+        let hub = MessageHub()
+        let leaf = DisposeHookLeaf(
+            name: "leaf", hub: hub, dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        let box = GroupVM<ComponentVMBase>(
+            name: "box", hub: hub, dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        box.add(leaf)
+        let outer = GroupVM<ComponentVMBase>(
+            name: "outer", hub: hub, dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        outer.add(box)
+        try outer.construct()
+        var caught: Error?
+        var boxStatus: ConstructionStatus?
+        leaf.onCleanup = {
+            boxStatus = box.status
+            do { try outer.destruct() } catch { caught = error }
+        }
+
+        box.dispose()
+
+        XCTAssertEqual(boxStatus, .constructed)
+        let error = try XCTUnwrap(caught as? StatusTransitionError)
+        XCTAssertEqual(error.currentStatus, .disposed)
+        XCTAssertEqual(outer.status, .constructed)
+        XCTAssertEqual(box.status, .disposed)
     }
 }
