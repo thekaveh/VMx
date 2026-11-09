@@ -182,7 +182,13 @@ hooks and both teardown paths still run exactly once. TypeScript's
 single-threaded event loop cannot form this foreign-thread wait. Swift keeps its
 documented nonthrowing disposal surface. Throwing/result-based flavors preserve
 the earliest already-propagating failure when deferred cleanup also fails;
-later cleanup failures never replace it (ADR-0126).
+later cleanup failures never replace it (ADR-0126). When the call that runs the
+deferred cleanup has no earlier failure, it reports the cleanup's first failure
+(ADR-0200). That call is the admitted hook's `construct()`, `destruct()`, or
+`reconstruct()`, which `Disposed` has superseded. Its background form reports
+the failure through the flavor's background-failure path. A C# async method
+reports it as it reports a hook failure. The cycle-broken `dispose()` returns
+normally.
 
 In C#, Python, Swift, and Rust, lifecycle publication waits and hook-lease
 waits are recorded in the flavor's single wait-for graph, with its hub,
@@ -365,6 +371,20 @@ ordered list of children, a direction, and an optional `after` callback:
   the two phases of `reconstruct()`. A call from anywhere else raises the
   flavor's usage error and starts no child.
 
+**Several failures in one flush.** A shared scheduler can run the lifecycle
+work of several calls in one synchronous flush. Each failure in that flush is
+reported exactly once (ADR-0200). The first failure to leave the flush is
+thrown to the flush's caller, and no later failure replaces it. Every other
+failure of the flush goes to the flavor's unhandled-error route after the flush
+returns. This includes a failure of work that VMx runs again after a flush
+error dropped it. A scheduler that cancels its queued work on purpose marks
+itself first, so VMx runs none of the lifecycle work that it unsubscribes. Only
+TypeScript has such a flush: `RxDispatcher.immediate()` and `NullDispatcher`
+run both channels on rxjs `queueScheduler`. Its unhandled-error route is rxjs
+`config.onUnhandledError`, and its mark is `markSchedulerCancelled`. TypeScript
+also uses that route for a failure throw that any foreground scheduler
+unsubscribes before it runs, including a separate or cancelled scheduler.
+
 The helper has no child-order option: the caller passes the children in the
 order it wants. A leaf that destructs its members in reverse passes the
 reversed list (`LIFE-019`).
@@ -420,6 +440,14 @@ teardown. Flavors whose disposal surface can report failures preserve the
 first failure in execution order, finish all mandatory teardown, and then
 propagate that original failure. Later failures do not replace it. Repeated or
 re-entrant disposal remains a no-op rather than a retry for skipped cleanup.
+
+The call that runs the terminal cleanup reports its failure. A deferred cleanup
+(§2.4) reports it from the admitted hook's lifecycle call, not from the
+`dispose()` call that deferred it (ADR-0200). Rust also defers a `dispose()`
+made on the hook's own thread, and the same rule applies: that `dispose()`
+returns `Ok(())`, and the hook's call returns the failure. C# and Python run
+that disposal inline, so their `dispose()` raises it. Swift disposal does not
+throw and reports nothing.
 
 A disposed VM MAY still receive late-arriving subscriber events from the hub if
 those events were already in flight. Subscribers MUST be tolerant of this.
