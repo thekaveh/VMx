@@ -10,6 +10,19 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A regression test for a cycle-deferred disposal failure (ADR-0200,
+  #1297). Rust already returned the failure from the hook thread's call.
+- The `notifications` Cargo feature, which `default` includes (ADR-0211,
+  #1264). It gates the notification sub-package of spec/16:
+  `NotificationHub`, `NullNotificationHub`, `NotificationHubApi`,
+  `make_confirm`, `Notification`, `NotificationType`, `NotificationReaction`,
+  `NotificationWaiter`, `NotificationVm` and `ConfirmationVm`. A dependency
+  with `default-features = false` builds the core without them. `ModalVm`
+  stays in the core.
+- The `NotificationHubApi` trait (ADR-0211, #1264). It declares
+  `post_notification`, `resolve`, `pending` and `pending_stream`.
+  `NotificationHub`, `NullNotificationHub` and `Arc<H>` for every implementer
+  `H` implement it, so `Arc<dyn NotificationHubApi>` works.
 - `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
   `ComponentVm::own_member` contract and rejects the container itself with
@@ -21,6 +34,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - `CompositeVm::with_destruct_order` and `GroupVm::with_destruct_order`, public
   raw constructors that take a `ChildOrder` (#1287, ADR-0204). `new` and
   `with_services` keep `ChildOrder::Insertion`.
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189). A refused child `select()` or `deselect()` already
+  changed nothing and returned nothing in Rust (`COMP-052`).
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
@@ -108,6 +124,24 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Breaking: `NullNotificationHub` functions are instance methods that mirror
+  `NotificationHub` (ADR-0211, #1264): `new`, `post_notification`, `post`,
+  `post_with_waiter`, `resolve` (no effect), `pending` (always empty) and
+  `pending_stream`. The type derives `Clone`, `Copy`, `Debug`, `Default`,
+  `PartialEq` and `Eq`. Migration: `NullNotificationHub::post(notification)`
+  becomes `NullNotificationHub.post_notification(notification)`,
+  `NullNotificationHub::pending_stream()` becomes
+  `NullNotificationHub.pending_stream()`, and the removed
+  `NullNotificationHub::post_message(message)` becomes
+  `NullNotificationHub.post_with_waiter(NotificationType::Notification, message)`.
+- `make_confirm` accepts any `NotificationHubApi + Clone + 'static` hub, such
+  as a `NullNotificationHub`, whose predicate completes with `true` at once
+  (ADR-0211, #1264). A `NotificationHub` argument works as before.
+- `NotificationHub` keeps no history of committed pending snapshots
+  (ADR-0211, #1275). Before, each post, resolve and dispose kept a full copy
+  of the pending list for the life of the hub, and `dispose()` did not clear
+  them. One pending notification and 100,000 post and resolve pairs kept
+  200,001 snapshots.
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default
@@ -173,8 +207,28 @@ project adheres to [Semantic Versioning](https://semver.org/).
   blocks forever. A `Send`-only token, for example one that holds a `Cell`, no
   longer compiles. Wrap its state in a `Mutex` or an atomic.
 
+### Deprecated
+
+- `NotificationHub::pending_snapshots()`, which is now always empty
+  (ADR-0211, #1275). Migration: subscribe to `pending_stream()` before the
+  posts and resolutions to observe, and collect the values. The first value
+  is the snapshot that is current at subscription.
+
 ### Fixed
 
+- A current `AsyncResourceVm` loader that ends with its own cancellation now
+  restores the saved stable state, as `cancel` does, instead of installing
+  `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The cancellation can come
+  from any source, such as a shared request that another owner cancels. A
+  superseded loader's cancellation changes nothing. The signal is
+  `Err(VmxError::Cancelled)`. `load_async` and `reload_async` return after the
+  restore is published, as they do after a loader failure.
+- `NotificationVm::is_resolved()` and `ConfirmationVm::is_resolved()` no
+  longer change from `true` to `false` when `dispose()` races a hub
+  `resolve` (ADR-0211, #1293). Both view models now read the hub under their
+  flags lock, so `dispose()` reads the hub and sets `disposed` in one critical
+  section, and `is_resolved()` returns a hub value only if no disposal
+  completed between its `disposed` check and its hub read.
 - Breaking: a `CompositeVm` or `GroupVm` from the builder or from
   `create(options)` has no children until its first `construct()` (#1255,
   ADR-0204, spec/06 §1, spec/07 §3). That construct calls the `children`
@@ -209,6 +263,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `set_model()`, `approve()`, `revert()` and the approve and deny commands,
   and `can_approve()` in strict mode. A model `Clone` can read `is_valid()`,
   `errors()`, `error_map()` and `field_error()`. The code does not change.
+- Disposing the current child of a `CompositeVm` now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `on_current_changed(None)` once. The
+  disposed child reads `is_current()` false and publishes no change for it. A
+  disposed child can no longer become current: `set_current` returns
+  `VmxError::NonChild`. The composite's own dispose cascade does not clear
+  `current`.
+- A `CompositeVm`, `GroupVm` or fixed-arity aggregate that holds a directly
+  disposed child now destructs, constructs and reconstructs (ADR-0189,
+  #1383). Container walks and the child-transition helper skip a disposed
+  child. A walk that waits for a background child that is disposed meanwhile
+  now goes on. Before, every `destruct()` failed with `VmxError::Disposed`
+  and the container stayed `Constructed`.
+- A non-null selection while a `CompositeVm` is `Destructing` now changes
+  nothing and returns `Ok(())` (ADR-0188, #1425). This covers `set_current`,
+  `select_component`, the child `select()` path, and an async call and its
+  delivery. `can_select_component` returns `false` meanwhile. `destruct()`
+  and `reconstruct()` therefore return with no current child, also when
+  `on_current_changed`, a child's destruct hook or another thread selects a
+  child.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,

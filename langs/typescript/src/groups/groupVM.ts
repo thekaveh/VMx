@@ -53,6 +53,7 @@ class GroupParent<VM extends ComponentVMBase> implements IOwningParentVM {
   get ownerParent(): IOwningParentVM | null { return this.group._parent; }
   selectChild(_vm: ComponentVMBase): void { /* no-op */ }
   deselectChild(_vm: ComponentVMBase): void { /* no-op */ }
+  childDisposed(_vm: ComponentVMBase): void { /* no selection to clear */ }
   containsChild(vm: ComponentVMBase): boolean {
     return this.group._containsIdentity(vm);
   }

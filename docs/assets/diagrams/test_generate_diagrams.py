@@ -133,14 +133,10 @@ class GenerateDiagramsTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        conformance = (REPO_ROOT / "spec" / "12-conformance.md").read_text(encoding="utf-8")
         capability_spec = (REPO_ROOT / "spec" / "14-capabilities.md").read_text(encoding="utf-8")
         notes_parity = (REPO_ROOT / "examples" / "notes-showcase-parity.md").read_text(
             encoding="utf-8"
         )
-        conformance_ids = re.findall(r"^### ([A-Z]+-\d{3})\b", conformance, re.MULTILINE)
-        theme_count = sum(1 for item in conformance_ids if item.startswith("THEME-"))
-        total_count = len(conformance_ids)
         capability_count = int(
             re.search(
                 r"lists the (\d+) capability interfaces",
@@ -157,18 +153,25 @@ class GenerateDiagramsTests(unittest.TestCase):
             facts.spec_chapter_count, len(list((REPO_ROOT / "spec").glob("[0-9][0-9]-*.md")))
         )
         self.assertEqual(
-            facts.adr_count,
-            len(list((REPO_ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md"))),
-        )
-        self.assertEqual(
             facts.fixture_count, len(list((REPO_ROOT / "spec" / "fixtures").glob("*.json")))
         )
-        self.assertEqual(facts.total_conformance_count, total_count)
-        self.assertEqual(facts.library_conformance_count, total_count - theme_count)
-        self.assertEqual(facts.theme_conformance_count, theme_count)
+        self.assertFalse(hasattr(facts, "adr_count"))
+        self.assertFalse(hasattr(facts, "library_conformance_count"))
         self.assertEqual(facts.capability_count, capability_count)
         self.assertEqual(facts.notes_feature_count, notes_feature_count)
         self.assertEqual(facts.registry_ids, tuple(item["id"] for item in registry))
+
+    def test_system_architecture_renders_no_adr_or_conformance_id_counts(self) -> None:
+        # Counts live only in spec/ADRs/README.md and spec/12-conformance.md (#1441).
+        svg = self.generator.svg_doc(self.generator.system_architecture())
+
+        self.assertIn("ADR registry", svg)
+        self.assertIsNone(
+            re.search(
+                r"\d+\s+(?:ADRs|(?:library|THEME scenario)\s+IDs)\b|\b\d+ total\b",
+                svg,
+            )
+        )
 
     def test_html_shell_uses_jetbrains_mono_and_dark_theme(self) -> None:
         html = self.generator.html_doc(

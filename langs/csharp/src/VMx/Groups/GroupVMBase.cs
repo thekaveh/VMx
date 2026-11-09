@@ -138,6 +138,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     IComponentVM? IParentCompositeVM.CurrentChild => null;
     void IParentCompositeVM.SelectChild(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
     void IParentCompositeVM.DeselectChild(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
+    void IParentCompositeVM.ChildDisposed(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
     bool IParentCompositeVM.ContainsChild(IComponentVM vm)
     {
         var identity = vm.GetOwnershipIdentity();

@@ -58,8 +58,8 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
 }
 
 open class CompositeVM<Child: ComponentVMBase>:
-    ComponentVMBase, ParentVM, TransactionalOwnershipParentVM, _Batchable, SelectableVMCollection,
-    ObservableMembershipSource {
+    ComponentVMBase, ParentVM, TransactionalOwnershipParentVM, ChildDisposalObserver, _Batchable,
+    SelectableVMCollection, ObservableMembershipSource {
     private var children: [Child] = []
     private var _current: Child?
     private let childrenFactory: (() -> [Child])?
@@ -173,8 +173,9 @@ open class CompositeVM<Child: ComponentVMBase>:
         // Constructed. C# throws on a violation; Swift keeps the existing
         // no-op rather than introducing an (uncatchable) trap — the
         // trap-vs-throw recoverability gap is tracked separately (ADR-0037).
-        // Every other refusal of spec/06 §4.3 is a silent no-op here too. The
-        // commit checks Constructed again under its locks (#1220).
+        // Every other refusal of spec/06 §4.3 is a silent no-op here too, as
+        // in every flavor (spec/05 §6, ADR-0188). The commit checks
+        // Constructed again under its locks (#1220).
         guard vm.status == .constructed,
               let child = membershipGate.withLock({ children.first(where: { $0 === vm }) })
         else { return }
@@ -184,6 +185,37 @@ open class CompositeVM<Child: ComponentVMBase>:
     public func deselectChild(_ vm: ComponentVMBase) {
         guard let child = membershipGate.withLock({ _current }), child === vm else { return }
         _ = _requestSelection(nil, expectedCurrent: child)
+    }
+
+    /// The dispose clear (spec/06 §4.3 rule 9, ADR-0189): `vm` published
+    /// Disposed from its own `dispose()`. Clears `current` only while the
+    /// child with `vm`'s ownership identity is still current, so a
+    /// forwarding decorator works. It is not a selection call, so rules 3,
+    /// 4 and 8 never refuse it. The composite's own dispose cascade skips
+    /// it: the clear does not run while disposal of the composite is
+    /// requested or deferred, or after Disposed.
+    func childDisposed(_ vm: ComponentVMBase) {
+        let identity = vm._ownershipIdentity
+        let caller = ThreadWaitGraph.currentThread
+        let disposed = _isDisposalRequested()
+        let outcome: CompositeSelectionOutcome<Child> = {
+            compositeCurrentChangeCoordinator.lock()
+            defer { compositeCurrentChangeCoordinator.unlock() }
+            return membershipGate.withLock {
+                guard !disposed, !disposeRequested, !disposeDeferred, !disposeCompleted,
+                      let current = _current, current._ownershipIdentity === identity
+                else { return .unchanged }
+                return _commitSelectionLocked(
+                    nil,
+                    selectionCall: false,
+                    expectedCurrent: current,
+                    validateOnly: false,
+                    caller: caller,
+                    disposed: disposed
+                )
+            }
+        }()
+        _publishSelection(outcome, to: nil)
     }
 
     var ownershipOwner: ComponentVMBase { self }
@@ -280,7 +312,8 @@ open class CompositeVM<Child: ComponentVMBase>:
     ///
     /// The **setter traps** (`preconditionFailure`) where `setCurrent(_:)`
     /// throws: on a value that is not an admitted member of this composite
-    /// (spec/06 §3 — `Current` must be a member), on a non-`nil` value while
+    /// or is Disposed (spec/06 §3 — `Current` must be a member; ADR-0189),
+    /// on a non-`nil` value while
     /// disposal of the composite is pending, and on any value inside the
     /// caller's own uncommitted membership transaction (spec/06 §4.3). Swift
     /// property setters cannot be `throws`, so the recoverable path is
@@ -296,20 +329,23 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// Pre-flight predicate for `setCurrent(_:)` / the `current` setter: returns
     /// `true` iff the assignment would not be refused now. `nil` is refused
     /// only inside the caller's own uncommitted membership transaction; a
-    /// child must also be an admitted member while no disposal of the
-    /// composite is pending (spec/06 §3, §4.3, ADR-0173). After Disposed an
-    /// assignment of a member or `nil` is an inert no-op, not a refusal, so
-    /// the predicate returns `true` for it.
+    /// child must also be an admitted member that is not Disposed while no
+    /// disposal of the composite is pending (spec/06 §3, §4.3, ADR-0173,
+    /// ADR-0189). After Disposed an assignment of a member or `nil` is an
+    /// inert no-op, not a refusal, so the predicate returns `true` for it.
+    /// While the composite is Destructing, a child assignment changes
+    /// nothing, so the predicate returns `false` for it (ADR-0188).
     public func canSetCurrent(_ value: Child?) -> Bool {
         switch _commitSelection(value, selectionCall: true, validateOnly: true) {
-        case .refused: return false
+        case .refused, .ignored: return false
         case .inert, .committed, .unchanged: return true
         }
     }
 
     /// Throwing, catchable alternative to the `current` property setter
     /// (VMX-026 / ADR-0053). Throws `CompositeMembershipError` where the
-    /// property setter traps: on a non-member or unadmitted child, on a child
+    /// property setter traps: on a non-member, unadmitted or Disposed child,
+    /// on a child
     /// while disposal of the composite is pending, and inside the caller's
     /// own uncommitted membership transaction (spec/06 §4.3). Another thread's
     /// membership transaction never makes it fail or wait (ADR-0173).
@@ -322,10 +358,11 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     /// Pre-flight predicate for `selectComponent(_:)`: returns `true` iff
-    /// `selectComponent(vm)` would succeed now: `vm` is an admitted member
-    /// and Constructed, no disposal of the composite is pending, and the
-    /// caller is not inside its own uncommitted membership transaction
-    /// (spec/06 §3.1, ADR-0173).
+    /// `selectComponent(vm)` would select `vm` now: `vm` is an admitted member
+    /// and Constructed, no disposal of the composite is pending, the
+    /// composite is not Destructing, and the caller is not inside its own
+    /// uncommitted membership transaction (spec/06 §3.1, ADR-0173,
+    /// ADR-0188).
     ///
     /// This is distinct from `canSetCurrent(_:)`, which has no Constructed
     /// gate (spec/06 §3.1). Swift throws catchably (ADR-0053) where C#
@@ -336,12 +373,15 @@ open class CompositeVM<Child: ComponentVMBase>:
             vm, selectionCall: true, requireConstructed: true, validateOnly: true
         ) {
         case .committed, .unchanged: return true
-        case .refused, .inert: return false
+        case .refused, .inert, .ignored: return false
         }
     }
 
     /// Selects `vm` as the current child, throwing `CompositeMembershipError`
     /// if `canSelectComponent(vm)` returns `false` (spec/06 §3.1 / COMP-008).
+    /// The one exception: while the composite is Destructing, a selection
+    /// that only spec/06 §4.3 rule 8 refuses changes nothing and throws
+    /// nothing (ADR-0188).
     ///
     /// Swift convergence of the C#/TypeScript `selectComponent` throwing path
     /// (ADR-0053): catchable throw rather than a trap, unlike the `current`
@@ -1257,7 +1297,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             validateOnly: true
         ) {
         case let .refused(refusal): return refusal
-        case .inert: return nil
+        case .inert, .ignored: return nil
         case .committed, .unchanged: break
         }
         dispatcher.scheduleForeground { [weak self] in
@@ -1337,6 +1377,13 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// §4). The destruct and detach clears still commit `nil`: they are never
     /// skipped (spec/06 §5, ADR-0173 rule 8), as in C# and Python, and the
     /// disposed composite's own notifications are no-ops.
+    ///
+    /// A Disposed child is not a member for selection (rule 2, ADR-0189).
+    /// While the composite is Destructing, a non-`nil` value that the other
+    /// rules admit is `.ignored` (rule 8, ADR-0188). The composite's status
+    /// is read under the gate, as `registerLateStartLocked` and the
+    /// construct seal do. The status is Destructing before the destruct
+    /// clear runs, so no selection commits after that clear.
     private func _commitSelectionLocked(
         _ value: Child?,
         selectionCall: Bool,
@@ -1357,9 +1404,12 @@ open class CompositeVM<Child: ComponentVMBase>:
         }
         if let expectedCurrent, _current !== expectedCurrent { return .refused(.notCurrent) }
         if selectionCall && (disposed || disposeCompleted) { return .inert }
+        // The child's lifecycle lock nests under the gate, as above.
+        if let value, value.status == .disposed { return .refused(.nonMember) }
         if value != nil && (disposeRequested || disposeDeferred) {
             return .refused(.disposing)
         }
+        if value != nil && status == .destructing { return .ignored }
         if validateOnly || _current === value { return .unchanged }
         let previous = _current
         _current = value
@@ -1496,6 +1546,9 @@ enum CompositeSelectionOutcome<Child> {
     case unchanged
     /// The composite is disposed: the call has no effect (chapter 01 §4).
     case inert
+    /// A non-`nil` selection while the composite is Destructing: the call
+    /// changes nothing and raises nothing (spec/06 §4.3 rule 8, ADR-0188).
+    case ignored
     case refused(CompositeSelectionRefusal)
 }
 

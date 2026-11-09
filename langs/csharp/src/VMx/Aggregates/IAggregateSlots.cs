@@ -33,6 +33,7 @@ internal sealed class AggregateParent(ComponentVMBase owner, IAggregateSlots slo
     public IComponentVM? CurrentChild => null;
     public void SelectChild(IComponentVM vm) { }
     public void DeselectChild(IComponentVM vm) { }
+    public void ChildDisposed(IComponentVM vm) { }
     public bool ContainsChild(IComponentVM vm)
     {
         var identity = vm.GetOwnershipIdentity();

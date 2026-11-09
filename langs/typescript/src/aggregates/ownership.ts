@@ -20,6 +20,7 @@ export class AggregateParent implements IOwningParentVM {
   get ownerParent(): IOwningParentVM | null { return this.owner._parent; }
   selectChild(_vm: ComponentVMBase): void { /* fixed aggregate has no selection */ }
   deselectChild(_vm: ComponentVMBase): void { /* fixed aggregate has no selection */ }
+  childDisposed(_vm: ComponentVMBase): void { /* fixed aggregate has no selection */ }
   containsChild(vm: ComponentVMBase): boolean {
     const identity = vm._ownershipIdentity;
     return this.slots().some((child) => child._ownershipIdentity === identity);
