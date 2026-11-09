@@ -17,6 +17,7 @@ mod conformance {
     mod command_ext;
     mod commands;
     mod component_vm;
+    mod composite_selection_disposal;
     mod composite_vm;
     mod confirmation_async_inner;
     mod container_disposal_wait_cycle;
@@ -27,6 +28,7 @@ mod conformance {
     mod dictionary_hash_lookup;
     mod dictionary_key_view_order;
     mod discriminator;
+    mod disposed_child_walks;
     mod drop_reentry;
     mod expandable;
     mod expandable_support;

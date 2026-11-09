@@ -27,6 +27,7 @@ internal sealed class ForwardingMembership(IComponentVM wrapper, IComponentVM wr
                 : parent.CurrentChild;
         public void SelectChild(IComponentVM vm) => parent.SelectChild(membership._wrapper);
         public void DeselectChild(IComponentVM vm) => parent.DeselectChild(membership._wrapper);
+        public void ChildDisposed(IComponentVM vm) => parent.ChildDisposed(membership._wrapper);
         public bool ContainsChild(IComponentVM vm) => parent.ContainsChild(membership._wrapper);
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
         {
@@ -54,6 +55,7 @@ internal sealed class ForwardingMembership(IComponentVM wrapper, IComponentVM wr
                 : parent.CurrentChild;
         public void SelectChild(IComponentVM vm) => parent.SelectChild(membership._wrapped);
         public void DeselectChild(IComponentVM vm) => parent.DeselectChild(membership._wrapped);
+        public void ChildDisposed(IComponentVM vm) => parent.ChildDisposed(membership._wrapped);
         public bool ContainsChild(IComponentVM vm) => parent.ContainsChild(membership._wrapped);
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
         {
