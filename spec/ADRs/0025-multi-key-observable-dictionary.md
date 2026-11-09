@@ -1,6 +1,6 @@
 # ADR 0025 — `ObservableDictionary` (multi-key observable dictionary)
 
-**Status:** Accepted (2026-05-27)
+**Status:** Accepted (2026-05-27; §3 rule 1 amended by ADR-0193)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context

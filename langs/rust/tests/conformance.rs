@@ -6,6 +6,7 @@ mod conformance {
     mod async_value;
     mod auto_construct_during_constructing;
     mod background_child_settle;
+    mod builder_population;
     mod builders;
     mod capabilities;
     mod child_transition_helper;
@@ -20,6 +21,7 @@ mod conformance {
     mod confirmation_async_inner;
     mod container_disposal_wait_cycle;
     mod container_hook_disposal;
+    mod container_members;
     mod derived_properties;
     mod dialogs;
     mod dictionary_key_view_order;
@@ -36,6 +38,8 @@ mod conformance {
     mod form_failure_atomic_updates;
     mod form_model_hub_publication;
     mod form_nested_update_notifications;
+    // Every case here observes the wait-for graph through a test seam.
+    #[cfg(feature = "test-seams")]
     mod form_publication_wait_cycle;
     mod form_reader_consistency;
     mod form_unscoped_delivery;
@@ -45,6 +49,8 @@ mod conformance {
     mod hierarchical;
     mod hierarchical_batch;
     mod hub_collection_changes;
+    // Every case here observes the wait-for graph through a test seam.
+    #[cfg(feature = "test-seams")]
     mod hub_membership_wait_cycle;
     mod inline_dispose_cascade;
     mod leaf_hook_disposal;

@@ -216,6 +216,16 @@ Rule 4 uses the "membership transaction in progress" error. The Swift
   membership transaction. A construct hook that selects on another thread no
   longer rolls its composite back. Swift no longer waits, which reverses the
   wait that PR #647 added.
+- In C#, Python and Swift, another thread can no longer select a transferred
+  child in the destination until the destination admits it, which is now
+  after the old parent's commit (§2.1, rule 2). In that window, a construct
+  walk of the destination that picks the moved child is a silent no-op, and
+  `Current` keeps its prior value. Before, C# and Python committed the pick,
+  and Swift committed it after a wait. A selection call in that window raises
+  the non-member error. Before, C# and Python raised the transaction error,
+  and Swift waited and then committed. Rust already admitted the child after
+  the commit, so the window is not new in Rust. TypeScript runs on one thread
+  and has no cross-thread case.
 - In C# and Python, a selection from a hook on the add owner's thread now
   raises before the add commits. It used to commit, and a failed add then
   left `Current` stale.

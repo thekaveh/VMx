@@ -987,6 +987,14 @@ TokenPagedComposition<TVM, TToken>:
 The token is opaque to VMx. `null` / `None` / `nil` is the initial token and the
 terminal "no more pages" token.
 
+A `CurrentToken` read runs no user code while it holds a pager lock. C#,
+Python, TypeScript and Swift copy or return the stored token. Rust returns a
+clone, so it requires `Token: Clone + Send + Sync + 'static` (ADR-0202). It
+copies a shared handle to the stored token under the cursor lock and runs
+`Token::clone` after it releases that lock. Clones of one stored token can run
+at once, and a `Token::clone` can read `CurrentToken` again on its own thread.
+Each load reads the token the same way.
+
 ### 6.2 Load and refresh semantics
 
 `LoadMoreCommand` calls `fetch_next(CurrentToken)`, appends returned items to the
@@ -1109,7 +1117,7 @@ list-compatible keyed-collection mutation before any downstream view logic.
 `COL-001` through `COL-067` and `AGCH-001` through `AGCH-010` in
 `12-conformance.md`. Applicable ADRs:
 ADR-0024, ADR-0096, ADR-0097, and ADR-0171 (§2), ADR-0026 and ADR-0089 (§3),
-ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085
+ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 and ADR-0202 (§6), and ADR-0085
 (shared Move semantics), and ADR-0098 (§9).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public

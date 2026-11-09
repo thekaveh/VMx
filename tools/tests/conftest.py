@@ -41,6 +41,7 @@ _preload("check-workflow-pins.py", "check_workflow_pins")
 _preload("check-python-fixture-sync.py", "check_python_fixture_sync")
 _preload("check-python-package.py", "check_python_package")
 _preload("check-release-please-state.py", "check_release_please_state")
+_preload("release-please-labels.py", "release_please_labels")
 _preload(
     "ensure-release-changelog-unreleased.py",
     "ensure_release_changelog_unreleased",

@@ -35,6 +35,9 @@ pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     membership_gate: Arc<Mutex<()>>,
     membership_transaction_active: Arc<AtomicBool>,
     membership_transaction_control: Arc<MembershipTransactionControl>,
+    /// The builder's children factory until its first construct attaches
+    /// the population (spec/07 §3, ADR-0204).
+    population: Arc<Mutex<Option<ChildrenFactory<T>>>>,
 }
 
 /// A group's construct: constructs the group and each member in order. It
@@ -44,8 +47,10 @@ fn construct_group<T: VmNode, D: Dispatcher>(
     core: &ComponentCore<D>,
     items: &ObservableList<T>,
     late: &LateStarts,
+    populate: impl FnOnce() -> VmxResult<()>,
 ) -> VmxResult<()> {
     core.transition_with(LifecycleOperation::Construct, || {
+        populate()?;
         let members = items.clone();
         core.construct_children(
             Arc::new(move || members.to_vec()),
@@ -68,9 +73,11 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         Self::with_destruct_order(name, hub, dispatcher, ChildOrder::Insertion)
     }
 
-    /// Creates an empty group whose destruct and dispose walks use
-    /// `destruct_order`. The order is fixed for the group's lifetime.
-    fn with_destruct_order(
+    /// Creates an empty group with explicit services whose destruct and
+    /// dispose walks use `destruct_order` (ADR-0161). The order is fixed for
+    /// the group's lifetime; [`Self::with_services`] uses
+    /// [`ChildOrder::Insertion`].
+    pub fn with_destruct_order(
         name: impl Into<String>,
         hub: MessageHub,
         dispatcher: D,
@@ -158,21 +165,31 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         );
         let auto_construct_on_add = Arc::new(Mutex::new(false));
         let late_starts = LateStarts::new(Arc::clone(&membership_gate));
+        let population = Arc::new(Mutex::new(None));
         // The command runs the full `reconstruct()` (spec/05 §5), so a fix to
-        // the walk lands in one place. The command table is held weakly so
-        // the stored command cannot keep its own table alive.
+        // the walk lands in one place. The command table and the ownership
+        // registration are held weakly, so the stored command can keep
+        // neither its container alive nor that container registered as its
+        // children's parent. Its predicate checks the same handles, so a
+        // command that outlives its container is disabled (#1483).
         let commands = Arc::new_cyclic(|table| {
             let table = table.clone();
             let command_core = core.clone();
             let items = items.clone();
             let ownership = ownership.handle();
+            let alive = {
+                let table = table.clone();
+                let ownership = ownership.clone();
+                move || table.strong_count() > 0 && ownership.is_alive()
+            };
+            let population = Arc::clone(&population);
             let auto_construct_on_add = Arc::clone(&auto_construct_on_add);
             let late_starts = late_starts.clone();
             let dispose_requested = Arc::clone(&dispose_requested);
             let membership_gate = Arc::clone(&membership_gate);
             let membership_transaction_active = Arc::clone(&membership_transaction_active);
             let membership_transaction_control = Arc::clone(&membership_transaction_control);
-            ComponentCommands::new(&core, move || {
+            ComponentCommands::with_liveness(&core, alive, move || {
                 let (Some(commands), Some(ownership)) = (table.upgrade(), ownership.registration())
                 else {
                     return;
@@ -189,6 +206,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                     membership_gate: Arc::clone(&membership_gate),
                     membership_transaction_active: Arc::clone(&membership_transaction_active),
                     membership_transaction_control: Arc::clone(&membership_transaction_control),
+                    population: Arc::clone(&population),
                 };
                 let _ = group.reconstruct();
             })
@@ -205,6 +223,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             membership_gate,
             membership_transaction_active,
             membership_transaction_control,
+            population,
         }
     }
 
@@ -235,6 +254,33 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         F: FnOnce() + Send + 'static,
     {
         self.core.own(cleanup);
+    }
+
+    /// Registers `member` for depth-first disposal (spec/02 §7.1, ADR-0162).
+    ///
+    /// `dispose()` disposes this group's children first and then the
+    /// registered members in registration order, all before the group
+    /// publishes `Disposed` (ADR-0179). When a construct or destruct hook of
+    /// the group runs on another thread, the group publishes `Disposed`
+    /// first and disposes its children and then its members after that hook
+    /// returns (spec/02 §2.4, LIFE-015). A member is not a child: registration
+    /// sets no parent link, adds no selection state, and does not construct
+    /// it. Clones of the group share the registrations, and the group
+    /// keeps a clone of `member` until it is disposed, so a member must not
+    /// hold the group (#750).
+    ///
+    /// A member registered once the group's disposal began is disposed now,
+    /// and its disposal result is returned. Registering a member twice keeps
+    /// one registration.
+    ///
+    /// # Errors
+    ///
+    /// [`VmxError::OwnershipCycle`] when `member` is this group (the same
+    /// identity); the error of disposing a late member.
+    pub fn own_member<N: VmNode>(&self, member: &N) -> VmxResult<()> {
+        let member = member.clone();
+        self.core
+            .own_member(member.id(), Box::new(move || member.dispose()))
     }
 
     /// Publishes a property-change message for `property_name`.
@@ -809,7 +855,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Test-only seam: runs `probe` after each construct walk's last late
     /// scan, before the group commits `Constructed`. Production code never
-    /// calls it.
+    /// calls it. Only the non-default `test-seams` feature exports it.
+    #[cfg(feature = "test-seams")]
     #[doc(hidden)]
     pub fn set_last_scan_probe_for_testing<F>(&self, probe: F)
     where
@@ -819,8 +866,36 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     }
 
     /// Constructs the group and each current child in collection order.
+    ///
+    /// The first construct of a built group calls the builder's children
+    /// factory once, inside the construct transition and after the construct
+    /// hook, and attaches its children before the construct walk (spec/07
+    /// §3). A factory result that the population refuses, such as a
+    /// duplicate child, fails this construct, which rolls back to
+    /// Destructed. It attaches nothing and keeps the factory for the next
+    /// construct. So does a factory that panics.
     pub fn construct(&self) -> VmxResult<()> {
-        construct_group(&self.core, &self.items, &self.late_starts)
+        construct_group(&self.core, &self.items, &self.late_starts, || {
+            self.populate()
+        })
+    }
+
+    /// Attaches the children factory's result once (spec/07 §3, ADR-0204).
+    /// It runs inside the admitted construct transition, so a concurrent or
+    /// re-entrant construct fails with [`VmxError::ConcurrentOperation`]
+    /// instead of running it again. The factory leaves its slot only when
+    /// the population commits.
+    fn populate(&self) -> VmxResult<()> {
+        if self.dispose_requested.load(Ordering::Acquire)
+            || self.status() == ConstructionStatus::Disposed
+        {
+            return Ok(());
+        }
+        let Some(factory) = lock(&self.population).clone() else {
+            return Ok(());
+        };
+        let population = Arc::clone(&self.population);
+        self.attach_population(factory(), false, move || *lock(&population) = None)
     }
 
     /// Destructs the group and each current child, in collection order or,
@@ -882,7 +957,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         };
         let children = self.destruct_order.arrange(snapshot);
         let commands = self.commands.clone();
-        self.core.dispose_with_cascade_then(
+        self.core.dispose_container_then(
             Box::new(move || {
                 let mut first_failure = None;
                 for item in children {
@@ -926,10 +1001,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         self.destruct()?;
         // The deferred construct holds only the parts it needs, never the
         // group's core or commands, so it cannot keep the group alive (#750).
+        // Only a Constructed group reconstructs, so its population is
+        // already attached and the construct skips it.
         let items = self.items.clone();
         let late = self.late_starts.clone();
         self.core
-            .construct_after_destruct(move |core| construct_group(core, &items, &late))
+            .construct_after_destruct(move |core| construct_group(core, &items, &late, || Ok(())))
     }
 
     /// Reports whether the group is constructed.
@@ -1198,9 +1275,12 @@ impl<T: VmNode, D: Dispatcher> GroupVmBuilder<T, D> {
         self
     }
 
-    /// Validates the configuration and creates the populated group.
+    /// Validates the configuration and creates the group.
     ///
-    /// The initial population is attached atomically without being constructed.
+    /// The built group has no children. Its first `construct()` calls the
+    /// children factory once and attaches the result atomically before the
+    /// group's construct walk (spec/07 §3, ADR-0204); a factory error such as
+    /// a duplicate child comes from that `construct()`.
     pub fn build(self) -> VmxResult<GroupVm<T, D>> {
         let name = self
             .name
@@ -1219,7 +1299,7 @@ impl<T: VmNode, D: Dispatcher> GroupVmBuilder<T, D> {
             vm.core.set_hint(Some(hint));
         }
         vm.set_auto_construct_on_add(self.auto_construct_on_add);
-        vm.attach_population(children(), false, || {})?;
+        *lock(&vm.population) = Some(children);
         Ok(vm)
     }
 }

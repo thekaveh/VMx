@@ -2683,10 +2683,13 @@ pub(crate) struct LateStarts {
     /// The scope of the walk that still scans for late members, if any.
     current: Arc<Mutex<Option<Arc<WalkScope>>>>,
     /// Test-only seam: runs after a walk's last late scan, outside the gate.
+    /// Only the `test-seams` feature compiles it.
+    #[cfg(feature = "test-seams")]
     last_scan_probe: Arc<Mutex<Option<LastScanProbe>>>,
 }
 
 /// A test-only callback a construct walk runs after its last late scan.
+#[cfg(feature = "test-seams")]
 type LastScanProbe = Arc<dyn Fn() + Send + Sync>;
 
 impl LateStarts {
@@ -2695,20 +2698,27 @@ impl LateStarts {
         Self {
             gate,
             current: Arc::default(),
+            #[cfg(feature = "test-seams")]
             last_scan_probe: Arc::default(),
         }
     }
 
     /// Test-only seam: sets the callback a construct walk runs after its last
     /// late scan, outside the membership gate. Production code never sets it.
+    #[cfg(feature = "test-seams")]
     pub(crate) fn set_last_scan_probe(&self, probe: LastScanProbe) {
         *lock(&self.last_scan_probe) = Some(probe);
     }
 
+    /// Runs the test-only probe, if one is set. Without the `test-seams`
+    /// feature it does nothing, so a default build takes no lock here.
     fn run_last_scan_probe(&self) {
-        let probe = lock(&self.last_scan_probe).clone();
-        if let Some(probe) = probe {
-            probe();
+        #[cfg(feature = "test-seams")]
+        {
+            let probe = lock(&self.last_scan_probe).clone();
+            if let Some(probe) = probe {
+                probe();
+            }
         }
     }
 
@@ -4842,6 +4852,36 @@ impl<D: Dispatcher> ComponentCore<D> {
         let mut first_failure = now.and_then(run_disposal_cascade);
         retain_first_failure(&mut first_failure, || self.finish_dispose());
         finish_with_first_failure(first_failure)
+    }
+
+    /// Disposes a container like [`Self::dispose_with_cascade_then`], with
+    /// its registered members (spec/02 §7.1) disposed after `children`, the
+    /// container's own child cascade (ADR-0179). The members are taken when
+    /// the disposal starts, so a member registered later is disposed by its
+    /// registration. The owner calls this once, behind its own disposal
+    /// guard.
+    pub(crate) fn dispose_container_then(
+        &self,
+        children: DisposalCascade,
+        terminal: impl FnOnce() + Send + 'static,
+    ) -> VmxResult<()> {
+        let members = self.begin_member_disposal().unwrap_or_default();
+        // The cascade can be stored on the core behind a running hook, so it
+        // holds the core weakly (#750).
+        let core = self.downgrade();
+        self.dispose_with_cascade_then(
+            Box::new(move || {
+                let mut first_failure = run_disposal_cascade(children);
+                for member in members {
+                    retain_first_failure(&mut first_failure, member);
+                }
+                if let Some(core) = core.upgrade() {
+                    core.finish_member_disposal();
+                }
+                first_failure
+            }),
+            terminal,
+        )
     }
 
     fn finish_dispose(&self) -> VmxResult<()> {
