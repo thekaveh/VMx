@@ -444,8 +444,11 @@ fn walks_report_invalid_factory_output_below_the_root() {
     );
     assert!(!b.is_children_materialized());
 
-    let wanted = a.clone();
-    assert!(find(&root, move |node| *node == wanted).unwrap() == Some(a.clone()));
+    let wanted = a.id();
+    let found = find(&root, move |node| node.id() == wanted)
+        .unwrap()
+        .unwrap();
+    assert!(found.downcast::<HierarchicalVm<String>>() == Some(a.clone()));
     assert_eq!(
         *calls.lock().unwrap(),
         3,
@@ -456,7 +459,7 @@ fn walks_report_invalid_factory_output_below_the_root() {
     let names = walk(&root)
         .unwrap()
         .into_iter()
-        .map(|node| node.model())
+        .map(|node| node.downcast::<HierarchicalVm<String>>().unwrap().model())
         .collect::<Vec<_>>();
     assert_eq!(names, vec!["root", "a", "b", "c", "d"]);
 }
