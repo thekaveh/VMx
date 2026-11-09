@@ -222,8 +222,20 @@ Rust and Swift checks build a recorded baseline revision and fail on a break.
 | C# | `PublicAPI.Shipped.txt` and `PublicAPI.Unshipped.txt` next to each library project; `langs/csharp/src/VMx/PublicAPI/net8.0/` lists the members that only `net8.0` declares | `dotnet build` (PublicApiAnalyzers: RS0016 for a member that the files do not list, RS0017 for a listed member that is gone) | Add new members to `PublicAPI.Unshipped.txt` with the RS0016 code fix, or with `dotnet format analyzers VMx.sln --diagnostics RS0016 --severity warn` (run it again until the count stops changing). Delete or edit the line of a removed or changed member. |
 | Python | `langs/python/api/vmx.api.txt` | `tools/check-python-api.py` on Python 3.12 | In `langs/python`: `uv run --python 3.12 python ../../tools/check-python-api.py --update` |
 | TypeScript | `langs/typescript/api/vmx.api.txt` | `tools/check-typescript-api.py` after `npm run build` | In `langs/typescript`: `npm run build && python3 ../../tools/check-typescript-api.py --update` |
-| Rust | `langs/rust/api/baseline-revision` | `cargo semver-checks` 0.51.0 on Rust 1.99.1; in a pull request, `tools/check-rust-api-baseline.py` first checks that the baseline revision declares the same `Cargo.toml` version as the pull request's base | Bump the `Cargo.toml` version as SemVer requires; the tool then accepts the break. Keep the baseline revision in that pull request. |
-| Swift | `langs/swift/api/baseline-revision` and `langs/swift/api/breakage-allowlist.txt` | `swift package diagnose-api-breaking-changes` on the root package's `VMx` product | Add each reported `API breakage: ...` line to the allowlist. |
+| Rust | `langs/rust/api/baseline-revision` | `cargo semver-checks` 0.51.0 on Rust 1.99.1; in a pull request, `tools/check-rust-api-baseline.py` first checks that the baseline revision declares the same `Cargo.toml` version as the pull request's base | Bump the `Cargo.toml` version as SemVer requires; the tool then accepts the break. Keep the baseline revision in that pull request. When the version is already bumped and not yet released, see the paragraph below the table. |
+| Swift | `langs/swift/api/baseline-revision` and `langs/swift/api/breakage-allowlist.txt` | `swift package diagnose-api-breaking-changes` on the root package's `VMx` product | Add each reported `API breakage: ...` line to the allowlist. A break that the allowlist does not suppress follows the paragraph below the table. |
+
+The Rust and Swift baselines exist to catch unintended breaks. An intended
+break that the flavor's `CHANGELOG.md` records under an unreleased version is
+accepted by moving the baseline revision forward: set
+`langs/rust/api/baseline-revision` or `langs/swift/api/baseline-revision` to
+the `develop` commit that merged the break, and empty the Swift allowlist.
+Do this in the next pull request when the check cannot accept the break in
+its own pull request. Two cases need it: the `vmx-rs` version is already
+bumped past the last release, so a further break cannot bump it again; or
+`diagnose-api-breaking-changes` reports a break that the allowlist does not
+suppress, such as a generic-signature change. Move every stale Rust or Swift
+baseline in the same pull request.
 
 Commit the updated baseline in the same PR as the API change, so that the
 review shows it. A removed or changed public member is a breaking change: it
