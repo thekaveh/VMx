@@ -153,7 +153,7 @@ after each granular event that changed the count:
 ```rust
 let list = ObservableList::new(owner_id);
 let added = list.item_added().subscribe(|event| render_row(&event.item, event.index));
-list.push(first);
+list.push(first.clone());
 assert!(list.remove(&first)); // first equal item; sends ItemRemoved
 ```
 
