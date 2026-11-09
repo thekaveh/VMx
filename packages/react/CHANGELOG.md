@@ -11,6 +11,12 @@ First npm release since 0.1.1. The `react-v0.1.2` tag never reached npm, so
 this package also contains the changes in the 0.1.2 section of
 `packages/react/CHANGELOG.md`.
 
+### Added
+
+- `useCommand(command, { onError })` calls `onError` with each failure that
+  the command sends on its `errors` channel while the component is mounted
+  (#1394). The new `UseCommandOptions` type describes the option.
+
 ### Changed
 
 - The `@thekaveh/vmx` peer range is now `^3.30.0`; it was `^3.24.1` (#1357).
@@ -30,6 +36,16 @@ this package also contains the changes in the 0.1.2 section of
   or `ConfirmationDecoratorCommand` now renders as disabled. The adapter code
   is unchanged; this needs the next `@thekaveh/vmx` release, where those
   wrappers notify on `dispose()` (#771).
+- `useVm` re-renders a component bound to a forwarding decorator (#1350).
+  The wrapped VM sends every hub message, so the hook now also matches the
+  senders that the decorator's public `wrappedBase` chain reaches, including
+  nested decorators. A message from another VM on the same hub still causes
+  no re-render. `ForwardingComponentVM` works with every `@thekaveh/vmx` in
+  the peer range; `ForwardingCompositeVM` needs the next `@thekaveh/vmx`
+  release, which adds its `wrappedBase` (ADR-0213).
+- A failed `AsyncRelayCommand` bound with `useCommand` no longer has to fail
+  silently. Before, the hook had no way to observe the command's `errors`
+  channel, so a rejected fire-and-forget task was lost (#1394).
 
 ## [0.1.2] - 2026-10-21
 

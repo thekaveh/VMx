@@ -134,13 +134,13 @@ A walk can reach a node whose lazy children factory returns invalid output
 hydration error to the caller as the flavor's ordinary recoverable error. They
 never stop the process (ADR-0170):
 
-| Flavor     | Failure surface                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------ |
-| C#         | The `Children` error (`InvalidOperationException`) propagates when the lazy sequence reaches the node. |
-| Python     | The `children` error (`ValueError`) propagates when the generator reaches the node.                    |
-| TypeScript | The `children` error (`Error`) propagates when the generator reaches the node.                         |
-| Swift      | `walk`, `walkExpanded`, and `find` throw `HierarchyError.invalidFactoryOutput`.                        |
-| Rust       | `walk`, `walk_expanded`, and `find` return the `try_children` error (`VmxError::InvalidArgument`).     |
+| Flavor     | Failure surface                                                                                                            |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| C#         | The `Children` error (`InvalidOperationException`) propagates when the lazy sequence reaches the node.                     |
+| Python     | The `children` error (`ValueError`; `TypeError` for a non-iterable result) propagates when the generator reaches the node. |
+| TypeScript | The `children` error (`Error`) propagates when the generator reaches the node.                                             |
+| Swift      | `walk`, `walkExpanded`, and `find` throw `HierarchyError.invalidFactoryOutput`.                                            |
+| Rust       | `walk`, `walk_expanded`, and `find` return the `try_children` error (`VmxError::InvalidArgument`).                         |
 
 Swift and Rust read the fallible `tryChildren()` / `try_children()` accessor
 for this. Rust reads it through `TreeNode::try_children_nodes`, which returns
@@ -150,14 +150,22 @@ descends into that node. `find` therefore returns a match that it reaches
 before the failing node, and `walk_expanded` never reads the children of a
 collapsed node.
 
+No walk catches an error from a children read. Python reads children through
+`iter(node)`. A `TypeError` from `iter(node)` propagates, as in C# and
+TypeScript, and a node whose `iter()` fails is never walked through its
+`components()` slots instead (ADR-0212). `UTIL-004` pins the failure rule.
+
 ## 7. Conformance
 
-`UTIL-001` through `UTIL-003` and `EXP-001` through `EXP-005` in
+`UTIL-001` through `UTIL-004` and `EXP-001` through `EXP-005` in
 `12-conformance.md` cover:
 
 - `walk` yields root, then every descendant, in DFS pre-order
 - `walk` skips empty aggregate slots
 - `find` returns the first matching node and short-circuits
+- `walk`, `walk_expanded` and `find` report invalid factory output as a
+  recoverable error, assign no parent, retry the factory on the next walk, and
+  `find` returns a match that it reaches before the failing node (§6.1)
 - `walk_expanded` walks the tree but stops descent at every node whose
   `IExpandable.IsExpanded` is `false` (collapsed nodes contribute themselves
   but none of their descendants)

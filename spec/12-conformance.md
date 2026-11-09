@@ -1269,6 +1269,24 @@ root: CompositeVM
 **Then** the result is `b1`
 **And** the predicate was invoked at most for `root`, `a`, `b`, `b1` — never for `b2`
 
+### UTIL-004 — Tree walks report invalid factory output as a recoverable error
+
+**Given** a hierarchy root with a materialized child `A` and a lazy child `B`
+**And** `B`'s children factory returns one detached child `C` twice
+**When** `walk(root)`, `walk_expanded(root)` and `find(root, _ => false)` each
+run to completion
+**Then** each raises the flavor's recoverable hydration error (C#
+`InvalidOperationException`, Python `ValueError`, TypeScript `Error`, Swift
+`HierarchyError.invalidFactoryOutput`, Rust `Err(VmxError::InvalidArgument)`)
+and never stops the process
+**And** `C` has no parent and `B` keeps no children cache
+**And** each walk invokes `B`'s factory again, so the three walks invoke it
+three times
+**When** `find(root, n => n == A)` runs
+**Then** it returns `A` and does not invoke `B`'s factory
+**When** the factory then returns a valid snapshot
+**Then** `walk(root)` yields `root`, `A`, `B` and the new children
+
 ______________________________________________________________________
 
 ## 15. Capability micro-interfaces (`CAP-NNN`) — spec v2.0 / v2.1
@@ -3950,6 +3968,64 @@ recorder holds no `Children` change from `a`
 **Then** the call refuses and the root's parked count stays zero
 
 > Spec: `18-hierarchical-vm.md §7.1`, ADR-0190.
+
+### HIER-042 — An attached candidate's materialized subtree joins the batch index
+
+**Given** an empty hierarchy root, a detached node `p` with key `"p"` and root
+parent key, and its materialized child `c` with key `"c"`
+**And** a detached node `x` with key `"x"` and parent key `"c"`
+**When** the batch `[p, x]` is attached
+**Then** `Added` is `[p, x]`, `x` is a child of `c`, and the result has no
+rejection and no orphan
+**Given** a detached node `q` whose materialized child `d` has key `"d"`
+**And** `q`'s parent key is `"d"`
+**When** `q` is attached with `onMissingParent = park`
+**Then** `q` is rejected as `Cycle`, is not an orphan, and is not parked
+**And** reading the subtree keys invokes no children factory
+
+### HIER-043 — A descendant key collision rejects the candidate
+
+**Given** a hierarchy root with a materialized child whose key is `"c"`
+**And** a detached node `p` whose materialized child has key `"c"`
+**When** the batch `[p]` is attached
+**Then** `p` is in `Duplicates` with `DuplicateExistingKey`, is not attached,
+and keeps its child
+**Given** an empty hierarchy root, a detached node `p` whose materialized child
+`c` has key `"c"`, and a detached node `c2` with key `"c"` and parent key `"p"`
+**When** the batch `[p, c2]` is attached
+**Then** `p` is added and `c2` is in `Duplicates` with `DuplicateBatchKey`
+**And** `p` has the one child `c`
+**When** the batch `[c2, p]` is attached to a fresh root and fresh nodes
+**Then** `c2` stays unresolved as an orphan, and `p` is in `Duplicates` with
+`DuplicateBatchKey`
+**Given** an empty hierarchy root and a detached node `p` whose materialized
+child `c` has key `"c"`
+**When** the batch `[p, c]` is attached, and the batch `[c, p]` is attached to
+a fresh root and fresh nodes
+**Then** in both batches `p` is added, `c` is rejected as `AlreadyAttached` and
+stays a child of `p`, and `Duplicates` is empty
+**Given** an empty hierarchy root and a detached node `p` whose two materialized
+children both have key `"d"`
+**When** the batch `[p]` is attached
+**Then** `p` is in `Duplicates` with `DuplicateBatchKey`, is not attached, and
+keeps both children
+**Given** an empty hierarchy root and a node `p` parked with a missing parent
+**And** a child `b`, whose `keyOf` fails, then added to `p`
+**When** an empty batch is attached
+**Then** `p` is rejected as `SelectorFailed`, is not in `Duplicates`, and the
+parked count stays 1
+
+### HIER-044 — Factory children that `AddChild` materializes do not join the index
+
+**Given** a hierarchy root with a materialized child `L` whose children are not
+yet materialized
+**And** `L`'s children factory returns one child `f` with key `"f"`
+**When** the batch `[y, z]` is attached with `onMissingParent = park`, where
+`y` has parent key `"L"` and `z` has parent key `"f"`
+**Then** `y` is added below `L`, after `f`
+**And** `z` is an orphan with `MissingParent` and the parked count is 1
+**When** an empty batch is then attached
+**Then** `z` is added below `f` and the parked count is 0
 
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 

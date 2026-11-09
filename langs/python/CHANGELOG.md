@@ -14,6 +14,11 @@ below for them.
 
 ### Added
 
+- `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
+  and `find` report invalid children-factory output as a recoverable error,
+  assign no parent and retry the factory on the next walk; `find` returns a
+  match that it reaches before the failing node. Python follows the rule
+  after the `TypeError` fix below.
 - `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
   tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
   #1311). A failing subscriber does not stop the delivery to the other
@@ -113,6 +118,25 @@ below for them.
 
 ### Fixed
 
+- `attach_many` now indexes the materialized subtree of each attached item
+  (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
+  can name any node of that subtree as its parent; before, it became a
+  `MISSING_PARENT` orphan. A descendant key that is already in the tree, or
+  that an earlier item in the batch claimed, rejects the item as
+  `DUPLICATE_EXISTING_KEY` or `DUPLICATE_BATCH_KEY`, so a batch no longer adds
+  a second node for a key. An item that is a node of an earlier item's subtree
+  is rejected as `ALREADY_ATTACHED` in either batch order, never as a
+  duplicate, so `duplicates` never holds a live node. A parent key that names
+  the item's own descendant is now a `CYCLE` rejection instead of a parked
+  orphan. Children that `add_child` materializes from a lazy factory join the
+  index in the next batch.
+- `walk`, `walk_expanded` and `find` no longer catch a `TypeError` from
+  `iter(node)` (#1434, ADR-0212, spec/13 §6.1). A `HierarchicalVM` whose
+  children factory returned `None` or raised `TypeError` became a leaf, and the
+  caller got no error. The error now propagates, as from a direct `children`
+  read, and a later walk calls the factory again. A custom node whose
+  `__iter__` raises `TypeError` is no longer walked through its `components()`
+  slots instead.
 - A failing subscriber no longer stops the delivery to the other subscribers
   or detaches a subscription (ADR-0191, spec/03 §3.6, #1304, #1311). This
   covers the hub helpers, `DerivedProperty` value changes,

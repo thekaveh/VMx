@@ -42,18 +42,24 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
             TVM item,
             TKey key,
             BatchParentKey<TKey> parentKey,
-            bool retainIfMissing)
+            bool retainIfMissing,
+            IReadOnlyList<KeyValuePair<TKey, TVM>> subtree)
         {
             Item = item;
             Key = key;
             ParentKey = parentKey;
             RetainIfMissing = retainIfMissing;
+            Subtree = subtree;
         }
 
         public TVM Item { get; }
         public TKey Key { get; }
         public BatchParentKey<TKey> ParentKey { get; }
         public bool RetainIfMissing { get; }
+
+        // Keys and nodes of the candidate's materialized descendants, in
+        // pre-order (spec/18 §6, ADR-0212). They join the index on attach.
+        public IReadOnlyList<KeyValuePair<TKey, TVM>> Subtree { get; }
     }
 
     // ── Constructor ─────────────────────────────────────────────────────────
@@ -357,6 +363,8 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
         var candidates = new List<BatchCandidate<TKey>>();
         var candidateKeys = new HashSet<TKey>();
+        // The descendant claims of accepted candidates, by key (ADR-0212).
+        var descendantClaims = new Dictionary<TKey, TVM>();
         foreach (var entry in parked.Select(item => (Item: item, WasParked: true))
                      .Concat(incoming.Select(item => (Item: item, WasParked: false))))
         {
@@ -386,6 +394,16 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                     BatchAttachRejectionReason.DuplicateExistingKey));
                 continue;
             }
+            if (descendantClaims.TryGetValue(key, out var claimHolder)
+                && ReferenceEquals(claimHolder, entry.Item))
+            {
+                // The item is a descendant of an earlier candidate, so it is
+                // attached outside the indexed tree (spec/18 §6, ADR-0212).
+                rejections.Add(new BatchAttachRejection<TVM>(
+                    entry.Item,
+                    BatchAttachRejectionReason.AlreadyAttached));
+                continue;
+            }
             if (candidateKeys.Contains(key))
             {
                 duplicates.Add(entry.Item);
@@ -402,13 +420,65 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                 continue;
             }
 
-            candidateKeys.Add(key);
+            // The candidate also claims every key of its materialized subtree
+            // (spec/18 §6, ADR-0212); the first claim of a key stays
+            // authoritative.
+            var subtree = new List<KeyValuePair<TKey, TVM>>();
+            var claimed = new HashSet<TKey> { key };
+            BatchAttachRejectionReason? subtreeRejection = null;
+            string? subtreeDetail = null;
+            foreach (var descendant in entry.Item.MaterializedSubtree().Skip(1))
+            {
+                TKey descendantKey;
+                try
+                {
+                    descendantKey = keyOf(descendant);
+                    if (descendantKey is null) throw new InvalidOperationException("keyOf returned null.");
+                }
+                catch (Exception exception)
+                {
+                    subtreeRejection = BatchAttachRejectionReason.SelectorFailed;
+                    subtreeDetail = exception.Message;
+                    break;
+                }
+                if (existing.ContainsKey(descendantKey))
+                {
+                    subtreeRejection = BatchAttachRejectionReason.DuplicateExistingKey;
+                    break;
+                }
+                if (candidateKeys.Contains(descendantKey) || !claimed.Add(descendantKey))
+                {
+                    subtreeRejection = BatchAttachRejectionReason.DuplicateBatchKey;
+                    break;
+                }
+                subtree.Add(new KeyValuePair<TKey, TVM>(descendantKey, descendant));
+            }
+            if (subtreeRejection == BatchAttachRejectionReason.SelectorFailed)
+            {
+                if (entry.WasParked) root._parkedAttachItems.Add(entry.Item);
+                rejections.Add(new BatchAttachRejection<TVM>(
+                    entry.Item,
+                    BatchAttachRejectionReason.SelectorFailed,
+                    subtreeDetail));
+                continue;
+            }
+            if (subtreeRejection is { } duplicateReason)
+            {
+                duplicates.Add(entry.Item);
+                rejections.Add(new BatchAttachRejection<TVM>(entry.Item, duplicateReason));
+                continue;
+            }
+
+            candidateKeys.UnionWith(claimed);
+            foreach (var claim in subtree)
+                descendantClaims.Add(claim.Key, claim.Value);
 
             candidates.Add(new BatchCandidate<TKey>(
                 entry.Item,
                 key,
                 parentKey,
-                entry.WasParked || onMissingParent == MissingParentPolicy.Park));
+                entry.WasParked || onMissingParent == MissingParentPolicy.Park,
+                subtree));
         }
 
         var unresolved = candidates;
@@ -444,6 +514,8 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
                 }
 
                 existing.Add(candidate.Key, candidate.Item);
+                foreach (var claim in candidate.Subtree)
+                    existing.Add(claim.Key, claim.Value);
                 added.Add(candidate.Item);
                 progressed = true;
             }
@@ -451,7 +523,15 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
             if (!progressed) break;
         }
 
-        var unresolvedByKey = unresolved.ToDictionary(candidate => candidate.Key);
+        // A subtree key maps to the candidate that claims it, so a parent key
+        // that names the candidate's own descendant is a cycle (ADR-0212).
+        var unresolvedByKey = new Dictionary<TKey, BatchCandidate<TKey>>();
+        foreach (var candidate in unresolved)
+        {
+            unresolvedByKey.Add(candidate.Key, candidate);
+            foreach (var claim in candidate.Subtree)
+                unresolvedByKey.Add(claim.Key, candidate);
+        }
         foreach (var candidate in unresolved)
         {
             var isCycle = BatchParentChainCycles(candidate, unresolvedByKey);

@@ -150,6 +150,12 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `NotificationHub`, `NullNotificationHub` and `Arc<H>` for every implementer
   `H` implement it, so `Arc<dyn NotificationHubApi>` works.
 
+- `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
+  and `find` report invalid children-factory output as a recoverable error,
+  assign no parent and retry the factory on the next walk; `find` returns a
+  match that it reaches before the failing node. A new test puts the failing
+  node below the root.
+
 - `COL-070` conformance tests (#1316, ADR-0193). An edit to a `keys1()` or
   `keys2()` snapshot does not change the dictionary. Rust already behaved this
   way.
@@ -649,6 +655,19 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   flags lock, so `dispose()` reads the hub and sets `disposed` in one critical
   section, and `is_resolved()` returns a hub value only if no disposal
   completed between its `disposed` check and its hub read.
+
+- `attach_many` now indexes the materialized subtree of each attached item
+  (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
+  can name any node of that subtree as its parent; before, it became a
+  `MissingParent` orphan. A descendant key that is already in the tree, or
+  that an earlier item in the batch claimed, rejects the item as
+  `DuplicateExistingKey` or `DuplicateBatchKey`, so a batch no longer adds a
+  second node for a key. An item that is a node of an earlier item's subtree
+  is rejected as `AlreadyAttached` in either batch order, never as a
+  duplicate, so `duplicates` never holds a live node. A parent key that names
+  the item's own descendant is now a `Cycle` rejection instead of a parked
+  orphan. Children that `add_child` materializes from a lazy factory join the
+  index in the next batch.
 
 - Every command of a disposing `NotificationVm` or `ConfirmationVm` now
   reports `can_execute()` false from the start of `dispose()` (ADR-0196,

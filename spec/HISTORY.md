@@ -843,6 +843,18 @@ library IDs plus 5 scenario IDs.
 
 See ADR-0191, ADR-0192, chapter 03 §3.4 and §3.6, and chapter 21 §9.5.
 
+v3.30.0 also makes `attachMany` index the materialized subtree of each attached
+item. A later item in the same batch can name any node of that subtree as its
+parent. A descendant key that is in the tree, or that an earlier item claimed,
+rejects the item as a duplicate. A parent key that names the item's own
+descendant is a `Cycle`. Children that `AddChild` materializes from a lazy
+factory join the index in the next batch (`HIER-042`..`HIER-044`). Python tree
+walks stop catching a `TypeError` from `iter(node)`, and `UTIL-004` pins the
+chapter 13 §6.1 walk failure rule. The catalog now contains 476 library IDs
+plus 5 scenario IDs.
+
+See ADR-0212, chapter 13 §6.1, and chapter 18 §6.
+
 v3.30.0 also lets `FormVM` callbacks run with no form lock held. The equality
 comparisons, the validators, the snapshotter, and `resetOnApproved` run with
 no lock, so another thread's reads and calls never wait for them. A
@@ -859,7 +871,7 @@ outermost update sends no later notification, releases each nested approval
 whose persister has not started, and propagates the failure after its
 replays (`FORM-044`). A Rust validator registration from a form callback is a
 nested call. An update runs its dirty comparisons only in strict mode
-(`FORM-045`). The catalog now contains 474 library IDs plus 5 scenario IDs.
+(`FORM-045`). The catalog now contains 478 library IDs plus 5 scenario IDs.
 
 See ADR-0216 and chapter 20 §5.2, §5.4, and §5.5.
 
