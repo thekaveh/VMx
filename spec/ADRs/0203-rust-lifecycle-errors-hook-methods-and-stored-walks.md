@@ -36,7 +36,7 @@ Rust 0.36.0 is not released, so a breaking change can ship in it.
 Decided under the owner's 2026-11-07 delegation, with the cross-flavor-uniform
 and simplest option in each case.
 
-### 2.1 One lifecycle transition error
+### 2.1. One lifecycle transition error
 
 - Every illegal Rust `construct`, `destruct` or `reconstruct` returns
   `VmxError::InvalidLifecycleTransition { from, operation }`, the variant that
@@ -57,7 +57,7 @@ and simplest option in each case.
   a `VmxError::Disposed` from a replaced slot's disposal as success therefore
   keeps its behavior.
 
-### 2.2 Hook methods on the three types
+### 2.2. Hook methods on the three types
 
 `HierarchicalVm`, `ModeledCompositeVm` and `ForwardingCompositeVm` gain public
 `on_construct`, `on_destruct` and `on_dispose` methods with the `ComponentVm`
@@ -67,7 +67,7 @@ closure signature. Each replaces the hook of the wrapped `ComponentVm` or
 its children, and a failing hook constructs no child. The modeled composite's
 hooks also run in both phases of `reconstruct()`.
 
-### 2.3 Stored member walks and background walks
+### 2.3. Stored member walks and background walks
 
 - `ComponentVm::on_construct_children(walk)` and `on_destruct_children(walk)`
   store a walk closure, as the hook methods store a hook. Every `construct()`,
@@ -80,7 +80,9 @@ hooks also run in both phases of `reconstruct()`.
   background dispatcher inside the same hook admission. A walk that still
   waits for a member hands the terminal publication to that member's settle,
   and a failed walk rolls the component back and reports the failure on
-  `background_errors()`.
+  `background_errors()`. The walk's own terminal or rollback status publishes
+  on the foreground dispatcher (chapter 11 §3). This also holds for a member
+  failure that arrives while the walk still runs.
 - A reconstruct stays one synchronous operation on the calling thread for every
   component (chapter 11 §4). With a stored walk, it runs the destruct walk, then
   the construct walk once the destruct reaches `Destructed`, as
@@ -94,10 +96,13 @@ hooks also run in both phases of `reconstruct()`.
 ## 3. Consequences
 
 - Breaking Rust changes, recorded in the Rust CHANGELOG under 0.36.0: the
-  lifecycle error variant for the two cases, the removal of
-  `VmxError::ConcurrentOperation`, and the `Send + 'static` bound on the walk
-  closures of `construct_with_children` and `destruct_with_children`. A walk
-  that borrowed its members now captures clones of them.
+  lifecycle error variant for the two cases and the removal of
+  `VmxError::ConcurrentOperation`.
+- The `Send + 'static` bound on the walk closures of `construct_with_children`
+  and `destruct_with_children` is not a break against a release. Those methods
+  first ship in the unreleased 0.36.0 (ADR-0162), so the CHANGELOG lists the
+  bound under Added. A walk that borrowed its members now captures clones of
+  them.
 - Chapter 02 §2.1, §2.2, §6.1 and §7.2, chapter 11 §4 and the `LIFE-021` text
   no longer state a Rust gap. The Rust capability-parity record no longer lists
   the forwarding-composite hook gap.
