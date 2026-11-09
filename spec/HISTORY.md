@@ -706,3 +706,18 @@ before a persister starts prevents the persister call (`FORM-041`,
 `FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
 
 See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also defines what a failing subscriber does on a library channel. A
+delivery reaches every attached subscriber once, even when an earlier one
+fails, and no failure detaches a subscriber or the library's own source
+subscription. This covers the hub and its helpers, `DerivedProperty`,
+`SearchableState`, command `CanExecuteChanged` and triggers, and the local
+collection and container channels. A stream-fed failure never reaches the
+upstream publisher and follows the flavor's `HUB-007` route. A call-fed failure
+is rethrown in C# and Python after delivery. A failing `SearchableState`
+predicate keeps the last snapshot (`HUB-007`, `DPROP-013`, `SRCH-009`,
+`CMD-021`, `COL-069`). The subscribers of one `AggregateChangeStream` envelope
+now receive it in subscription order (`AGCH-011`). The catalog now contains 456
+library IDs plus 5 scenario IDs.
+
+See ADR-0191, ADR-0192, chapter 03 §3.4 and §3.6, and chapter 21 §9.5.

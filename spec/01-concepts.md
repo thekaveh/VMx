@@ -171,6 +171,12 @@ Swift local subscribers cannot fail, and Rust containers have no separate local
 event (ADR-0171). Chapter 21 §2.5 applies the same rule to the hub-publishing
 collections.
 
+The failing subscriber does not stop the delivery to the other local
+subscribers. Each local subscriber receives the change once, and each
+completion observer completes at disposal. No subscriber is detached, and C#
+and Python rethrow the first failure only after the hub send (chapter 03 §3.6,
+ADR-0191).
+
 ## 2. Dependency philosophy
 
 Every VM receives two cross-cutting services:

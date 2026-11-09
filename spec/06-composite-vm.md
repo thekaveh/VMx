@@ -562,6 +562,18 @@ is not forwarded to `Filtered`. Term changes and explicit `search()` remain
 operational until helper disposal. Swift encodes the signal with
 `Failure == Never`; Rust's message-hub signal likewise has no error channel.
 
+**Failing predicate or subscriber (spec v3.30, ADR-0191).** A predicate or
+item supplier that fails during a recompute stops that recompute. `Filtered`
+keeps its last snapshot and emits nothing. The failure is stream-fed under
+chapter 03 §3.6, even for a zero debounce or a `search()` call, so it never
+reaches the caller. The recompute subscription stays attached, and the next
+term change, source signal or `search()` recomputes as usual. A failing
+`Filtered` subscriber also follows chapter 03 §3.6. A failure in the
+constructor's first filter still reaches the constructor's caller. Swift
+predicates cannot fail. Rust evaluates the predicate when the caller pulls
+`filtered()` or calls `search()`, so a panic reaches that caller, and a later
+pull with a valid term returns the filtered items.
+
 The helper owns only the subscription it creates. It MUST NOT dispose the source
 signal, item collection, supplied items, predicate, or an upstream aggregate.
 Disposal cancels the owned subscription exactly once, completes the
@@ -617,7 +629,7 @@ forces a recompute when external score state changes.
 modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, and
 the builder hooks `COMP-025` and `COMP-026` (see below), plus filtered/scored
 view IDs `COMP-028` through `COMP-037`, plus source-reactivity IDs `SRCH-001`
-through `SRCH-007`, in
+through `SRCH-007` and the failure ID `SRCH-009`, in
 `12-conformance.md` cover:
 
 - collection-change events on add/remove
