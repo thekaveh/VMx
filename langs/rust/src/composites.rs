@@ -486,6 +486,9 @@ pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     membership_transaction_control: Arc<MembershipTransactionControl>,
     /// The shared selection state (spec/06 §4.3).
     selection: CompositeSelection<T>,
+    /// The builder's children factory until its first construct attaches
+    /// the population (spec/06 §1, ADR-0204).
+    population: Arc<Mutex<Option<ChildrenFactory<T>>>>,
 }
 
 impl<T: VmNode> CompositeVm<T, NullDispatcher> {
@@ -501,9 +504,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         Self::with_destruct_order(name, hub, dispatcher, ChildOrder::Insertion)
     }
 
-    /// Creates an empty composite whose destruct and dispose walks use
-    /// `destruct_order`. The order is fixed for the composite's lifetime.
-    fn with_destruct_order(
+    /// Creates an empty composite with explicit services whose destruct and
+    /// dispose walks use `destruct_order` (ADR-0161). The order is fixed for
+    /// the composite's lifetime; [`Self::with_services`] uses
+    /// [`ChildOrder::Insertion`].
+    pub fn with_destruct_order(
         name: impl Into<String>,
         hub: MessageHub,
         dispatcher: D,
@@ -660,14 +665,24 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         );
         let auto_construct_on_add = Arc::new(Mutex::new(false));
         let late_starts = LateStarts::new(Arc::clone(&membership_gate));
+        let population = Arc::new(Mutex::new(None));
         // The command runs the full `reconstruct()` (spec/05 §5), so a fix to
-        // the walk lands in one place. The command table is held weakly so
-        // the stored command cannot keep its own table alive.
+        // the walk lands in one place. The command table and the ownership
+        // registration are held weakly, so the stored command can keep
+        // neither its container alive nor that container registered as its
+        // children's parent. Its predicate checks the same handles, so a
+        // command that outlives its container is disabled (#1483).
         let commands = Arc::new_cyclic(|table| {
             let table = table.clone();
             let command_core = core.clone();
             let items = items.clone();
             let ownership = ownership.handle();
+            let alive = {
+                let table = table.clone();
+                let ownership = ownership.clone();
+                move || table.strong_count() > 0 && ownership.is_alive()
+            };
+            let population = Arc::clone(&population);
             let current = Arc::clone(&current);
             let auto_construct_on_add = Arc::clone(&auto_construct_on_add);
             let late_starts = late_starts.clone();
@@ -679,7 +694,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             let membership_transaction_active = Arc::clone(&membership_transaction_active);
             let membership_transaction_control = Arc::clone(&membership_transaction_control);
             let selection = selection.clone();
-            ComponentCommands::new(&core, move || {
+            ComponentCommands::with_liveness(&core, alive, move || {
                 let (Some(commands), Some(ownership)) = (table.upgrade(), ownership.registration())
                 else {
                     return;
@@ -701,6 +716,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     membership_transaction_active: Arc::clone(&membership_transaction_active),
                     membership_transaction_control: Arc::clone(&membership_transaction_control),
                     selection: selection.clone(),
+                    population: Arc::clone(&population),
                 };
                 let _ = composite.reconstruct();
             })
@@ -722,6 +738,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             membership_transaction_active,
             membership_transaction_control,
             selection,
+            population,
         }
     }
 
@@ -772,6 +789,33 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         F: FnOnce() + Send + 'static,
     {
         self.core.own(cleanup);
+    }
+
+    /// Registers `member` for depth-first disposal (spec/02 §7.1, ADR-0162).
+    ///
+    /// `dispose()` disposes this composite's children first and then the
+    /// registered members in registration order, all before the composite
+    /// publishes `Disposed` (ADR-0179). When a construct or destruct hook of
+    /// the composite runs on another thread, the composite publishes `Disposed`
+    /// first and disposes its children and then its members after that hook
+    /// returns (spec/02 §2.4, LIFE-015). A member is not a child: registration
+    /// sets no parent link, adds no selection state, and does not construct
+    /// it. Clones of the composite share the registrations, and the composite
+    /// keeps a clone of `member` until it is disposed, so a member must not
+    /// hold the composite (#750).
+    ///
+    /// A member registered once the composite's disposal began is disposed now,
+    /// and its disposal result is returned. Registering a member twice keeps
+    /// one registration.
+    ///
+    /// # Errors
+    ///
+    /// [`VmxError::OwnershipCycle`] when `member` is this composite (the same
+    /// identity); the error of disposing a late member.
+    pub fn own_member<N: VmNode>(&self, member: &N) -> VmxResult<()> {
+        let member = member.clone();
+        self.core
+            .own_member(member.id(), Box::new(move || member.dispose()))
     }
 
     /// Publishes a change for an application-defined property.
@@ -1447,8 +1491,33 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     /// Constructs children before completing the composite transition.
+    ///
+    /// The first construct of a built composite first calls the builder's
+    /// children factory once and attaches its children (spec/06 §1). A
+    /// factory result that the population refuses, such as a duplicate
+    /// child, fails this call with that error, attaches nothing, and keeps
+    /// the factory for the next construct.
     pub fn construct(&self) -> VmxResult<()> {
+        self.populate()?;
         self.construct_parts().run(&self.core)
+    }
+
+    /// Attaches the children factory's result once, before the first
+    /// construct transition (spec/06 §1, ADR-0204). The factory is taken
+    /// first, so a re-entrant or concurrent construct does not run it again;
+    /// a refused population puts it back.
+    fn populate(&self) -> VmxResult<()> {
+        if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+            return Ok(());
+        }
+        let Some(factory) = lock(&self.population).take() else {
+            return Ok(());
+        };
+        let result = self.attach_population(factory(), false, || {});
+        if result.is_err() {
+            lock(&self.population).get_or_insert(factory);
+        }
+        result
     }
 
     /// The parts a construct walk needs besides the core.
@@ -1538,7 +1607,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         };
         let children = self.destruct_order.arrange(snapshot);
         let commands = self.commands.clone();
-        self.core.dispose_with_cascade_then(
+        self.core.dispose_container_then(
             Box::new(move || {
                 let mut first_failure = None;
                 for item in children {
@@ -2178,7 +2247,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
         self
     }
 
-    /// Validates required fields and creates the populated composite.
+    /// Validates required fields and creates the composite.
+    ///
+    /// The built composite has no children. Its first `construct()` calls
+    /// the children factory once and attaches the result (spec/06 §1,
+    /// ADR-0204); a factory error such as a duplicate child comes from that
+    /// `construct()`.
     pub fn build(self) -> VmxResult<CompositeVm<T, D>> {
         let name = self
             .name
@@ -2201,7 +2275,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
         if let Some(selector) = self.current_selector {
             vm.set_current_selector(move |items| selector(items));
         }
-        vm.attach_population(children(), false, || {})?;
+        *lock(&vm.population) = Some(children);
         Ok(vm)
     }
 }
@@ -2332,6 +2406,17 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         F: FnOnce() + Send + 'static,
     {
         self.inner.own(cleanup);
+    }
+
+    /// Registers `member` for depth-first disposal, as
+    /// [`CompositeVm::own_member`] does.
+    ///
+    /// # Errors
+    ///
+    /// [`VmxError::OwnershipCycle`] when `member` is this composite (the same
+    /// identity); the error of disposing a late member.
+    pub fn own_member<N: VmNode>(&self, member: &N) -> VmxResult<()> {
+        self.inner.own_member(member)
     }
 
     /// Publishes a change for an application-defined property.
