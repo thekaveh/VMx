@@ -186,8 +186,8 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 - The `_notifyPropertyChanged` and `_raisePropertyChanged` helpers of a
   `ForwardingComponentVM` or `ForwardingCompositeVM` now act on the wrapped VM
-  (#1352). Before, they sent on the decorator's own subject, which
-  no `propertyChanged` subscriber could see, and the hub message named the
+  (#1352). Before, they sent on the decorator's own subject, which no
+  `propertyChanged` subscriber could see, and the hub message named the
   decorator. Now the hub message names the wrapped VM, and the decorator's
   `propertyChanged` emits the name once.
 

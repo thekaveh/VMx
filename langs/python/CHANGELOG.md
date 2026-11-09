@@ -152,13 +152,13 @@ below for them.
   `replace_all` and the batch exit.
 - A raising `keys1` or `keys2` subscriber of `ObservableDictionary` no longer
   skips the other key view, the dictionary's own events or its hub message
-  (#1430). The dictionary runs every step and then re-raises the
-  first failure. After a failed `keys2` add, `keys1` now lists the new key.
+  (#1430). The dictionary runs every step and then re-raises the first failure.
+  After a failed `keys2` add, `keys1` now lists the new key.
 - `ForwardingComponentVM` and `ForwardingCompositeVM` no longer raise
   `AttributeError` from `_notify_property_changed` and
-  `_raise_property_changed` (#1352). Both helpers act on the
-  wrapped VM: the hub message names the wrapped VM as its sender, and the
-  decorator's `property_changed` emits the name once.
+  `_raise_property_changed` (#1352). Both helpers act on the wrapped VM: the
+  hub message names the wrapped VM as its sender, and the decorator's
+  `property_changed` emits the name once.
 - A construct hook that raises after it started the container walk no longer
   lets the walk's commit step set `status` to `CONSTRUCTED` (ADR-0186,
   spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
