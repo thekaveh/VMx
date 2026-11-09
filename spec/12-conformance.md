@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 451 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 454 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -1870,13 +1870,41 @@ virtual time 0
 ### NOTIF-017 — Hub dispose resolves in-flight waiters with `Pending` — spec v2.5.0
 
 **Given** a `NotificationHub` with one or more posted-but-unresolved notifications
+**And** a subscriber to `Pending`
 **When** the hub is disposed
 **Then** every in-flight awaitable returned by `Post` resolves with
 `NotificationReaction.Pending`
-**And** the `Pending` observable completes
+**And** the `Pending` observable completes once
+**And** the subscriber receives no value from the dispose (no final empty
+snapshot; ADR-0197)
 **And** a subsequent `Post` resolves immediately with `Pending` and does not enqueue
 **And** a subsequent `Resolve` is a no-op
 **And** disposing again is a no-op (idempotent)
+
+### NOTIF-019 — `NotificationVM` remaining time and opacity stop at resolution or disposal — spec v3.30.0
+
+**Given** a `NotificationVM` with `Lifespan = 10 s` over a posted notification,
+under a `TestScheduler` or fake clock at virtual time 0
+**When** `DismissCommand.Execute()` is called at 0 s and the clock advances by
+10 s
+**Then** `RemainingTime` is 10 s and `Opacity` is `1.0`
+**Given** a second such `NotificationVM`
+**When** it is disposed at 0 s and the clock advances by 10 s
+**Then** `RemainingTime` is 10 s and `Opacity` is `1.0`
+**Given** a third such `NotificationVM`
+**When** the clock advances by 4 s, `DismissCommand.Execute()` is called, and
+the clock advances by 6 s more
+**Then** `RemainingTime` is 6 s and `Opacity` is approximately `0.6` (±0.01)
+
+### NOTIF-020 — A `Pending` subscription made after hub dispose receives completion only — spec v3.30.0
+
+**Given** a `NotificationHub` with one posted notification
+**And** the hub has been disposed
+**When** a new subscriber subscribes to `Pending`
+**Then** the subscribe call does not raise
+**And** the subscriber receives completion once
+**And** it receives no value: neither the posted notification nor an empty list
+**And** it receives no error
 
 ______________________________________________________________________
 
@@ -2278,6 +2306,21 @@ is produced where the flavor exposes a pushed filtered output
 **When** `search()` is called
 **Then** the latest supplier projection is returned or emitted
 **And** the helper owns neither the supplier collection nor its items
+
+### SRCH-008 — construction starts no term debounce
+
+**Given** a `SearchableState` over `["one"]` with a non-zero term debounce, no
+source-change signal, and a subscriber to the filtered output
+**When** `"two"` is added to the supplier's collection and the clock passes
+the first debounce window with no term change and no `search()` call
+**Then** no filtered notification occurs after construction (a replaying
+output delivers only its initial value on subscribe; ADR-0198)
+**When** `search()` is called
+**Then** one filtered notification occurs, and its projection is
+`["one", "two"]`
+**When** a new term is set
+**Then** one filtered notification occurs after its debounce window
+(synchronously in Rust, which has no debounce)
 
 ______________________________________________________________________
 
@@ -4483,7 +4526,8 @@ disposal member to types that do not otherwise own disposable resources.
 **When** multiple callers race to dispose the hub
 **Then** exactly one caller claims terminal teardown
 **And** the waiter resolves with the hub's documented safe result
-**And** completion or terminal snapshot publication occurs exactly once
+**And** completion occurs exactly once
+**And** a notification hub publishes no terminal `Pending` snapshot (ADR-0197)
 
 For flavors whose hub contract is single-threaded, a re-entrant disposal call
 MUST satisfy the same at-most-once observable result; this ID does not add a

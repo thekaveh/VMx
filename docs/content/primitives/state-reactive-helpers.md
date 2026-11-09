@@ -251,6 +251,10 @@ optional source-change signal when the supplier can mutate while the search
 term stays unchanged. Every signal immediately re-reads the supplier with the
 current term; it does not wait for, cancel, or restart term debounce.
 
+Construction starts no term debounce. Without a signal, a supplier change
+after construction reaches the filtered output only through `search()` or a
+term change (`SRCH-008`, ADR-0198).
+
 | Flavor     | Optional source input                          |
 | ---------- | ---------------------------------------------- |
 | C#         | `IObservable<Unit> sourceChanged`              |
