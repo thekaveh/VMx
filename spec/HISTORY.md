@@ -663,7 +663,7 @@ during the inline dispose cascade fails as a call on a `Disposed` view-model
 `ObservableDictionary` updates its key views before its events (`COL-067`).
 `FormVM` queues updates made during approval publication, its publication
 waits join the wait-for graph, and nested updates notify at the outermost
-update (`FORM-039` to `FORM-042`). `Current(selector)` runs on every
+update (`FORM-039`..`FORM-042`). `Current(selector)` runs on every
 construct phase, and first access to lazy children does not construct them.
 `PagedComposition` states which flavors keep a live source, and a token-paged
 load that finds no more pages fetches nothing. The awaited `ExecuteAsync()` of
