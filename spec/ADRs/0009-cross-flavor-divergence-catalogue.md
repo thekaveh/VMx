@@ -443,7 +443,17 @@ here so audits don't reopen them prematurely:
   currently spread `hub`/`dispatcher` conditionally). Until then the
   constructor overload without services is `@deprecated`, which
   `@typescript-eslint/no-deprecated` and editors report (#665). Documented here
-  so audits don't re-flag it as accidental drift.
+  so audits don't re-flag it as accidental drift. One 3.x exception to the
+  major-version deferral: TypeScript 3.31.0 types `hub` and `dispatcher` as
+  required on `HierarchicalVMConstructionContext`, the context that
+  `HierarchicalVMBuilder.build()` passes to `vmFactory` (#1354). In 3.30.0 the
+  type was an alias for `HierarchicalVMOptions`. The change breaks only code
+  that builds this context without both services. It is accepted in a minor
+  version because the builder is the only producer of the type and always
+  supplies both, the C# context also requires both, and keeping the alias would
+  bind the recommended builder path's `super(context)` to the deprecated
+  overload. The TypeScript CHANGELOG lists it as source-breaking, with a
+  migration line.
 - **Rust conveniences that build a private hub (ADR-0150).**
   `ComponentVm::new`, `CompositeVm::new`, `GroupVm::new`,
   `HierarchicalVm::new`, `FormVm::new`, `AggregateVm1::new` / `try_new` to

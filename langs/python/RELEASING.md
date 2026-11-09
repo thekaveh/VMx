@@ -100,7 +100,10 @@ PyPI accepted the package.
 ### 2.2 Manual tag release (when release-please is paused)
 
 Use this path when `__about__.py` already holds the target version, so
-release-please proposes no release PR. Push the tag manually:
+release-please proposes no release PR. First, a release-prep PR replaces
+`unreleased source version` in the `## [X.Y.Z]` CHANGELOG heading with the
+release date and reaches `main`, so the heading date equals the tag date
+(`CONTRIBUTING.md` §4.3). Then push the tag manually:
 
 ```bash
 git checkout main

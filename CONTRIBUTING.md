@@ -267,6 +267,22 @@ publication. The compatibility matrix must distinguish source status from
 public package status. Release automation verifies exact tag/package agreement
 before upload.
 
+**CHANGELOG placement.** Record each change in the CHANGELOG section of the
+package's current source version. While that version is unreleased, its
+heading reads `## [X.Y.Z] — unreleased source version`, and `[Unreleased]`
+stays empty. A source-version bump adds a new section above the earlier one;
+entries already recorded stay where they are. The release-prep PR replaces
+`unreleased source version` with the release date immediately before the tag,
+so the heading date equals the tag date. After a release and before the next
+bump, new entries go under `[Unreleased]`, and the bump PR moves them into the
+new section. In C#, each of `VMx`, `VMx.Notifications` and
+`VMx.Extensions.DependencyInjection` applies this rule to its own sections:
+`## [X.Y.Z]` for `VMx` and `## [<package> X.Y.Z]` for a companion. `[Unreleased]`
+keeps one `### <package>` subsection for each package, and a subsection stays
+empty while its package's current section is an unreleased source version.
+`tools/check-version-consistency.py` rejects `[Unreleased]` notes for a package
+whose current section is an unreleased source version.
+
 **Publication claims.** Publication claims never precede public evidence. After
 the public artifact and a fresh consumer verify, update the repository docs and
 regenerate the documentation site and wiki through `develop` and `main` PRs.

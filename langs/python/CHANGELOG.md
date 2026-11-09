@@ -6,7 +6,7 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
-## [3.30.0] — 2026-11-07
+## [3.30.0] — unreleased source version
 
 First PyPI release since 3.23.0. The 3.23.1 tag never reached PyPI, and 3.23.2
 to 3.29.0 were source-only versions. This package contains every change listed
@@ -472,9 +472,11 @@ below for them.
   `self.command: RelayCommand = self._own(...)` type-checks under
   `mypy --strict`. Before, the return type was the union of accepted shapes
   (spec/02 §2.3) (#652).
+
 - An aggregate slot factory that returns `None` makes `construct()` raise
   `ValueError` before any slot is committed. Before, the aggregate constructed
   with an empty slot, which spec/08 §2 calls invalid.
+
 - `AsyncRelayCommand.execute()` admits the run before it returns, so
   `is_executing` is `True` at once, the execution-started `can_execute_changed`
   fires at once, and a following `cancel()` cancels the run. The predicate now
@@ -482,9 +484,11 @@ below for them.
   releases the admission, so the command does not stay executing.
   Before, admission waited one event-loop turn and such a `cancel()` did
   nothing (spec/04 §10.2).
+
 - A `ForwardingComponentVM` around a background component can be a
   factory-populated child: the composite joins it through the wrapped VM.
   Before, construct raised `AttributeError`.
+
 - A `ForwardingCompositeVM` can now be added to a composite or group. Before
   this fix, `add` raised `AttributeError: _ownership_identity`. The decorator
   now shares one ownership identity and its parent link with the composite it
@@ -498,15 +502,18 @@ below for them.
   and the abandoned child transition never runs its continuation. A future
   the hook supplied is dropped, not cancelled; VMx cancels only the child walks
   it created.
+
 - `CompositeVM`, `GroupVM`, `AggregateVM*`, and `HierarchicalVM` wait for a
   background child in any position, including the last. The container
   publishes its terminal status after every child settles, and it rolls back
   when the last child fails to construct or destruct (spec/02 §6, LIFE-014).
   Before, a synchronous child that settled inline let the child walk finish
   early, so the container ignored a background child after it.
+
 - A joined factory child is now checked and joined under its lifecycle lock.
   A child that settles between the check and the join is never started again,
   so its construct hook runs once.
+
 - `CompositeVM` and `GroupVM` with auto-construct-on-add construct a child
   added while the container is still `Constructing` (waiting on a background
   child) and wait for it before reaching `Constructed` (spec/02 §6, spec/06
@@ -515,24 +522,30 @@ below for them.
   runs once. Before, the add skipped auto-construction until the container was
   `Constructed` and the walk used a snapshot taken before the add, so the
   container reached `Constructed` with the added child still `Destructed`.
+
 - `CompositeVM` and `GroupVM` join the background children that factory
   population starts and never construct them again. A later child that fails
   while the container waits on an earlier one rolls the container back, and
   its construct hook runs once (spec/02 §6, LIFE-014). Before, the child walk
   restarted the failed child and ran its hook a second time.
+
 - `FilteredCompositeVM.set_predicate` restores the previous predicate when the
   new one raises, so later source changes keep using the working predicate. A
   raising `on_changed` observer does not roll the predicate back.
+
 - `FormVM.set_model(None)` raises `ValueError` to the caller during an
   approval's settlement, instead of being queued and surfacing later from
   `approve_async`.
+
 - `CompositeVM.copy_to` validates the index and the target size before writing,
   like `List<T>.CopyTo`; a negative index no longer wraps silently.
+
 - `ForwardingCompositeVM` delegates the rest of the wrapped composite's
   surface: `snapshot`, `subscribe_membership`, `__delitem__`, `append`,
   `index`, `copy_to`, `current_child`, `select_child`, `deselect_child`, and
   `supports_child_selection`. A forwarder can now be the source of an
   `AggregateChangeStream`, as in TypeScript (spec/09, FWD-001).
+
 - A `bool` index raises `TypeError` before any mutation. Before, `True` and
   `False` were taken as `1` and `0` and appeared as indices in
   collection-changed payloads. The check covers `insert`, item assignment,
@@ -540,63 +553,84 @@ below for them.
   `ServicedObservableCollection`, and `KeyedServicedObservableCollection`;
   `replace` on the serviced collections; and `insert`, `remove_at`, and
   `replace` on `ObservableList`.
+
 - A slice delete or assignment that selects nothing and inserts nothing on
   `ServicedObservableCollection` or `KeyedServicedObservableCollection` emits
   nothing, instead of a Reset, as TypeScript `splice` does (spec/21 §2.10).
+
 - `ObservableDictionary` key views use dictionary-key equality (identity, then
   `==`), so one `NaN` key object appears once in `keys1`/`keys2`, and
   `nan in view` is true (spec/21 §4.1).
+
 - `walk`, `walk_expanded`, and `find` accept and return the public
   `ComponentVMProto` instead of the private `_ComponentVMBase`, so a caller
   typed against the public protocol passes `mypy --strict` (spec/13 §4).
+
 - `CompositeVM.create()` and `GroupVM.create()` without `children` raise
   `BuilderValidationError`, as `build()` does, instead of a `TypeError`
   (BLD-006, ADR-0055).
+
 - `ConfirmationDecoratorCommand.can_execute` re-checks disposal after the inner
   predicate, which may dispose the wrapper, as the other wrappers do
   (spec/04 §8.4).
+
 - `TokenPagedComposition` stops auto-constructing page items once a hook
   disposes it or starts a newer operation (spec/21 §6).
+
 - A disposed view model's `select` and `deselect` are silent no-ops and
   `can_deselect` returns false, so a disposed child no longer changes its live
   parent's selection (spec/02 §3).
+
 - A disposed `DerivedProperty` rejects writes: `can_set` returns false and
   `set_value` raises instead of running the write-back action (spec/15 §4).
+
 - `ObservableDictionary`: the add index is captured before `keys1`/`keys2`
   update and the local event fires, so a key-view or local subscriber that adds
   another entry no longer shifts the first entry's reported hub index. If such
   a subscriber removes an entry or clears the dictionary, the hub message
   reports the key pair's current index, or -1 when the key pair is gone (#733).
+
 - `CompositeVM.remove`, `remove_at`, `clear`, and item replacement emit
   their collection events even when `on_current_changed` raises, then
   re-raise. Before, the committed change reached no observer.
+
 - Container builders and constructors accept any `MessageHubProto`, as
   component builders do, so `NULL_MESSAGE_HUB` or a custom hub type-checks.
+
 - When a `pending` subscriber disposes the `NotificationHub` and then raises,
   `pending` still completes and its subject is disposed.
+
 - `ObservableList.dispose` and `ObservableDictionary.dispose` complete and
   dispose every stream even when an observer raises, then re-raise the first
   failure.
+
 - The README quick start and getting-started samples type-check under
   `mypy --strict`: the hub is `MessageHub[Message]` and builders name their
   model type.
+
 - `DialogService.present` (the null base) returns the result of a modal that
   was already dismissed, because the first result wins. Before, it returned
   the cancellation result (spec/19 §3, DIA-012).
+
 - `NotificationVM.notify_external_resolve()` is inert after `dispose()`
   (DISP-004).
+
 - `NotificationHub.resolve` and `dispose` complete their waiters even when a
   `pending` subscriber raises. The waiters had already left the hub, so their
   `post` futures stayed pending forever.
+
 - `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
   command's `can_execute` predicate disposes the decorator (spec/04 §8.4).
+
 - `CompositeVM`, `GroupVM`, `AggregateVM1..6`, `HierarchicalVM`,
   `ForwardingComponentVM`, `ForwardingCompositeVM`, and `AsyncResourceVM`
   now satisfy `IConstructable`, `IDestructable`, and `IReconstructable` in
   `isinstance` checks; only the component classes were registered (spec/14
   rule 2).
+
 - `ObservableDictionary` raises `TypeError` for a `None` key in `d[k1, k2]`
   and `(k1, k2) in d`, as every other accessor already did (spec/21 §4.4).
+
 - A cancelled persister on the `approve_command` path is now reported on
   `approve_errors` as `asyncio.CancelledError`. Before, the cancellation reached
   no channel (spec/20 §5.3).
@@ -723,10 +757,9 @@ below for them.
 
 ## [3.23.1](https://github.com/thekaveh/VMx/compare/python-v3.23.0...python-v3.23.1) (2026-08-17)
 
-
 ### Documentation
 
-* **python:** reconcile public 3.23.0 release ([#217](https://github.com/thekaveh/VMx/issues/217)) ([#295](https://github.com/thekaveh/VMx/issues/295)) ([b97e424](https://github.com/thekaveh/VMx/commit/b97e424e7c57b345bbc50c9e446360f90236fe0c))
+- **python:** reconcile public 3.23.0 release ([#217](https://github.com/thekaveh/VMx/issues/217)) ([#295](https://github.com/thekaveh/VMx/issues/295)) ([b97e424](https://github.com/thekaveh/VMx/commit/b97e424e7c57b345bbc50c9e446360f90236fe0c))
 
 ## [3.23.0] — 2026-07-25
 

@@ -2071,3 +2071,84 @@ def test_typescript_example_locks_include_the_integration_recipes() -> None:
         Path("examples/typescript/integration-recipes/package-lock.json")
         in cvc.TYPESCRIPT_EXAMPLE_LOCKS
     )
+
+
+# ── check_unreleased_source_placement (#1337) ─────────────────────────
+
+
+def _write_changelog(root: Path, flavor: str, text: str) -> None:
+    path = root / "langs" / flavor / "CHANGELOG.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_unreleased_notes_are_rejected_while_the_source_version_is_unreleased(
+    tmp_path: Path,
+) -> None:
+    _write_changelog(
+        tmp_path,
+        "python",
+        "## [Unreleased]\n\n- Pending note.\n\n## [1.1.0] — unreleased source version\n\n- Bump.\n",
+    )
+
+    issues = cvc.check_unreleased_source_placement(tmp_path, {"python": {"version": "1.1.0"}})
+
+    assert issues == [
+        "  python: [Unreleased] has notes, but [1.1.0] is an unreleased source version; "
+        "record them in that section"
+    ]
+
+
+def test_unreleased_notes_are_allowed_after_the_current_version_is_released(
+    tmp_path: Path,
+) -> None:
+    _write_changelog(
+        tmp_path,
+        "rust",
+        "## [Unreleased]\n\n- Pending note.\n\n## [0.2.0] — 2026-01-02\n\n- Release.\n",
+    )
+
+    assert cvc.check_unreleased_source_placement(tmp_path, {"rust": {"version": "0.2.0"}}) == []
+
+
+def test_unreleased_placement_scopes_each_csharp_package(tmp_path: Path) -> None:
+    manifests = {
+        "csharp": {"version": "3.1.0", "package_id": "VMx"},
+        "csharp/VMx.Notifications": {"version": "1.2.0", "package_id": "VMx.Notifications"},
+        "csharp/VMx.Extensions.DependencyInjection": {
+            "version": "2.1.1",
+            "package_id": "VMx.Extensions.DependencyInjection",
+        },
+    }
+    head = "## [Unreleased]\n\n### VMx\n\n{core}### VMx.Notifications\n\n{notifications}"
+    tail = (
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.1.0] — unreleased source version\n\n- Core.\n\n"
+        "## [VMx.Notifications 1.2.0] — unreleased source version\n\n- Notifications.\n\n"
+        "## [VMx.Extensions.DependencyInjection 2.1.1] — 2026-01-01\n\n- DI.\n"
+    )
+    _write_changelog(tmp_path, "csharp", head.format(core="", notifications="") + tail)
+    assert cvc.check_unreleased_source_placement(tmp_path, manifests) == []
+
+    _write_changelog(
+        tmp_path, "csharp", head.format(core="", notifications="- Pending.\n\n") + tail
+    )
+    assert cvc.check_unreleased_source_placement(tmp_path, manifests) == [
+        "  csharp/VMx.Notifications: [Unreleased] VMx.Notifications has notes, but "
+        "[VMx.Notifications 1.2.0] is an unreleased source version; record them in that section"
+    ]
+
+    _write_changelog(
+        tmp_path, "csharp", head.format(core="- Pending.\n\n", notifications="") + tail
+    )
+    assert cvc.check_unreleased_source_placement(tmp_path, manifests) == [
+        "  csharp: [Unreleased] VMx has notes, but [3.1.0] is an unreleased source version; "
+        "record them in that section"
+    ]
+
+
+def test_repository_changelogs_follow_the_placement_rule() -> None:
+    root = Path(__file__).resolve().parents[2]
+    manifests = cvc.collect_manifests(root)
+
+    assert cvc.check_unreleased_source_placement(root, manifests) == []

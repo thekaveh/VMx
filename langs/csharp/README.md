@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.30.0** — implements `spec-v3.30.0` end-to-end. 451/451 library conformance IDs
+**v3.30.0** — implements spec 3.30.0 end-to-end. 451/451 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.1` and `VMx.Notifications` (opt-in
