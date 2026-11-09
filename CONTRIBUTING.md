@@ -90,12 +90,15 @@ cd langs/rust
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-features
+cargo test --locked                        # default features: test seams compiled out
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
 cargo package --locked
+python3 ../../tools/check-rust-package.py  # crate holds exactly the tracked files
 ```
 
-Rust's minimum supported toolchain is 1.88. Keep the committed library and
-example lockfiles current.
+Rust's minimum supported toolchain is 1.88. The `rust` workflow runs these
+gates on 1.88.0 and on stable, so run Clippy on both before you push. Keep the
+committed library and example lockfiles current.
 
 ### 2.6 Cross-cutting checks (conformance + example-app contracts)
 
