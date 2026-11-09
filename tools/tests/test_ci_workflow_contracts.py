@@ -20,6 +20,61 @@ def test_every_workflow_job_has_a_hard_timeout() -> None:
             )
 
 
+# #1440: these workflows run on pull requests, and a superseded run holds
+# runners that the newer head needs.
+_PULL_REQUEST_CI_WORKFLOWS = (
+    "python",
+    "csharp",
+    "typescript",
+    "swift",
+    "rust",
+    "conformance",
+    "spec-discipline",
+    "security-audit",
+    "examples-contract-checks",
+)
+
+
+def workflow_concurrency(text: str) -> tuple[str, str] | None:
+    """The workflow-level concurrency (group, cancel-in-progress), whitespace-folded."""
+    header = text.split("\njobs:\n", maxsplit=1)[0]
+    match = re.search(r"(?ms)^concurrency:\n(?P<body>(?:  .*\n|\n)*)", header + "\n")
+    if match is None:
+        return None
+    body = match.group("body")
+    group = re.search(r"(?ms)^  group:(?P<value>.*?)(?=^  \S|\Z)", body)
+    cancel = re.search(r"(?m)^  cancel-in-progress:(?P<value>.*)$", body)
+    if group is None or cancel is None:
+        return None
+    return " ".join(group.group("value").replace(">-", "").split()), cancel.group("value").strip()
+
+
+def test_pull_request_runs_cancel_superseded_runs_and_branch_runs_never_share_a_group() -> None:
+    for name in _PULL_REQUEST_CI_WORKFLOWS:
+        concurrency = workflow_concurrency((WORKFLOWS / f"{name}.yml").read_text(encoding="utf-8"))
+        assert concurrency is not None, f"{name}.yml declares no workflow-level concurrency"
+        group, cancel = concurrency
+        # A pull_request run groups by workflow and pull-request number and
+        # cancels the older run of that pull request.
+        assert group.startswith("${{ github.event_name == 'pull_request' && "), name
+        assert "format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)" in group, (
+            name
+        )
+        assert cancel == "${{ github.event_name == 'pull_request' }}", name
+        # Every other event (push to develop or main, schedule,
+        # workflow_dispatch) gets a group of its own, so it is never cancelled
+        # or replaced as a pending run (#534).
+        assert group.endswith("|| format('{0}-run-{1}', github.workflow, github.run_id) }}"), name
+
+
+def test_concurrency_reader_rejects_a_workflow_without_a_group() -> None:
+    assert workflow_concurrency("name: x\non: push\njobs:\n  a:\n") is None
+    assert workflow_concurrency(
+        "name: x\nconcurrency:\n  group: x-${{ github.ref }}\n  cancel-in-progress: false\n"
+        "\njobs:\n  a:\n"
+    ) == ("x-${{ github.ref }}", "false")
+
+
 def test_recipe_suites_run_once_inside_the_package_test_steps() -> None:
     # #783: the C# Test step (VMx.sln) and both Swift package test steps already
     # run the recipe suites, so a filtered rerun step only repeats them.

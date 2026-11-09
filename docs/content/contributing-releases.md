@@ -32,6 +32,8 @@ release procedure for every flavor.
   examples, security, and spec-discipline aggregate checks against the latest
   target branch. Maintainer review is expected when another reviewer is
   available; the single-collaborator repository does not require self-approval.
+- A new push to a PR cancels that PR's older run of each CI workflow. Runs on
+  `develop` and `main`, scheduled runs, and manual runs are never cancelled.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
 

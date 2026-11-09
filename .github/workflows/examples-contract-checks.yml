@@ -32,6 +32,17 @@ on:
     branches: [main, develop]
   workflow_dispatch:
 
+# #1440: a newer push to a pull request cancels that pull request's older run
+# of this workflow, so a superseded run frees its runners. Push, schedule and
+# workflow_dispatch runs each get a group of their own and are never cancelled
+# or replaced; a shared group would replace a pending run (#534).
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+    || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   contract:
     timeout-minutes: 15

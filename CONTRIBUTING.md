@@ -13,7 +13,9 @@ Thanks for your interest in contributing!
    security, and spec-discipline aggregate checks to pass against the latest
    target branch. Obtain maintainer review when another reviewer is available.
    The repository has one direct collaborator, so the ruleset does not require
-   self-approval.
+   self-approval. A new push to a PR cancels that PR's older run of each CI
+   workflow. Runs on `develop` and `main`, scheduled runs, and manual runs are
+   never cancelled.
 5. Maintainers promote `develop` to protected `main` through a separate PR.
 
 ### 1.1 Branch sync policy
