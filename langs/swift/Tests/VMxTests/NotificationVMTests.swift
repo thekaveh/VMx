@@ -366,6 +366,24 @@ final class NotificationVMTests: XCTestCase {
         sut.dispose()
     }
 
+    /// Auto-dismiss keeps exactly 0 even when the clock at expiry reads a
+    /// little before `start + lifespan`. Here `(0.7 + 0.1) - 0.7` rounds
+    /// below 0.1 in `Double` (ADR-0197).
+    func testAutoDismissKeepsZeroWhenTheClockReadsBeforeExpiry() async {
+        let scheduler = VirtualTimeScheduler(now: 0.7)
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "early")
+        _ = await post(hub, n)
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 0.1)
+
+        scheduler.advance(by: .seconds(0.1))
+
+        XCTAssertTrue(sut.isResolved)
+        XCTAssertEqual(sut.remaining, 0)
+        XCTAssertEqual(sut.opacity, 0)
+        sut.dispose()
+    }
+
     /// A `NotificationVM` over a disposed hub constructs normally, and
     /// `dismiss` resolves the VM without changing the hub (ADR-0197).
     func testVMOverDisposedHubConstructsAndDismisses() {

@@ -256,6 +256,17 @@ describe("NotificationVM render state after resolution", () => {
     expect(vm.opacity).toBe(0);
     vm.dispose();
   });
+
+  it("keeps 0 after auto-dismiss when the timer fires before the clock reaches expiry", () => {
+    const { vm, scheduler } = makeVm(10_000);
+
+    scheduler.fireNextEarly(1);
+
+    expect(vm.isResolved).toBe(true);
+    expect(vm.remainingMs).toBe(0);
+    expect(vm.opacity).toBe(0);
+    vm.dispose();
+  });
 });
 
 describe("NotificationVM over a disposed hub", () => {

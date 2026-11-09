@@ -578,6 +578,8 @@ All notable changes to the C# flavor are documented here. The format is based on
   #1306). Before, both values kept decaying with the scheduler clock after
   resolution or `Dispose()`, and no change notification reported the new
   values.
+  After auto-dismiss both values are 0, even when the expiry timer fires while
+  the clock still reads a little before expiry.
 - Fixed: a `Pending` subscription made after `NotificationHub` disposal
   receives completion only, with no snapshot and no error (ADR-0197,
   `NOTIF-020`, #1476). Before, it received `ObjectDisposedException`, and a

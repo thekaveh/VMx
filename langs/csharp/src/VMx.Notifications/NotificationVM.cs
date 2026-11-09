@@ -41,6 +41,9 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     private bool _disposed;
     private TimeSpan? _keptRemaining;
 
+    // Set when the lifespan timer fires; the remaining time is then zero.
+    private volatile bool _expired;
+
     /// <summary>
     /// Creates a <see cref="NotificationVM"/>.
     /// </summary>
@@ -81,7 +84,7 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         // virtual OnExpire on a partially-constructed derived instance.
         AttachSubscription(
             ref _timerSub,
-            _scheduler.Schedule(_lifespan, OnExpire));
+            _scheduler.Schedule(_lifespan, Expire));
 
         // VMX-135: when a tick cadence is requested, periodically raise
         // PropertyChanged for the decaying state so bound views repaint the
@@ -245,6 +248,13 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     /// </summary>
     protected virtual void OnExpire() => Dismiss();
 
+    /// <summary>Marks the lifespan as spent, then runs <see cref="OnExpire"/>.</summary>
+    private void Expire()
+    {
+        _expired = true;
+        OnExpire();
+    }
+
     /// <summary>
     /// Resolves the notification with Approve and cancels the timer.
     /// Idempotent: subsequent calls are no-ops.
@@ -294,9 +304,14 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         }
     }
 
-    /// <summary>Reads the remaining time from the scheduler clock.</summary>
+    /// <summary>
+    /// Reads the remaining time from the scheduler clock. Returns zero once the
+    /// timer has fired, because a real timer can fire before the clock reaches
+    /// expiry (ADR-0197).
+    /// </summary>
     private TimeSpan ComputeRemaining()
     {
+        if (_expired) return TimeSpan.Zero;
         var elapsed = _scheduler.Now - _start;
         var remaining = _lifespan - elapsed;
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;

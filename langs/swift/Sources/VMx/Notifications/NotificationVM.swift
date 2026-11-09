@@ -46,6 +46,8 @@ open class NotificationVM {
     private var disposed = false
     /// `remaining` kept from the first resolution or disposal (ADR-0197).
     private var keptRemaining: TimeInterval?
+    /// Set when the lifespan timer fires; `remaining` is then 0 (ADR-0197).
+    private var expired = false
     private var timerCancellable: AnyCancellable?
     private var tickCancellable: AnyCancellable?
     private var pendingCancellable: AnyCancellable?
@@ -88,7 +90,7 @@ open class NotificationVM {
         if armsExpiryTimer() {
             let expireAt = scheduler.now.advanced(by: .seconds(lifespan))
             self.timerCancellable = scheduler.schedule(at: expireAt) { [weak self] in
-                self?.onExpire()
+                self?.expire()
             }
         }
 
@@ -126,7 +128,11 @@ open class NotificationVM {
         keptRemaining ?? computeRemaining()
     }
 
+    /// Reads the remaining time from the scheduler clock. Returns 0 once the
+    /// timer has fired, because the clock can read a little before expiry
+    /// (ADR-0197).
     private func computeRemaining() -> TimeInterval {
+        if expired { return 0 }
         let elapsed = scheduler.now.seconds - startTime
         let r = lifespan - elapsed
         return r > 0 ? r : 0
@@ -181,6 +187,12 @@ open class NotificationVM {
     }
 
     // ── Private ──────────────────────────────────────────────────────────────
+
+    /// Marks the lifespan as spent, then runs the `onExpire()` hook.
+    private func expire() {
+        expired = true
+        onExpire()
+    }
 
     /// Observed external resolution: flip `isResolved` and cancel the timer
     /// WITHOUT re-notifying the hub (it already resolved). Idempotent.

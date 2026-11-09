@@ -54,6 +54,10 @@ all five flavors can share.
   had at that step. A later clock advance does not change them.
 - Auto-dismiss happens at expiry, so the kept values are 0 and 0.0, as
   `NOTIF-016` requires.
+- A real timer can fire while the clock still reads a little before expiry.
+  The VM then stores 0 and 0.0 too. When the expiry timer fires, the VM marks
+  its lifespan as spent before the expiry hook runs, and it does not read the
+  clock again.
 - A `ConfirmationVM` that expires without a decision is not resolved. Its
   `RemainingTime` stays at 0 as before.
 - The change notifications do not change. Resolution still raises one change

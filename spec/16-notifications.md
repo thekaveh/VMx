@@ -194,7 +194,8 @@ of these steps: its own resolution, an observed hub resolution, or its
 disposal. Its own resolution includes `DismissCommand` and auto-dismiss. From
 that step on, `RemainingTime` and `Opacity` keep the values that they had at
 that step, and a later clock advance does not change them. After auto-dismiss
-they are 0 and 0.0.
+they are 0 and 0.0. A real timer can fire while the clock still reads a little
+before expiry. The VM then stores 0 and 0.0 too, and does not read the clock.
 
 A `NotificationVM` built over a disposed hub constructs normally. Its pending
 subscription completes at once, and the hub ignores its resolve call.

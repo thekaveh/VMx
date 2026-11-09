@@ -86,6 +86,8 @@ class NotificationVM:
         self._is_resolved = False
         # Render state kept from the first resolution or disposal (ADR-0197).
         self._kept_remaining: timedelta | None = None
+        # Set when the lifespan timer fires; the remaining time is then zero.
+        self._expired = False
 
         # INPC-style change-notification stream (VMX-079/135).
         self._property_changed_subject: Subject[str] = Subject()
@@ -115,7 +117,7 @@ class NotificationVM:
             ops.take(1),
         ).subscribe(on_next=lambda _: self._notify_external_resolve())
 
-        timer = scheduler.schedule_relative(self._lifespan, lambda sched, _state: self._on_expire())
+        timer = scheduler.schedule_relative(self._lifespan, lambda sched, _state: self._expire())
         if self._disposed or self._is_resolved:
             timer.dispose()
         else:
@@ -217,7 +219,13 @@ class NotificationVM:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _compute_remaining(self) -> timedelta:
-        """Remaining lifespan by the scheduler clock, clamped at zero."""
+        """Remaining lifespan by the scheduler clock, clamped at zero.
+
+        Returns zero once the timer has fired, because a real timer can fire
+        before the clock reaches expiry (ADR-0197).
+        """
+        if self._expired:
+            return timedelta(0)
         remaining = self._lifespan - (self._scheduler.now - self._start)
         return remaining if remaining > timedelta(0) else timedelta(0)
 
@@ -264,6 +272,11 @@ class NotificationVM:
         self._raise_property_changed("is_resolved")
         self._raise_property_changed("remaining_time")
         self._raise_property_changed("opacity")
+
+    def _expire(self) -> None:
+        """Mark the lifespan as spent, then run the :meth:`_on_expire` hook."""
+        self._expired = True
+        self._on_expire()
 
     def _on_expire(self) -> None:
         """Called when the lifespan timer fires.

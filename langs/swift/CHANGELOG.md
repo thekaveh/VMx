@@ -79,6 +79,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306). Before,
   both values kept decaying with the scheduler clock after resolution or
   `dispose()`, and no change notification reported the new values.
+  After auto-dismiss both values are 0, even when the expiry timer fires while
+  the clock still reads a little before expiry.
 - `SearchableState` construction no longer starts a term debounce (ADR-0198,
   `SRCH-008`, #1307). Before, the seeded empty term emitted one filtered
   snapshot one debounce window after construction, with no term change or

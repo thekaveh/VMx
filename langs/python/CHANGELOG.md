@@ -73,6 +73,8 @@ below for them.
   from their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306).
   Before, both values kept decaying with the scheduler clock after resolution
   or `dispose()`, and no change notification reported the new values.
+  After auto-dismiss both values are 0, even when the expiry timer fires while
+  the clock still reads a little before expiry.
 - A `pending` subscription made after `NotificationHub` disposal receives
   completion only, with no snapshot and no error (ADR-0197, `NOTIF-020`,
   #1476). Before, it received `DisposedException`, and a `NotificationVM`

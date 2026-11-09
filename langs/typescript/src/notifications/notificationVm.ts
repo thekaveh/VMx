@@ -57,6 +57,8 @@ export class NotificationVM {
 
   #isResolved = false;
   #disposed = false;
+  /** Set when the lifespan timer fires; the remaining time is then 0. */
+  #expired = false;
   /** Remaining time kept at the first resolution or disposal (ADR-0197). */
   #keptRemainingMs: number | null = null;
   #timerHandle: ReturnType<SchedulerLike["schedule"]> | null = null;
@@ -236,6 +238,8 @@ export class NotificationVM {
   // ── Private ─────────────────────────────────────────────────────────────────
 
   #computeRemainingMs(): number {
+    // A real timer can fire before the clock reaches expiry (ADR-0197).
+    if (this.#expired) return 0;
     const elapsed = this.#scheduler.now() - this.#startTime;
     const remaining = this.#lifespanMs - elapsed;
     return remaining > 0 ? remaining : 0;
@@ -247,6 +251,7 @@ export class NotificationVM {
   }
 
   #onExpire(): void {
+    this.#expired = true;
     this.onExpire();
   }
 

@@ -1,3 +1,5 @@
+using System.Reactive.Concurrency;
+using System.Reactive.Disposables;
 using FluentAssertions;
 using Microsoft.Reactive.Testing;
 using VMx.Notifications;
@@ -112,6 +114,61 @@ public class NOTIF_019_RenderStateStops_Tests
             scheduler.AdvanceBy(TimeSpan.FromSeconds(5).Ticks);
 
             sut.RemainingTime.Should().Be(TimeSpan.FromSeconds(8));
+        }
+    }
+
+    [Fact]
+    public void Auto_Dismiss_Keeps_Zero_When_The_Timer_Fires_Early()
+    {
+        var scheduler = new EarlyTimerScheduler();
+        var (hub, sut) = CreateWith(scheduler);
+        using (hub)
+        using (sut)
+        {
+            scheduler.FireNextEarly(TimeSpan.FromMilliseconds(1));
+
+            sut.IsResolved.Should().BeTrue();
+            sut.RemainingTime.Should().Be(TimeSpan.Zero);
+            sut.Opacity.Should().Be(0.0);
+        }
+    }
+
+    private static (NotificationHub Hub, NotificationVM Vm) CreateWith(IScheduler scheduler)
+    {
+        var hub = new NotificationHub();
+        var notification = new Notification(NotificationType.Notification, "render");
+        _ = hub.Post(notification);
+        return (hub, new NotificationVM(notification, hub, scheduler, lifespan: Lifespan));
+    }
+
+    /// <summary>
+    /// Fires a timer on request while the clock is still before its due time,
+    /// as a real timer with coarse ticks can (ADR-0197).
+    /// </summary>
+    private sealed class EarlyTimerScheduler : IScheduler
+    {
+        private readonly List<(DateTimeOffset Due, Action Run)> _timers = [];
+
+        public DateTimeOffset Now { get; private set; } = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        public IDisposable Schedule<TState>(TState state, Func<IScheduler, TState, IDisposable> action)
+            => Schedule(state, Now, action);
+
+        public IDisposable Schedule<TState>(TState state, TimeSpan dueTime, Func<IScheduler, TState, IDisposable> action)
+            => Schedule(state, Now + dueTime, action);
+
+        public IDisposable Schedule<TState>(TState state, DateTimeOffset dueTime, Func<IScheduler, TState, IDisposable> action)
+        {
+            _timers.Add((dueTime, () => action(this, state)));
+            return Disposable.Empty;
+        }
+
+        public void FireNextEarly(TimeSpan early)
+        {
+            var (due, run) = _timers[0];
+            _timers.RemoveAt(0);
+            Now = due - early;
+            run();
         }
     }
 }
