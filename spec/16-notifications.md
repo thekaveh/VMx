@@ -12,9 +12,10 @@ Per ADR-0013, the distribution shape is per-flavor:
   as `@thekaveh/vmx`)
 - **Swift**: module namespace in the `VMx` package
 - **Rust**: the `notifications` Cargo feature of `vmx-rs`, on by default,
-  using the VMx-owned hot-stream and executor-neutral completion facades. A
-  dependency with `default-features = false` builds the core without it
-  (ADR-0211).
+  using the VMx-owned hot-stream and executor-neutral completion facades. The
+  types are re-exported at the crate root. The opt-in is the feature, which
+  `default` enables, so no explicit import path is needed. A dependency with
+  `default-features = false` builds the core without it (ADR-0211).
 
 The asymmetry preserves "opt-in, no core surface impact" without forcing a
 TypeScript monorepo restructure.

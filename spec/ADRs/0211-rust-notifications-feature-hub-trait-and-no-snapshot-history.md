@@ -108,8 +108,9 @@ simplest option.
 hub's resolution record (#1293). Thus `dispose()` reads the hub and sets
 `disposed` in one critical section, and `is_resolved()` returns a hub value
 only if no disposal completed between its `disposed` check and its hub read.
-Once `is_resolved()` returns `true`, a later read also returns `true`. The
-order is the flags lock, then the hub state lock. The hub never calls out while
+A `dispose()` that races a hub resolution therefore never turns a `true` read
+into a later `false`. Only a re-post of the notification to the hub makes it
+pending again. The order is the flags lock, then the hub state lock. The hub never calls out while
 it holds its state lock, so no path takes the two locks in the other order.
 
 ## 3. Consequences
