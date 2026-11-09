@@ -8,6 +8,19 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a disposed `HierarchicalVM` node now refuses `AddChild`,
+  `RemoveChild`, `ReparentChild`, `InvalidateChildren`, `InvalidateSubtree`
+  and `AttachMany`, also where the call would do nothing (ADR-0190, spec/18
+  §7.1, #1318). A transfer out of a disposed parent refuses too. A refused
+  call changes nothing and publishes nothing. `AttachMany` rejects a candidate
+  under a disposed parent, and `InvalidateSubtree` skips a disposed
+  descendant. It throws `ObjectDisposedException`.
+- Fixed: a `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage`
+  once its disposal is requested, also when the disposal is deferred
+  (ADR-0190, spec/01 §1.4, #1351). A local subscriber or `OnCurrentChanged`
+  callback that disposes the container now suppresses the hub message of that
+  change. In a transfer whose old container disposes itself, the hub receives
+  only the new container's `Add`.
 - Added: `COL-067` conformance tests (#1176, ADR-0177). An
   `ObservableDictionary` mutation changes the entries and `Count` first. Then
   it updates each key view that changes, raises the dictionary events and

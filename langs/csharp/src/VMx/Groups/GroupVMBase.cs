@@ -500,14 +500,27 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// Raises the local event, then publishes one equivalent
     /// <see cref="CollectionChangedMessage{T}"/> sent by this group through the
     /// hub's ordinary <c>Send</c> (spec/01 §1.4, ADR-0142). Callers run outside
-    /// the membership gate, so hub subscribers never hold it. A disposed group
-    /// publishes nothing.
+    /// the membership gate, so hub subscribers never hold it. A group whose
+    /// disposal is requested or deferred publishes nothing (spec/01 §1.4,
+    /// ADR-0190).
     /// </summary>
     private void DeliverCollectionChanged(NotifyCollectionChangedEventArgs args)
         => ContainerMembership.DeliverCollectionChanged<GroupVMBase<VM>, VM>(
             this, CollectionChanged, args,
-            static group => Volatile.Read(ref group._disposeRequested) == 0
-                && !group.IsDisposed());
+            static group => group.CanPublishCollectionChange());
+
+    /// <summary>
+    /// Read after the local handlers return, so a handler that requests or
+    /// defers this group's disposal suppresses the hub message (#1351).
+    /// </summary>
+    private bool CanPublishCollectionChange()
+    {
+        lock (_membershipGate)
+        {
+            if (Volatile.Read(ref _disposeRequested) != 0 || _disposeDeferred) return false;
+        }
+        return !IsDisposed();
+    }
 
     private LateChildStarts.Record? AttachLateStartLocked(VM item)
         => ContainerMembership.AttachLateStartLocked(this, _lateStarts, _autoConstructOnAdd, item);

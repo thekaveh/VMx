@@ -1155,13 +1155,26 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <see cref="CollectionChangedMessage{T}"/> sent by this composite through the
     /// hub's ordinary <c>Send</c> (spec/01 §1.4, ADR-0142). Callers run outside
     /// the membership gate and the shared coordination lane, so hub subscribers
-    /// hold neither. A disposed composite publishes nothing.
+    /// hold neither. A composite whose disposal is requested or deferred
+    /// publishes nothing (spec/01 §1.4, ADR-0190).
     /// </summary>
     private void DeliverCollectionChanged(NotifyCollectionChangedEventArgs args)
         => ContainerMembership.DeliverCollectionChanged<CompositeVMBase<VM>, VM>(
             this, CollectionChanged, args,
-            static composite => Volatile.Read(ref composite._disposeRequested) == 0
-                && !composite.IsDisposed());
+            static composite => composite.CanPublishCollectionChange());
+
+    /// <summary>
+    /// Read after the local handlers return, so a handler that requests or
+    /// defers this composite's disposal suppresses the hub message (#1351).
+    /// </summary>
+    private bool CanPublishCollectionChange()
+    {
+        lock (_membershipGate)
+        {
+            if (DisposalPendingLocked()) return false;
+        }
+        return !IsDisposed();
+    }
 
     private LateChildStarts.Record? AttachLateStartLocked(VM item)
         => ContainerMembership.AttachLateStartLocked(this, _lateStarts, _autoConstructOnAdd, item);
