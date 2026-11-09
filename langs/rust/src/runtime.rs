@@ -2198,6 +2198,7 @@ struct ParentSelection {
     is_current: ParentSelectionPredicate,
     select: ParentSelectionAction,
     deselect: ParentSelectionAction,
+    child_disposed: ParentSelectionAction,
 }
 
 struct ParentHandleInner {
@@ -2287,6 +2288,21 @@ impl ParentHandle {
         (selection.deselect)(child_id)
     }
 
+    /// The dispose clear (spec/06 §4.3 rule 9, ADR-0189): a child that
+    /// published `Disposed` from its own `dispose()` reports it, and a
+    /// selectable owner clears `current` while that child is still current.
+    /// An owner without child selection, or one already dropped, does
+    /// nothing.
+    pub(crate) fn child_disposed(&self, child_id: usize) -> VmxResult<()> {
+        let Some(inner) = self.inner.upgrade() else {
+            return Ok(());
+        };
+        inner
+            .selection
+            .as_ref()
+            .map_or(Ok(()), |selection| (selection.child_disposed)(child_id))
+    }
+
     pub(crate) fn same_owner(&self, other: &Self) -> bool {
         self.inner.ptr_eq(&other.inner)
     }
@@ -2315,6 +2331,7 @@ impl ParentRegistration {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_selectable(
         id: usize,
         parent: impl Fn() -> Option<ParentHandle> + Send + Sync + 'static,
@@ -2323,6 +2340,7 @@ impl ParentRegistration {
         is_current: impl Fn(usize) -> bool + Send + Sync + 'static,
         select: impl Fn(usize) -> VmxResult<()> + Send + Sync + 'static,
         deselect: impl Fn(usize) -> VmxResult<()> + Send + Sync + 'static,
+        child_disposed: impl Fn(usize) -> VmxResult<()> + Send + Sync + 'static,
     ) -> Self {
         Self {
             inner: Arc::new(ParentHandleInner {
@@ -2334,6 +2352,7 @@ impl ParentRegistration {
                     is_current: Arc::new(is_current),
                     select: Arc::new(select),
                     deselect: Arc::new(deselect),
+                    child_disposed: Arc::new(child_disposed),
                 }),
             }),
         }
@@ -2500,9 +2519,11 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
     )))
 }
 
+/// A child that settled at the expected status, or that is `Disposed`, ends
+/// the wait as a success (spec/02 §6, ADR-0189).
 fn child_settled_result<N: VmNode>(child: &N, expected: ConstructionStatus) -> VmxResult<()> {
     let status = child.status();
-    if status == expected {
+    if status == expected || status == ConstructionStatus::Disposed {
         return Ok(());
     }
     Err(VmxError::Other(format!(
@@ -2931,7 +2952,7 @@ pub trait TreeNode: VmNode {
     /// [`walk`](crate::walk), [`walk_expanded`](crate::walk_expanded) and
     /// [`find`](crate::find) read children through this method, so a node
     /// whose children can fail to load reports that failure to the caller
-    /// (spec/13 §6, ADR-0170). The default wraps
+    /// (spec/13 §6.1, ADR-0170). The default wraps
     /// [`children_nodes`](Self::children_nodes) in `Ok`.
     fn try_children_nodes(&self) -> VmxResult<Vec<Self>> {
         Ok(self.children_nodes())
@@ -3015,6 +3036,9 @@ struct ComponentCoreInner<D: Dispatcher> {
     owned_cleanups: Vec<OwnedCleanup>,
     terminal_cleanups: Vec<OwnedCleanup>,
     disposal_complete: bool,
+    /// Set once this core reported its `Disposed` publication to its owner,
+    /// so the owner's dispose clear runs once (spec/06 §4.3 rule 9).
+    disposal_reported: bool,
     active_hook_owner: Option<ThreadId>,
     /// Threads blocked in a recorded wait for the active hook.
     hook_waiters: usize,
@@ -3092,6 +3116,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 owned_cleanups: Vec::new(),
                 terminal_cleanups: Vec::new(),
                 disposal_complete: false,
+                disposal_reported: false,
                 active_hook_owner: None,
                 hook_waiters: 0,
                 deferred_core_disposal: false,
@@ -4475,11 +4500,19 @@ impl<D: Dispatcher> ComponentCore<D> {
         );
     }
 
+    /// Runs one child's transition. A walk skips a child that is `Disposed`
+    /// when it reaches it and calls no lifecycle operation on it (spec/02
+    /// §6, ADR-0189).
     fn run_child_transition<N: VmNode>(
         &self,
         child: &N,
         operation: LifecycleOperation,
     ) -> VmxResult<()> {
+        if operation != LifecycleOperation::Dispose
+            && child.status() == ConstructionStatus::Disposed
+        {
+            return Ok(());
+        }
         let expected = match operation {
             LifecycleOperation::Construct => {
                 child.construct()?;
@@ -4852,6 +4885,36 @@ impl<D: Dispatcher> ComponentCore<D> {
         finish_with_first_failure(first_failure)
     }
 
+    /// Disposes a container like [`Self::dispose_with_cascade_then`], with
+    /// its registered members (spec/02 §7.1) disposed after `children`, the
+    /// container's own child cascade (ADR-0179). The members are taken when
+    /// the disposal starts, so a member registered later is disposed by its
+    /// registration. The owner calls this once, behind its own disposal
+    /// guard.
+    pub(crate) fn dispose_container_then(
+        &self,
+        children: DisposalCascade,
+        terminal: impl FnOnce() + Send + 'static,
+    ) -> VmxResult<()> {
+        let members = self.begin_member_disposal().unwrap_or_default();
+        // The cascade can be stored on the core behind a running hook, so it
+        // holds the core weakly (#750).
+        let core = self.downgrade();
+        self.dispose_with_cascade_then(
+            Box::new(move || {
+                let mut first_failure = run_disposal_cascade(children);
+                for member in members {
+                    retain_first_failure(&mut first_failure, member);
+                }
+                if let Some(core) = core.upgrade() {
+                    core.finish_member_disposal();
+                }
+                first_failure
+            }),
+            terminal,
+        )
+    }
+
     fn finish_dispose(&self) -> VmxResult<()> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             self.transition(LifecycleOperation::Dispose)
@@ -4859,10 +4922,28 @@ impl<D: Dispatcher> ComponentCore<D> {
         if lock(&self.inner).disposal_complete {
             self.run_terminal_cleanups();
         }
-        match result {
-            Ok(result) => result,
-            Err(payload) => resume_unwind(payload),
+        let cleared = catch_unwind(AssertUnwindSafe(|| self.report_disposal_to_parent()));
+        match (result, cleared) {
+            (Err(payload), _) | (Ok(_), Err(payload)) => resume_unwind(payload),
+            (Ok(result), Ok(cleared)) => result.and(cleared),
         }
+    }
+
+    /// Reports the `Disposed` publication to the owner once, after it was
+    /// published and before `dispose()` returns, so a composite clears a
+    /// disposed `current` child (spec/06 §4.3 rule 9, ADR-0189). No lock is
+    /// held while the owner clears.
+    fn report_disposal_to_parent(&self) -> VmxResult<()> {
+        let report = {
+            let mut inner = lock(&self.inner);
+            if inner.status != ConstructionStatus::Disposed || inner.disposal_reported {
+                None
+            } else {
+                inner.disposal_reported = true;
+                inner.parent.clone().map(|parent| (inner.id, parent))
+            }
+        };
+        report.map_or(Ok(()), |(id, parent)| parent.child_disposed(id))
     }
 
     fn complete_disposal(&self) {
@@ -5016,9 +5097,20 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     /// Commits the current flag without publishing it; returns whether it
-    /// changed (spec/06 §4.3).
+    /// changed (spec/06 §4.3). On a `Disposed` node a commit to `false` sets
+    /// the flag and reports no change to publish, and a commit to `true`
+    /// changes nothing (spec/02 §3 invariant 3, ADR-0189).
     pub(crate) fn commit_current_flag(&self, selected: bool) -> bool {
-        let mut inner = lock(&self.inner);
+        Self::commit_selected(&mut lock(&self.inner), selected)
+    }
+
+    fn commit_selected(inner: &mut ComponentCoreInner<D>, selected: bool) -> bool {
+        if inner.status == ConstructionStatus::Disposed {
+            if !selected {
+                inner.selected = false;
+            }
+            return false;
+        }
         if inner.selected == selected {
             false
         } else {
@@ -5033,15 +5125,7 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     pub(crate) fn set_current_flag(&self, selected: bool) {
-        let changed = {
-            let mut inner = lock(&self.inner);
-            if inner.selected == selected {
-                false
-            } else {
-                inner.selected = selected;
-                true
-            }
-        };
+        let changed = Self::commit_selected(&mut lock(&self.inner), selected);
         if changed {
             self.notify_property_changed("is_current");
         }
