@@ -17,6 +17,7 @@ mod conformance {
     mod command_ext;
     mod commands;
     mod component_vm;
+    mod composite_selection_disposal;
     mod composite_vm;
     mod confirmation_async_inner;
     mod container_disposal_wait_cycle;
@@ -26,6 +27,7 @@ mod conformance {
     mod dialogs;
     mod dictionary_key_view_order;
     mod discriminator;
+    mod disposed_child_walks;
     mod drop_panic_publication;
     mod drop_reentry;
     mod expandable;
@@ -59,6 +61,8 @@ mod conformance {
     mod message_hub;
     mod message_recorder;
     mod modeled_crud;
+    // The notifications sub-package is a Cargo feature (ADR-0211).
+    #[cfg(feature = "notifications")]
     mod notifications;
     mod null_services;
     mod observable_list_replace_all;
