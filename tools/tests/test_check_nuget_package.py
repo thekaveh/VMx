@@ -1,6 +1,9 @@
 """Unit tests for tools/check-nuget-package.py."""
 
+import shutil
 import stat
+import subprocess
+import time
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
@@ -502,11 +505,75 @@ def test_validate_readme_reports_each_raw_html_tag() -> None:
         "See <https://thekaveh.github.io/VMx/> for docs.",
         "Escaped \\<div> is text.",
         "A comparison: 1 < 2 and 3 > 2.",
+        "    var x = new List<int>();",
+        "``List<T>`` and ``a ` <b> ``",
+        " ```cs\n var x = new List<int>();\n ```",
+        "  ```cs\n  var x = new List<int>();\n  ```",
+        "   ~~~\n   List<T>\n   ~~~",
+        '[a](https://example.com "<b>x</b>")',
+        "[a][r]\n\n[r]: https://example.com '<b>x</b>'",
+        "- item\n\n  ```cs\n  List<T>\n  ```",
+        "- item\n\n      List<T>",
     ],
-    ids=["inline-code", "fenced-code", "autolink", "escaped", "comparison"],
+    ids=[
+        "inline-code",
+        "fenced-code",
+        "autolink",
+        "escaped",
+        "comparison",
+        "indented-code",
+        "double-backtick-span",
+        "fence-indented-one",
+        "fence-indented-two",
+        "tilde-fence-indented-three",
+        "link-title",
+        "definition-title",
+        "fence-in-list",
+        "indented-code-in-list",
+    ],
 )
 def test_validate_readme_accepts_markdown_that_is_not_raw_html(body: str) -> None:
     assert checker.validate_readme(f"# VMx\n\n{body}\n", "VMx") == []
+
+
+@pytest.mark.parametrize(
+    ("body", "tag"),
+    [
+        ("Text\n    List<T> continues the paragraph.", "<T>"),
+        ("- item\n\n    List<T> is list text.", "<T>"),
+        ("    ```\n    code\n    ```\n\nAfter <b>x</b>", "<b>"),
+        ("```\ncode\n```\n\nAfter <b>x</b>", "<b>"),
+        ("Unmatched ``List<T>` run.", "<T>"),
+        ("`a\n\n<b>` crosses a blank line.", "<b>"),
+        ('[a](https://example.com "t") then <b>x</b>', "<b>"),
+    ],
+    ids=[
+        "paragraph-continuation",
+        "list-paragraph",
+        "after-indented-code",
+        "after-fence",
+        "unmatched-backticks",
+        "span-across-blank-line",
+        "after-link-title",
+    ],
+)
+def test_validate_readme_still_rejects_raw_html_outside_code(body: str, tag: str) -> None:
+    errors = checker.validate_readme(f"# VMx\n\n{body}\n", "VMx")
+
+    assert f"{_RAW_HTML_ERROR}{tag}" in errors
+
+
+@pytest.mark.parametrize("opener", ["<!-- ", "<? "])
+def test_validate_readme_scans_unterminated_openers_in_linear_time(opener: str) -> None:
+    # #1439: each unterminated opener used to scan to the end of the text.
+    readme = "# VMx\n\n" + opener * 50_000 + "\n"
+
+    started = time.perf_counter()
+    errors = checker.validate_readme(readme, "VMx")
+    elapsed = time.perf_counter() - started
+
+    assert errors == []
+    assert elapsed < 1.0, f"{elapsed:.2f} s"
 
 
 def test_validate_readme_applies_link_rules_to_autolinks() -> None:
@@ -548,6 +615,13 @@ _RAW = "https://raw.githubusercontent.com/thekaveh/VMx/main/"
         "[license][l]\n\n[l]: https://github.com/TheKaveh/vmx/blob/main/LICENSE",
         f"[old]({_BLOB.replace('/main/', '/v1.0.0/')}missing.md)",
         "[other](https://github.com/someone/else/blob/main/missing.md)",
+        "[guide](https://www.github.com/thekaveh/VMx/blob/main/docs/content/Guide%20One.md)",
+        "[guide](https://github.com/thekaveh/VMx/blob/HEAD/docs/content/Guide%20One.md)",
+        "[docs](https://github.com/thekaveh/VMx/tree/refs/heads/main/docs/content)",
+        "![p](https://raw.githubusercontent.com/thekaveh/VMx/HEAD/assets/poster.png)",
+        "![p](https://raw.githubusercontent.com/thekaveh/VMx/refs/heads/main/assets/poster.png)",
+        f"[guide]({_BLOB}assets/../docs/./content/Guide%20One.md)",
+        "[clone](https://github.com/thekaveh/VMx.git)",
     ],
     ids=[
         "encoded-file-with-fragment",
@@ -559,6 +633,13 @@ _RAW = "https://raw.githubusercontent.com/thekaveh/VMx/main/"
         "case-insensitive-owner",
         "other-ref-not-checked",
         "other-repository-not-checked",
+        "www-host",
+        "blob-head",
+        "tree-refs-heads-main",
+        "raw-head",
+        "raw-refs-heads-main",
+        "dot-segments-resolved",
+        "clone-url-without-a-path",
     ],
 )
 def test_validate_readme_accepts_repository_paths_present_in_the_tree(
@@ -601,6 +682,40 @@ def test_validate_readme_accepts_repository_paths_present_in_the_tree(
             f"See <{_BLOB}docs/gone.md>.",
             f"README link names a path missing from the checked-out tree: {_BLOB}docs/gone.md",
         ),
+        (
+            "[g](https://www.github.com/thekaveh/VMx/blob/main/docs/gone.md)",
+            "README link names a path missing from the checked-out tree: "
+            "https://www.github.com/thekaveh/VMx/blob/main/docs/gone.md",
+        ),
+        (
+            "[g](https://github.com/thekaveh/VMx/blob/HEAD/docs/gone.md)",
+            "README link names a path missing from the checked-out tree: "
+            "https://github.com/thekaveh/VMx/blob/HEAD/docs/gone.md",
+        ),
+        (
+            "[g](https://github.com/thekaveh/VMx/blob/refs/heads/main/docs/gone.md)",
+            "README link names a path missing from the checked-out tree: "
+            "https://github.com/thekaveh/VMx/blob/refs/heads/main/docs/gone.md",
+        ),
+        (
+            "![p](https://raw.githubusercontent.com/thekaveh/VMx/HEAD/assets/gone.png)",
+            "README image names a path missing from the checked-out tree: "
+            "https://raw.githubusercontent.com/thekaveh/VMx/HEAD/assets/gone.png",
+        ),
+        (
+            "[g](https://github.com/thekaveh/VMx.git/blob/main/LICENSE)",
+            "README link uses a VMx.git path, which GitHub does not serve: "
+            "https://github.com/thekaveh/VMx.git/blob/main/LICENSE",
+        ),
+        (
+            f"[g]({_BLOB}docs/../../LICENSE)",
+            f"README link names a path above the repository root: {_BLOB}docs/../../LICENSE",
+        ),
+        (
+            f"[g]({_BLOB}assets/../docs/gone.md)",
+            "README link names a path missing from the checked-out tree: "
+            f"{_BLOB}assets/../docs/gone.md",
+        ),
     ],
     ids=[
         "missing-file",
@@ -610,6 +725,13 @@ def test_validate_readme_accepts_repository_paths_present_in_the_tree(
         "missing-raw-image",
         "reference-definition",
         "autolink",
+        "www-host",
+        "blob-head",
+        "blob-refs-heads-main",
+        "raw-head",
+        "dot-git-repository",
+        "above-repository-root",
+        "dot-segments-resolved",
     ],
 )
 def test_validate_readme_rejects_repository_paths_missing_from_the_tree(
@@ -618,6 +740,33 @@ def test_validate_readme_rejects_repository_paths_missing_from_the_tree(
     # #351: a published README cannot change, so a renamed or moved file
     # would leave a dangling link on nuget.org with no CI signal.
     assert checker.validate_readme(f"# VMx\n\n{body}\n", "VMx", repo_root=repo_root) == [error]
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(root), *args], check=True, capture_output=True, text=True, timeout=30
+    )
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
+def test_validate_readme_requires_tracked_paths_in_a_git_work_tree(repo_root: Path) -> None:
+    _git(repo_root, "init", "-q")
+    (repo_root / ".gitignore").write_text("build/\n", encoding="utf-8")
+    _git(repo_root, "add", ".gitignore", "docs", "LICENSE")
+    (repo_root / "build").mkdir()
+    (repo_root / "build" / "out.md").write_text("ignored", encoding="utf-8")
+    body = (
+        f"[guide]({_BLOB}docs/content/Guide%20One.md) [docs]({_TREE}docs/content) "
+        f"[license]({_BLOB}LICENSE) [repo](https://github.com/thekaveh/VMx/tree/main)\n"
+        f"![untracked]({_RAW}assets/poster.png) [ignored]({_BLOB}build/out.md) "
+        f"[ignored-dir]({_TREE}build)"
+    )
+
+    assert checker.validate_readme(f"# VMx\n\n{body}\n", "VMx", repo_root=repo_root) == [
+        f"README image names a path missing from the checked-out tree: {_RAW}assets/poster.png",
+        f"README link names a path missing from the checked-out tree: {_BLOB}build/out.md",
+        f"README link names a path missing from the checked-out tree: {_TREE}build",
+    ]
 
 
 def test_main_resolves_readme_paths_against_the_repo_root_argument(
