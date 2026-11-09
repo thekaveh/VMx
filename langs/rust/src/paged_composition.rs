@@ -17,6 +17,9 @@ struct PagerState<T> {
     source: Vec<T>,
     page_size: usize,
     current_page_index: usize,
+    /// Counts the source replacements, so a stale copy never overwrites a
+    /// newer one.
+    source_generation: u64,
 }
 
 impl<T> PagerState<T> {
@@ -92,6 +95,7 @@ impl<T> PagerCore<T> {
     fn replace_source(&self, source: Vec<T>) {
         let (previous, clamped) = {
             let mut state = lock(&self.state);
+            state.source_generation = state.source_generation.wrapping_add(1);
             let previous = std::mem::replace(&mut state.source, source);
             (previous, state.clamp())
         };
@@ -148,6 +152,7 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
                     source,
                     page_size,
                     current_page_index: 0,
+                    source_generation: 0,
                 }),
                 hub,
                 id: next_id(),
@@ -339,13 +344,21 @@ impl<T: VmNode> PagedComposition<T> {
         });
         *lock(&pager.source_subscription) = Some(subscription);
         // A change between the first read and the subscription is read here,
-        // before any caller can observe the pager.
+        // before any caller can observe the pager. A change after the
+        // subscription runs the callback, which reads the children after the
+        // change. If a callback replaced the copy after this read began, its
+        // copy is kept, so an older read never overwrites it.
+        let generation = lock(&pager.core.state).source_generation;
         let current = source.children_reader()();
         let previous = {
             let mut state = lock(&pager.core.state);
-            let previous = std::mem::replace(&mut state.source, current);
-            state.clamp();
-            previous
+            if state.source_generation == generation {
+                let previous = std::mem::replace(&mut state.source, current);
+                state.clamp();
+                previous
+            } else {
+                current
+            }
         };
         drop(previous);
         pager

@@ -313,7 +313,7 @@ ADR-0006 and require no further action:
 - **Rationale**: TS follows the `Map.prototype.get` no-throw convention. C# and Python
   match the dictionary-throws idiom of their standard libraries.
 
-### 2.21 `ObservableDictionary` key-axis view mutability (Python read-only)
+### 2.21 `ObservableDictionary` key-axis view mutability (Python and Rust read-only)
 
 - **C# / TypeScript / Swift**: `Keys1`/`Keys2` return the live **mutable**
   `ObservableList<TKey>` — spec-literal (spec/21 §4.1 declares
@@ -321,11 +321,14 @@ ADR-0006 and require no further action:
 - **Python**: `keys1`/`keys2` return a `ReadOnlyObservableList` facade over the same
   live key axis — identical read + subscribe surface, but no mutators (VMX-014), so a
   caller cannot desync the view from the entries.
+- **Rust**: `keys1()`/`keys2()` on `ObservableMultiDictionary` return a
+  `ReadOnlyObservableList` facade over the live key axis, as Python does
+  (ADR-0208, §2.32).
 - **Rationale**: the documented use (spec/21 §4.2 — bind to `Keys1`/`Keys2` for
   category-view UIs) is read/subscribe-only, which the facade serves fully. Directly
   mutating the view in the spec-literal flavors (e.g. `Keys1.Clear()`) desyncs it from
   the entries — an unsupported footgun Python structurally prevents. Every
-  event/order/count thread is identical across all four. Converging the three mutable
+  event/order/count thread is identical across all five. Converging the three mutable
   flavors to a read-only view (and tightening spec/21 §4.1's declared type) is a
   reasonable future spec decision for the maintainer.
 
@@ -526,39 +529,7 @@ here so audits don't reopen them prematurely:
   syntax; the options-bag is the standard JS pattern for constructors with
   many optional parameters.
 
-### 2.32 Historical: divergences resolved in v1.2.0 (pre-v2 era)
-
-- C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
-- TypeScript `ConstructionStatusChangedMessage.sender` getter (additive). In
-  v3.0.0 `sender` became the message's sole stored field and the untyped
-  `senderObject` alias was removed (ADR-0054) — see the `IMessage` sender
-  field-name section above.
-- C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
-  on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
-
-### 2.33 Historical: divergences resolved in v3.x
-
-- Python removed the deprecated `RelayCommandOfT` / `RelayCommandOfTBuilder`
-  and `AggregateVMBuilderN` aliases in favor of `RelayCommandOf` and
-  `AggregateVMNBuilder` (ADR-0052).
-
-- Swift `CompositeVM` and `GroupVM` now expose the canonical insert, replace,
-  clear, and native `Sequence` surfaces through `VMCollection`.
-
-- Modeled assignment after disposal is inert in all five flavors (ADR-0091,
-  `DISP-014`).
-
-- **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
-  captured model snapshot while Python and TypeScript emitted the live model
-  after the persister await. ADR-0048 §2.4 (VMX-047) converged all three flavors
-  on the **pre-await captured** snapshot, so `OnApproved` fires with the value
-  that was actually persisted even under a concurrent `SetModel` during the
-  await. No longer a divergence — the three flavors match (C#
-  `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
-  `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
-  `this.#onApproved.next(current)`).
-
-### 2.34 Rust `ObservableList` and `ObservableMultiDictionary` surface (ADR-0208)
+### 2.32 Rust `ObservableList` and `ObservableMultiDictionary` surface (ADR-0208)
 
 These Rust differences remain after ADR-0208 and are idiomatic (ADR-0006):
 
@@ -583,6 +554,38 @@ These Rust differences remain after ADR-0208 and are idiomatic (ADR-0006):
 - **Single-key dictionary.** Rust also exports `ObservableDictionary<K, V>`,
   which takes a hub and has no local event or key view. Spec/21 §4.1 defines
   no single-key type.
+
+### 2.33 Historical: divergences resolved in v1.2.0 (pre-v2 era)
+
+- C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
+- TypeScript `ConstructionStatusChangedMessage.sender` getter (additive). In
+  v3.0.0 `sender` became the message's sole stored field and the untyped
+  `senderObject` alias was removed (ADR-0054) — see the `IMessage` sender
+  field-name section above.
+- C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
+  on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
+
+### 2.34 Historical: divergences resolved in v3.x
+
+- Python removed the deprecated `RelayCommandOfT` / `RelayCommandOfTBuilder`
+  and `AggregateVMBuilderN` aliases in favor of `RelayCommandOf` and
+  `AggregateVMNBuilder` (ADR-0052).
+
+- Swift `CompositeVM` and `GroupVM` now expose the canonical insert, replace,
+  clear, and native `Sequence` surfaces through `VMCollection`.
+
+- Modeled assignment after disposal is inert in all five flavors (ADR-0091,
+  `DISP-014`).
+
+- **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
+  captured model snapshot while Python and TypeScript emitted the live model
+  after the persister await. ADR-0048 §2.4 (VMX-047) converged all three flavors
+  on the **pre-await captured** snapshot, so `OnApproved` fires with the value
+  that was actually persisted even under a concurrent `SetModel` during the
+  await. No longer a divergence — the three flavors match (C#
+  `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
+  `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
+  `this.#onApproved.next(current)`).
 
 ## 3. Rationale
 

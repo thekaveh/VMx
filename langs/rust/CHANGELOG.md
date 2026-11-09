@@ -39,7 +39,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `PagedComposition::from_composite` and `from_composite_with_hub` page the
   children of a `CompositeVm` and replace the copy after each composite
   collection change. `dispose()` stops the observation and all publication.
-
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()`. The tests cover add, insert, remove and clear. ADR-0208 later
@@ -143,6 +142,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
   key comparison or a subscriber commits at once and is delivered after the
   current change. An Add message carries the entry's position when it is sent,
   or `None` when a local subscriber removed the entry (#733, ADR-0208).
+  The writer's wait is recorded in the wait-for graph (spec/03 §4.1). When the
+  delivering thread already waits for the writer, for example for the writer's
+  open hub batch, the wait is refused: the writer commits and queues its change
+  for the delivering thread instead of blocking.
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default

@@ -8,6 +8,8 @@ use super::{
     Mutex, Ordering, PropertyChangedMessage, PropertyChangedStream, ThreadId, VecDeque, VmxError,
     VmxResult,
 };
+use crate::runtime::wait_for_owner;
+use crate::wait_for_graph::{waits, Resource};
 use std::collections::hash_map::RandomState;
 use std::hash::BuildHasher;
 
@@ -916,8 +918,11 @@ struct EventStreamInner<E: ?Sized> {
 ///
 /// Each event reaches the subscribers present when it is sent, on the
 /// sending thread, before the mutation call returns. Late subscribers do not
-/// receive earlier events. Subscriber panics are isolated from the publisher
-/// and from the other subscribers (spec/21 §3.2, ADR-0208).
+/// receive earlier events. A list builds an event only when the stream has a
+/// subscriber as the mutation starts, so a subscriber added during a mutation
+/// of a stream that had none misses that mutation's event. Subscriber panics
+/// are isolated from the publisher and from the other subscribers (spec/21
+/// §3.2, ADR-0208).
 pub struct EventStream<E: ?Sized + 'static> {
     inner: Arc<Mutex<EventStreamInner<E>>>,
 }
@@ -2001,6 +2006,14 @@ struct DictionaryDelivery<K1, K2> {
 struct DictionaryDeliveryState<K1, K2> {
     pending: VecDeque<DictionaryChange<K1, K2>>,
     draining_owner: Option<ThreadId>,
+    /// The threads that wait for the delivery to end.
+    waiters: usize,
+}
+
+impl<K1, K2> DictionaryDeliveryState<K1, K2> {
+    fn waiters(&mut self) -> &mut usize {
+        &mut self.waiters
+    }
 }
 
 impl<K1, K2> Default for DictionaryDelivery<K1, K2> {
@@ -2009,19 +2022,40 @@ impl<K1, K2> Default for DictionaryDelivery<K1, K2> {
             state: Mutex::new(DictionaryDeliveryState {
                 pending: VecDeque::new(),
                 draining_owner: None,
+                waiters: 0,
             }),
             ready: Condvar::new(),
         }
     }
 }
 
+impl<K1, K2> DictionaryDelivery<K1, K2> {
+    /// The delivery, as one wait-for graph resource (spec/03 §4.1).
+    fn resource(&self) -> Resource {
+        Resource::DictionaryDelivery(std::ptr::from_ref(self) as usize)
+    }
+
+    /// Ends the delivery. The edges of the waiting threads are removed
+    /// before they wake (spec/03 §4.1 rule 4).
+    fn release(&self, state: &mut DictionaryDeliveryState<K1, K2>) {
+        state.draining_owner = None;
+        if state.waiters > 0 {
+            waits().release_waiters(self.resource(), &[]);
+        }
+        self.ready.notify_all();
+    }
+}
+
 /// Admits one mutation of a multi-key dictionary.
 ///
 /// One thread at a time mutates and delivers; another thread waits until the
-/// delivery ends. A nested mutation on the delivering thread, from a key
-/// comparison or a subscriber, commits at once and queues its change behind
-/// the change being delivered. When the admission that owns the delivery
-/// drops, it delivers every queued change in commit order.
+/// delivery ends, and records that wait in the wait-for graph. A nested
+/// mutation on the delivering thread, from a key comparison or a subscriber,
+/// commits at once and queues its change behind the change being delivered.
+/// When the admission that owns the delivery drops, it delivers every queued
+/// change in commit order. When the wait would close a wait-for cycle, the
+/// waiting thread does not wait: it commits and queues its change for the
+/// delivering thread, as a refused hub `send` does (spec/03 §4.1).
 struct DictionaryAdmission<'a, K1, K2, V>
 where
     K1: Clone + Eq + Hash + Send + 'static,
@@ -2040,7 +2074,7 @@ where
     V: Clone + Send + 'static,
 {
     fn drop(&mut self) {
-        if self.owns_drain {
+        if self.owns_drain || self.dictionary.claim_released_drain(self.current) {
             self.dictionary.drain(self.current);
         }
     }
@@ -2160,11 +2194,30 @@ where
         }
     }
 
+    /// Admits one mutation. A thread waits while another thread delivers,
+    /// and records the wait in the wait-for graph. When the wait would close
+    /// a cycle, the mutation is admitted without the delivery: it commits and
+    /// queues its change for the delivering thread (spec/03 §4.1, ADR-0208).
     fn admit(&self) -> DictionaryAdmission<'_, K1, K2, V> {
         let current = thread::current().id();
         let mut state = lock(&self.delivery.state);
-        while state.draining_owner.is_some_and(|owner| owner != current) {
-            state = wait(&self.delivery.ready, state);
+        while let Some(owner) = state.draining_owner.filter(|owner| *owner != current) {
+            let refused;
+            (state, refused) = wait_for_owner(
+                &self.delivery.state,
+                &self.delivery.ready,
+                state,
+                DictionaryDeliveryState::waiters,
+                self.delivery.resource(),
+                owner,
+            );
+            if refused {
+                return DictionaryAdmission {
+                    dictionary: self,
+                    current,
+                    owns_drain: false,
+                };
+            }
         }
         let owns_drain = state.draining_owner.is_none();
         if owns_drain {
@@ -2177,6 +2230,22 @@ where
         }
     }
 
+    /// Takes the delivery when it was released with changes still queued. A
+    /// mutation whose wait was refused queues its change for the delivering
+    /// thread; if that thread ended its delivery first, the mutation
+    /// delivers the change itself.
+    fn claim_released_drain(&self, current: ThreadId) -> bool {
+        let mut state = lock(&self.delivery.state);
+        if state.draining_owner.is_some() || state.pending.is_empty() {
+            return false;
+        }
+        state.draining_owner = Some(current);
+        true
+    }
+
+    /// Queues a committed change. The caller holds the entries lock, so the
+    /// queue order is the commit order, also when a mutation whose wait was
+    /// refused commits beside the delivering thread.
     fn enqueue(&self, change: DictionaryChange<K1, K2>) {
         lock(&self.delivery.state).pending.push_back(change);
     }
@@ -2190,8 +2259,7 @@ where
                 let mut state = lock(&self.delivery.state);
                 debug_assert_eq!(state.draining_owner, Some(current));
                 let Some(change) = state.pending.pop_front() else {
-                    state.draining_owner = None;
-                    self.delivery.ready.notify_all();
+                    self.delivery.release(&mut state);
                     return;
                 };
                 change
@@ -2217,8 +2285,7 @@ where
                 let mut state = lock(&self.delivery.state);
                 debug_assert_eq!(state.draining_owner, Some(current));
                 let Some(change) = state.pending.pop_front() else {
-                    state.draining_owner = None;
-                    self.delivery.ready.notify_all();
+                    self.delivery.release(&mut state);
                     return;
                 };
                 change
@@ -2342,19 +2409,20 @@ where
             }
             inner.entries.revision = inner.entries.revision.wrapping_add(1);
             let (key1, key2, value) = entry.take().expect("entry pending");
-            (
+            let replaced = (
                 key1,
                 key2,
                 std::mem::replace(&mut inner.entries.values[index], value),
-            )
+            );
+            self.enqueue(DictionaryChange {
+                action: CollectionChangeAction::Replace,
+                added: None,
+                keys1: None,
+                keys2: None,
+            });
+            replaced
         };
         drop(replaced);
-        self.enqueue(DictionaryChange {
-            action: CollectionChangeAction::Replace,
-            added: None,
-            keys1: None,
-            keys2: None,
-        });
         true
     }
 
@@ -2378,7 +2446,7 @@ where
             .is_none()
             .then(|| (pending.1.clone(), pending.1.clone()));
         let mut retired = (None, None, None);
-        let (keys1, keys2, added) = {
+        {
             let mut inner = lock(&self.inner);
             if inner.entries.revision != location.revision {
                 drop(inner);
@@ -2417,15 +2485,15 @@ where
             let id = state.next_id;
             state.next_id = state.next_id.wrapping_add(1);
             state.ids.push(id);
-            (keys1, keys2, (id, position, state.entries.revision))
-        };
+            let added = (id, position, state.entries.revision);
+            self.enqueue(DictionaryChange {
+                action: CollectionChangeAction::Add,
+                added: Some(added),
+                keys1,
+                keys2,
+            });
+        }
         drop(retired);
-        self.enqueue(DictionaryChange {
-            action: CollectionChangeAction::Add,
-            added: Some(added),
-            keys1,
-            keys2,
-        });
         true
     }
 
@@ -2439,15 +2507,15 @@ where
             state.entries.revision = state.entries.revision.wrapping_add(1);
             state.slots.clear();
             state.ids.clear();
+            self.enqueue(DictionaryChange {
+                action: CollectionChangeAction::Reset,
+                added: None,
+                keys1: Some(KeyViewChange::Clear),
+                keys2: Some(KeyViewChange::Clear),
+            });
             (state.entries.take(), state.axis1.take(), state.axis2.take())
         };
         drop(removed);
-        self.enqueue(DictionaryChange {
-            action: CollectionChangeAction::Reset,
-            added: None,
-            keys1: Some(KeyViewChange::Clear),
-            keys2: Some(KeyViewChange::Clear),
-        });
         drop(admission);
     }
 
@@ -2485,7 +2553,7 @@ where
     /// released.
     fn commit_remove(&self, index: usize, revision: u64) -> Option<V> {
         let mut retired = (None, None, None);
-        let (value, removed, keys1, keys2) = {
+        let (value, removed) = {
             let mut inner = lock(&self.inner);
             if inner.entries.revision != revision {
                 return None;
@@ -2507,15 +2575,15 @@ where
             }
             let (keys1, key1) = released1.unzip();
             let (keys2, key2) = released2.unzip();
-            (value, (keys, key1, key2), keys1, keys2)
+            self.enqueue(DictionaryChange {
+                action: CollectionChangeAction::Remove,
+                added: None,
+                keys1,
+                keys2,
+            });
+            (value, (keys, key1, key2))
         };
         drop((removed, retired));
-        self.enqueue(DictionaryChange {
-            action: CollectionChangeAction::Remove,
-            added: None,
-            keys1,
-            keys2,
-        });
         Some(value)
     }
 

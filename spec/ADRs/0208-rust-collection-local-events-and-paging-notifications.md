@@ -2,13 +2,14 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-09
-- **Spec version:** 3.30.0 (chapter 06 §4; chapter 21 §3.2, §4.1, §4.2, §4.6,
-  §5.1, §5.2 and §5.5; `COMP-041`, `COMP-042`, `GRP-012`, `COL-005` to
+- **Spec version:** 3.30.0 (chapter 03 §4.1; chapter 06 §4; chapter 21 §3.2,
+  §4.1, §4.2, §4.6, §5.1, §5.2 and §5.5; `COMP-041`, `COMP-042`, `GRP-012`, `COL-005` to
   `COL-009`, `COL-031`, `COL-066` and `COL-067` apply to Rust in full)
 - **Related:** [ADR-0009](0009-cross-flavor-divergence-catalogue.md) §2.25 and
-  §2.34, [ADR-0026](0026-granular-observable-list.md),
+  §2.32, [ADR-0026](0026-granular-observable-list.md),
   [ADR-0142](0142-vm-collections-publish-collection-changes-on-the-hub.md),
   [ADR-0168](0168-swift-and-rust-paged-composition-page-a-stored-copy.md),
+  [ADR-0172](0172-one-wait-for-graph-per-flavor.md),
   [ADR-0177](0177-dictionary-key-views-update-before-dictionary-events.md),
   #1256, #1257, #1269, #1296.
 
@@ -61,7 +62,8 @@ forwards the stream of its composite.
    `ItemRemovedEvent { item, index }` (the index before the removal),
    `ItemReplacedEvent { new_item, old_item, index }` and `()`. A stream is hot
    and synchronous. A subscriber panic is isolated. A payload is built only
-   when its stream has a subscriber.
+   when its stream has a subscriber as the mutation starts. A subscriber
+   added during that mutation to a stream that had none misses its event.
 1. `property_changed()` sends the spec-literal `Count` name after the granular
    event or `Reset` that changed the count (spec/21 §3.3).
 1. `remove(&item)` removes the first equal item, sends `ItemRemoved`, and
@@ -94,6 +96,17 @@ forwards the stream of its composite.
    views therefore change in commit order and stay in step with the entries.
    If the thread unwinds, it applies the queued view changes with no
    notification.
+1. The wait for another thread's delivery is a wait between VMx-owned
+   resources, so it is recorded in the wait-for graph (spec/03 §4.1,
+   ADR-0172). The delivering thread runs user `hash`, `eq` and subscriber code
+   and sends to the hub, so it can itself wait for the waiting thread, for
+   example for that thread's open hub batch. The wait that would close that
+   cycle is refused. The refused mutation then commits and queues its change
+   for the delivering thread, as a refused hub `Send` enqueues for the active
+   drain. Its call returns before the change is delivered. Each change is
+   queued under the entries lock, so the queue order is the commit order. If
+   the delivering thread has already ended its delivery, the refused mutation
+   delivers the queue itself.
 1. An Add message carries the entry's position when the message is sent
    (spec/21 §2.4, #733). If a local subscriber moved the entry, the hub
    message carries the new position. If it removed the entry, the position is
@@ -136,8 +149,10 @@ constructor, which takes a hub.
 - Rust callers of `ObservableList::new(id, hub)` and
   `ObservableMultiDictionary::new(id, hub)` change to `with_hub`. Callers that
   used `keys1()` or `keys2()` as a `Vec` call `.to_vec()`.
-- ADR-0009 §2.34 lists the Rust differences that remain idiomatic, and §2.25
-  adds the Rust paging shape.
+- Spec/03 §4.1 gains the dictionary delivery wait. Its refused-wait result is
+  the one of a hub `Send`: the change is queued for the delivering thread.
+- ADR-0009 §2.32 lists the Rust differences that remain idiomatic, §2.21
+  names the Rust read-only key views, and §2.25 adds the Rust paging shape.
 - A build of n distinct keys makes O(n) comparisons on average. On one machine
   a release build of 40,000 `u64` keys took 4.4 times as long as 10,000 keys,
   for both dictionaries.
@@ -153,6 +168,10 @@ constructor, which takes a hub.
 - **Return the backing `ObservableList` from `keys1()`.** A caller edit would
   desync the view from the entries. The read-only facade matches the Python
   view and the direction of the other flavors.
+- **Let a foreign writer never wait, as a hub `Send` to a draining hub does.**
+  A writer's call would then return before its key views change, also when no
+  cycle exists. Waiting keeps the views updated when the call returns, and the
+  refused wait keeps the cycle case live.
 - **Hold the dictionary lock while comparing keys in a `HashMap<K, _>`.** User
   `hash` and `eq` would run under a VMx mutex, against #765.
 - **Follow a caller-owned `Vec`.** ADR-0168 keeps it out of scope.

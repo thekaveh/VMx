@@ -56,6 +56,9 @@ mod conformance {
     mod message_hub;
     mod message_recorder;
     mod modeled_crud;
+    // Every case here observes the wait-for graph through a test seam.
+    #[cfg(feature = "test-seams")]
+    mod multi_dictionary_delivery_wait_cycle;
     mod multi_dictionary_events;
     mod notifications;
     mod null_services;

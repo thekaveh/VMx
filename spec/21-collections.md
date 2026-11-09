@@ -731,7 +731,12 @@ Rust `ObservableMultiDictionary::new` takes no hub, and `with_hub` takes one.
 `keys1()` and `keys2()` return live `ReadOnlyObservableList` views. A view has
 the read and subscribe members of `ObservableList` and no mutator (ADR-0208).
 The local collection-changed event is `collection_changed()`. Rust has no
-indexer and no `TryGetValue`; `get` returns `Option<V>` (ADR-0009).
+indexer and no `TryGetValue`; `get` returns `Option<V>` (ADR-0009). One Rust
+thread at a time delivers a dictionary's changes. A mutation on another thread
+waits for that delivery and records the wait in the wait-for graph (chapter 03
+§4.1). When the wait would close a cycle, the mutation commits and queues its
+change for the delivering thread, which delivers the changes in commit order
+(ADR-0208).
 
 ### 4.3 No cascading insertion
 
