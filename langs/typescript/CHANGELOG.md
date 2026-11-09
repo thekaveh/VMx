@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `markSchedulerCancelled(scheduler)` (ADR-0200, #1481). A custom scheduler
+  that cancels its queued work calls it before it unsubscribes, so VMx runs no
+  hook and publishes no status for that work.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -74,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A shared-scheduler flush no longer drops a lifecycle failure (ADR-0200,
+  spec/02 §6.1, #1481). The first failure to leave the flush is still thrown.
+  Every other failure of the flush, including a failure of recovered work
+  (#1052), is reported once through rxjs `config.onUnhandledError` after the
+  flush returns.
 - `TokenPagedComposition`: a load also checks `hasMore` when it starts, as in
   the other flavors (#1161, ADR-0169). Behavior does not change: the load body
   already starts in the admission turn.
@@ -100,6 +108,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A current `AsyncResourceVM` loader that ends with its own cancellation now
+  restores the saved stable state, as `cancel()` does, instead of installing
+  `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The cancellation can come
+  from any source, such as a shared request that another owner cancels. A
+  superseded loader's cancellation changes nothing. The signal is a rejection
+  whose `name` is `"AbortError"`.
 - A `FormVM` call nested in a preparation callback or an `errorsChanged`
   observer of `setModel` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,
@@ -213,7 +227,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A background VM now settles when non-VMx work throws in the same scheduler
   flush (#1052). VMx runs its lifecycle actions that the flush error dropped;
   `ManualDispatcher.dispose()` still cancels them. A flush surfaces one error
-  (#1053 rule); a failure of recovered work is dropped.
+  (#1053 rule); a failure of recovered work is reported (ADR-0200).
 - `observeHub` now labels a tree message from a second package copy as
   `TreeStructureChangedMessage` (#1079). It classifies tree messages with
   `isTreeStructureChanged`, which matches by class and then by shape (ADR-0163).
