@@ -1341,26 +1341,125 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         )
     }
 
+    /// COMP-040 — a population whose compensation also fails reports both
+    /// failures: the original construct failure and the first destruct
+    /// failure of the compensation (ADR-0218 rule 1, #1305).
     func testPopulationSurfacesLifecycleCompensationFailure() {
-        let first = CompensatingOwnershipChild("first", failDestruct: true)
-        let blocker = CompensatingOwnershipChild("blocker", failConstruct: true)
-        let destination = GroupVM<CompensatingOwnershipChild>(
-            name: "destination",
-            hub: NullMessageHub.INSTANCE,
-            dispatcher: NullDispatcher.INSTANCE,
-            childrenFactory: { [first, blocker] }
-        )
+        for kind in ["composite", "group"] {
+            let first = CompensatingOwnershipChild("first", failDestruct: true)
+            let blocker = CompensatingOwnershipChild("blocker", failConstruct: true)
+            let destination: ComponentVMBase = kind == "composite"
+                ? CompositeVM<CompensatingOwnershipChild>(
+                    name: "destination",
+                    hub: NullMessageHub.INSTANCE,
+                    dispatcher: NullDispatcher.INSTANCE,
+                    childrenFactory: { [first, blocker] }
+                )
+                : GroupVM<CompensatingOwnershipChild>(
+                    name: "destination",
+                    hub: NullMessageHub.INSTANCE,
+                    dispatcher: NullDispatcher.INSTANCE,
+                    childrenFactory: { [first, blocker] }
+                )
 
-        XCTAssertThrowsError(try destination.construct()) { error in
-            guard let ownershipError = error as? ContainerOwnershipError,
-                  case let .attachmentFailed(underlying) = ownershipError,
-                  let compensation = underlying as? OwnershipTestError,
-                  compensation == .destructFailed else {
-                return XCTFail("expected surfaced destruct compensation failure, got \(error)")
+            XCTAssertThrowsError(try destination.construct(), kind) { error in
+                guard let ownershipError = error as? ContainerOwnershipError,
+                      case let .attachmentFailed(underlying) = ownershipError,
+                      let rollback = underlying as? ContainerRollbackError else {
+                    return XCTFail("\(kind): expected ContainerRollbackError, got \(error)")
+                }
+                XCTAssertEqual(rollback.originalError as? OwnershipTestError, .constructFailed, kind)
+                XCTAssertEqual(
+                    rollback.compensationError as? OwnershipTestError, .destructFailed, kind
+                )
+            }
+            XCTAssertNil(first._ownershipParent, kind)
+            XCTAssertNil(blocker._ownershipParent, kind)
+        }
+    }
+
+    /// COMP-040 — an add, insert or index replacement whose compensation
+    /// also fails reports both failures (ADR-0218 rule 1, #1305). The
+    /// child's construct hook disposes the destination, so the change fails
+    /// after the child is `Constructed`; the compensating destruct fails.
+    func testCOMP040RollbackErrorCarriesOriginalAndCompensationFailures() throws {
+        for kind in ["composite", "group"] {
+            for operation in ["add", "insert", "replace"] {
+                let label = "\(kind) \(operation)"
+                var destination: ComponentVMBase!
+                let existing = CompensatingOwnershipChild("existing")
+                let child = RollbackProbeChild("child") { destination.dispose() }
+                let change: () -> Result<Void, ContainerOwnershipError>
+                if kind == "composite" {
+                    let composite = CompositeVM<ComponentVMBase>(
+                        name: "destination",
+                        hub: NullMessageHub.INSTANCE,
+                        dispatcher: NullDispatcher.INSTANCE,
+                        autoConstructOnAdd: true
+                    )
+                    try composite.addResult(existing).get()
+                    destination = composite
+                    change = {
+                        switch operation {
+                        case "add": return composite.addResult(child)
+                        case "insert": return composite.insertResult(child, at: 0)
+                        default: return composite.replaceResult(at: 0, with: child)
+                        }
+                    }
+                } else {
+                    let group = GroupVM<ComponentVMBase>(
+                        name: "destination",
+                        hub: NullMessageHub.INSTANCE,
+                        dispatcher: NullDispatcher.INSTANCE,
+                        autoConstructOnAdd: true
+                    )
+                    try group.addResult(existing).get()
+                    destination = group
+                    change = {
+                        switch operation {
+                        case "add": return group.addResult(child)
+                        case "insert": return group.insertResult(child, at: 0)
+                        default: return group.replaceResult(at: 0, with: child)
+                        }
+                    }
+                }
+                try destination.construct()
+
+                let result = change()
+
+                guard case .failure(.attachmentFailed(let inner)) = result,
+                      let rollback = inner as? ContainerRollbackError else {
+                    XCTFail("\(label): expected ContainerRollbackError, got \(result)")
+                    continue
+                }
+                guard case .attachmentFailed(let original)? =
+                        rollback.originalError as? ContainerOwnershipError else {
+                    XCTFail("\(label): unexpected original \(rollback.originalError)")
+                    continue
+                }
+                // The original failure is the container's private disposal
+                // admission error, not the compensation failure.
+                XCTAssertTrue(String(describing: type(of: original)).contains("DisposalAdmissionError"), label)
+                XCTAssertEqual(
+                    rollback.compensationError as? OwnershipTestError, .destructFailed, label
+                )
+                XCTAssertNil(child._ownershipParent, label)
+                XCTAssertEqual(destination.status, .disposed, label)
             }
         }
-        XCTAssertEqual(destination.count, 0)
-        XCTAssertNil(first._ownershipParent)
-        XCTAssertNil(blocker._ownershipParent)
+    }
+}
+
+/// A child whose construct hook runs `onConstruct` and whose destruct hook
+/// always fails.
+private final class RollbackProbeChild: ComponentVMBase {
+    init(_ name: String, onConstruct: @escaping () -> Void) {
+        super.init(
+            name: name,
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            onConstruct: onConstruct,
+            onDestruct: { throw OwnershipTestError.destructFailed }
+        )
     }
 }

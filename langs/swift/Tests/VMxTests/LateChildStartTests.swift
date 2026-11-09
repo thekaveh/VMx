@@ -48,13 +48,16 @@ final class LateChildStartTests: XCTestCase {
         let add: (ComponentVM) -> Bool
         let contains: (ComponentVM) -> Bool
         let setProbe: (((ComponentVMBase, LateChildStage) -> Void)?) -> Void
+        let collectionChanged: AnyPublisher<CollectionChangedEvent, Never>
         let log: Recorder
         let subscription: AnyCancellable
     }
 
     /// A container with auto-construct-on-add whose one factory child is a
     /// background child, so `construct()` leaves the container Constructing.
-    private func makeHarness(_ kind: String) throws -> Harness {
+    /// `rootDispatcher` replaces the container's dispatcher; the children
+    /// keep the manual one.
+    private func makeHarness(_ kind: String, rootDispatcher: Dispatcher? = nil) throws -> Harness {
         let hub = MessageHub()
         let dispatcher = ManualDispatcher()
         let log = Recorder()
@@ -68,7 +71,7 @@ final class LateChildStartTests: XCTestCase {
             .build()
         if kind == "composite" {
             let root = CompositeVM<ComponentVM>(
-                name: "root", hub: hub, dispatcher: dispatcher,
+                name: "root", hub: hub, dispatcher: rootDispatcher ?? dispatcher,
                 childrenFactory: { [first] }, autoConstructOnAdd: true
             )
             return Harness(
@@ -79,11 +82,12 @@ final class LateChildStartTests: XCTestCase {
                 },
                 contains: { child in root.snapshot().contains { $0 === child } },
                 setProbe: { root.lateChildProbeForTesting = $0 },
+                collectionChanged: root.collectionChanged,
                 log: log, subscription: subscription
             )
         }
         let root = GroupVM<ComponentVM>(
-            name: "root", hub: hub, dispatcher: dispatcher,
+            name: "root", hub: hub, dispatcher: rootDispatcher ?? dispatcher,
             childrenFactory: { [first] }, autoConstructOnAdd: true
         )
         return Harness(
@@ -94,6 +98,7 @@ final class LateChildStartTests: XCTestCase {
             },
             contains: { child in root.snapshot().contains { $0 === child } },
             setProbe: { root.lateChildProbeForTesting = $0 },
+            collectionChanged: root.collectionChanged,
             log: log, subscription: subscription
         )
     }
@@ -294,6 +299,56 @@ final class LateChildStartTests: XCTestCase {
             XCTAssertFalse(harness.contains(late), "\(kind): the add is undone")
             XCTAssertEqual(late.status, .destructed, kind)
             XCTAssertEqual(harness.root.status, .constructed, kind)
+            XCTAssertEqual(runs.runs, 1, kind)
+        }
+    }
+
+    /// #1371 — an add marks its start attempt done only after it ends its
+    /// membership transaction (ADR-0218 rule 4). The walk that waits on the
+    /// attempt then publishes `Constructed` outside that transaction, so a
+    /// `Constructed` subscriber can add a child. The container uses an
+    /// immediate dispatcher, so the resumed walk runs on the add's thread.
+    func testLateAddResumesWalkOutsideItsMembershipTransaction() throws {
+        for kind in ["composite", "group"] {
+            let harness = try makeHarness(kind, rootDispatcher: ImmediateDispatcher.INSTANCE)
+            try harness.root.construct()
+            XCTAssertEqual(harness.root.status, .constructing, kind)
+            let runs = Recorder()
+            let late = try lateChild(harness, runs: runs)
+            let extra = try ComponentVM.builder()
+                .name("extra").services(hub: harness.hub, dispatcher: harness.dispatcher).build()
+            let walkWaiting = Flag()
+            let extraAdded = Flag()
+            let changes = harness.collectionChanged
+                .filter { $0.action == .add }
+                .sink { event in
+                    for item in event.newItems { harness.log.append("added:\(item.name)") }
+                }
+            defer { changes.cancel() }
+            let constructedSubscription = harness.hub.messages
+                .compactMap { $0 as? ConstructionStatusChangedMessage }
+                .filter { $0.senderName == "root" && $0.status == .constructed }
+                .sink { _ in
+                    if harness.add(extra) { extraAdded.set() }
+                }
+            defer { constructedSubscription.cancel() }
+
+            let added = addPausedWhileWalkPulls(
+                harness, late, pauseAt: .attached,
+                onProbe: { child, stage in
+                    if child === late && stage == .walkWaitingOnAdd { walkWaiting.set() }
+                },
+                resume: { walkWaiting.isSet }, kind
+            )
+
+            XCTAssertEqual(added, true, kind)
+            XCTAssertTrue(walkWaiting.isSet, kind)
+            XCTAssertTrue(extraAdded.isSet, "\(kind): the Constructed subscriber adds a child")
+            XCTAssertTrue(harness.contains(extra), kind)
+            assertConstructedAfterLate(harness, late, kind)
+            let log = harness.log.snapshot
+            let rootConstructed = log.firstIndex(of: "root:constructed") ?? -1
+            XCTAssertGreaterThan(rootConstructed, log.firstIndex(of: "added:late") ?? Int.max, kind)
             XCTAssertEqual(runs.runs, 1, kind)
         }
     }
