@@ -91,7 +91,8 @@ public sealed class DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue> : Even
 /// <para>
 /// <see cref="Keys1"/> contains the distinct Key1 values present in the dictionary,
 /// in insertion order of their first appearance. <see cref="Keys2"/> is the symmetric
-/// view for Key2. Both are live <see cref="ObservableList{T}"/> views.
+/// view for Key2. Both are live, read-only <see cref="ReadOnlyObservableList{T}"/>
+/// views. Only the dictionary changes them (ADR-0193).
 /// </para>
 ///
 /// <para>
@@ -115,9 +116,12 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     private readonly List<(TKey1, TKey2)> _keyOrder = [];
     private readonly Dictionary<(TKey1, TKey2), TValue> _data = [];
 
-    // Distinct-key views (live ObservableLists).
+    // Distinct-key views: the backing ObservableLists and their read-only
+    // facades. Only this class changes the backing lists (ADR-0193).
     private readonly ObservableList<TKey1> _keys1 = new();
     private readonly ObservableList<TKey2> _keys2 = new();
+    private readonly ReadOnlyObservableList<TKey1> _keys1View;
+    private readonly ReadOnlyObservableList<TKey2> _keys2View;
 
     // Per-axis reference counts, so distinct-key view membership is maintained
     // in O(1) on each mutation instead of scanning _data / _keys1 / _keys2.
@@ -139,6 +143,8 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     public ObservableDictionary(IMessageHub? hub = null)
     {
         _hub = hub;
+        _keys1View = new ReadOnlyObservableList<TKey1>(_keys1);
+        _keys2View = new ReadOnlyObservableList<TKey2>(_keys2);
     }
 
     // ── Granular events ───────────────────────────────────────────────────────
@@ -161,16 +167,16 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     // ── Key-axis views ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Live observable view of distinct Key1 values present in the dictionary,
-    /// in insertion order of their first appearance.
+    /// Live, read-only observable view of distinct Key1 values present in the
+    /// dictionary, in insertion order of their first appearance (ADR-0193).
     /// </summary>
-    public ObservableList<TKey1> Keys1 => _keys1;
+    public ReadOnlyObservableList<TKey1> Keys1 => _keys1View;
 
     /// <summary>
-    /// Live observable view of distinct Key2 values present in the dictionary,
-    /// in insertion order of their first appearance.
+    /// Live, read-only observable view of distinct Key2 values present in the
+    /// dictionary, in insertion order of their first appearance (ADR-0193).
     /// </summary>
-    public ObservableList<TKey2> Keys2 => _keys2;
+    public ReadOnlyObservableList<TKey2> Keys2 => _keys2View;
 
     // ── Count / indexer ────────────────────────────────────────────────────────
 
@@ -197,7 +203,8 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             if (_data.TryGetValue((key1, key2), out TValue? old))
             {
                 _data[(key1, key2)] = value;
-                OnReplaced(key1, key2, value, old);
+                // Capture the position at commit: a local handler may change the entries (ADR-0193).
+                OnReplaced(key1, key2, value, old, _keyOrder.IndexOf((key1, key2)));
             }
             else
             {
@@ -232,7 +239,9 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             return false;
 
         _data.Remove((key1, key2));
-        _keyOrder.Remove((key1, key2));
+        // Capture the pre-removal position at commit (ADR-0193).
+        var index = _keyOrder.IndexOf((key1, key2));
+        _keyOrder.RemoveAt(index);
         _version++;
 
         // Count both axes before either key view notifies: drop a key only
@@ -253,7 +262,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
                 RemoveKey1(key1);
         }
 
-        OnRemoved(key1, key2, value);
+        OnRemoved(key1, key2, value, index);
         return true;
     }
 
@@ -479,23 +488,23 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             : _keyOrder.IndexOf(key);
     }
 
-    private void OnRemoved(TKey1 key1, TKey2 key2, TValue value)
+    private void OnRemoved(TKey1 key1, TKey2 key2, TValue value, int index)
     {
         var entry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value);
         Notify(
             () => ItemRemoved?.Invoke(this, new DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>(key1, key2, value)),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, entry),
-            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(this, entry, -1));
+            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(this, entry, index));
     }
 
-    private void OnReplaced(TKey1 key1, TKey2 key2, TValue newValue, TValue oldValue)
+    private void OnReplaced(TKey1 key1, TKey2 key2, TValue newValue, TValue oldValue, int index)
     {
         var newEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue);
         var oldEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue);
         Notify(
             () => ItemReplaced?.Invoke(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue)),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, newEntry, oldEntry),
-            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(this, newEntry, oldEntry, -1));
+            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(this, newEntry, oldEntry, index));
     }
 
     private void OnReset()

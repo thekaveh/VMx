@@ -122,7 +122,8 @@ internal static class ContainerMembership
         catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
         if (canPublish(container))
         {
-            try { container.Hub.Send(CollectionChangedMessage<VM>.From(container, args)); }
+            // The message carries the container's Name (ADR-0194).
+            try { container.Hub.Send(CollectionChangedMessage<VM>.From(container, args) with { SenderName = container.Name }); }
             catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
         }
         firstFailure?.Throw();

@@ -746,4 +746,106 @@ public class ObservableDictionaryTests
         sut.TryGetValue("missing", 99, out var miss).Should().BeFalse();
         miss.Should().BeNull("a TryGetValue miss yields default(TValue)");
     }
+
+    // ── Hub message positions (ADR-0193, #1316) ─────────────────────────────
+
+    [Fact]
+    public void Hub_Replace_And_Remove_Positions_Are_Captured_At_Commit()
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, string>(hub);
+        sut.Add("a", 1, "one");
+        sut.Add("b", 2, "two");
+        sut.Add("c", 3, "three");
+        sut.Add("d", 4, "four");
+        var messages = new List<CollectionChangedMessage<KeyValuePair<(string, int), string>>>();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is CollectionChangedMessage<KeyValuePair<(string, int), string>> message)
+                messages.Add(message);
+        });
+        // A local handler that removes an earlier entry before the hub message.
+        sut.ItemReplaced += (_, _) => sut.Remove("a", 1);
+
+        sut["c", 3] = "z";
+
+        messages.Select(m => (m.Action, m.Index, m.OldIndex, m.NewIndex)).Should().Equal(
+            (NotifyCollectionChangedAction.Remove, 0, 0, -1),
+            (NotifyCollectionChangedAction.Replace, 2, 2, 2));
+    }
+
+    [Fact]
+    public void Hub_Remove_Position_Is_Captured_Before_A_Local_Handler_Removes_An_Earlier_Entry()
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, string>(hub);
+        sut.Add("a", 1, "one");
+        sut.Add("b", 2, "two");
+        sut.Add("c", 3, "three");
+        var messages = new List<CollectionChangedMessage<KeyValuePair<(string, int), string>>>();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is CollectionChangedMessage<KeyValuePair<(string, int), string>> message)
+                messages.Add(message);
+        });
+        var nested = false;
+        sut.ItemRemoved += (_, e) =>
+        {
+            if (nested || e.Key1 != "c") return;
+            nested = true;
+            sut.Remove("a", 1);
+        };
+
+        sut.Remove("c", 3);
+
+        messages.Select(m => (m.Action, m.Index, m.OldIndex, m.NewIndex)).Should().Equal(
+            (NotifyCollectionChangedAction.Remove, 0, 0, -1),
+            (NotifyCollectionChangedAction.Remove, 2, 2, -1));
+    }
+
+    // ── Read-only key views (ADR-0193, #1316) ───────────────────────────────
+
+    [Fact]
+    public void Key_View_Platform_Events_Keep_Their_Arguments_With_The_View_As_Sender()
+    {
+        var sut = new ObservableDictionary<string, int, string>();
+        INotifyCollectionChanged view = sut.Keys1;
+        var events = new List<(object? Sender, NotifyCollectionChangedAction Action, int NewIndex, int OldIndex, object? Item)>();
+        view.CollectionChanged += (sender, e) => events.Add((
+            sender, e.Action, e.NewStartingIndex, e.OldStartingIndex,
+            e.NewItems?[0] ?? e.OldItems?[0]));
+        var counts = new List<(object? Sender, string? Property)>();
+        ((System.ComponentModel.INotifyPropertyChanged)sut.Keys1).PropertyChanged +=
+            (sender, e) => counts.Add((sender, e.PropertyName));
+
+        sut.Add("a", 1, "one");
+        sut.Add("b", 2, "two");
+        sut.Remove("a", 1);
+        sut.Clear();
+
+        events.Should().Equal(
+            (view, NotifyCollectionChangedAction.Add, 0, -1, "a"),
+            (view, NotifyCollectionChangedAction.Add, 1, -1, "b"),
+            (view, NotifyCollectionChangedAction.Remove, -1, 0, "a"),
+            (view, NotifyCollectionChangedAction.Reset, -1, -1, null));
+        counts.Should().HaveCount(4).And.OnlyContain(c => ReferenceEquals(c.Sender, view) && c.Property == "Count");
+    }
+
+    [Fact]
+    public void Key_View_Granular_Events_Carry_The_View_As_Sender()
+    {
+        var sut = new ObservableDictionary<string, int, string>();
+        var senders = new List<object?>();
+        sut.Keys2.ItemAdded += (sender, _) => senders.Add(sender);
+        sut.Keys2.ItemRemoved += (sender, _) => senders.Add(sender);
+        sut.Keys2.Reset += (sender, _) => senders.Add(sender);
+
+        sut.Add("a", 1, "one");
+        sut.Add("b", 2, "two");
+        sut.Remove("a", 1);
+        sut.Clear();
+
+        senders.Should().HaveCount(4).And.OnlyContain(s => ReferenceEquals(s, sut.Keys2));
+        sut.Keys2.Should().BeSameAs(sut.Keys2, "the dictionary caches one view per axis");
+    }
 }

@@ -195,7 +195,8 @@ The public API lives under the `VMx.*` namespaces:
 | `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index |
 | `IObservableMembershipSource<T>` / `AggregateChangeStream<T>` | Dynamic membership-and-item fan-in with provenance |
 | `ObservableList<T>`             | Granular events + atomic `ReplaceAll`             |
-| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary     |
+| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary; read-only `Keys1` / `Keys2` views |
+| `ReadOnlyObservableList<T>`     | Read-only facade over an `ObservableList<T>` |
 | `PagedComposition<TVM>`         | Pageable iterable decorator           |
 | Fluent command extensions       | `Confirm` / `PrecedeWith` / `SucceedWith` / `WrapWith` on `ICommand` |
 | `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots |
