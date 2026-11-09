@@ -79,24 +79,25 @@ VM thread-safety promise. See
 [Python asyncio dispatcher ownership](services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
 for the supported synchronous-command sequence and shutdown order.
 
-A loader can also end the current operation by cancelling itself. The flavors
-handle this case differently:
+A loader can also end the current operation by cancelling itself, even when
+the VM did not request it (ADR-0199, `ARES-012`). A typical source is a shared
+request that another owner cancels. When a current loader ends with its
+flavor's native cancellation signal, the VM restores the saved stable state, as
+`Cancel` does. Awaiters and commands complete normally, and nothing enters
+Error or a command error channel.
 
-- Python: a loader task that finishes with `asyncio.CancelledError` restores
-  the saved stable state, exactly like `Cancel`. The error can be raised
-  directly, come from cancelling the loader's own task, or come from a
-  cancelled operation that the loader awaited.
-- Swift: a loader that throws `CancellationError` restores the saved stable
-  state in the same way.
-- C# and TypeScript: cancellation that the VM did not request is an ordinary
-  loader fault. Examples are an `OperationCanceledException` from another
-  token, or a rejection while the operation's signal is not aborted.
-- Rust: loaders report outcomes through `VmxResult`, so an error is a fault.
+| Flavor     | Native cancellation signal                   |
+| ---------- | -------------------------------------------- |
+| C#         | `OperationCanceledException`, from any token |
+| Python     | `asyncio.CancelledError`                     |
+| TypeScript | a rejection whose `name` is `"AbortError"`   |
+| Swift      | `CancellationError`                          |
+| Rust       | `Err(VmxError::Cancelled)`                   |
 
-When Python or Swift restores the stable state, awaiters and commands
-complete, and nothing enters Error or a command error channel. The
-cancellation of a superseded loader never rolls back newer work. In every
-flavor, the VM leaves Loading with a visible terminal state.
+A timeout is a failure, not a cancellation. A C# `OperationCanceledException`
+whose `InnerException` is a `TimeoutException` installs Error, as any other
+loader error does. The cancellation of a superseded loader is a stale
+completion, so it never rolls back newer work.
 
 <!-- checked-snippet: langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py#loader-cancellation -->
 

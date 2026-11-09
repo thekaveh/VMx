@@ -69,8 +69,8 @@ failure of the same call never replaces the first one.
 1. The call that runs a deferred terminal cleanup reports the cleanup's first
    failure, when that call has no earlier failure of its own. That call is the
    admitted hook's `construct()`, `destruct()` or `reconstruct()`. The C#
-   async methods return it through their `Task`. A background hook reports it
-   through the flavor's background-failure path.
+   async methods report it as they report a hook failure. A background hook
+   reports it through the flavor's background-failure path.
 1. The call has already been superseded by `Disposed`, so it commits nothing
    more (§7.2). It returns the deferred failure as a call that `Disposed`
    superseded returns a failure that was already propagating.

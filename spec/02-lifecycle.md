@@ -187,8 +187,9 @@ later cleanup failures never replace it (ADR-0126). When the call that runs the
 deferred cleanup has no earlier failure, it reports the cleanup's first failure
 (ADR-0200). That call is the admitted hook's `construct()`, `destruct()`, or
 `reconstruct()`, which `Disposed` has superseded. Its background form reports
-the failure through the flavor's background-failure path, and a C# async method
-returns it through its `Task`. The cycle-broken `dispose()` returns normally.
+the failure through the flavor's background-failure path. A C# async method
+reports it as it reports a hook failure. The cycle-broken `dispose()` returns
+normally.
 
 In C#, Python, Swift, and Rust, lifecycle publication waits and hook-lease
 waits are recorded in the flavor's single wait-for graph, with its hub,
