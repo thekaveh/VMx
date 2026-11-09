@@ -832,10 +832,14 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       while (this._children.length > start) {
         const child = this._children.pop();
         const originalStatus = originalStatuses[this._children.length - start];
-        if (child !== undefined && originalStatus !== undefined) {
-          compensationError ??= compensateAutoConstruct(child, originalStatus);
-        }
+        // Detached first: a deferred compensation destructs only a child
+        // with no parent (ADR-0218 rule 7).
         if (child?._parent === this) child._parent = null;
+        if (child !== undefined && originalStatus !== undefined) {
+          // Compensate every child; keep only the first failure.
+          const failure = compensateAutoConstruct(child, originalStatus);
+          compensationError ??= failure;
+        }
       }
       try {
         for (const transfer of [...transfers].reverse()) transfer.rollback();

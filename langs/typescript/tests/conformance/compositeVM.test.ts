@@ -1457,6 +1457,43 @@ describe("COMP-040", () => {
       expect((rollback.rollbackError as Error).message).toBe("second compensation failed");
       expect(destination.snapshot()).toEqual([]);
     });
+
+    it(`${kind} population compensates every child after a compensation failure`, () => {
+      const hub = makeHub();
+      const dispatcher = makeDisp();
+      const first = ComponentVM.builder().name("first").services(hub, dispatcher).build();
+      const second = ComponentVM.builder()
+        .name("second")
+        .services(hub, dispatcher)
+        .onDestruct(() => { throw new Error("second compensation failed"); })
+        .build();
+      const blocker = ComponentVM.builder()
+        .name("blocker")
+        .services(hub, dispatcher)
+        .onConstruct(() => { throw new Error("population failed"); })
+        .build();
+      const members = (): ComponentVM[] => [first, second, blocker];
+      const destination =
+        kind === "composite"
+          ? CompositeVM.builder<ComponentVM>()
+              .name("destination").services(hub, dispatcher).children(members).build()
+          : GroupVM.builder<ComponentVM>()
+              .name("destination").services(hub, dispatcher).children(members).build();
+
+      let caught: unknown;
+      try {
+        destination.construct();
+      } catch (error) {
+        caught = error;
+      }
+
+      const rollback = caught as Error & { rollbackError: unknown };
+      expect(rollback.name).toBe("ContainerRollbackError");
+      expect((rollback.rollbackError as Error).message).toBe("second compensation failed");
+      // `second` failed first; `first` is still compensated after it.
+      expect(first.status).toBe(ConstructionStatus.Destructed);
+      expect(first._parent).toBeNull();
+    });
   }
 });
 
