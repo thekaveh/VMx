@@ -22,6 +22,7 @@ import {
   ConstructionStatus as S,
   ConstructionStatusChangedMessage,
   MessageHub,
+  PropertyChangedMessage,
   RxDispatcher,
 } from "../../src/index.js";
 import type { IDispatcher } from "../../src/index.js";
@@ -330,6 +331,7 @@ describe("destruct clear (spec/06 §5, ADR-0173 rule 8, TS part of #1144)", () =
 
 describe("selection calls during the composite's own transaction (ADR-0173 rules 2-5)", () => {
   it("refuses every selection call before the add commits and leaves Current unchanged", () => {
+    // The child select()/deselect() refusals are silent (ADR-0188).
     const errors: unknown[] = [];
     const checks: boolean[] = [];
     let root!: CompositeVM<ComponentVM>;
@@ -363,12 +365,49 @@ describe("selection calls during the composite's own transaction (ADR-0173 rules
       expect.stringMatching(TRANSACTION),
       expect.stringMatching(/canSelectComponent returned false/),
       expect.stringMatching(TRANSACTION),
-      expect.stringMatching(TRANSACTION),
-      expect.stringMatching(TRANSACTION),
+      null,
+      null,
     ]);
     expect(root.current).toBe(x);
     expect(fixture.changes).toEqual([x]);
     expect(root.canSelectComponent(late)).toBe(true);
+  });
+
+  it("keeps a child-path refusal of a non-member silent inside the transaction", () => {
+    // selectChild of a non-member and deselectChild of a child that is not
+    // current change nothing and raise nothing on the owner thread
+    // (spec/05 §6, ADR-0188, #1424).
+    const errors: unknown[] = [];
+    let root!: CompositeVM<ComponentVM>;
+    const fixture = setup({ withFirst: false, extra: ["x", "y"] });
+    root = fixture.root;
+    const [x, y] = fixture.extra as [ComponentVM, ComponentVM];
+    const outsider = fixture.child("outsider");
+    const attempt = (action: () => void): void => {
+      try { action(); } catch (error) { errors.push(error); }
+    };
+    const late = fixture.child("late", {
+      onConstruct: () => {
+        attempt(() => root.selectChild(outsider));
+        attempt(() => root.deselectChild(y));
+      },
+    });
+    root.construct();
+    expect(root.current).toBe(x);
+    const published: string[] = [];
+    fixture.hub.messages.subscribe((message) => {
+      if (message instanceof PropertyChangedMessage && message.sender === root) {
+        published.push(message.propertyName);
+      }
+    });
+
+    root.add(late);
+
+    expect(errors).toEqual([]);
+    expect(published).not.toContain("current");
+    expect(root.current).toBe(x);
+    expect(fixture.changes).toEqual([x]);
+    expect(outsider.isCurrent).toBe(false);
   });
 
   it("a failed add needs no Current restore", () => {

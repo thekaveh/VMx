@@ -64,17 +64,16 @@ def test_neutral_arrow_labels_use_contrast_safe_text() -> None:
 
 def test_root_diagram_facts_are_derived_from_canonical_sources() -> None:
     generator = _load_generator()
-    conformance = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
     capabilities = (ROOT / "spec/14-capabilities.md").read_text(encoding="utf-8")
     parity = (ROOT / "examples/notes-showcase-parity.md").read_text(encoding="utf-8")
 
-    ids = re.findall(r"^### ([A-Z]+-\d{3})\b", conformance, re.MULTILINE)
     capability_match = re.search(r"lists the (\d+) capability interfaces", capabilities)
     assert capability_match
     assert generator.FIXTURE_COUNT == len(list((ROOT / "spec/fixtures").glob("*.json")))
     assert generator.NOTES_FEATURE_COUNT == len(re.findall(r"^\| \d+\s+\|", parity, re.MULTILINE))
     assert generator.CAPABILITY_COUNT == int(capability_match.group(1))
-    assert generator.LIBRARY_COUNT == sum(not item.startswith("THEME-") for item in ids)
+    assert not hasattr(generator, "ADR_COUNT")
+    assert not hasattr(generator, "LIBRARY_COUNT")
 
 
 def test_root_diagrams_render_derived_facts_without_hidden_literals(
@@ -85,7 +84,6 @@ def test_root_diagrams_render_derived_facts_without_hidden_literals(
     generator.FIXTURE_COUNT = 91
     generator.NOTES_FEATURE_COUNT = 92
     generator.CAPABILITY_COUNT = 93
-    generator.LIBRARY_COUNT = 94
     generator.write_triplet = lambda *args: rendered.append(repr(args))
 
     generator.architecture(tmp_path)
@@ -94,8 +92,30 @@ def test_root_diagrams_render_derived_facts_without_hidden_literals(
     generator.showcase_components(tmp_path)
 
     output = "\n".join(rendered)
-    for sentinel in (91, 92, 93, 94):
+    for sentinel in (91, 92, 93):
         assert str(sentinel) in output
+
+
+def test_root_diagrams_render_no_adr_or_conformance_id_counts(tmp_path: Path) -> None:
+    """Counts live only in spec/ADRs/README.md and spec/12-conformance.md (#1441)."""
+    generator = _load_generator()
+    rendered: list[str] = []
+    generator.write_triplet = lambda *args: rendered.append(repr(args))
+
+    generator.architecture(tmp_path)
+    generator.class_diagram(tmp_path)
+    generator.showcase_hierarchy(tmp_path)
+    generator.showcase_components(tmp_path)
+
+    output = "\n".join(rendered)
+    assert "ADR registry" in output
+    assert "Conformance catalog" in output
+    count = re.compile(
+        r"\d+\s+(?:ADRs|(?:library\s+|THEME\s+scenario\s+)?(?:conformance\s+)?IDs)\b"
+        r"|\d+\+\d+ parity|\b\d+ total\b"
+        r"|\b(?:\d+|(?i:one|two|three|four|five|six|seven|eight|nine|ten))\s+`?THEME\b"
+    )
+    assert count.search(output) is None, count.search(output)
 
 
 def test_showcase_diagrams_describe_conceptual_parity_without_claiming_shared_storage(

@@ -22,14 +22,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SPEC_VERSION = (ROOT / "spec" / "VERSION").read_text(encoding="utf-8").strip()
 SPEC_CHAPTER_COUNT = len(list((ROOT / "spec").glob("[0-9][0-9]-*.md")))
-ADR_COUNT = len(list((ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md")))
-CONFORMANCE_IDS = re.findall(
-    r"^### ([A-Z]+-\d{3})\b",
-    (ROOT / "spec" / "12-conformance.md").read_text(encoding="utf-8"),
-    re.MULTILINE,
-)
-THEME_COUNT = sum(item.startswith("THEME-") for item in CONFORMANCE_IDS)
-LIBRARY_COUNT = len(CONFORMANCE_IDS) - THEME_COUNT
 FIXTURE_COUNT = len(list((ROOT / "spec" / "fixtures").glob("*.json")))
 NOTES_FEATURE_COUNT = len(
     re.findall(
@@ -383,8 +375,8 @@ def architecture(output_root: Path) -> None:
             "Spec Source",
             (
                 f"{SPEC_CHAPTER_COUNT} chapters",
-                f"{ADR_COUNT} ADRs",
-                f"{len(CONFORMANCE_IDS)} conformance IDs",
+                "ADR registry",
+                "Conformance catalog",
                 f"{FIXTURE_COUNT} JSON fixtures",
             ),
             "cloud",
@@ -440,7 +432,7 @@ def architecture(output_root: Path) -> None:
             (
                 "System.Reactive",
                 "Avalonia / WPF / MAUI",
-                f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity",
+                "Full catalog parity",
             ),
             "frontend",
         ),
@@ -453,7 +445,7 @@ def architecture(output_root: Path) -> None:
             (
                 "reactivex",
                 "Textual / Tk / NiceGUI",
-                f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity",
+                "Full catalog parity",
             ),
             "frontend",
         ),
@@ -466,7 +458,7 @@ def architecture(output_root: Path) -> None:
             (
                 "rxjs",
                 "@thekaveh/vmx-react",
-                f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity",
+                "Full catalog parity",
             ),
             "frontend",
         ),
@@ -479,7 +471,7 @@ def architecture(output_root: Path) -> None:
             (
                 "Combine",
                 "SwiftUI flagship",
-                f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity",
+                "Full catalog parity",
             ),
             "frontend",
         ),
@@ -489,7 +481,7 @@ def architecture(output_root: Path) -> None:
             220,
             145,
             "Rust Flavor",
-            ("VMx-owned facade", "UI-neutral core", f"{LIBRARY_COUNT} library IDs"),
+            ("VMx-owned facade", "UI-neutral core", "Library catalog"),
             "frontend",
         ),
         Box(
@@ -535,7 +527,7 @@ def architecture(output_root: Path) -> None:
             "Spec discipline",
             [
                 "spec/ is the source of truth.",
-                f"Every catalog-complete flavor tracks {LIBRARY_COUNT} library IDs.",
+                "Every catalog-complete flavor tracks every library ID.",
                 "THEME-001..005 live in the flagship examples.",
             ],
         ),
@@ -779,8 +771,8 @@ def class_diagram(output_root: Path) -> None:
             [
                 "Every flavor implements the shared normative concepts.",
                 "Names are idiomatic per language.",
-                f"All five flavors cover {LIBRARY_COUNT} library IDs.",
-                "Four UI-backed examples cover the five THEME scenarios.",
+                "All five flavors cover every library ID.",
+                "Four UI-backed examples cover the THEME scenarios.",
             ],
         ),
         (

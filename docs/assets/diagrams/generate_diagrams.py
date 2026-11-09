@@ -25,10 +25,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DIAGRAM_DIR = Path(__file__).resolve().parent
 REGISTRY_PATH = DIAGRAM_DIR / "diagram-registry.json"
 README_PATH = REPO_ROOT / "README.md"
-SPEC_README_PATH = REPO_ROOT / "spec" / "README.md"
 NOTES_PARITY_PATH = REPO_ROOT / "examples" / "notes-showcase-parity.md"
 SPEC_VERSION_PATH = REPO_ROOT / "spec" / "VERSION"
-CONFORMANCE_PATH = REPO_ROOT / "spec" / "12-conformance.md"
 CAPABILITIES_PATH = REPO_ROOT / "spec" / "14-capabilities.md"
 PNG_WIDTH = 3200
 MONO_GLYPH_WIDTH_FACTOR = 0.61
@@ -80,11 +78,7 @@ SVG_THEME = {
 class SourceFacts:
     spec_version: str
     spec_chapter_count: int
-    adr_count: int
     fixture_count: int
-    library_conformance_count: int
-    theme_conformance_count: int
-    total_conformance_count: int
     capability_count: int
     notes_feature_count: int
     notes_flavor_labels: tuple[str, ...]
@@ -111,9 +105,7 @@ def require_match(text: str, pattern: str, description: str) -> re.Match[str]:
 
 def load_source_facts() -> SourceFacts:
     repo_readme = read_text(README_PATH)
-    spec_readme = read_text(SPEC_README_PATH)
     notes_parity = read_text(NOTES_PARITY_PATH)
-    conformance = read_text(CONFORMANCE_PATH)
     capabilities = read_text(CAPABILITIES_PATH)
     registry = json.loads(read_text(REGISTRY_PATH))
     if not isinstance(registry, list):
@@ -121,12 +113,7 @@ def load_source_facts() -> SourceFacts:
 
     spec_version = read_text(SPEC_VERSION_PATH).strip()
     spec_chapter_count = len(list((REPO_ROOT / "spec").glob("[0-9][0-9]-*.md")))
-    adr_count = len(list((REPO_ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md")))
     fixture_count = len(list((REPO_ROOT / "spec" / "fixtures").glob("*.json")))
-    conformance_ids = re.findall(r"^### ([A-Z]+-\d{3})\b", conformance, re.MULTILINE)
-    theme_conformance_count = sum(1 for item in conformance_ids if item.startswith("THEME-"))
-    total_conformance_count = len(conformance_ids)
-    library_conformance_count = total_conformance_count - theme_conformance_count
     capability_count = int(
         require_match(
             capabilities,
@@ -136,32 +123,6 @@ def load_source_facts() -> SourceFacts:
     )
     notes_feature_count = len(re.findall(r"^\| \d+\s+\|", notes_parity, re.MULTILINE))
     notes_flavor_labels = tuple(re.findall(r"^- \*\*(.+?)\*\* \u2014 ", notes_parity, re.MULTILINE))
-
-    readme_conformance = require_match(
-        repo_readme,
-        (
-            r"(\d+)\s+library conformance IDs[\s\S]{0,180}?"
-            r"(\d+)\s+(?:additional\s+)?THEME scenario IDs[\s\S]{0,80}?"
-            r"\*\*(\d+)\s+total\*\*"
-        ),
-        "README conformance summary",
-    )
-    if (
-        int(readme_conformance.group(1)) != library_conformance_count
-        or int(readme_conformance.group(2)) != theme_conformance_count
-        or int(readme_conformance.group(3)) != total_conformance_count
-    ):
-        raise ValueError("README.md conformance summary drifted from spec/12-conformance.md")
-
-    spec_readme_total = int(
-        require_match(
-            spec_readme,
-            r"12-conformance\.md.*\((\d+) IDs\)",
-            "spec/README.md conformance total",
-        ).group(1)
-    )
-    if spec_readme_total != total_conformance_count:
-        raise ValueError("spec/README.md conformance total drifted from spec/12-conformance.md")
 
     readme_notes_feature_count = int(
         require_match(
@@ -191,11 +152,7 @@ def load_source_facts() -> SourceFacts:
     return SourceFacts(
         spec_version=spec_version,
         spec_chapter_count=spec_chapter_count,
-        adr_count=adr_count,
         fixture_count=fixture_count,
-        library_conformance_count=library_conformance_count,
-        theme_conformance_count=theme_conformance_count,
-        total_conformance_count=total_conformance_count,
         capability_count=capability_count,
         notes_feature_count=notes_feature_count,
         notes_flavor_labels=notes_flavor_labels,
@@ -712,7 +669,7 @@ def system_architecture() -> Diagram:
                 "spec/",
                 (
                     f"{facts.spec_chapter_count} chapters",
-                    f"{facts.adr_count} ADRs",
+                    "ADR registry",
                     f"VERSION {facts.spec_version}",
                 ),
                 "cloud",
@@ -737,9 +694,9 @@ def system_architecture() -> Diagram:
                 110,
                 "12-conformance",
                 (
-                    f"{facts.library_conformance_count} library IDs",
-                    f"{facts.theme_conformance_count} THEME scenario IDs",
-                    f"{facts.total_conformance_count} total",
+                    "library IDs",
+                    "THEME scenario IDs",
+                    "one catalog for every flavor",
                 ),
                 "bus",
             ),

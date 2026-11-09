@@ -60,8 +60,9 @@ membership boundary before the old parent snapshots and cascades its children.
 ## 2. Children construction orchestration
 
 Identical to `CompositeVM`: `construct()` waits for every child to reach
-`Constructed`; `destruct()` waits for every child to reach `Destructed`. The
-order in which children are visited is unspecified by default.
+`Constructed`; `destruct()` waits for every child to reach `Destructed`. Both
+walks skip a child that is `Disposed` (chapter 02 §6, ADR-0189). The order in
+which children are visited is unspecified by default.
 
 A group built with `DestructOrder(ChildOrder.Reverse)` (spec v3.30, ADR-0161)
 destructs and disposes its children in reverse child order, last child first,
@@ -76,11 +77,9 @@ publishes `Disposed` first (chapter 02 §7).
 
 The builder accepts:
 
-- `children : () -> Iterable<VM>` (factory, evaluated on `construct()`).
+- `children : () -> Iterable<VM>` (factory, evaluated once, on the first
+  `construct()`; a built group has no children before then, ADR-0204).
 - `DestructOrder : ChildOrder` (optional, default `Insertion`; §2, ADR-0161).
-
-Open Rust gap: Rust's `GroupVmBuilder::build()` evaluates the `children` factory
-and attaches the initial population at build time, not on `construct()`.
 
 The modeled variant (if needed) follows the same pattern as `CompositeVM<M, VM>`.
 Only the non-modeled variant currently ships.

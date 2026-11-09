@@ -29,13 +29,15 @@ def test_a_disposed_child_does_not_change_its_parents_selection() -> None:
     parent.construct()
     parent.select_component(kids[0])
     kids[0].dispose()
+    # Disposing the current child clears the selection (ADR-0189, #1317).
+    assert parent.current is None
     kids[1].dispose()
 
     assert kids[0].can_deselect() is False
     kids[0].deselect()
     kids[1].select()
 
-    assert parent.current is kids[0]
+    assert parent.current is None
 
 
 def test_a_disposed_derived_property_rejects_writes() -> None:
