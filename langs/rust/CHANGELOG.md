@@ -10,6 +10,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `FORM-045` conformance tests (#1355, ADR-0216). A strict `set_model` runs
+  three equality comparisons and a strict revert two. A non-strict
+  `set_model` runs one and a non-strict revert none.
 - `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
   `ComponentVm::own_member` contract and rejects the container itself with
@@ -108,6 +111,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A `set_model` or revert made in the caller's own approval pre-publication
+  window no longer waits for another thread's publication scope. It is queued
+  at once (ADR-0215, spec/20 §5.5, #1426).
+- A strict `FormVm` update now runs both dirty comparisons also while the form
+  is invalid (ADR-0216, spec/20 §5.2, `FORM-045`, #1355).
 - The three test-only seams, `vmx::wait_registered_for_testing`,
   `vmx::container_wait_registered_for_testing` and
   `GroupVm::set_last_scan_probe_for_testing`, now need the non-default
@@ -175,6 +183,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVm` no longer holds a lock while its equality, validators, snapshotter
+  or `reset_on_approved` run (ADR-0215, spec/20 §5.4, #1427). A callback that
+  waited for another thread that called the same form deadlocked. Another
+  thread's calls no longer wait for the callback. An update that another
+  thread's commit overtakes runs again as a new call. A `dispose()` from
+  another thread during a preparation returns at once, and the teardown runs
+  when the update returns.
+- A `set_model` or revert from another thread while the reset model's
+  validators run now commits at once, and the reset overwrites it (ADR-0215,
+  spec/20 §5.3, #1452). Before, it committed after the approval subscribers,
+  and its model stood.
+- When a send of the outermost `FormVm` update's notifications fails, the
+  later notifications are no longer sent. An approval started from a
+  preparation callback or an `errors_changed` subscriber is released without
+  calling its persister (ADR-0216, spec/20 §5.4, `FORM-044`, #1415). Before,
+  the persister ran.
+- A validator registration from a preparation callback or an
+  `errors_changed` subscriber now returns before its notifications, and the
+  outermost update sends them before it returns (ADR-0216, spec/20 §5.4,
+  #1290).
 - Breaking: a `CompositeVm` or `GroupVm` from the builder or from
   `create(options)` has no children until its first `construct()` (#1255,
   ADR-0204, spec/06 §1, spec/07 §3). That construct calls the `children`

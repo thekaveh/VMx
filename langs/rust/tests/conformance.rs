@@ -33,6 +33,9 @@ mod conformance {
     mod form_approval_admission;
     mod form_approval_subscription;
     mod form_approval_update_queue;
+    mod form_cross_thread_preparation;
+    #[cfg(debug_assertions)]
+    mod form_failed_queue_send;
     mod form_failure_atomic_updates;
     mod form_model_hub_publication;
     mod form_nested_update_notifications;
@@ -40,6 +43,7 @@ mod conformance {
     #[cfg(feature = "test-seams")]
     mod form_publication_wait_cycle;
     mod form_reader_consistency;
+    mod form_strict_only_dirty_comparisons;
     mod form_unscoped_delivery;
     mod forms;
     mod forwarding;
