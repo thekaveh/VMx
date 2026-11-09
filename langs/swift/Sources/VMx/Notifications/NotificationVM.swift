@@ -13,6 +13,8 @@
 //   - `dismissCommand` resolves `.approve` and cancels the timer (NOTIF-014).
 //   - an external `hub.resolve(...)` is observed via `hub.pending` and flips
 //     `isResolved` + cancels the timer (NOTIF-015).
+//   - `remaining` and `opacity` keep their values from the first resolution
+//     or disposal (NOTIF-019, ADR-0197).
 //
 // Time unit: SECONDS (`TimeInterval`) throughout — `lifespan`, `remaining`, and
 // the scheduler all measure seconds, so a `lifespan` of 10 advanced to 5 yields
@@ -42,6 +44,8 @@ open class NotificationVM {
 
     private var resolved = false
     private var disposed = false
+    /// `remaining` kept from the first resolution or disposal (ADR-0197).
+    private var keptRemaining: TimeInterval?
     private var timerCancellable: AnyCancellable?
     private var tickCancellable: AnyCancellable?
     private var pendingCancellable: AnyCancellable?
@@ -117,7 +121,12 @@ open class NotificationVM {
     }
 
     /// Remaining time in seconds, decaying toward 0 via the injected scheduler.
+    /// Keeps its value from the first resolution or disposal (NOTIF-019).
     public var remaining: TimeInterval {
+        keptRemaining ?? computeRemaining()
+    }
+
+    private func computeRemaining() -> TimeInterval {
         let elapsed = scheduler.now.seconds - startTime
         let r = lifespan - elapsed
         return r > 0 ? r : 0
@@ -141,6 +150,7 @@ open class NotificationVM {
     public func dispose() {
         if disposed { return }
         disposed = true
+        keepRemaining()
         timerCancellable?.cancel(); timerCancellable = nil
         tickCancellable?.cancel(); tickCancellable = nil
         pendingCancellable?.cancel(); pendingCancellable = nil
@@ -186,12 +196,19 @@ open class NotificationVM {
         // A disposed VM's later resolution paths are inert (DISP-004).
         if resolved || disposed { return }
         resolved = true
+        keepRemaining()
         timerCancellable?.cancel(); timerCancellable = nil
         tickCancellable?.cancel(); tickCancellable = nil
         if notifyHub, let reaction {
             hub.resolve(notificationRef, reaction)
         }
         raiseResolvedChanges()
+    }
+
+    /// Keeps `remaining` (and so `opacity`) from the first resolution or
+    /// disposal; later calls are no-ops (ADR-0197).
+    private func keepRemaining() {
+        if keptRemaining == nil { keptRemaining = computeRemaining() }
     }
 
     private func scheduleDecayTick() {
