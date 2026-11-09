@@ -1480,9 +1480,12 @@ impl Command for CompositeCommand {
 
 /// The change hub of a wrapper command that relays an inner command's hub.
 ///
-/// It forwards each inner change message and sends one more message when the
-/// wrapper is disposed. A subscriber of the inner hub receives no disposal
-/// message (spec `04-commands.md` §8.4).
+/// It forwards each inner change message, sent as the wrapper, and sends one
+/// more message when the wrapper is disposed. A subscriber of the inner hub
+/// receives no disposal message (spec `04-commands.md` §8.4). When the inner
+/// hub completes, for example because the inner command was disposed, the
+/// relay hub completes too, so the completion still reaches a wrapper
+/// subscriber.
 #[derive(Clone)]
 struct RelayedChangeHub {
     hub: MessageHub,
@@ -1494,8 +1497,11 @@ impl RelayedChangeHub {
     fn new(source: &MessageHub, sender_name: &'static str) -> Self {
         let hub = MessageHub::new();
         let target = hub.clone();
-        let subscription =
-            source.subscribe(move |_| target.send(can_execute_changed_message(sender_name)));
+        let completed = hub.clone();
+        let subscription = source.subscribe_with_completion(
+            move |_| target.send(can_execute_changed_message(sender_name)),
+            move || completed.dispose(),
+        );
         Self {
             hub,
             subscription: Arc::new(Mutex::new(Some(subscription))),

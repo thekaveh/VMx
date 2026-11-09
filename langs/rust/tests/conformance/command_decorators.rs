@@ -795,7 +795,7 @@ fn confirmation_resolving_while_disposing_runs_the_inner_command_at_most_once() 
 /// CMDD-011 — Disposing a decorator or confirmation decorator leaves the inner
 /// command's change hub open and sends its subscribers nothing
 #[test]
-fn decorator_disposal_leaves_the_delegated_inner_change_hub_open() {
+fn decorator_disposal_leaves_the_inner_change_hub_open() {
     let inner = RelayCommand::noop();
     let events = Arc::new(Mutex::new(Vec::new()));
     let (values, completions) = (events.clone(), events.clone());
@@ -1195,4 +1195,37 @@ fn wrapper_disposal_notifies_wrapper_subscribers_once() {
     let inner = RelayCommand::noop();
     let confirming = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
     assert_once(&confirming, &inner, &|| confirming.dispose());
+}
+
+/// Disposing the inner command completes a decorator's change hub, so a
+/// decorator subscriber still receives the inner completion (#1459)
+#[test]
+fn inner_disposal_completes_the_decorator_change_hub() {
+    fn assert_completes(wrapper: &dyn Command, inner: &RelayCommand) {
+        let events = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let (values, completions) = (events.clone(), events.clone());
+        let _subscription = wrapper.can_execute_changed().subscribe_with_completion(
+            move |_| values.lock().unwrap().push("value"),
+            move || completions.lock().unwrap().push("completion"),
+        );
+
+        inner.dispose();
+
+        assert_eq!(*events.lock().unwrap(), vec!["value", "completion"]);
+    }
+
+    let inner = RelayCommand::noop();
+    let decorator = DecoratorCommand::new(
+        inner.clone(),
+        None::<fn() -> bool>,
+        None::<fn()>,
+        None::<fn()>,
+    );
+    assert_completes(&decorator, &inner);
+    decorator.dispose();
+
+    let inner = RelayCommand::noop();
+    let confirming = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
+    assert_completes(&confirming, &inner);
+    confirming.dispose();
 }
