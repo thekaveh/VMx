@@ -258,10 +258,14 @@ class AsyncRelayCommand:
             self.raise_can_execute_changed()
         except BaseException:
             # No run was scheduled: release the admission so the command is
-            # not left executing with nothing to clear it.
+            # not left executing with nothing to clear it, and tell the
+            # observers that saw the start edge (#1328, spec/04 §10.2). The
+            # original failure wins over one from the release notification.
             with self._gate:
                 self._is_executing = False
                 self._cancellation_origin = None
+            with contextlib.suppress(BaseException):
+                self.raise_can_execute_changed()
             raise
         scheduled = ScheduledRun()
         run = self._run_admitted(task_factory, start_notified=True, scheduled=scheduled)

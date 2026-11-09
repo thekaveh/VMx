@@ -24,7 +24,8 @@ import VMx
 ///
 /// Subscribes to the notification hub on construct and removes the
 /// subscription on destruct / dispose. Each element is a `NotificationVM`
-/// whose lifespan timer is driven by the injected `VirtualTimeScheduler`.
+/// whose lifespan timer is driven by the injected `NotificationScheduler`:
+/// a real-time scheduler in the app, a `VirtualTimeScheduler` in tests.
 public final class NotificationsVM: ComponentVMBase {
 
     /// Default maximum concurrently rendered notifications.
@@ -33,7 +34,7 @@ public final class NotificationsVM: ComponentVMBase {
     // ── Private state ──────────────────────────────────────────────────────
 
     private let _notificationHub: NotificationHubProtocol
-    private let _scheduler: VirtualTimeScheduler
+    private let _scheduler: any NotificationScheduler
     private let _lifespan: TimeInterval?
     private let _cap: Int
 
@@ -69,7 +70,7 @@ public final class NotificationsVM: ComponentVMBase {
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
         notificationHub: NotificationHubProtocol,
-        scheduler: VirtualTimeScheduler,
+        scheduler: any NotificationScheduler,
         lifespan: TimeInterval?,
         cap: Int
     ) {
@@ -210,7 +211,7 @@ public final class NotificationsVM: ComponentVMBase {
         private var _hub: MessageHubProtocol?
         private var _dispatcher: Dispatcher?
         private var _notificationHub: NotificationHubProtocol?
-        private var _scheduler: VirtualTimeScheduler?
+        private var _scheduler: (any NotificationScheduler)?
         private var _lifespan: TimeInterval?
         private var _cap: Int = NotificationsVM.defaultCap
 
@@ -228,7 +229,8 @@ public final class NotificationsVM: ComponentVMBase {
         public func notificationHub(_ hub: NotificationHubProtocol) -> NotificationsVMBuilder {
             var c = self; c._notificationHub = hub; return c
         }
-        public func scheduler(_ scheduler: VirtualTimeScheduler) -> NotificationsVMBuilder {
+        /// Scheduler for the notification lifespans (default `DispatchQueue.main`).
+        public func scheduler(_ scheduler: any NotificationScheduler) -> NotificationsVMBuilder {
             var c = self; c._scheduler = scheduler; return c
         }
         /// Overrides the per-notification lifespan (default: 60 s from `NotificationVM`).
@@ -252,7 +254,7 @@ public final class NotificationsVM: ComponentVMBase {
                 name: name, hint: _hint,
                 hub: hub, dispatcher: dispatcher,
                 notificationHub: notifHub,
-                scheduler: _scheduler ?? VirtualTimeScheduler(),
+                scheduler: _scheduler ?? DispatchQueue.main,
                 lifespan: _lifespan,
                 cap: _cap
             )

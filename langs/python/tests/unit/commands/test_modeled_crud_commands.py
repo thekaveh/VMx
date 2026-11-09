@@ -7,6 +7,7 @@ tests/conformance/test_modeled_crud.py under COMP-019..024.
 from __future__ import annotations
 
 import pytest
+from reactivex.subject import Subject
 
 from vmx.commands import ConfirmationDecoratorCommand, ModeledCrudCommands
 
@@ -110,3 +111,104 @@ def test_dispose_completes_inner_can_execute_changed() -> None:
 
     # Three inner RelayCommands → three completion callbacks.
     assert completions == 3
+
+
+# ---------------------------------------------------------------------------
+# current_changed trigger (issue #1346, spec/06 §7, ADR-0049)
+# ---------------------------------------------------------------------------
+
+
+def test_update_and_delete_raise_can_execute_changed_on_current_changed_trigger() -> None:
+    current: object | None = None
+    current_changed: Subject[object] = Subject()
+    crud: ModeledCrudCommands[object, object] = ModeledCrudCommands(
+        current=lambda: current,
+        create_new=lambda: None,
+        update_current=lambda _vm: None,
+        delete_current=lambda _vm: None,
+        current_changed=current_changed,
+    )
+    update_raised: list[object] = []
+    delete_raised: list[object] = []
+    crud.update_current_command.can_execute_changed.subscribe(update_raised.append)
+    crud.delete_current_command.can_execute_changed.subscribe(delete_raised.append)
+
+    assert crud.update_current_command.can_execute() is False
+    assert crud.delete_current_command.can_execute() is False
+
+    current = object()
+    current_changed.on_next(None)
+
+    assert len(update_raised) == 1
+    assert len(delete_raised) == 1
+    assert crud.update_current_command.can_execute() is True
+    assert crud.delete_current_command.can_execute() is True
+    crud.dispose()
+
+
+def test_current_changed_trigger_reaches_confirmation_wrapped_commands() -> None:
+    current: object | None = None
+    current_changed: Subject[object] = Subject()
+
+    async def confirm() -> bool:
+        return True
+
+    crud: ModeledCrudCommands[object, object] = ModeledCrudCommands(
+        current=lambda: current,
+        create_new=lambda: None,
+        update_current=lambda _vm: None,
+        delete_current=lambda _vm: None,
+        confirm_update=confirm,
+        confirm_delete=confirm,
+        current_changed=current_changed,
+    )
+    assert isinstance(crud.update_current_command, ConfirmationDecoratorCommand)
+    assert isinstance(crud.delete_current_command, ConfirmationDecoratorCommand)
+    update_raised: list[object] = []
+    delete_raised: list[object] = []
+    crud.update_current_command.can_execute_changed.subscribe(update_raised.append)
+    crud.delete_current_command.can_execute_changed.subscribe(delete_raised.append)
+
+    current = object()
+    current_changed.on_next(None)
+
+    assert len(update_raised) == 1
+    assert len(delete_raised) == 1
+    assert crud.update_current_command.can_execute() is True
+    assert crud.delete_current_command.can_execute() is True
+    crud.dispose()
+
+
+@pytest.mark.parametrize("confirmed", [False, True], ids=["plain", "confirmation-wrapped"])
+def test_dispose_releases_the_current_changed_subscription(confirmed: bool) -> None:
+    current: object | None = None
+    current_changed: Subject[object] = Subject()
+
+    async def confirm() -> bool:
+        return True
+
+    crud: ModeledCrudCommands[object, object] = ModeledCrudCommands(
+        current=lambda: current,
+        create_new=lambda: None,
+        update_current=lambda _vm: None,
+        delete_current=lambda _vm: None,
+        confirm_update=confirm if confirmed else None,
+        confirm_delete=confirm if confirmed else None,
+        current_changed=current_changed,
+    )
+    raised: list[object] = []
+    for command in (
+        crud.create_new_command,
+        crud.update_current_command,
+        crud.delete_current_command,
+    ):
+        command.can_execute_changed.subscribe(raised.append)
+    assert current_changed.observers
+
+    crud.dispose()
+    after_dispose = len(raised)
+    current = object()
+    current_changed.on_next(None)
+
+    assert current_changed.observers == []
+    assert len(raised) == after_dispose

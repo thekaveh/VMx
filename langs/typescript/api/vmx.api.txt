@@ -967,6 +967,7 @@ interface ModeledCrudCommandsOptions<M, VM> {
     deleteCurrent: (vm: VM) => void;
     confirmUpdate?: ConfirmDelegate;
     confirmDelete?: ConfirmDelegate;
+    currentChanged?: Observable<unknown>;
     _model?: M;
 }
 declare class ModeledCrudCommands<M, VM> {

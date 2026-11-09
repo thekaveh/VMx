@@ -1027,6 +1027,7 @@ module vmx
     def clear(self) -> 'None'
     def contains_key(self, key: 'TKey') -> 'bool'
     def delete(self, key: 'TKey') -> 'bool'
+    def extend(self, values: 'Iterable[T]') -> 'None'
     def get(self, key: 'TKey') -> 'T | None'
     def insert(self, index: 'int', value: 'T') -> 'None'
     def move(self, from_index: 'int', to_index: 'int') -> 'None'
@@ -1063,7 +1064,7 @@ module vmx
     property result [get] -> T | None
     async def wait_result(self) -> 'T'
   class ModeledCrudCommands(typing.Generic[~M, ~VM])
-    def __init__(self, current: 'Callable[[], VM | None]', create_new: 'Callable[[], None]', update_current: 'Callable[[VM], None]', delete_current: 'Callable[[VM], None]', confirm_update: 'Callable[[], Awaitable[bool]] | None' = None, confirm_delete: 'Callable[[], Awaitable[bool]] | None' = None) -> 'None'
+    def __init__(self, current: 'Callable[[], VM | None]', create_new: 'Callable[[], None]', update_current: 'Callable[[VM], None]', delete_current: 'Callable[[VM], None]', confirm_update: 'Callable[[], Awaitable[bool]] | None' = None, confirm_delete: 'Callable[[], Awaitable[bool]] | None' = None, current_changed: 'rx.Observable[object] | None' = None) -> 'None'
     attribute create_new_command: Command
     attribute delete_current_command: Command
     def dispose(self) -> 'None'

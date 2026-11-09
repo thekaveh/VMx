@@ -18,10 +18,14 @@ public final class ConfirmationVM: NotificationVM {
     /// Resolves the hub with `.reject`.
     public let rejectCommand: RelayCommand
 
-    public override init(
+    /// - Parameter scheduler: Measures the lifespan for `remaining` and
+    ///   `opacity`, and drives the decay ticks. Pass a real-time scheduler such
+    ///   as `DispatchQueue.main` in an app, and a `VirtualTimeScheduler` in
+    ///   tests. The lifespan never resolves the notification.
+    public override init<S: NotificationScheduler>(
         notification: Notification,
         hub: NotificationHubProtocol,
-        scheduler: VirtualTimeScheduler,
+        scheduler: S,
         lifespan: TimeInterval = 300,
         tickInterval: TimeInterval = 0
     ) {

@@ -17,6 +17,16 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `NotificationVM` and `ConfirmationVM` accept any `NotificationScheduler`,
+  so an app can drive them in real time (#1347, spec/16 §6). The new public
+  protocol refines the Combine `Scheduler` with `seconds(from:to:)`. VMx
+  conforms `VirtualTimeScheduler`, `DispatchQueue`, `RunLoop` and
+  `OperationQueue`. The lifespan and decay-tick timers run on the injected
+  scheduler, and the VMs have no lock, so pass a serial scheduler on the
+  thread that uses the VM, such as `DispatchQueue.main`. Callers that pass a
+  `VirtualTimeScheduler` compile unchanged. The notes showcase passes
+  `DispatchQueue.main` and no longer advances a virtual clock from a
+  one-second `Timer`.
 - `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
   and `find` report invalid children-factory output as a recoverable error,
   assign no parent and retry the factory on the next walk; `find` returns a
@@ -133,6 +143,14 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 - A non-strict `FormVM` update no longer compares the model with the
   snapshot (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict
   `setModel` runs the equality once, and a non-strict deny not at all.
+- **BREAKING:** The `NotificationVM` and `ConfirmationVM` designated
+  initializers are now generic over `S: NotificationScheduler` (#1347). This
+  is source-breaking for a subclass of the `open` class `NotificationVM` that
+  overrides `init(notification:hub:scheduler:lifespan:tickInterval:)` with a
+  `VirtualTimeScheduler` parameter. Such an override no longer compiles, and it
+  must be declared generic over `NotificationScheduler`. Callers that only
+  construct the VMs are not affected. An ADR for #1347 still has to record this
+  decision and its version consequence.
 
 ### Fixed
 

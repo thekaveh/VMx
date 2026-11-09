@@ -14,6 +14,12 @@ below for them.
 
 ### Added
 
+- `ModeledCrudCommands` accepts an optional `current_changed` observable
+  (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
+  Update and Delete commands, so their `can_execute_changed` fires when the
+  selection changes. `dispose()` releases the trigger subscriptions. A helper
+  built without the trigger behaves as before. Spec/06 §7 still says this
+  helper accepts no trigger. Its update needs an ADR and is tracked in #1346.
 - `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
   and `find` report invalid children-factory output as a recoverable error,
   assign no parent and retry the factory on the next walk; `find` returns a
@@ -124,6 +130,17 @@ below for them.
 
 ### Fixed
 
+- `AsyncRelayCommand.execute()` raises `can_execute_changed` again when a
+  start-notification observer throws (#1328, spec/04 §10.2). The command
+  releases its admission, and observers that saw the start edge then see
+  `is_executing == False` and `can_execute() == True`. The observer exception
+  still reaches the caller, also when the release notification throws too.
+- `ModalVM.dismiss()` from a worker thread wakes a `wait_result()` waiter at
+  once (#1323, spec/19 §3). Before, the waiter resumed only on other loop
+  activity, and in asyncio debug mode `dismiss()` raised `RuntimeError` and
+  the waiter never resumed. The modal now claims the first result under a
+  lock and wakes each waiter on its own event loop with
+  `call_soon_threadsafe`. Racing `dismiss()` calls keep the first result.
 - A population that fails before its commit now disposes the candidates it
   built (#1324). This covers a raising `AggregateVM2` to `AggregateVM6`
   factory on `construct()` or `reconstruct()`, a refused aggregate preflight,

@@ -558,6 +558,79 @@ async def test_throwing_start_observer_releases_the_admission() -> None:
     command.dispose()
 
 
+@pytest.mark.asyncio
+async def test_throwing_start_observer_sends_a_compensating_notification() -> None:
+    """Issue #1328: observers that saw the start edge also see the release."""
+    calls = 0
+
+    async def task() -> None:
+        nonlocal calls
+        calls += 1
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    seen: list[tuple[bool, bool]] = []
+    failing = [True]
+
+    def recorder(_: object) -> None:
+        seen.append((command.is_executing, command.can_execute()))
+
+    def thrower(_: object) -> None:
+        if failing[0]:
+            failing[0] = False
+            raise RuntimeError("start observer failed")
+
+    command.can_execute_changed.subscribe(recorder)
+    command.can_execute_changed.subscribe(thrower)
+
+    with pytest.raises(RuntimeError, match="start observer failed"):
+        command.execute()
+
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert calls == 0, "the task body does not run"
+    assert seen == [(True, False), (False, True)]
+    assert not command.is_executing
+    assert command.can_execute()
+
+    command.execute()
+    deadline = time.monotonic() + HANG_GUARD
+    while command.is_executing and time.monotonic() < deadline:
+        await asyncio.sleep(0.01)
+    assert calls == 1, "a later execute() runs the task body once"
+    command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_start_observer_failure_wins_over_a_release_notification_failure() -> None:
+    """Issue #1328: the start-notification exception reaches the caller."""
+
+    async def task() -> None:
+        await asyncio.sleep(0)
+
+    class StartObserverError(Exception):
+        pass
+
+    class ReleaseObserverError(Exception):
+        pass
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    raised: list[type[Exception]] = [StartObserverError, ReleaseObserverError]
+
+    def thrower(_: object) -> None:
+        if raised:
+            raise raised.pop(0)("observer failed")
+
+    command.can_execute_changed.subscribe(thrower)
+
+    with pytest.raises(StartObserverError):
+        command.execute()
+
+    assert raised == [], "the release notification also ran"
+    assert not command.is_executing
+    assert command.can_execute()
+    command.dispose()
+
+
 # ---------------------------------------------------------------------------
 # A run that never starts releases its admission (issue #731, spec/04 §10.2)
 # ---------------------------------------------------------------------------
