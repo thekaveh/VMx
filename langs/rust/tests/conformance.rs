@@ -63,6 +63,7 @@ mod conformance {
     mod post_dispose_modeled_assignment;
     mod property_change;
     mod reconstruct_command_parity;
+    mod reconstruct_settle;
     mod reverse_destruct_order;
     mod search_filter;
     mod selection_transactions;
