@@ -218,6 +218,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `Constructed` with no parent (ADR-0218, spec/06 §4.2, #1372, `COMP-054`,
   `GRP-017`). Before, the child reached `Constructed` with no parent.
 
+- The `_notifyPropertyChanged` and `_raisePropertyChanged` helpers of a
+  `ForwardingComponentVM` or `ForwardingCompositeVM` subclass now act on the
+  wrapped VM (#1352). Before, they emitted on the decorator's own subject,
+  which no `propertyChanged` subscriber could see, and the hub message named
+  the decorator. Now the hub message names the wrapped VM, and the decorator's
+  `propertyChanged` emits the name once. When a `ForwardingComponentVM` wraps
+  an `IComponentVMOf` that is not a VMx `ComponentVMBase`, both helpers throw a
+  `TypeError` that names the property-change helper.
+
 - An `asyncSelection` delivery queued behind a throw from work that VMx did
   not queue, in one flush of the shared `queueScheduler`, now commits (#1421).
   The delivery is a counted foreground action, so the flush error's finalizer

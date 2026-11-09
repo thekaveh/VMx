@@ -22,7 +22,7 @@ workspace, like a desktop app opened twice.
 | ---------------------------- | ----------------------------------------------------------------------------- |
 | `src/nicegui_notes/adapter/` | Bindings from VMx view-models to NiceGUI elements, applied on the loop, per page |
 | `src/nicegui_notes/host.py`  | The composition root: builds the workspace at startup, tears it down at shutdown |
-| `src/nicegui_notes/page.py`  | The page: notebooks, the note list, and the editor                              |
+| `src/nicegui_notes/page.py`  | The page: notebooks, the note list, the editor, and the notifications            |
 | `tests/`                     | Bridge, lifetime, and smoke tests in NiceGUI's user simulation                  |
 
 ## 3. Check

@@ -3,6 +3,7 @@ using NotesShowcase.ViewModels;
 using VMx.Commands;
 using VMx.Dialogs;
 using VMx.Lifecycle;
+using VMx.Notifications;
 using Xunit;
 
 namespace NotesShowcase.Tests.ViewModels;
@@ -403,6 +404,172 @@ public sealed class WorkspaceVMTests
         }
     }
 
+    [Fact]
+    public async Task An_older_save_that_settles_last_keeps_the_newer_values()
+    {
+        // #1379: the repository writes each save when it starts and answers
+        // the newer save first.
+        var repo = new WriteFirstRepository();
+        var ws = WorkspaceVM.Builder().Repository(repo).Build();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.Inner[0];
+            var other = ws.NotesView.Inner[1];
+            var noteId = note.Model.Id;
+            var form = ws.NoteForm;
+
+            ws.NotesView.Current = note;
+            form.Title = "Older title";
+            var saveA = form.ApproveAsync();
+            await TestWait.WaitUntilAsync(() => repo.HeldCount == 1);
+            // Leave the note and return while save A is held, then start save B.
+            ws.NotesView.Current = other;
+            ws.NotesView.Current = note;
+            Assert.NotEqual("Older title", form.Title);
+            form.Title = "Newer title";
+            var saveB = form.ApproveAsync();
+            await TestWait.WaitUntilAsync(() => repo.HeldCount == 2);
+
+            // The newer save settles first, then the older one.
+            repo.Release(1);
+            await saveB;
+            repo.Release(0);
+            await saveA;
+
+            Assert.Equal("Newer title", form.Title);
+            Assert.False(form.IsDirty);
+            Assert.Equal("Newer title", ws.NotesView.Inner.First(n => n.Model.Id == noteId).Title);
+
+            // A later save stores the newer values.
+            form.Body = "Body after both saves";
+            var saveC = form.ApproveAsync();
+            await TestWait.WaitUntilAsync(() => repo.HeldCount == 3);
+            repo.Release(2);
+            await saveC;
+            var (_, notes) = await repo.LoadAllAsync();
+            var stored = notes.First(n => n.Id == noteId);
+            Assert.Equal("Newer title", stored.Title);
+            Assert.Equal("Body after both saves", stored.Body);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task An_older_save_shows_when_the_newer_save_fails(bool olderSettlesFirst)
+    {
+        // #1379: the newer save of a note fails and the older one succeeds.
+        // The list row shows the older save's values, which the repository keeps.
+        var repo = new WriteFirstRepository();
+        repo.Failing.Add(1);
+        var ws = WorkspaceVM.Builder().Repository(repo).Build();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.Inner[0];
+            var other = ws.NotesView.Inner[1];
+            var noteId = note.Model.Id;
+            var form = ws.NoteForm;
+
+            ws.NotesView.Current = note;
+            form.Title = "Older title";
+            var saveA = IgnoreFailure(form.ApproveAsync());
+            await TestWait.WaitUntilAsync(() => repo.HeldCount == 1);
+            ws.NotesView.Current = other;
+            ws.NotesView.Current = note;
+            form.Title = "Newer title";
+            var saveB = IgnoreFailure(form.ApproveAsync());
+            await TestWait.WaitUntilAsync(() => repo.HeldCount == 2);
+
+            var order = olderSettlesFirst
+                ? new[] { (0, saveA), (1, saveB) }
+                : new[] { (1, saveB), (0, saveA) };
+            foreach (var (index, save) in order)
+            {
+                repo.Release(index);
+                await save;
+            }
+
+            var (_, notes) = await repo.LoadAllAsync();
+            Assert.Equal("Older title", notes.First(n => n.Id == noteId).Title);
+            Assert.Equal("Older title", ws.NotesView.Inner.First(n => n.Model.Id == noteId).Title);
+            // The failed save keeps its unsaved edits in the editor.
+            Assert.Equal("Newer title", form.Title);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+
+        static async Task IgnoreFailure(Task save)
+        {
+            try
+            {
+                await save;
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes each save when it starts, then holds its answer until the test
+    /// releases that save, so saves can settle out of order.
+    /// </summary>
+    private sealed class WriteFirstRepository : INoteRepository
+    {
+        private readonly InMemoryNoteRepository _inner = new(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero);
+        private readonly List<TaskCompletionSource> _held = new();
+
+        /// <summary>Indexes of the saves that throw when released, before they write.</summary>
+        public HashSet<int> Failing { get; } = new();
+
+        public int HeldCount
+        {
+            get { lock (_held) return _held.Count; }
+        }
+
+        public void Release(int index)
+        {
+            lock (_held) _held[index].SetResult();
+        }
+
+        public Task<(IReadOnlyList<NotebookModel> Notebooks, IReadOnlyList<NoteModel> Notes)> LoadAllAsync(CancellationToken ct = default)
+            => _inner.LoadAllAsync(ct);
+        public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
+            => _inner.LoadNotesAsync(notebookId, ct);
+        public Task<NoteSearchPage> SearchNotesAsync(string term, string? token, int pageSize, CancellationToken ct = default)
+            => _inner.SearchNotesAsync(term, token, pageSize, ct);
+        public async Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
+        {
+            int index;
+            lock (_held) index = _held.Count;
+            var fails = Failing.Contains(index);
+            if (!fails) await _inner.SaveNoteAsync(note, ct).ConfigureAwait(false);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_held) _held.Add(release);
+            await release.Task.ConfigureAwait(false);
+            if (fails) throw new IOException("disk full");
+        }
+        public Task DeleteNoteAsync(string id, CancellationToken ct = default)
+            => _inner.DeleteNoteAsync(id, ct);
+        public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default)
+            => _inner.AddNotebookAsync(notebook, ct);
+        public Task ExportAsync(IReadOnlyList<NotebookModel> notebooks, IReadOnlyList<NoteModel> notes, string path, CancellationToken ct = default)
+            => _inner.ExportAsync(notebooks, notes, path, ct);
+    }
+
     private sealed class SaveSpyRepository : INoteRepository
     {
         private readonly INoteRepository _inner;
@@ -708,14 +875,123 @@ public sealed class WorkspaceVMTests
         }
     }
 
+    [Fact]
+    public async Task Export_command_posts_one_notification_after_the_file_is_written()
+    {
+        // #1329: the scenario's Export step confirms the written file.
+        var path = Path.Combine(Path.GetTempPath(), $"vmx-export-{Guid.NewGuid():N}.json");
+        using var notificationHub = new NotificationHub();
+        var observed = new List<Notification>();
+        var fileExistedAtPost = new List<bool>();
+        using var sub = notificationHub.Pending.Subscribe(snapshot =>
+        {
+            foreach (var n in snapshot)
+            {
+                if (observed.Contains(n)) continue;
+                observed.Add(n);
+                fileExistedAtPost.Add(File.Exists(path));
+            }
+        });
+        var ws = BuildExportWorkspace(new SaveDialogService(path), notificationHub);
+        await ws.ConstructAsync();
+        try
+        {
+            await Assert.IsType<AsyncRelayCommand>(ws.ExportCommand).ExecuteAsync();
+
+            var notification = Assert.Single(observed);
+            Assert.Equal(NotificationType.Notification, notification.Type);
+            Assert.Equal($"Exported to {path}", notification.Message);
+            Assert.Equal(new[] { true }, fileExistedAtPost);
+        }
+        finally
+        {
+            ws.Dispose();
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Export_command_cancelled_by_the_dialog_writes_nothing_and_posts_nothing()
+    {
+        using var notificationHub = new NotificationHub();
+        var observed = new List<Notification>();
+        using var sub = notificationHub.Pending.Subscribe(snapshot =>
+        {
+            foreach (var n in snapshot) if (!observed.Contains(n)) observed.Add(n);
+        });
+        var repo = new CountingExportRepository();
+        var ws = WorkspaceVM.Builder()
+            .Repository(repo)
+            .DialogService(new SaveDialogService(null))
+            .NotificationHub(notificationHub)
+            .Build();
+        await ws.ConstructAsync();
+        try
+        {
+            await Assert.IsType<AsyncRelayCommand>(ws.ExportCommand).ExecuteAsync();
+
+            Assert.Equal(0, repo.Exports);
+            Assert.Empty(observed);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+    }
+
+    private static WorkspaceVM BuildExportWorkspace(IDialogService dialog, INotificationHub notificationHub)
+        => WorkspaceVM.Builder()
+            .Repository(new InMemoryNoteRepository(
+                SeedData.Build(),
+                loadAllDelay: TimeSpan.Zero,
+                loadNotesDelay: TimeSpan.Zero,
+                saveNoteDelay: TimeSpan.Zero,
+                addNotebookDelay: TimeSpan.Zero,
+                exportDelay: TimeSpan.Zero))
+            .DialogService(dialog)
+            .NotificationHub(notificationHub)
+            .Build();
+
+    /// <summary>An in-memory repository that counts its exports.</summary>
+    private sealed class CountingExportRepository : INoteRepository
+    {
+        private readonly InMemoryNoteRepository _inner = new(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero,
+            addNotebookDelay: TimeSpan.Zero,
+            exportDelay: TimeSpan.Zero);
+
+        public int Exports { get; private set; }
+
+        public Task<(IReadOnlyList<NotebookModel> Notebooks, IReadOnlyList<NoteModel> Notes)> LoadAllAsync(CancellationToken ct = default)
+            => _inner.LoadAllAsync(ct);
+        public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
+            => _inner.LoadNotesAsync(notebookId, ct);
+        public Task<NoteSearchPage> SearchNotesAsync(string term, string? token, int pageSize, CancellationToken ct = default)
+            => _inner.SearchNotesAsync(term, token, pageSize, ct);
+        public Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
+            => _inner.SaveNoteAsync(note, ct);
+        public Task DeleteNoteAsync(string id, CancellationToken ct = default)
+            => _inner.DeleteNoteAsync(id, ct);
+        public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default)
+            => _inner.AddNotebookAsync(notebook, ct);
+        public Task ExportAsync(IReadOnlyList<NotebookModel> notebooks, IReadOnlyList<NoteModel> notes, string path, CancellationToken ct = default)
+        {
+            Exports++;
+            return _inner.ExportAsync(notebooks, notes, path, ct);
+        }
+    }
+
     private sealed class SaveDialogService : IDialogService
     {
-        private readonly string _path;
-        public SaveDialogService(string path) => _path = path;
+        private readonly string? _path;
+        public SaveDialogService(string? path) => _path = path;
         public Task<string?> PickFileToOpen(FileFilter? filter, string? title)
             => Task.FromResult<string?>(null);
         public Task<string?> PickFileToSave(FileFilter? filter, string? title, string? suggestedName)
-            => Task.FromResult<string?>(_path);
+            => Task.FromResult(_path);
         public Task<bool> Confirm(string message, string? title = null)
             => Task.FromResult(true);
         public Task Notify(string message, string? title = null, NotificationSeverity severity = NotificationSeverity.Info)

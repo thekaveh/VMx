@@ -1,5 +1,3 @@
-using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using VMx.Services;
 
@@ -116,9 +114,7 @@ public sealed class KeyedServicedObservableCollection<TKey, TItem>
         Items.Clear();
         foreach (TItem item in snapshot) Items.Add(item);
 
-        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
-        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
-        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        RaiseResetNotifications();
     }
 
     /// <inheritdoc/>

@@ -155,6 +155,21 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
     protected IDisposable Own(Action cleanup)
         => Own(System.Reactive.Disposables.Disposable.Create(cleanup));
 
+    /// <summary>
+    /// Publishes one hub message and one local <c>PropertyChanged</c> event
+    /// through the wrapped VM. The message names the wrapped VM as its sender,
+    /// and the event reaches this decorator's <c>PropertyChanged</c>
+    /// subscribers. After the wrapped VM is disposed, the call does nothing
+    /// (#1352).
+    /// </summary>
+    protected void NotifyPropertyChanged(string propertyName) => _membership.NotifyPropertyChanged(propertyName);
+
+    /// <summary>
+    /// Raises only the local <c>PropertyChanged</c> event, through the wrapped
+    /// VM (#1352).
+    /// </summary>
+    protected void RaisePropertyChanged(string propertyName) => _membership.RaisePropertyChanged(propertyName);
+
     IParentCompositeVM? IComponentVMInternals.Parent => _membership.Parent;
 
     IComponentVM IComponentVMInternals.OwnershipIdentity => _membership.OwnershipIdentity;

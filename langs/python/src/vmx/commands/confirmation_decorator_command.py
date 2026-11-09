@@ -18,6 +18,7 @@ from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
 from vmx._disposal import _run_disposal_steps
+from vmx.commands._disposal_signal import DisposalSignal
 from vmx.commands.protocols import Command, _AsyncCommand
 
 
@@ -42,10 +43,16 @@ class ConfirmationDecoratorCommand:
         self._confirm = confirm
         self._disposed = False
         self._errors: Subject[BaseException] = Subject()
+        self._disposal = DisposalSignal()
 
     @property
     def can_execute_changed(self) -> Observable[None]:
-        return self._inner.can_execute_changed
+        """The inner command's stream plus one notification at disposal.
+
+        A subscriber of the inner command receives no disposal notification.
+        The inner completion passes through (spec §8.4).
+        """
+        return self._disposal.wrap(self._inner.can_execute_changed)
 
     @property
     def errors(self) -> Observable[BaseException]:
@@ -148,10 +155,12 @@ class ConfirmationDecoratorCommand:
         Idempotent (spec §8.4, ADR-0134). A pending confirmation that resolves
         later runs no inner command and emits nothing. The inner command stays
         owned by its creator: disposal neither cancels nor disposes it, so an
-        awaited inner operation already running still completes, and
-        ``can_execute_changed`` delegates lazily to it.
+        awaited inner operation already running still completes. Disposal
+        notifies this decorator's ``can_execute_changed`` subscribers once;
+        the inner command's own subscribers receive nothing.
         """
         if self._disposed:
             return
         self._disposed = True
-        _run_disposal_steps(self._errors.on_completed, self._errors.dispose)
+        # One change notification for this decorator's subscribers (spec §8.4).
+        _run_disposal_steps(self._disposal.fire, self._errors.on_completed, self._errors.dispose)

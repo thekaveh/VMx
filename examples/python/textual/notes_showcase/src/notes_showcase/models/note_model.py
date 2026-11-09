@@ -23,3 +23,22 @@ class NoteModel:
     starred: bool
     created_at: datetime
     updated_at: datetime
+
+
+def note_matches(note: NoteModel, term: str) -> bool:
+    """The search rule of every notes showcase, for the notes list and the
+    global search alike.
+
+    The term is trimmed, and an empty term matches every note. Otherwise a
+    note matches when its title, its body or one of its tags contains the
+    term, ignoring case. Each field is matched on its own, so a term never
+    spans two fields.
+    """
+    needle = term.strip().lower()
+    if not needle:
+        return True
+    return (
+        needle in note.title.lower()
+        or needle in note.body.lower()
+        or any(needle in tag.lower() for tag in note.tags)
+    )

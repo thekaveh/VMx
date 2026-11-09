@@ -521,3 +521,80 @@ fn forwarding_composite_forwards_async_selection_and_background_errors() {
     assert_eq!(failing_inner.status(), ConstructionStatus::Destructed);
     assert_eq!(errors.lock().unwrap().len(), 1);
 }
+
+/// Property-change hub messages recorded as `(sender_id, name)`.
+type PropertyMessages = Arc<Mutex<Vec<(usize, String)>>>;
+
+/// Records the property-change hub messages of `hub` as `(sender_id, name)`.
+fn record_property_messages(hub: &MessageHub) -> (PropertyMessages, vmx::Subscription) {
+    let messages = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&messages);
+    let subscription = hub.subscribe(move |message| {
+        if let vmx::Message::PropertyChanged(change) = message {
+            sink.lock()
+                .unwrap()
+                .push((change.sender_id, change.property_name.clone()));
+        }
+    });
+    (messages, subscription)
+}
+
+/// A component decorator's notification helper publishes through the wrapped
+/// VM, and nothing after the wrapped VM is disposed (#1352)
+#[test]
+fn forwarding_component_notification_helper_publishes_through_the_wrapped_vm() {
+    let inner = child("inner");
+    let decorator = ForwardingComponentVm::new(inner.clone());
+    let (messages, _hub_subscription) = record_property_messages(&inner.hub());
+    let names = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&names);
+    let _local = decorator
+        .property_changed()
+        .subscribe(move |name| sink.lock().unwrap().push(name.to_string()));
+
+    decorator.notify_property_changed("custom");
+
+    assert_eq!(*names.lock().unwrap(), vec!["custom".to_string()]);
+    assert_eq!(
+        *messages.lock().unwrap(),
+        vec![(inner.id(), "custom".to_string())]
+    );
+
+    inner.dispose().unwrap();
+    names.lock().unwrap().clear();
+    messages.lock().unwrap().clear();
+    decorator.notify_property_changed("after");
+
+    assert!(names.lock().unwrap().is_empty());
+    assert!(messages.lock().unwrap().is_empty());
+}
+
+/// A composite decorator's notification helper publishes through the wrapped
+/// composite, and nothing after it is disposed (#1352)
+#[test]
+fn forwarding_composite_notification_helper_publishes_through_the_wrapped_vm() {
+    let inner = Wrapped::new("inner");
+    let decorator = ForwardingCompositeVm::new(inner.clone());
+    let (messages, _hub_subscription) = record_property_messages(&inner.hub());
+    let names = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&names);
+    let _local = decorator
+        .property_changed()
+        .subscribe(move |name| sink.lock().unwrap().push(name.to_string()));
+
+    decorator.notify_property_changed("custom");
+
+    assert_eq!(*names.lock().unwrap(), vec!["custom".to_string()]);
+    assert_eq!(
+        *messages.lock().unwrap(),
+        vec![(inner.id(), "custom".to_string())]
+    );
+
+    inner.dispose().unwrap();
+    names.lock().unwrap().clear();
+    messages.lock().unwrap().clear();
+    decorator.notify_property_changed("after");
+
+    assert!(names.lock().unwrap().is_empty());
+    assert!(messages.lock().unwrap().is_empty());
+}

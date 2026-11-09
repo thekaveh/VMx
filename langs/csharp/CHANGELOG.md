@@ -43,6 +43,35 @@ All notable changes to the C# flavor are documented here. The format is based on
   original and the first compensation failure (ADR-0218, #1305). This flavor
   already behaved this way.
 
+- Fixed: a throwing `ItemAdded`, `ItemRemoved`, `ItemReplaced` or `Reset`
+  handler of `ObservableList<T>` no longer skips `CollectionChanged` or
+  `PropertyChanged("Count")` (#1367, spec/21 §3.3). Every handler of each event
+  runs, and the first failure is rethrown after the last step. This covers
+  `Add`, `Insert`, `Remove`, `RemoveAt`, `Replace`, `Clear`, `ReplaceAll` and
+  the batch exit. `ReadOnlyObservableList<T>` also runs each of its own
+  handlers.
+
+- Fixed: a throwing `Keys1` or `Keys2` subscriber of `ObservableDictionary` no
+  longer skips the other key view, the dictionary's events or its hub message
+  (#1430). After a failed `Keys2` add, `Keys1` lists the new key. A throwing
+  `PropertyChanged("Count")` or `PropertyChanged("Item[]")` handler of
+  `ServicedObservableCollection<T>` or
+  `KeyedServicedObservableCollection<TKey, TItem>` no longer skips
+  `CollectionChanged` or the hub message: every handler runs, and the mutation
+  rethrows the first failure after the hub send. Outside a mutation, such as a
+  subclass that raises its own property through `OnPropertyChanged`, every
+  handler runs and the first failure is rethrown at once.
+
+- Added: protected `NotifyPropertyChanged` and `RaisePropertyChanged` helpers
+  on `ForwardingComponentVM<M>` and `ForwardingCompositeVM<VM>` (#1352). They
+  act on the wrapped VM: the hub message names the wrapped VM as its sender,
+  and the decorator's `PropertyChanged` event fires once.
+
+- Changed: disposing a live `CompositeCommand`, `DecoratorCommand` or
+  `ConfirmationDecoratorCommand` now raises the wrapper's own
+  `CanExecuteChanged` once, as TypeScript and Swift do (#1459, spec/04 §8.4).
+  Handlers of the inner command receive nothing.
+
 - Changed: the construct walk of a composite or group now counts members only
   (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
   joins a child, and again after the child settles. A child that a removal or

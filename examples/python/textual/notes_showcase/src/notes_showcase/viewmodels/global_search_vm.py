@@ -79,14 +79,14 @@ class GlobalSearchVM(ComponentVM):
         self._property_sub = self._paged.on_property_changed.subscribe(
             lambda name: self._notify_has_more() if name == "has_more" else None
         )
-        # Latest term wins: the refresh command refuses to start while one is
-        # in flight, so a term typed during a refresh would otherwise leave
-        # results for the stale term on screen. ``_refresh_term`` is the term
-        # of the latest first-page fetch. When a refresh settles for an older
-        # term, refresh again for the current one.
-        self._refresh_term: str | None = None
+        # Latest search wins: the refresh command refuses to start while one
+        # is in flight, so ``search()`` records its request and the request
+        # runs once the command is idle. Only a recorded request refreshes. A
+        # term edited without ``search()`` keeps the loaded results, and
+        # "Load more" continues their term, as in every flavor.
+        self._search_pending = False
         self._refresh_settled_sub = self._paged.refresh_command.can_execute_changed.subscribe(
-            lambda _: self._refresh_if_stale()
+            lambda _: self._run_pending_search()
         )
         # A refresh replaces the loaded pages, so "Load more" is not available
         # until the refresh is complete. A call made during a refresh does
@@ -121,21 +121,18 @@ class GlobalSearchVM(ComponentVM):
         return self._search.can_search()
 
     def search(self) -> None:
+        """Requests a refresh for the current term. A request made while a
+        refresh runs is recorded and runs once that refresh settles."""
         self._search.search()
-        if not self.refresh_command.is_executing:
-            self.refresh_command.execute()
-        # Otherwise _refresh_if_stale re-runs it for the latest term once the
-        # in-flight refresh settles.
+        self._search_pending = True
+        self._run_pending_search()
 
-    def _refresh_if_stale(self) -> None:
+    def _run_pending_search(self) -> None:
         command = self.refresh_command
-        if (
-            self._refresh_term is not None
-            and self._refresh_term != self.search_term
-            and not command.is_executing
-            and command.can_execute()
-        ):
-            command.execute()
+        if not self._search_pending or command.is_executing or not command.can_execute():
+            return
+        self._search_pending = False
+        command.execute()
 
     @property
     def results(self) -> list[NoteVM]:
@@ -160,7 +157,6 @@ class GlobalSearchVM(ComponentVM):
         # the cursor, so "Load more" continues the term of the loaded pages.
         if cursor is None:
             term, offset = self.search_term, None
-            self._refresh_term = term
         else:
             term, offset = cursor.term, cursor.offset
         page, next_token = await self._repo.search_notes(term, offset, self._page_size)

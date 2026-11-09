@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.note_model import NoteModel, note_matches
 from notes_showcase.models.notebook_model import NotebookModel
 
 
@@ -81,7 +81,6 @@ class InMemoryNoteRepository:
         """Search all notes with opaque forward-only token paging."""
         await asyncio.sleep(self._load_notes_delay)
         self._consume_failure()
-        normalized = term.strip().lower()
         try:
             parsed = int(token) if token is not None else 0
         except ValueError:
@@ -89,11 +88,7 @@ class InMemoryNoteRepository:
         start = max(0, parsed)
         safe_page_size = max(1, page_size)
         async with self._gate:
-            matches = [
-                n
-                for n in self._notes
-                if not normalized or normalized in f"{n.title} {n.body} {' '.join(n.tags)}".lower()
-            ]
+            matches = [n for n in self._notes if note_matches(n, term)]
             items = matches[start : start + safe_page_size]
             next_index = start + len(items)
             return items, str(next_index) if next_index < len(matches) else None

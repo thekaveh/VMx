@@ -2655,6 +2655,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <summary>Registers a resource for a forwarding decorator of this VM (ADR-0151).</summary>
     internal T OwnForAlias<T>(T resource) where T : IDisposable => Own(resource);
 
+    /// <summary>Runs <see cref="NotifyPropertyChanged"/> for a forwarding decorator of this VM (#1352).</summary>
+    internal void NotifyPropertyChangedForAlias(string propertyName) => NotifyPropertyChanged(propertyName);
+
+    /// <summary>Runs <see cref="RaisePropertyChanged"/> for a forwarding decorator of this VM (#1352).</summary>
+    internal void RaisePropertyChangedForAlias(string propertyName) => RaisePropertyChanged(propertyName);
+
     private void DisposeOwnedResources()
     {
         IDisposable[] resources;

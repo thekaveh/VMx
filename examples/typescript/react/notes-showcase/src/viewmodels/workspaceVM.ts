@@ -478,6 +478,10 @@ export class WorkspaceVM {
     if (path === null || path.length === 0) return;
     const { notebooks, notes } = await this.#repo.loadAll();
     await this.#repo.export(notebooks, notes, path);
+    // The scenario's Export step confirms the written file with a toast.
+    void this.#notificationHub.post(
+      new Notification(NotificationType.Notification, `Exported to ${path}`),
+    );
   }
 
   static builder(): WorkspaceVMBuilder {

@@ -13,14 +13,22 @@ Global all-notes search is the scenario path that demonstrates
   loaded result and its continuation. Load More then continues after the last
   visible result and does not fetch page two again (spec 21 §6.2, ADR-0136).
 - Load More fetches the next page for the term of the loaded pages, even after
-  the term is edited. A refresh for another term replaces the loaded pages and
-  their continuation. The Python showcase then refreshes for the edited term.
+  the term is edited. Only a search request refreshes, so an edited term that
+  was not searched starts no refresh. A refresh for another term replaces the
+  loaded pages and their continuation.
 - Load More is not available while a refresh runs. A call made during a
   refresh does nothing, so the results never mix two terms.
 - In Swift and Rust, a load that passed its check just before a refresh began
   can still start during that refresh, and the composition then discards the
-  refresh. When the results then show an older term than the refresh fetched,
-  the view model searches again.
+  refresh. When the results then do not start with the page that the refresh
+  fetched, the view model searches again. The check compares the notes and
+  their term, so a discarded refresh for the unchanged term also runs again,
+  and its new first page replaces the old pages. Rust searches at most three
+  times for one `refresh()` call.
+- The notes list and the global search match a note by one rule in every
+  showcase. The term is trimmed, and an empty term matches every note.
+  Otherwise a note matches when its title, its body or one of its tags
+  contains the term, ignoring case.
 - The search explicitly owns every lifecycle-bearing result VM it creates. This
   includes results that are later replaced, equality-suppressed, or returned by
   stale asynchronous work.

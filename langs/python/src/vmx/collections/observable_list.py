@@ -5,7 +5,7 @@ See spec/21-collections.md §3 and ADR-0026.
 
 from __future__ import annotations
 
-from collections.abc import Generator, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Generic, TypeVar, overload
 
@@ -15,6 +15,7 @@ from reactivex.subject import Subject
 
 from vmx._disposal import _run_disposal_steps
 from vmx._indexes import _reject_bool_index
+from vmx._subscriber_failures import FanOutSubject
 
 T = TypeVar("T")
 
@@ -37,6 +38,10 @@ class ObservableList(Generic[T]):
     Inside a ``batch_update()`` context manager, granular events are suppressed.
     A single ``Reset`` fires when the outermost batch exits (ref-counted).
 
+    A raising subscriber does not stop the delivery: every subscriber receives
+    the event, the ``Count`` notification still follows, and the first
+    failure is re-raised to the caller after the last step (spec §3.3).
+
     See spec/21-collections.md §3 and ADR-0026.
     """
 
@@ -47,13 +52,14 @@ class ObservableList(Generic[T]):
         self._count_at_batch_start: int = 0
         self._disposed: bool = False
 
-        # Granular event subjects
-        self._added_subject: Subject[tuple[T, int]] = Subject()
-        self._removed_subject: Subject[tuple[T, int]] = Subject()
-        self._replaced_subject: Subject[tuple[T, T, int]] = Subject()
-        self._reset_subject: Subject[None] = Subject()
+        # Granular event subjects. A raising subscriber does not stop the
+        # delivery to the later subscribers (spec/21 §3.3).
+        self._added_subject: Subject[tuple[T, int]] = FanOutSubject()
+        self._removed_subject: Subject[tuple[T, int]] = FanOutSubject()
+        self._replaced_subject: Subject[tuple[T, T, int]] = FanOutSubject()
+        self._reset_subject: Subject[None] = FanOutSubject()
         # Property-changed subject (emits the property name as a string)
-        self._prop_changed_subject: Subject[str] = Subject()
+        self._prop_changed_subject: Subject[str] = FanOutSubject()
 
     # ── Observable properties ─────────────────────────────────────────────────
     # Each Subject is sealed behind ``as_observable`` so external subscribers
@@ -183,9 +189,7 @@ class ObservableList(Generic[T]):
             return
 
         self._items[:] = snapshot
-        self._on_reset()
-        if old_count != len(snapshot) and self._batch_depth == 0 and not self._disposed:
-            self._prop_changed_subject.on_next("Count")
+        self._on_reset(count_changed=old_count != len(snapshot))
 
     def clear(self) -> None:
         """Remove all items, emitting Reset then ``Count`` — but only when the
@@ -194,12 +198,10 @@ class ObservableList(Generic[T]):
         count_changed = bool(self._items)
         self._items.clear()
         # Clearing an empty list is a no-op: emit neither Reset nor Count.
-        if count_changed:
-            self._on_reset()
         # spec/21 §3.3: PropertyChanged("Count") fires after every mutation
         # that changes Count. Inside a batch the batch-exit path emits it.
-        if count_changed and self._batch_depth == 0 and not self._disposed:
-            self._prop_changed_subject.on_next("Count")
+        if count_changed:
+            self._on_reset(count_changed=True)
 
     # ── Batch update ──────────────────────────────────────────────────────────
 
@@ -221,10 +223,11 @@ class ObservableList(Generic[T]):
             if self._batch_depth == 0 and self._mutated_in_batch and not self._disposed:
                 final_count = len(self._items)
                 self._mutated_in_batch = False
-                self._reset_subject.on_next(None)
                 # Emit Count notification only if count actually changed (spec §3.3).
-                if final_count != self._count_at_batch_start:
-                    self._prop_changed_subject.on_next("Count")
+                self._notify(
+                    lambda: self._reset_subject.on_next(None),
+                    final_count != self._count_at_batch_start,
+                )
 
     # ── Disposal ──────────────────────────────────────────────────────────────
 
@@ -261,8 +264,7 @@ class ObservableList(Generic[T]):
         if self._batch_depth > 0:
             self._mutated_in_batch = True
             return
-        self._added_subject.on_next((item, index))
-        self._prop_changed_subject.on_next("Count")
+        self._notify(lambda: self._added_subject.on_next((item, index)), True)
 
     def _on_removed(self, item: T, index: int) -> None:
         if self._disposed:
@@ -270,8 +272,7 @@ class ObservableList(Generic[T]):
         if self._batch_depth > 0:
             self._mutated_in_batch = True
             return
-        self._removed_subject.on_next((item, index))
-        self._prop_changed_subject.on_next("Count")
+        self._notify(lambda: self._removed_subject.on_next((item, index)), True)
 
     def _on_replaced(self, new_item: T, old_item: T, index: int) -> None:
         if self._disposed:
@@ -282,13 +283,27 @@ class ObservableList(Generic[T]):
         self._replaced_subject.on_next((new_item, old_item, index))
         # Count does not change on replace — no PropertyChanged("Count")
 
-    def _on_reset(self) -> None:
+    def _on_reset(self, *, count_changed: bool) -> None:
         if self._disposed:
             return
         if self._batch_depth > 0:
             self._mutated_in_batch = True
             return
-        self._reset_subject.on_next(None)
+        self._notify(lambda: self._reset_subject.on_next(None), count_changed)
+
+    def _notify(self, deliver: Callable[[], None], count_changed: bool) -> None:
+        """Deliver the event, then ``Count`` when it changed (spec/21 §3.3).
+
+        A raising subscriber does not skip the ``Count`` notification of the
+        committed change. The first failure is re-raised after both steps.
+        A subscriber that disposes the list stops the ``Count`` step.
+        """
+
+        def raise_count() -> None:
+            if count_changed and not self._disposed:
+                self._prop_changed_subject.on_next("Count")
+
+        _run_disposal_steps(deliver, raise_count)
 
 
 class ReadOnlyObservableList(Generic[T]):

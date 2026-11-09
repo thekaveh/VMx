@@ -43,7 +43,7 @@ from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub
 from vmx.services.dispatcher import Dispatcher
 
-from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.note_model import NoteModel, note_matches
 from notes_showcase.models.note_repository import INoteRepository
 from notes_showcase.viewmodels.dialog_service import IDialogService
 from notes_showcase.viewmodels.note_vm import NoteVM
@@ -475,17 +475,15 @@ class NotesViewVM(
 
     # ── Combined filter pipeline ───────────────────────────────────────────
     def _recompute_filtered(self) -> None:
-        term = self._search.search_term.lower()
+        term = self._search.search_term
         result: list[NoteVM] = []
         for n in self._inner:
             if self._show_starred_only and not n.model.starred:
                 continue
             if self._filter is not None and not self._filter(n):
                 continue
-            if term:
-                hay = " ".join((n.title, n.body, *n.tags)).lower()
-                if term not in hay:
-                    continue
+            if not note_matches(n.model, term):
+                continue
             result.append(n)
         self._filtered = result
         # The paged view reads ``_filtered`` through a factory, so it gets no

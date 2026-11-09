@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using VMx.Internal;
 
 namespace VMx.Collections;
 
@@ -34,12 +35,15 @@ public sealed class ReadOnlyObservableList<T> :
     internal ReadOnlyObservableList(ObservableList<T> source)
     {
         _source = source;
-        _source.ItemAdded += (_, e) => ItemAdded?.Invoke(this, e);
-        _source.ItemRemoved += (_, e) => ItemRemoved?.Invoke(this, e);
-        _source.ItemReplaced += (_, e) => ItemReplaced?.Invoke(this, e);
-        _source.Reset += (_, e) => Reset?.Invoke(this, e);
-        _source.CollectionChanged += (_, e) => CollectionChanged?.Invoke(this, e);
-        _source.PropertyChanged += (_, e) => PropertyChanged?.Invoke(this, e);
+        // Each facade handler runs even when an earlier one throws; the first
+        // failure reaches the source list, which rethrows it after its last
+        // notification step (spec/21 §3.3).
+        _source.ItemAdded += (_, e) => FanOut.Raise(ItemAdded, h => h(this, e))?.Throw();
+        _source.ItemRemoved += (_, e) => FanOut.Raise(ItemRemoved, h => h(this, e))?.Throw();
+        _source.ItemReplaced += (_, e) => FanOut.Raise(ItemReplaced, h => h(this, e))?.Throw();
+        _source.Reset += (_, e) => FanOut.Raise(Reset, h => h(this, e))?.Throw();
+        _source.CollectionChanged += (_, e) => FanOut.Raise(CollectionChanged, h => h(this, e))?.Throw();
+        _source.PropertyChanged += (_, e) => FanOut.Raise(PropertyChanged, h => h(this, e))?.Throw();
     }
 
     // ── Granular events ───────────────────────────────────────────────────────

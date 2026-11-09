@@ -36,6 +36,15 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
     private readonly List<(Delegate Handler, NotifyCollectionChangedEventHandler Wrapper)> _localHandlers = [];
     private ExceptionDispatchInfo? _deliveryFailure;
 
+    // PropertyChanged handlers. ObservableCollection raises Count and Item[]
+    // before OnCollectionChanged, so during a mutation their first failure
+    // waits here until OnCollectionChanged has raised CollectionChanged and
+    // sent the hub message (#1430). Outside a mutation, such as a subclass
+    // raising its own property, OnPropertyChanged rethrows at once.
+    private PropertyChangedEventHandler? _propertyChanged;
+    private ExceptionDispatchInfo? _propertyFailure;
+    private int _mutationDepth;
+
     /// <summary>
     /// Initializes a new instance, optionally wiring it to <paramref name="hub"/>.
     /// </summary>
@@ -93,6 +102,77 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         }
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Every handler receives each change once, even when an earlier handler
+    /// throws. A throwing handler skips neither <see cref="CollectionChanged"/>
+    /// nor the hub message of the mutation; the mutation rethrows the first
+    /// failure after the hub send (#1430).
+    /// </remarks>
+    protected override event PropertyChangedEventHandler? PropertyChanged
+    {
+        add
+        {
+            lock (_localHandlers) _propertyChanged += value;
+        }
+        remove
+        {
+            lock (_localHandlers) _propertyChanged -= value;
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Every handler runs even when an earlier handler throws. Outside a
+    /// mutation the first failure is rethrown when the handlers have run.
+    /// During a mutation it is rethrown by the mutation after the hub send.
+    /// </remarks>
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+    {
+        PropertyChangedEventHandler? handler;
+        lock (_localHandlers) handler = _propertyChanged;
+        if (_mutationDepth == 0)
+        {
+            FanOut.Raise(handler, h => h(this, e))?.Throw();
+            return;
+        }
+
+        // A nested mutation from a handler keeps its own failure: the outer
+        // failure is set aside while the handlers run.
+        ExceptionDispatchInfo? outerFailure = _propertyFailure;
+        _propertyFailure = null;
+        ExceptionDispatchInfo? failure = FanOut.Raise(handler, h => h(this, e));
+        _propertyFailure = outerFailure ?? failure;
+    }
+
+    // Closes one mutation. When the outermost mutation ends, a held-back
+    // PropertyChanged failure that no OnCollectionChanged rethrew is returned.
+    private ExceptionDispatchInfo? EndMutation()
+    {
+        if (--_mutationDepth > 0) return null;
+        ExceptionDispatchInfo? leftover = _propertyFailure;
+        _propertyFailure = null;
+        return leftover;
+    }
+
+    // Raises Count, Item[] and one Reset as one mutation (ReplaceAll).
+    private protected void RaiseResetNotifications()
+    {
+        _mutationDepth++;
+        ExceptionDispatchInfo? leftover;
+        try
+        {
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
+        finally
+        {
+            leftover = EndMutation();
+        }
+        leftover?.Throw();
+    }
+
     private bool RunMatches(int start, Delegate[] entries)
     {
         for (int i = 0; i < entries.Length; i++)
@@ -140,16 +220,72 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         Items.Clear();
         foreach (T item in snapshot) Items.Add(item);
 
-        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
-        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
-        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        RaiseResetNotifications();
+    }
+
+    /// <inheritdoc/>
+    protected override void InsertItem(int index, T item)
+    {
+        _mutationDepth++;
+        ExceptionDispatchInfo? leftover;
+        try
+        {
+            base.InsertItem(index, item);
+        }
+        finally
+        {
+            leftover = EndMutation();
+        }
+        leftover?.Throw();
+    }
+
+    /// <inheritdoc/>
+    protected override void RemoveItem(int index)
+    {
+        _mutationDepth++;
+        ExceptionDispatchInfo? leftover;
+        try
+        {
+            base.RemoveItem(index);
+        }
+        finally
+        {
+            leftover = EndMutation();
+        }
+        leftover?.Throw();
+    }
+
+    /// <inheritdoc/>
+    protected override void SetItem(int index, T item)
+    {
+        _mutationDepth++;
+        ExceptionDispatchInfo? leftover;
+        try
+        {
+            base.SetItem(index, item);
+        }
+        finally
+        {
+            leftover = EndMutation();
+        }
+        leftover?.Throw();
     }
 
     /// <inheritdoc/>
     protected override void ClearItems()
     {
         if (Count == 0) return;
-        base.ClearItems();
+        _mutationDepth++;
+        ExceptionDispatchInfo? leftover;
+        try
+        {
+            base.ClearItems();
+        }
+        finally
+        {
+            leftover = EndMutation();
+        }
+        leftover?.Throw();
     }
 
     /// <inheritdoc/>
@@ -161,7 +297,17 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
             throw new ArgumentOutOfRangeException(nameof(newIndex));
         if (oldIndex == newIndex) return;
 
-        base.MoveItem(oldIndex, newIndex);
+        _mutationDepth++;
+        ExceptionDispatchInfo? leftover;
+        try
+        {
+            base.MoveItem(oldIndex, newIndex);
+        }
+        finally
+        {
+            leftover = EndMutation();
+        }
+        leftover?.Throw();
     }
 
     /// <inheritdoc/>
@@ -174,6 +320,10 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         //    delivery keeps its own first failure. The handlers are invoked
         //    here, not through base.OnCollectionChanged, so no reentrancy
         //    block applies (ADR-0214).
+        //    A PropertyChanged failure of this mutation came first, so it
+        //    takes precedence.
+        ExceptionDispatchInfo? propertyFailure = _propertyFailure;
+        _propertyFailure = null;
         ExceptionDispatchInfo? outerFailure = _deliveryFailure;
         _deliveryFailure = null;
         NotifyCollectionChangedEventHandler[] wrappers;
@@ -183,7 +333,7 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
             for (int i = 0; i < wrappers.Length; i++) wrappers[i] = _localHandlers[i].Wrapper;
         }
         foreach (NotifyCollectionChangedEventHandler wrapper in wrappers) wrapper(this, e);
-        ExceptionDispatchInfo? firstFailure = _deliveryFailure;
+        ExceptionDispatchInfo? firstFailure = propertyFailure ?? _deliveryFailure;
         _deliveryFailure = outerFailure;
 
         // 2. Publish to hub (if present).

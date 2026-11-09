@@ -612,14 +612,33 @@ export abstract class ComponentVMBase {
     return this.#propertyChangedSubject.asObservable();
   }
 
+  /**
+   * Emit `propertyName` only on the VM-local `propertyChanged` stream. A
+   * forwarding decorator emits through its canonical ownership identity, whose
+   * stream it exposes (#1352).
+   */
   protected _raisePropertyChanged(propertyName: string): void {
+    const owner = this._ownershipIdentity;
+    if (owner !== this) {
+      owner._raisePropertyChanged(propertyName);
+      return;
+    }
     if (!this.#triggersDisposed) {
       this.#propertyChangedSubject.next(propertyName);
     }
   }
 
-  /** Publish one hub message, then one VM-local notification for assigned state. */
+  /**
+   * Publish one hub message, then one VM-local notification for assigned
+   * state. A forwarding decorator publishes through its canonical ownership
+   * identity: the message names that VM as its sender (#1352).
+   */
   protected _notifyPropertyChanged(propertyName: string): void {
+    const owner = this._ownershipIdentity;
+    if (owner !== this) {
+      owner._notifyPropertyChanged(propertyName);
+      return;
+    }
     if (this.#status === ConstructionStatus.Disposed || this.#triggersDisposed) return;
     this.#activePropertyNotifications += 1;
     try {

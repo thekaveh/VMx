@@ -10,6 +10,7 @@ from typing import Any
 
 from reactivex import Observable
 
+from vmx.commands._disposal_signal import DisposalSignal
 from vmx.commands.protocols import Command
 
 
@@ -29,10 +30,16 @@ class DecoratorCommand:
         self._post = post_execute
         self._extra = extra_predicate
         self._disposed = False
+        self._disposal = DisposalSignal()
 
     @property
     def can_execute_changed(self) -> Observable[None]:
-        return self._inner.can_execute_changed
+        """The inner command's stream plus one notification at disposal.
+
+        A subscriber of the inner command receives no disposal notification.
+        The inner completion passes through (spec §8.4).
+        """
+        return self._disposal.wrap(self._inner.can_execute_changed)
 
     def can_execute(self, parameter: Any = None) -> bool:
         if self._disposed or not self._inner.can_execute(parameter):
@@ -65,8 +72,11 @@ class DecoratorCommand:
     def dispose(self) -> None:
         """Make the decorator inert (spec §8.4, ADR-0134). Idempotent.
 
-        The inner command stays owned by its creator. ``can_execute_changed``
-        delegates lazily to the inner command, so the decorator owns no
-        subscriptions to release.
+        Notifies the decorator's ``can_execute_changed`` subscribers once, so
+        a binding re-reads ``can_execute``. The inner command stays owned by
+        its creator, and its own subscribers receive nothing.
         """
+        if self._disposed:
+            return
         self._disposed = True
+        self._disposal.fire()

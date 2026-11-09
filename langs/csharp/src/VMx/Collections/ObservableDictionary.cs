@@ -250,19 +250,16 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         var dropKey2 = Release(_key2Counts, key2);
 
         // Keys2 first, so a Keys1 subscriber sees the updated Keys2, as on add (#1075).
-        // Keys1 is updated even when a Keys2 subscriber throws.
-        try
-        {
-            if (dropKey2)
-                NotifyKeys2(() => _keys2.Remove(key2));
-        }
-        finally
-        {
-            if (dropKey1)
-                RemoveKey1(key1);
-        }
+        // A throwing key-view subscriber skips neither the other key view nor
+        // the dictionary's events and hub message; its failure is rethrown
+        // after them (#1430).
+        ExceptionDispatchInfo? keyViewFailure = null;
+        if (dropKey2)
+            FirstFailure.Capture(ref keyViewFailure, () => NotifyKeys2(() => _keys2.Remove(key2)));
+        if (dropKey1)
+            FirstFailure.Capture(ref keyViewFailure, () => RemoveKey1(key1));
 
-        OnRemoved(key1, key2, value, index);
+        OnRemoved(key1, key2, value, index, keyViewFailure);
         return true;
     }
 
@@ -296,16 +293,12 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         _key2Counts.Clear();
 
         // Keys2 first, so a Keys1 subscriber sees the cleared Keys2, as on add (#1075).
-        // Keys1 is updated even when a Keys2 subscriber throws.
-        try
-        {
-            NotifyKeys2(_keys2.Clear);
-        }
-        finally
-        {
-            ClearKeys1();
-        }
-        OnReset();
+        // A throwing key-view subscriber skips neither the other key view nor
+        // the dictionary's events and hub message (#1430).
+        ExceptionDispatchInfo? keyViewFailure = null;
+        FirstFailure.Capture(ref keyViewFailure, () => NotifyKeys2(_keys2.Clear));
+        FirstFailure.Capture(ref keyViewFailure, ClearKeys1);
+        OnReset(keyViewFailure);
     }
 
     // ── Enumeration ────────────────────────────────────────────────────────────
@@ -336,13 +329,17 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         _key2Counts[key2] = c2 + 1;
 
         // Keys2 first, so a Keys1 subscriber sees the new Key2 and cannot put
-        // Keys2 out of first-appearance order (#772).
+        // Keys2 out of first-appearance order (#772). A throwing key-view
+        // subscriber skips neither the other key view nor the dictionary's
+        // events and hub message; its failure is rethrown after them
+        // (#1430).
+        ExceptionDispatchInfo? keyViewFailure = null;
         if (c2 == 0)
-            _keys2.Add(key2);
+            FirstFailure.Capture(ref keyViewFailure, () => _keys2.Add(key2));
         if (c1 == 0)
-            AddKey1(key1, version);
+            FirstFailure.Capture(ref keyViewFailure, () => AddKey1(key1, version));
 
-        OnAdded(key1, key2, value, index);
+        OnAdded(key1, key2, value, index, keyViewFailure);
     }
 
     // Appends key1 unless a Keys2 subscriber changed the entries, or a remove
@@ -469,10 +466,11 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         return true;
     }
 
-    private void OnAdded(TKey1 key1, TKey2 key2, TValue value, int index)
+    private void OnAdded(TKey1 key1, TKey2 key2, TValue value, int index, ExceptionDispatchInfo? keyViewFailure)
     {
         var entry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value);
         Notify(
+            keyViewFailure,
             () => FanOut.Raise(ItemAdded, handler => handler(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value))),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, entry),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForAdd(
@@ -488,10 +486,11 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             : _keyOrder.IndexOf(key);
     }
 
-    private void OnRemoved(TKey1 key1, TKey2 key2, TValue value, int index)
+    private void OnRemoved(TKey1 key1, TKey2 key2, TValue value, int index, ExceptionDispatchInfo? keyViewFailure)
     {
         var entry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value);
         Notify(
+            keyViewFailure,
             () => FanOut.Raise(ItemRemoved, handler => handler(this, new DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>(key1, key2, value))),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, entry),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(this, entry, index));
@@ -504,15 +503,17 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         var newEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue);
         var oldEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue);
         Notify(
+            null,
             () => FanOut.Raise(ItemReplaced, handler => handler(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue))),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, newEntry, oldEntry),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(
                 this, newEntry, oldEntry, _keyOrder.IndexOf((key1, key2))));
     }
 
-    private void OnReset()
+    private void OnReset(ExceptionDispatchInfo? keyViewFailure)
     {
         Notify(
+            keyViewFailure,
             () => FanOut.Raise(Reset, handler => handler(this, EventArgs.Empty)),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReset(this));
@@ -522,13 +523,16 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     // message (if a hub is present). A throwing local handler skips neither the
     // later handlers, the later local event nor the hub message for the
     // committed change; the first failure is rethrown after publication
-    // (spec/01 §1.4, spec/03 §3.6, ADR-0171, ADR-0191).
+    // (spec/01 §1.4, spec/03 §3.6, ADR-0171, ADR-0191). A key-view failure
+    // happened first, so it takes precedence.
     private void Notify(
+        ExceptionDispatchInfo? keyViewFailure,
         Func<ExceptionDispatchInfo?> granular,
         NotifyCollectionChangedEventArgs args,
         Func<CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>> message)
     {
-        ExceptionDispatchInfo? firstFailure = granular();
+        ExceptionDispatchInfo? granularFailure = granular();
+        ExceptionDispatchInfo? firstFailure = keyViewFailure ?? granularFailure;
         ExceptionDispatchInfo? collectionFailure =
             FanOut.Raise(CollectionChanged, handler => handler(this, args));
         firstFailure ??= collectionFailure;

@@ -11,6 +11,7 @@ from typing import Any
 import reactivex as rx
 from reactivex import Observable
 
+from vmx.commands._disposal_signal import DisposalSignal
 from vmx.commands.protocols import Command
 
 
@@ -25,11 +26,12 @@ class CompositeCommand:
     def __init__(self, *inner: Command) -> None:
         self._inner: Sequence[Command] = inner
         self._disposed = False
-        self._can_execute_changed: Observable[None]
-        if not inner:
-            self._can_execute_changed = rx.never()
-        else:
-            self._can_execute_changed = rx.merge(*(c.can_execute_changed for c in inner))
+        self._disposal = DisposalSignal()
+        merged: Observable[None] = (
+            rx.never() if not inner else rx.merge(*(c.can_execute_changed for c in inner))
+        )
+        # One more notification at disposal (spec §8.4).
+        self._can_execute_changed: Observable[None] = self._disposal.wrap(merged)
 
     @property
     def can_execute_changed(self) -> Observable[None]:
@@ -52,9 +54,14 @@ class CompositeCommand:
     def dispose(self) -> None:
         """Make the composite inert (spec §8.4, ADR-0134). Idempotent.
 
-        The inner commands stay owned by their creator. No internal
+        Notifies the composite's ``can_execute_changed`` subscribers once, so
+        a binding re-reads ``can_execute``. The inner commands stay owned by
+        their creator, and their own subscribers receive nothing. No internal
         subscriptions are held: ``can_execute_changed`` is a lazy
         ``rx.merge`` of the inner streams, which subscribers tear down when
         they unsubscribe.
         """
+        if self._disposed:
+            return
         self._disposed = True
+        self._disposal.fire()

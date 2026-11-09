@@ -51,6 +51,21 @@ _EMPTY_NOTE = NoteModel(
 _TITLE_REQUIRED = "Title is required."
 
 
+@dataclasses.dataclass
+class _NoteSaves:
+    """Save-order state of one note id (#1379).
+
+    ``running`` holds the numbers of the saves that started and have not
+    settled. ``shown`` is the number of the newest save shown. ``held`` is the
+    newest save that succeeded while a newer save was running; it is shown if
+    every newer save fails.
+    """
+
+    running: set[int] = dataclasses.field(default_factory=set)
+    shown: int = 0
+    held: tuple[int, FormVM[NoteModel], NoteModel] | None = None
+
+
 class NoteFormVM(ComponentVM, IReconstructable):
     """Editor VM bound to a single :class:`NoteModel` at a time."""
 
@@ -78,6 +93,15 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._bind_subscription: DisposableBase | None = None
         # Inner approvals admitted so far; see ``_approve_form_async``.
         self._admissions = 0
+        # Save order (#1379): the note id and number of the save each form
+        # runs, and the save-order state of each note id with a save running.
+        # A successful save refreshes its list row and rebinds the editor only
+        # when no newer save of that note is running or shown. So an older save
+        # that settles last never shows the older values, and an older save is
+        # still shown when every newer save fails.
+        self._saves_started = 0
+        self._form_saves: dict[FormVM[NoteModel], tuple[str, int]] = {}
+        self._note_saves: dict[str, _NoteSaves] = {}
         # Forms with an approval running, and forms already replaced by a
         # rebind whose disposal waits for that approval to settle. Disposing a
         # form mid-save suppresses its settlement (spec/20 §5.3), which would
@@ -404,9 +428,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
         if self._bind_subscription is not None:
             self._bind_subscription.dispose()
             self._bind_subscription = None
-        form = FormVM(
+        form: FormVM[NoteModel] = FormVM(
             initial=note,
-            persister=self._persist,
+            persister=lambda model: self._persist(form, model),
             hub=self._hub,
             strict=True,
             validators={"title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None},
@@ -528,8 +552,69 @@ class NoteFormVM(ComponentVM, IReconstructable):
 
     def _handle_approved(self, source: FormVM[NoteModel], model: NoteModel) -> None:
         self._emit_draft_changes()
+        if not self._settle_save(source, model):
+            # A newer save of this note is running or shown. This save is
+            # held, and shown only if every newer save fails.
+            return
+        self._show_saved(source, model)
+
+    def _show_saved(self, source: FormVM[NoteModel], model: NoteModel) -> None:
         self._on_saved.on_next(model)
         self._adopt_saved(source, model)
+
+    def _begin_save(self, form: FormVM[NoteModel], note_id: str) -> int:
+        self._saves_started += 1
+        save = self._saves_started
+        self._form_saves[form] = (note_id, save)
+        self._note_saves.setdefault(note_id, _NoteSaves()).running.add(save)
+        return save
+
+    def _settle_save(self, source: FormVM[NoteModel], model: NoteModel) -> bool:
+        """Settle the successful save of *source*. Return ``True`` when no
+        newer save of its note is running or shown; otherwise hold it."""
+        entry = self._form_saves.pop(source, None)
+        if entry is None:
+            return True
+        note_id, save = entry
+        saves = self._note_saves.get(note_id)
+        if saves is None:
+            return True
+        saves.running.discard(save)
+        show = save > saves.shown and all(save > other for other in saves.running)
+        if show:
+            saves.shown = save
+            saves.held = None
+        elif saves.held is None or saves.held[0] < save:
+            saves.held = (save, source, model)
+        self._forget_settled(note_id, saves)
+        return show
+
+    def _fail_save(self, form: FormVM[NoteModel], note_id: str, save: int) -> None:
+        """Forget a failed save. Show the held save of its note when no newer
+        save is running or shown."""
+        if self._form_saves.get(form) == (note_id, save):
+            del self._form_saves[form]
+        saves = self._note_saves.get(note_id)
+        if saves is None:
+            return
+        saves.running.discard(save)
+        held = saves.held
+        show = (
+            held is not None
+            and held[0] > saves.shown
+            and all(held[0] > other for other in saves.running)
+        )
+        if held is not None and show:
+            saves.shown = held[0]
+            saves.held = None
+        self._forget_settled(note_id, saves)
+        if held is not None and show:
+            self._show_saved(held[1], held[2])
+
+    def _forget_settled(self, note_id: str, saves: _NoteSaves) -> None:
+        # With no save running, a later save outnumbers every earlier one.
+        if not saves.running:
+            del self._note_saves[note_id]
 
     def _adopt_saved(self, source: FormVM[NoteModel], saved: NoteModel) -> None:
         """Show a save that settled on a retired form (#761).
@@ -550,10 +635,16 @@ class NoteFormVM(ComponentVM, IReconstructable):
         if form is not None:
             form.deny_command.execute()
 
-    async def _persist(self, note: NoteModel) -> None:
+    async def _persist(self, form: FormVM[NoteModel], note: NoteModel) -> None:
         # The form calls its persister only for an admitted approval.
         self._admissions += 1
-        await self._repo.save_note(note)
+        save = self._begin_save(form, note.id)
+        try:
+            await self._repo.save_note(note)
+        except BaseException:
+            # A failed save never settles; an older held save may show now.
+            self._fail_save(form, note.id, save)
+            raise
 
     async def refresh_tag_suggestions_async(self) -> None:
         try:

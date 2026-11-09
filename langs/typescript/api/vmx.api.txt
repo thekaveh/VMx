@@ -1624,6 +1624,8 @@ declare class ForwardingComponentVM<M> extends ComponentVMBase implements ICompo
     protected readonly _wrapped: IComponentVMOf<M>;
     constructor(wrapped: IComponentVMOf<M>);
     get wrappedBase(): ComponentVMBase;
+    protected _raisePropertyChanged(propertyName: string): void;
+    protected _notifyPropertyChanged(propertyName: string): void;
     get _ownershipIdentity(): ComponentVMBase;
     get _parent(): IOwningParentVM | null;
     set _parent(parent: IOwningParentVM | null);

@@ -58,8 +58,8 @@ private final class AlwaysAcceptDialogService: DialogService {
 
 /// Dialog that always returns a pre-configured path from `pickFileToSave`.
 private final class SaveDialogService: DialogService {
-    private let _path: String
-    init(path: String) { _path = path }
+    private let _path: String?
+    init(path: String?) { _path = path }
     func pickFileToOpen(filter: FileFilter?, title: String?) async -> String? { nil }
     func pickFileToSave(filter: FileFilter?, title: String?, suggestedName: String?) async -> String? { _path }
     func confirm(_ message: String, title: String?) async -> Bool { true }
@@ -85,10 +85,11 @@ private struct FailingRepository: NoteRepository {
 
 private struct RepositoryUnavailable: Error {}
 
-/// Forwards to an in-memory repository and counts the note saves.
+/// Forwards to an in-memory repository and counts the note saves and exports.
 private actor CountingRepository: NoteRepository {
     let inner: InMemoryNoteRepository
     private(set) var saveCount = 0
+    private(set) var exportCount = 0
 
     init(_ inner: InMemoryNoteRepository) { self.inner = inner }
 
@@ -112,7 +113,42 @@ private actor CountingRepository: NoteRepository {
     func deleteNote(id: String) async throws { try await inner.deleteNote(id: id) }
     func addNotebook(_ notebook: NotebookModel) async throws { try await inner.addNotebook(notebook) }
     func export(notebooks: [NotebookModel], notes: [NoteModel], path: String) async throws {
+        exportCount += 1
         try await inner.export(notebooks: notebooks, notes: notes, path: path)
+    }
+}
+
+/// Records each notification once, when it first appears in `pending`, with
+/// a value that `probe` reads at that moment. The lock serialises the posting
+/// Task's executor and the test's reads.
+private final class FirstSightRecorder<Probe>: @unchecked Sendable {
+    struct Entry {
+        let type: NotificationType
+        let message: String
+        let probe: Probe
+    }
+
+    private let lock = NSLock()
+    private var seen: [ObjectIdentifier] = []
+    private var _entries: [Entry] = []
+    private let probe: () -> Probe
+    var cancellables = Set<AnyCancellable>()
+
+    init(probe: @escaping () -> Probe) { self.probe = probe }
+
+    func record(_ snapshot: [VMx.Notification]) {
+        lock.withLock {
+            for notification in snapshot where !seen.contains(ObjectIdentifier(notification)) {
+                seen.append(ObjectIdentifier(notification))
+                _entries.append(Entry(
+                    type: notification.type, message: notification.message, probe: probe()
+                ))
+            }
+        }
+    }
+
+    var entries: [Entry] {
+        lock.withLock { _entries }
     }
 }
 
@@ -724,6 +760,74 @@ final class WorkspaceVMTests: XCTestCase {
             FileManager.default.fileExists(atPath: path),
             "export must write through the picked path"
         )
+    }
+
+    func testExportCommand_postsOneNotificationAfterTheFileIsWritten() async throws {
+        // #1329: the scenario's Export step confirms the written file.
+        let path = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("vmx-export-\(UUID().uuidString).json")
+        let notificationHub = NotificationHub()
+        let recorder = FirstSightRecorder { FileManager.default.fileExists(atPath: path) }
+        notificationHub.pending
+            .sink { [recorder] snapshot in recorder.record(snapshot) }
+            .store(in: &recorder.cancellables)
+        let ws = try WorkspaceVM.builder()
+            .repository(InMemoryNoteRepository(
+                seed: SeedData.build(),
+                loadAllDelay: 0,
+                loadNotesDelay: 0,
+                saveNoteDelay: 0,
+                exportDelay: 0
+            ))
+            .dialogService(SaveDialogService(path: path))
+            .notificationHub(notificationHub)
+            .build()
+        try await ws.constructAsync()
+        defer {
+            ws.dispose()
+            notificationHub.dispose()
+            try? FileManager.default.removeItem(atPath: path)
+        }
+
+        try await ws.exportCommand.executeAsync()
+        await waitUntil { !recorder.entries.isEmpty }
+
+        let entries = recorder.entries
+        XCTAssertEqual(entries.map(\.type), [.notification])
+        XCTAssertEqual(entries.first?.message, "Exported to \(path)")
+        XCTAssertEqual(entries.first?.probe, true, "the file exists when the notification arrives")
+    }
+
+    func testExportCommand_cancelledByTheDialogWritesNothingAndPostsNothing() async throws {
+        let notificationHub = NotificationHub()
+        let recorder = FirstSightRecorder { () }
+        notificationHub.pending
+            .sink { [recorder] snapshot in recorder.record(snapshot) }
+            .store(in: &recorder.cancellables)
+        let repo = CountingRepository(InMemoryNoteRepository(
+            seed: SeedData.build(),
+            loadAllDelay: 0,
+            loadNotesDelay: 0,
+            saveNoteDelay: 0,
+            exportDelay: 0
+        ))
+        let ws = try WorkspaceVM.builder()
+            .repository(repo)
+            .dialogService(SaveDialogService(path: nil))
+            .notificationHub(notificationHub)
+            .build()
+        try await ws.constructAsync()
+        defer {
+            ws.dispose()
+            notificationHub.dispose()
+        }
+
+        try await ws.exportCommand.executeAsync()
+        await waitUntil({ !recorder.entries.isEmpty }, attempts: 20)
+
+        let exports = await repo.exportCount
+        XCTAssertEqual(exports, 0)
+        XCTAssertTrue(recorder.entries.isEmpty)
     }
 
     // MARK: - Startup failure reporting (#467)

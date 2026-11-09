@@ -217,6 +217,13 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 - `Current(selector)` now receives the live membership, so it can pick a late
   child (ADR-0218, spec/06 §3.2, #1312, `COMP-053`).
 
+- The `_notifyPropertyChanged` and `_raisePropertyChanged` helpers of a
+  `ForwardingComponentVM` or `ForwardingCompositeVM` now act on the wrapped VM
+  (#1352). Before, they sent on the decorator's own subject, which no
+  `propertyChanged` subscriber could see, and the hub message named the
+  decorator. Now the hub message names the wrapped VM, and the decorator's
+  `propertyChanged` emits the name once.
+
 - A construct hook that raises after it started the container walk no longer
   lets the walk's commit step set `status` to `.constructed` (ADR-0186,
   spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped

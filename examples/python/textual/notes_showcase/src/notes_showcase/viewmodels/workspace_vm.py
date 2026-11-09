@@ -532,6 +532,11 @@ class WorkspaceVM:
             self._notification_hub.post(
                 Notification(NotificationType.ERROR, f"Export failed: {error}")
             )
+            return
+        # The scenario's Export step confirms the written file with a toast.
+        self._notification_hub.post(
+            Notification(NotificationType.NOTIFICATION, f"Exported to {path}")
+        )
 
     # ── Builder entry-point ────────────────────────────────────────────────
     @staticmethod
