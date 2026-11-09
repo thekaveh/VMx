@@ -1794,7 +1794,6 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             validated = None;
         };
         let reset = reset.zip(validated.map(|(_, errors)| errors));
-        self.commit_generation.fetch_add(1, Ordering::SeqCst);
         self.note_commit();
         // The odd pair version marks the snapshot write, and a reset's model
         // install, for `is_dirty` (#1073); no user code runs inside it.
@@ -1808,6 +1807,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             None => (false, None),
         };
         self.pair_version.fetch_add(1, Ordering::SeqCst);
+        // The generation moves after the install, so a preparation that reads
+        // the new generation also reads the new state (spec/20 §5.4).
+        self.commit_generation.fetch_add(1, Ordering::SeqCst);
         window.open_scope();
         drop(serialized);
         // Replaced values are dropped after the update lock is released.
@@ -2351,9 +2353,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         let Some((could_approve, errors)) = prepared else {
             return Step::default();
         };
-        self.commit_generation.fetch_add(1, Ordering::SeqCst);
         self.note_commit();
         let errors_changed = self.replace_validation_errors(errors);
+        // The generation moves after the install (see `commit_update`).
+        self.commit_generation.fetch_add(1, Ordering::SeqCst);
         let step = self.committed(errors_changed, vec![Notice::Revalidated(could_approve)]);
         drop(guard);
         step
@@ -2593,11 +2596,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     ///
     /// Returns whether the effective errors changed.
     fn commit_update(&self, model: M, errors: BTreeMap<String, String>) -> bool {
-        self.commit_generation.fetch_add(1, Ordering::SeqCst);
         self.note_commit();
         // The replaced model is dropped after the model mutex is released.
         let (errors_changed, replaced) = self.install(model, errors);
         drop(replaced);
+        // The generation moves after the install, so a preparation that reads
+        // the new generation also reads the new model and errors. A
+        // preparation that reads the old generation runs again (spec/20 §5.4).
+        self.commit_generation.fetch_add(1, Ordering::SeqCst);
         errors_changed
     }
 
