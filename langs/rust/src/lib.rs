@@ -72,6 +72,49 @@ test_seam_probes!("rust");
 #[cfg(all(doctest, not(feature = "test-seams")))]
 test_seam_probes!("compile_fail");
 
+/// Renders the doctests that pin the `notifications` gate: each
+/// notification path resolves with the feature and fails to compile without
+/// it, while `ModalVm` resolves in both builds (ADR-0211).
+#[cfg(doctest)]
+macro_rules! notification_feature_probes {
+    ($fence:literal) => {
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::NotificationHub::new();"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::NullNotificationHub;"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "fn _probe<H: vmx::NotificationHubApi>() {}"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _confirm = vmx::make_confirm(vmx::NullNotificationHub, \"ok?\");"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::NotificationVm::new;"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::ConfirmationVm::new;"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = "```rust"]
+        #[doc = "let modal = vmx::ModalVm::new(false);"]
+        #[doc = "modal.close(Some(true));"]
+        #[doc = "assert_eq!(modal.result(), Some(true));"]
+        #[doc = "```"]
+        pub struct NotificationFeatureProbes;
+    };
+}
+#[cfg(all(doctest, feature = "notifications"))]
+notification_feature_probes!("rust");
+#[cfg(all(doctest, not(feature = "notifications")))]
+notification_feature_probes!("compile_fail");
+
 /// Version of the compiled Rust package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Minimum language-neutral VMx specification version implemented by this package.
@@ -128,10 +171,14 @@ pub use modeled_crud::ModeledCrudCommands;
 mod derived_property;
 pub use derived_property::DerivedProperty;
 
+// The notifications sub-package is opt-out through the default
+// `notifications` feature; the core never depends on it (spec/16, ADR-0211).
+#[cfg(feature = "notifications")]
 mod notifications;
+#[cfg(feature = "notifications")]
 pub use notifications::{
-    make_confirm, Notification, NotificationHub, NotificationReaction, NotificationType,
-    NotificationWaiter, NullNotificationHub,
+    make_confirm, Notification, NotificationHub, NotificationHubApi, NotificationReaction,
+    NotificationType, NotificationWaiter, NullNotificationHub,
 };
 mod dialogs;
 pub use dialogs::{
@@ -175,7 +222,9 @@ mod token_paging;
 pub use token_paging::TokenPagedComposition;
 
 mod specialized_vms;
-pub use specialized_vms::{ConfirmationVm, ModalVm, NotificationVm};
+pub use specialized_vms::ModalVm;
+#[cfg(feature = "notifications")]
+pub use specialized_vms::{ConfirmationVm, NotificationVm};
 
 #[cfg(test)]
 mod tests {

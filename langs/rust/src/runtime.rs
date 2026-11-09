@@ -2983,7 +2983,7 @@ pub trait TreeNode: VmNode {
     /// [`walk`](crate::walk), [`walk_expanded`](crate::walk_expanded) and
     /// [`find`](crate::find) read children through this method, so a node
     /// whose children can fail to load reports that failure to the caller
-    /// (spec/13 §6, ADR-0170). The default wraps
+    /// (spec/13 §6.1, ADR-0170). The default wraps
     /// [`children_nodes`](Self::children_nodes) in `Ok`.
     fn try_children_nodes(&self) -> VmxResult<Vec<Self>> {
         Ok(self.children_nodes())

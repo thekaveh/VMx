@@ -181,6 +181,23 @@ Known Swift divergences:
   thrown errors per subscriber; raw `messages` Combine sinks cannot throw
   (ADR-0062 §2.4).
 - `NotificationVM` time values are `TimeInterval` seconds (ADR-0063 §2.4).
+- `VMx.Notification` has the same name as `Foundation.Notification`. In a file
+  that imports both modules, the unqualified name in a type position fails with
+  `'Notification' is ambiguous for type lookup in this context`. Write
+  `VMx.Notification`, or declare a type alias:
+
+  ```swift
+  import Foundation
+  import VMx
+
+  typealias VMxNotification = VMx.Notification
+
+  func messages(of pending: [VMxNotification]) -> [String] {
+      pending.map(\.message)
+  }
+
+  let alert = VMx.Notification(type: .notification, message: "Saved")
+  ```
 
 Run the suite:
 
