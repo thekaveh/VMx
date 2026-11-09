@@ -4,8 +4,8 @@ Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framewo
 
 ## 1. Status
 
-**v0.36.0** implements `spec-v3.30.0`. Behavioral Rust tests cover all 452
-library conformance IDs. Rust has no UI scenario suite for the five THEME IDs.
+**v0.36.0** implements `spec-v3.30.0`. Behavioral Rust tests cover every
+library conformance ID. Rust has no UI scenario suite for the THEME IDs.
 
 The public surface and some behaviors are not fully aligned with the other
 flavors. See the
@@ -16,6 +16,10 @@ flavors. See the
 
 - Package: `vmx-rs`; code imports the crate as `vmx` (`use vmx::…`).
 - Minimum supported Rust version: 1.88.
+- Cargo features: `notifications`, on by default, builds the notification
+  sub-package of spec/16 (`NotificationHub`, `NullNotificationHub`,
+  `NotificationHubApi`, `make_confirm`, `NotificationVm`, `ConfirmationVm`).
+  Set `default-features = false` to build the core without it (ADR-0211).
 - The crate is not published to crates.io. Use a git or path dependency.
 
 ```toml

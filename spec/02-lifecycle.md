@@ -254,6 +254,9 @@ These hold for every VM at every point in its lifetime:
    requested after `Disposed` is a
    silent no-op — it does not raise and emits no `PropertyChangedMessage` —
    distinguishing it from the lifecycle operations, which raise (VMX-006).
+   One change still applies: when its composite stops making it `Current`, a
+   `Disposed` VM's `IsCurrent` becomes `false`. The VM publishes no
+   `PropertyChangedMessage` for that change (chapter 06 §4.3, ADR-0189).
 1. Every `Status` change publishes exactly one `ConstructionStatusChangedMessage`
    on the VM's message hub before the operation returns (synchronous) or before the
    awaiter resumes (asynchronous). A transactional rollback (§2.5) is itself a
@@ -300,6 +303,17 @@ respect to other lifecycle operations on the same VM.
   reached `Constructed`.
 - A composite/group/aggregate's `destruct()` completes only when every child has
   reached `Destructed`.
+- A child that is `Disposed` does not count for either rule (ADR-0189). The
+  walk skips a child that is `Disposed` when the walk reaches it. It also
+  stops waiting for a child that reaches `Disposed` while the walk waits for
+  it. Neither case fails the walk, and the walk calls no lifecycle operation on
+  a `Disposed` child (invariant 3). A composite or group keeps the `Disposed`
+  child as a member until a consumer removes it. An `AggregateVM` that holds a
+  `Disposed` slot leaves `Constructed` through `destruct()` or `reconstruct()`.
+  Its next construct replaces the slot from the slot factory (chapter 08 §2).
+  A child in its inline dispose cascade (§7.2) is not `Disposed` yet. A walk
+  call on that child fails with the `Disposed` error (`LIFE-021`), and the
+  container rolls back. `LIFE-022` covers this rule.
 - The order in which children are constructed/destructed is unspecified,
   except as the next item says. Implementations MAY drive them sequentially or
   concurrently. The reference implementations drive aggregates and the Rust
@@ -340,12 +354,13 @@ ordered list of children, a direction, and an optional `after` callback:
 - It walks the list in the given order. It starts a child only after the
   previous child settled.
 - It skips a child that is already at the target status (`Constructed` for
-  construct, `Destructed` for destruct). It joins a child that is already in
-  the transient status (`Constructing` or `Destructing`) and does not start it
-  again (`LIFE-020`).
+  construct, `Destructed` for destruct), and a child that is `Disposed` (§6).
+  It joins a child that is already in the transient status (`Constructing` or
+  `Destructing`) and does not start it again (`LIFE-020`).
 - It waits for a background child. The parent stays in its transient status
   until the child settles, and only then starts the next child (`LIFE-016`).
-- A child that settles at any status other than the target fails the walk.
+- A child that settles at any status other than the target or `Disposed`
+  fails the walk.
   The parent rolls back to its prior settled status, as in §2.5, and the
   failure surfaces from the call or through the flavor's background-failure
   path (`LIFE-017`). The helper does not undo a sibling that already reached
@@ -530,7 +545,7 @@ directly.
 
 ## 9. Conformance
 
-`LIFE-001` through `LIFE-021` in `12-conformance.md` cover:
+`LIFE-001` through `LIFE-022` in `12-conformance.md` cover:
 
 - legal state transitions (construct / destruct / reconstruct / dispose)
 - predicates raising `StatusTransitionError` / `StatusTransitionException` (or
@@ -557,6 +572,9 @@ directly.
 - the inline dispose cascade: a lifecycle call that starts during it fails
   with the `Disposed` error and publishes nothing, and no status other than
   `Disposed` commits once it has started (`LIFE-021`, §7.2)
+- container walks and the child-transition helper skip a `Disposed` child,
+  so a container that holds one still destructs, constructs and reconstructs
+  (`LIFE-022`, §6)
 
 `DISP-001` adds the cross-cutting at-most-once assertion: invoking a parent
 dispose path more than once produces one observable terminal transition and

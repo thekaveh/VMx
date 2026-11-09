@@ -401,13 +401,58 @@ should count as dirty, include `a.payload === b.payload` in `equalsDraft`.
 VMx does not provide `snapshotExclude`: exclusion without an explicit equality
 policy would make dirty and revert semantics ambiguous.
 
-## 6.2.8.2.7. Common Pitfalls
+## 6.2.8.2.7. C# Snapshot And Equality Defaults
+
+C# compares the model and the snapshot with `object.Equals`. The default
+snapshotter is a `System.Text.Json` serialize and deserialize round-trip, so
+the snapshot holds a new instance of each collection field. A record's
+synthesized equality compares a collection field, such as an
+`IReadOnlyList<string>`, by reference. A new form for such a record is
+therefore dirty before any edit. A strict form enables `ApproveCommand` at
+once, and a `SetModel` call with an equal-content list publishes a `Model`
+message.
+
+C# `FormVM` takes no equality parameter, so the model's own equality is the
+hook. Override `Equals` and `GetHashCode` to compare the collection element by
+element:
+
+<!-- checked-snippet: langs/csharp/tests/VMx.Tests/Forms/FormVMRecordCollectionEqualityTests.cs#record-collection-equality -->
+
+```csharp
+public sealed record Note(string Title, IReadOnlyList<string> Tags)
+{
+    // Compare Tags element by element, not by reference.
+    public bool Equals(Note? other) =>
+        other is not null
+        && Title == other.Title
+        && Tags.SequenceEqual(other.Tags);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Title);
+        foreach (var tag in Tags)
+            hash.Add(tag);
+        return hash.ToHashCode();
+    }
+}
+```
+
+With this override, a new strict form is clean, `ApproveCommand` cannot
+execute, and an equal-content `SetModel` publishes no `Model` message. A
+changed element still makes the form dirty.
+
+## 6.2.8.2.8. Common Pitfalls
 
 - Treating `FormVM` as a drop-in `ComponentVM` subclass. It is a distinct
   workflow primitive.
 - Relying on shallow copy semantics for nested mutable models. Inject a custom
   snapshotter and matching equality predicate where the default is not
-  appropriate.
+  appropriate. C# takes no equality predicate; override the model's `Equals`
+  and `GetHashCode` instead.
+- Using a C# record with a collection field and the synthesized equality. The
+  form is dirty before any edit; compare the collection element by element in
+  the model's `Equals`.
 - Ignoring `ApproveErrors` on fire-and-forget command paths.
 - Expecting a second approve made during an in-flight save to save again. It is
   refused; await the first approval, then approve again.
@@ -421,7 +466,7 @@ policy would make dirty and revert semantics ambiguous.
   `setModel` calls. VMx rejects those calls after disposal; retain only
   cancellation that still owns application resources.
 
-## 6.2.8.2.8. Related Primitives
+## 6.2.8.2.9. Related Primitives
 
 - [Component Family](../component-family.md)
 - [DiscriminatorVM](discriminator-vm.md)
