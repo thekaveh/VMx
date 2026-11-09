@@ -54,6 +54,37 @@ private struct FailingRepository: NoteRepository {
 
 private struct RepositoryUnavailable: Error {}
 
+/// Forwards to an in-memory repository and counts the note saves.
+private actor CountingRepository: NoteRepository {
+    let inner: InMemoryNoteRepository
+    private(set) var saveCount = 0
+
+    init(_ inner: InMemoryNoteRepository) { self.inner = inner }
+
+    func loadAll() async throws -> (notebooks: [NotebookModel], notes: [NoteModel]) {
+        try await inner.loadAll()
+    }
+    func loadNotes(notebookId: String) async throws -> [NoteModel] {
+        try await inner.loadNotes(notebookId: notebookId)
+    }
+    func searchNotes(
+        term: String,
+        token: String?,
+        pageSize: Int
+    ) async throws -> (items: [NoteModel], nextToken: String?) {
+        try await inner.searchNotes(term: term, token: token, pageSize: pageSize)
+    }
+    func saveNote(_ note: NoteModel) async throws {
+        saveCount += 1
+        try await inner.saveNote(note)
+    }
+    func deleteNote(id: String) async throws { try await inner.deleteNote(id: id) }
+    func addNotebook(_ notebook: NotebookModel) async throws { try await inner.addNotebook(notebook) }
+    func export(notebooks: [NotebookModel], notes: [NoteModel], path: String) async throws {
+        try await inner.export(notebooks: notebooks, notes: notes, path: path)
+    }
+}
+
 // MARK: - WorkspaceVMTests
 
 final class WorkspaceVMTests: XCTestCase {
@@ -404,6 +435,188 @@ final class WorkspaceVMTests: XCTestCase {
 
         XCTAssertFalse(ws.noteForm.isDirty)
         XCTAssertEqual(original, ws.noteForm.title)
+    }
+
+    // MARK: - ADR-0201 interaction policies
+
+    /// A workspace over a repository and notification hub the test can read.
+    private struct PolicyFixture {
+        let ws: WorkspaceVM
+        let repo: CountingRepository
+        let pending: () -> [VMx.Notification]
+        let subscription: AnyCancellable
+    }
+
+    private func buildPolicyFixture() async throws -> PolicyFixture {
+        let repo = CountingRepository(InMemoryNoteRepository(
+            seed: SeedData.build(),
+            loadAllDelay: 0,
+            loadNotesDelay: 0,
+            saveNoteDelay: 0,
+            deleteNoteDelay: 0,
+            addNotebookDelay: 0,
+            exportDelay: 0
+        ))
+        let hub = NotificationHub()
+        let ws = try WorkspaceVM.builder().repository(repo).notificationHub(hub).build()
+        let box = PendingBox()
+        let sub = hub.pending.sink { box.items = $0 }
+        try await ws.constructAsync()
+        return PolicyFixture(ws: ws, repo: repo, pending: { box.items }, subscription: sub)
+    }
+
+    private final class PendingBox { var items: [VMx.Notification] = [] }
+
+    private func storedTitle(_ repo: CountingRepository, _ note: NoteVM) async throws -> String? {
+        let id = note.model.id
+        return try await repo.loadNotes(notebookId: note.model.notebookId).first { $0.id == id }?.title
+    }
+
+    /// The action bar's "Save" command for the focused item.
+    private func actionBarSave(_ ws: WorkspaceVM) throws -> AsyncRelayCommand {
+        let action = try XCTUnwrap(try ws.capabilityActions.actions.value.first { $0.label == "Save" })
+        return try XCTUnwrap(action.command as? AsyncRelayCommand)
+    }
+
+    /// ADR-0201 §2.1 — a search that hides the current note keeps it current
+    /// and keeps the editor draft; clearing the search shows the note again.
+    @MainActor
+    func testHidingTheSelectedNote_keepsCurrentAndTheDraft() async throws {
+        let f = try await buildPolicyFixture()
+        defer { f.subscription.cancel(); f.ws.dispose() }
+        let ws = f.ws
+        let note = try XCTUnwrap(ws.notesView.visibleItems.first { $0.title == "Roadmap snapshot" })
+        ws.notesView.current = note
+        ws.noteForm.title = "Roadmap draft"
+
+        ws.notesView.searchTerm = "Standup"
+        ws.notesView.search()
+
+        XCTAssertFalse(ws.notesView.visibleItems.contains { $0 === note })
+        XCTAssertTrue(ws.notesView.current === note)
+        XCTAssertEqual("Roadmap draft", ws.noteForm.title)
+        XCTAssertTrue(ws.noteForm.isDirty)
+
+        ws.notesView.searchTerm = ""
+        ws.notesView.search()
+
+        XCTAssertTrue(ws.notesView.current === note)
+        XCTAssertTrue(ws.notesView.visibleItems.contains { $0 === note })
+        XCTAssertEqual("Roadmap draft", ws.noteForm.title)
+        XCTAssertTrue(ws.noteForm.isDirty)
+    }
+
+    /// ADR-0201 §2.2 — selecting another note discards the unsaved draft with
+    /// no prompt; the repository keeps the stored title.
+    func testSelectingAnotherNote_discardsTheUnsavedDraft() async throws {
+        let f = try await buildPolicyFixture()
+        defer { f.subscription.cancel(); f.ws.dispose() }
+        let ws = f.ws
+        let a = ws.notesView.visibleItems[0]
+        let b = ws.notesView.visibleItems[1]
+        let aTitle = a.model.title
+        ws.notesView.current = a
+        ws.noteForm.title = "Unsaved draft"
+        XCTAssertTrue(ws.noteForm.isDirty)
+
+        ws.notesView.current = b
+
+        XCTAssertEqual(b.model.title, ws.noteForm.title)
+        XCTAssertFalse(ws.noteForm.isDirty)
+
+        ws.notesView.current = a
+
+        XCTAssertEqual(aTitle, ws.noteForm.title)
+        XCTAssertFalse(ws.noteForm.isDirty)
+        let stored = try await storedTitle(f.repo, a)
+        XCTAssertEqual(aTitle, stored)
+    }
+
+    /// ADR-0201 §2.3 — the action-bar Save on the note in the editor saves the
+    /// editor draft and posts the editor's "Saved" notification.
+    func testActionBarSave_onTheEditedNote_savesTheDraft() async throws {
+        let f = try await buildPolicyFixture()
+        defer { f.subscription.cancel(); f.ws.dispose() }
+        let ws = f.ws
+        let note = ws.notesView.visibleItems[0]
+        ws.notesView.current = note
+        ws.setFocus(note)
+        ws.noteForm.title = "Saved from the action bar"
+
+        try await actionBarSave(ws).executeAsync()
+
+        let stored = try await storedTitle(f.repo, note)
+        XCTAssertEqual("Saved from the action bar", stored)
+        XCTAssertFalse(ws.noteForm.isDirty)
+        let toast = "Saved \u{201C}Saved from the action bar\u{201D}"
+        await waitUntil { f.pending().contains { $0.message == toast } }
+        XCTAssertTrue(f.pending().contains { $0.message == toast })
+    }
+
+    /// ADR-0201 §2.3 — the action-bar Save writes nothing when the editor
+    /// draft for that note is not valid.
+    func testActionBarSave_withAnInvalidDraft_writesNothing() async throws {
+        let f = try await buildPolicyFixture()
+        defer { f.subscription.cancel(); f.ws.dispose() }
+        let ws = f.ws
+        let note = ws.notesView.visibleItems[0]
+        let original = note.model.title
+        ws.notesView.current = note
+        ws.setFocus(note)
+        ws.noteForm.title = ""
+        XCTAssertFalse(ws.noteForm.isValid)
+
+        try await actionBarSave(ws).executeAsync()
+
+        let stored = try await storedTitle(f.repo, note)
+        XCTAssertEqual(original, stored)
+        let saves = await f.repo.saveCount
+        XCTAssertEqual(0, saves)
+        XCTAssertTrue(ws.noteForm.isDirty)
+    }
+
+    /// ADR-0201 §2.3 — the action-bar Save writes nothing and posts no
+    /// "Saved" notification when the editor draft for that note is clean.
+    func testActionBarSave_withACleanDraft_writesNothing() async throws {
+        let f = try await buildPolicyFixture()
+        defer { f.subscription.cancel(); f.ws.dispose() }
+        let ws = f.ws
+        let note = ws.notesView.visibleItems[0]
+        ws.notesView.current = note
+        ws.setFocus(note)
+        XCTAssertFalse(ws.noteForm.isDirty)
+
+        try await actionBarSave(ws).executeAsync()
+
+        let saves = await f.repo.saveCount
+        XCTAssertEqual(0, saves)
+        await waitUntil({ !f.pending().isEmpty }, attempts: 20)
+        XCTAssertTrue(f.pending().isEmpty)
+    }
+
+    /// ADR-0201 §2.3 — for a focused note that the editor does not hold, the
+    /// action-bar Save persists that note's stored model, not the draft.
+    func testActionBarSave_onAnotherNote_savesItsStoredModel() async throws {
+        let f = try await buildPolicyFixture()
+        defer { f.subscription.cancel(); f.ws.dispose() }
+        let ws = f.ws
+        let edited = ws.notesView.visibleItems[0]
+        let other = ws.notesView.visibleItems[1]
+        let editedTitle = edited.model.title
+        ws.notesView.current = edited
+        ws.noteForm.title = "Draft that stays unsaved"
+        ws.setFocus(other)
+
+        try await actionBarSave(ws).executeAsync()
+
+        let storedEdited = try await storedTitle(f.repo, edited)
+        let storedOther = try await storedTitle(f.repo, other)
+        XCTAssertEqual(editedTitle, storedEdited)
+        XCTAssertEqual(other.model.title, storedOther)
+        let saves = await f.repo.saveCount
+        XCTAssertEqual(1, saves)
+        XCTAssertEqual("Draft that stays unsaved", ws.noteForm.title)
+        XCTAssertTrue(ws.noteForm.isDirty)
     }
 
     // MARK: - Lifecycle cascade
