@@ -44,9 +44,6 @@ def _require_pinned_markdown_it() -> None:
         )
 
 
-_require_pinned_markdown_it()
-
-
 # The script's filename uses a hyphen, so `import check_conformance_coverage` would
 # normally fail. We pre-load the script under the underscore alias via importlib so
 # the test module's plain `import` works. This conftest is the sole load path for
@@ -62,37 +59,49 @@ def _preload(script_filename: str, module_alias: str) -> None:
         spec.loader.exec_module(mod)  # type: ignore[attr-defined]
 
 
-# Pre-load all check-*.py scripts under hyphen-stripped aliases.
-_preload("check-conformance-coverage.py", "check_conformance_coverage")
-_preload("check-conformance-execution.py", "check_conformance_execution")
-_preload("check-fixture-contracts.py", "check_fixture_contracts")
-_preload("check-axaml-codebehind.py", "check_axaml_codebehind")
-_preload("check-textual-views.py", "check_textual_views")
-_preload("check-layer-imports.py", "check_layer_imports")
-_preload("check-showcase-parity.py", "check_showcase_parity")
-_preload("check-version-consistency.py", "check_version_consistency")
-_preload("check-workflow-pins.py", "check_workflow_pins")
-_preload("check-python-fixture-sync.py", "check_python_fixture_sync")
-_preload("check-python-package.py", "check_python_package")
-_preload("check-release-please-state.py", "check_release_please_state")
-_preload("release-please-labels.py", "release_please_labels")
-_preload(
-    "ensure-release-changelog-unreleased.py",
-    "ensure_release_changelog_unreleased",
-)
-_preload("check-rust-fixture-sync.py", "check_rust_fixture_sync")
-_preload("check-typescript-schema-sync.py", "check_typescript_schema_sync")
-_preload("check-swift-package-sync.py", "check_swift_package_sync")
-_preload("check-typescript-package.py", "check_typescript_package")
-_preload("check-nuget-package.py", "check_nuget_package")
-_preload("check-coverage-floor.py", "check_coverage_floor")
-_preload("compare-coverage-runs.py", "compare_coverage_runs")
-_preload("check-rust-package.py", "check_rust_package")
-_preload("smoke-swiftpm-consumer.py", "smoke_swiftpm_consumer")
-_preload("smoke-npm-consumer.py", "smoke_npm_consumer")
-_preload("create-starter.py", "create_starter")
-_preload("smoke-nuget-consumer.py", "smoke_nuget_consumer")
-_preload("smoke-rust-consumer.py", "smoke_rust_consumer")
-_preload("render-csharp-release-notes.py", "render_csharp_release_notes")
-_preload("select-csharp-release.py", "select_csharp_release")
-_preload("swift-test-watchdog.py", "swift_test_watchdog")
+def _preload_scripts() -> None:
+    """Pre-load all check-*.py scripts under hyphen-stripped aliases."""
+    _preload("check-conformance-coverage.py", "check_conformance_coverage")
+    _preload("check-conformance-execution.py", "check_conformance_execution")
+    _preload("check-fixture-contracts.py", "check_fixture_contracts")
+    _preload("check-axaml-codebehind.py", "check_axaml_codebehind")
+    _preload("check-textual-views.py", "check_textual_views")
+    _preload("check-layer-imports.py", "check_layer_imports")
+    _preload("check-showcase-parity.py", "check_showcase_parity")
+    _preload("check-version-consistency.py", "check_version_consistency")
+    _preload("check-workflow-pins.py", "check_workflow_pins")
+    _preload("check-python-fixture-sync.py", "check_python_fixture_sync")
+    _preload("check-python-package.py", "check_python_package")
+    _preload("check-release-please-state.py", "check_release_please_state")
+    _preload("release-please-labels.py", "release_please_labels")
+    _preload(
+        "ensure-release-changelog-unreleased.py",
+        "ensure_release_changelog_unreleased",
+    )
+    _preload("check-rust-fixture-sync.py", "check_rust_fixture_sync")
+    _preload("check-typescript-schema-sync.py", "check_typescript_schema_sync")
+    _preload("check-swift-package-sync.py", "check_swift_package_sync")
+    _preload("check-typescript-package.py", "check_typescript_package")
+    _preload("check-nuget-package.py", "check_nuget_package")
+    _preload("check-coverage-floor.py", "check_coverage_floor")
+    _preload("compare-coverage-runs.py", "compare_coverage_runs")
+    _preload("check-rust-package.py", "check_rust_package")
+    _preload("smoke-swiftpm-consumer.py", "smoke_swiftpm_consumer")
+    _preload("smoke-npm-consumer.py", "smoke_npm_consumer")
+    _preload("create-starter.py", "create_starter")
+    _preload("smoke-nuget-consumer.py", "smoke_nuget_consumer")
+    _preload("smoke-rust-consumer.py", "smoke_rust_consumer")
+    _preload("render-csharp-release-notes.py", "render_csharp_release_notes")
+    _preload("select-csharp-release.py", "select_csharp_release")
+    _preload("swift-test-watchdog.py", "swift_test_watchdog")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Check the parser pin, then pre-load the scripts.
+
+    The check runs in this hook, not at import time, so pytest reports a
+    plain usage error instead of an ImportError traceback. It runs before
+    the pre-load because check-version-consistency.py imports markdown_it.
+    """
+    _require_pinned_markdown_it()
+    _preload_scripts()
