@@ -185,10 +185,10 @@ ADR-0142, `COMP-042`). Once its disposal is requested or deferred, it publishes
 nothing, also for a change whose local event it has delivered (chapter 01 §1.4,
 ADR-0190, `COMP-049`).
 
-Open Rust gap: Rust `CompositeVm` and `GroupVm` have no public local
-collection-change stream; consumers observe membership through the hub
-`CollectionChanged` messages. The local-recorder clauses of `COMP-041` and
-`COMP-042` apply to Rust through the hub messages only.
+Rust `CompositeVm`, `GroupVm`, and `ModeledCompositeVm` expose the local
+stream as `collection_changed()`, the name that `ServicedObservableCollection`
+uses. It returns a `MessageHub` that receives each `CollectionChangedMessage`
+before the container's hub. A hub batch never defers it (ADR-0208).
 
 ### 4.1 Batch updates (spec v1.1)
 

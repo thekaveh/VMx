@@ -1693,9 +1693,19 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         )
     }
 
-    /// Local collection-change stream of the children (see
-    /// `ObservableList::local_changes`).
-    pub(crate) fn membership_changes(&self) -> MessageHub {
+    /// Returns a reader of the current children that does not keep the
+    /// composite alive (ADR-0208).
+    pub(crate) fn children_reader(&self) -> impl Fn() -> Vec<T> + Send + Sync + 'static {
+        self.items.reader()
+    }
+
+    /// Returns the local collection-change stream of the children.
+    ///
+    /// Each effective mutation sends one `CollectionChangedMessage` here
+    /// first, then the equivalent message to [`hub`](Self::hub) (spec/06 §4,
+    /// ADR-0208). A hub batch never defers this stream. A list batch sends one
+    /// `Reset` when it completes. After disposal the composite sends nothing.
+    pub fn collection_changed(&self) -> MessageHub {
         self.items.local_changes()
     }
 
@@ -2133,7 +2143,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         let subscription = filtered
             .inner
             .source
-            .membership_changes()
+            .collection_changed()
             .subscribe(move |message| {
                 let membership = matches!(message, Message::CollectionChanged(change)
                     if change.sender_id == owner_id && change.property_name == "items");
@@ -2631,6 +2641,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
     /// Returns the injected message hub.
     pub fn hub(&self) -> MessageHub {
         self.inner.hub()
+    }
+
+    /// Returns the local collection-change stream of the children (see
+    /// [`CompositeVm::collection_changed`]).
+    pub fn collection_changed(&self) -> MessageHub {
+        self.inner.collection_changed()
     }
 
     /// Returns the hot error stream for this container's deferred lifecycle

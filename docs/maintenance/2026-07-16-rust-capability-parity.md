@@ -1,8 +1,9 @@
 # 12. Rust Parity Status
 
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Items found
-after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7. §12.8
-and §12.12 are now closed (ADR-0205, ADR-0207).
+after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7.
+§12.8, §12.10, §12.11 and §12.12 are now closed (ADR-0205, ADR-0197, ADR-0208
+and ADR-0207, in that order).
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -330,7 +331,7 @@ The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
 parameter in §12.2.2 are the intentional flavor-specific shapes in this
 ledger. The §12.5 editorial note applies to all five flavors and is not a
 parity backlog. §12.7 to §12.12 record the items and differences found
-after closure; §12.8 and §12.12 are now closed. Future differences still require
+after closure; §12.8, §12.10, §12.11 and §12.12 are now closed. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
@@ -376,12 +377,14 @@ already did. A `pending_stream()` subscription made after dispose completes at
 once with no replay (NOTIF-017, NOTIF-020).
 Waiters resolve to `Pending` in every flavor.
 
-## 12.11. Open Item: PagedComposition Notifications
+## 12.11. Closed: PagedComposition Notifications
 
-Rust `PagedComposition` raises no property notifications. C#, Python,
-TypeScript, and Swift publish `CurrentPageIndex`, `Items`, `PageCount`, and the
-other paging properties on every change. Rust consumers read the state after
-each call.
+**Closed (ADR-0208, #1269).** Rust `PagedComposition` raised no property
+notifications. It now publishes the snake_case paging properties on its hub in
+the Swift order, and `from_composite` follows a `CompositeVm` source, as C#,
+Python, TypeScript, and Swift do (COL-031).
+
+Evidence: the Rust `paged_composition_notifications` conformance tests.
 
 ## 12.12. Resolved: FilteredCompositeVm Initial Cursor Policy
 

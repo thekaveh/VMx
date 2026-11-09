@@ -3035,9 +3035,6 @@ refreshed next token (COL-065 covers the branches that retain it)
 
 ### COL-031 — `PagedComposition<TVM>` observes composite collection changes
 
-Applies to C#, Python, TypeScript, and Swift. Rust `PagedComposition` takes a
-`Vec` source and does not observe it (chapter 21 §5.5).
-
 **Given** a finite `PagedComposition<TVM>` wrapping a `CompositeVM<TVM>` source
 **And** a property-changed subscriber
 **When** the composite source is mutated
@@ -3498,9 +3495,6 @@ notification of each key view that changes
 `Count`, `Keys1`, and `Keys2`, and a key view that does not change keeps its
 content
 **And** the test does not check the order of two key-view notifications
-**And** Rust, whose `keys1()` and `keys2()` return snapshots and which has no
-local event, checks the hub subscriber only, with one copy of each key in
-each snapshot
 
 ### COL-068 — dictionary Remove and Replace hub messages carry the entry position
 
@@ -3529,8 +3523,9 @@ of each attribute; Swift binds each view to the declared type and has no
 runtime check for an absent member
 **And** in C#, the view cannot be cast to `ObservableList<T>`, and its
 `CollectionChanged` sender is the view itself
-**And** Rust, whose `keys1()` and `keys2()` return `Vec` snapshots, checks that
-an edit to a snapshot leaves `keys1()`, `keys2()`, and `entries()` unchanged
+**And** Rust binds each view to the declared `ReadOnlyObservableList` type,
+which has no mutator, and checks that an edit to a `to_vec()` snapshot leaves
+`keys1()`, `keys2()`, and `entries()` unchanged
 
 ### COL-069 — a failing local subscriber does not stop the later local subscribers
 

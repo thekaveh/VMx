@@ -1833,6 +1833,16 @@ impl PropertyChangedStream {
         }
     }
 
+    /// Sends `property_name` to the current subscribers unless the stream is
+    /// disposed. Subscriber panics are isolated.
+    pub(crate) fn notify(&self, property_name: &str) {
+        if !self.begin_notification() {
+            return;
+        }
+        self.send_admitted(property_name);
+        self.end_notification();
+    }
+
     fn begin_notification(&self) -> bool {
         let mut inner = lock(&self.inner);
         if inner.disposed {
