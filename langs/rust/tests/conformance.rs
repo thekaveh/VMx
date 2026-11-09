@@ -18,8 +18,10 @@ mod conformance {
     mod component_vm;
     mod composite_vm;
     mod confirmation_async_inner;
+    mod construct_walk_membership;
     mod container_disposal_wait_cycle;
     mod container_hook_disposal;
+    mod cross_thread_membership;
     mod derived_properties;
     mod dialogs;
     mod dictionary_key_view_order;
