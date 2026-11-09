@@ -457,3 +457,29 @@ def test_registry_publish_jobs_alone_hold_id_token_and_an_environment() -> None:
         publish = jobs[f"{flavor}-publish"]
         assert publish.count('npm publish "$TARBALL" --access public') == 2
     assert "smoke-rust-consumer.py" in jobs["rust-test"]
+
+
+def test_csharp_example_projects_are_format_checked_in_ci_and_pre_commit() -> None:
+    # #1384: the library format gate covers only VMx.sln.
+    jobs = _workflow_jobs((WORKFLOWS / "csharp.yml").read_text(encoding="utf-8"))
+    cases = {
+        "examples": (
+            "examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj",
+            "examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj",
+            "examples/csharp/console/HelloVMx/HelloVMx.csproj",
+        ),
+        "wpf-example": (
+            "examples/csharp/wpf/TodoApp/WpfTodoApp.csproj",
+            "examples/csharp/wpf/TodoAppHostCheck/TodoAppHostCheck.csproj",
+            "examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj",
+        ),
+    }
+    for name, projects in cases.items():
+        job = jobs[name]
+        check = job.index('dotnet format "$project" --verify-no-changes --no-restore')
+        for project in projects:
+            assert project in job[:check], (name, project)
+            assert job.index("dotnet restore") < check
+    hook = (REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert r"files: ^(langs|examples)/csharp/.*\.(cs|csproj|props)$" in hook
+    assert 'dotnet format "$project" --verify-no-changes --no-restore --include "$f"' in hook

@@ -1,0 +1,9 @@
+# Analyzer settings for the NotesShowcase example tests (#1384).
+
+[*.cs]
+# xUnit1051 asks each test to pass TestContext.Current.CancellationToken to a
+# cancellable call. The example's repositories and services are in memory and
+# finish without waiting, so a token cannot cancel anything. The tests also
+# show how an app calls the view-model API, and a token argument on each call
+# would hide that call.
+dotnet_diagnostic.xUnit1051.severity = none

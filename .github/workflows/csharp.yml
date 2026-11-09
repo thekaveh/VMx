@@ -232,6 +232,21 @@ jobs:
       - name: Restore NotesShowcase tests
         run: dotnet restore examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj --locked-mode
 
+      - name: Restore console example
+        run: dotnet restore examples/csharp/console/HelloVMx/HelloVMx.csproj
+
+      - name: Check example formatting
+        # The library format step covers only VMx.sln (#1384).
+        run: |
+          set -euo pipefail
+          for project in \
+            examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj \
+            examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj \
+            examples/csharp/console/HelloVMx/HelloVMx.csproj; do
+            echo "dotnet format $project"
+            dotnet format "$project" --verify-no-changes --no-restore
+          done
+
       - name: Build NotesShowcase
         run: dotnet build examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj --no-restore
 
@@ -259,6 +274,30 @@ jobs:
             8.0.x
             9.0.x
             10.0.x
+
+      - name: Restore WPF examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in \
+            examples/csharp/wpf/TodoApp/WpfTodoApp.csproj \
+            examples/csharp/wpf/TodoAppHostCheck/TodoAppHostCheck.csproj \
+            examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj; do
+            dotnet restore "$project"
+          done
+
+      - name: Check WPF example formatting
+        # On Windows the format check also reads the XAML code-behind (#1384).
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in \
+            examples/csharp/wpf/TodoApp/WpfTodoApp.csproj \
+            examples/csharp/wpf/TodoAppHostCheck/TodoAppHostCheck.csproj \
+            examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj; do
+            echo "dotnet format $project"
+            dotnet format "$project" --verify-no-changes --no-restore
+          done
 
       - name: Build real WPF example
         # Windows activates UseWPF and compiles App/MainWindow XAML plus their
