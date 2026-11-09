@@ -128,12 +128,13 @@ pub const MIN_SPEC_VERSION: &str = "3.30.0";
 mod runtime;
 pub use runtime::*;
 pub(crate) use runtime::{
-    begin_membership_transaction, begin_parent_transfer, clone_locked, evaluate_command_predicate,
-    finish_with_first_error, finish_with_first_failure, lock, next_id, replace_locked,
-    retain_first_error, retain_first_failure, retain_parent_transfer_commit, spawn_worker, wait,
-    ComponentCore, FirstFailure, LateStarts, MembershipDisposeDisposition,
-    MembershipTransactionControl, MembershipTransactionGuard, ModelHint, ParentRegistration,
-    ParentTransfer, PublicationLease, StartAttempt, HIERARCHY_TOPOLOGY_GATE,
+    begin_membership_transaction, begin_parent_transfer, clone_locked, compensate_auto_start,
+    evaluate_command_predicate, finish_with_first_error, finish_with_first_failure, lock, next_id,
+    replace_locked, retain_first_error, retain_first_failure, retain_parent_transfer_commit,
+    rollback_error, spawn_worker, wait, ComponentCore, FirstFailure, LateStarts,
+    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
+    ModelHint, ParentRegistration, ParentTransfer, PublicationLease, StartAttempt,
+    HIERARCHY_TOPOLOGY_GATE,
 };
 
 mod components;
