@@ -262,6 +262,11 @@ decorator surfaces it on an `errors` observable instead:
 - `errors` completes when the decorator is disposed; emitting after dispose is a
   no-op (it MUST NOT raise).
 
+Swift `Command.execute()` cannot throw, so a Swift synchronous inner command
+has no failure to surface, and the throwing-inner rule above does not apply to
+Swift. The throwing-`confirm` rule does apply. An asynchronous inner reports its
+own failures as §8.3.2 defines (ADR-0184).
+
 This mirrors the `FormVM` approve-error channel (chapter 20 §8, ADR-0048): a
 fire-and-forget command entry-point routes a failure that cannot propagate to a
 dedicated error observable rather than discarding it.
@@ -352,7 +357,8 @@ observed:
   pre-execution action has run, its post-execution action still runs exactly
   once on every exit path, including when disposal skips the inner command, so
   an admitted pre/post pair stays balanced (ADR-0062 §2.5). Exceptions from an
-  admitted pair propagate unchanged.
+  admitted pair propagate unchanged. Swift `Command.execute()` cannot throw, so
+  in Swift the inner command adds no throwing exit path (ADR-0184).
 - A confirmation that resolves after disposal, whether `true`, `false`, or
   faulted, invokes no inner command and emits nothing on `errors`, which
   completed at disposal (§8.3.1). An awaited `ExecuteAsync()` still propagates a

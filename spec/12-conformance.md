@@ -1614,7 +1614,9 @@ ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript, Swift, Rust).
 rejects/raises
 **Then** the subscriber observes that exception on `errors` (it is NOT swallowed)
 **And** when instead `confirm` resolves `true` and `inner.Execute()` throws, the
-subscriber observes the inner exception on `errors`
+subscriber observes the inner exception on `errors` (not Swift: a Swift
+`Command.execute()` cannot throw, so Swift tests the throwing-`confirm` clause
+only; ADR-0184)
 
 ### CMDD-011 — Disposed composite and decorator commands are inert
 
@@ -1654,7 +1656,8 @@ disposes the decorator
 **And** the decorator does not invoke its inner command
 **And** the decorator whose pre-action ran invokes its post-action exactly once
 **And** a decorator whose inner command throws still invokes its post-action once
-and the exception propagates
+and the exception propagates (not Swift: a Swift `Command.execute()` cannot
+throw; ADR-0184)
 
 ### CMDD-014 — Awaited confirmation completes when an async inner completes
 
@@ -3216,6 +3219,10 @@ local event, checks the hub subscriber only
 **When** the type is instantiated with a model and a children factory
 **Then** it compiles and constructs without generic-bound errors
 **And** per-flavor idiomatic naming applies (C#/Python/TypeScript/Swift/Rust conventions per ADR-0006)
+**And** Rust, which has no subclassing, binds a consumer node-data type `N` in
+`HierarchicalVm<M, N>` (ADR-0202): in a three-level tree, the nodes that
+`children()`, `parent()` and `path()` return expose their `N` through
+`node_data()`, with no downcast and no side table
 
 ### HIER-002 — `Parent` is null for root, non-null for non-root
 
@@ -3269,7 +3276,7 @@ the updated sequence
 
 ### HIER-008 — Eager child loading via constructor option
 
-**Given** a tree constructed with the `eagerChildren=true` (C# / TS) / `eager_children=True` (Python) constructor option
+**Given** a tree in which every node has the eager option: `eagerChildren=true` (C# / TS) / `eager_children=True` (Python) / `eagerChildren: true` (Swift) constructor option, or the Rust builder method `eager_children(true)`
 **And** a children factory delegate that records invocations per node
 **When** the root node's `construct()` completes
 **Then** the children factory has been invoked for every node in the tree
@@ -3356,7 +3363,7 @@ but no `Model`
 **When** `nodeA = b.Build()` and `nodeB = b.Build()` are called
 **Then** `nodeA` and `nodeB` are different instances
 **And** `nodeA.Model == nodeB.Model == m0`, `nodeA.Hint == nodeB.Hint == "h"`
-**And** both nodes' subtrees are materialized at construction time (per `EagerChildren`)
+**And** the construction of `nodeA` and of `nodeB` materializes that node's children (per `EagerChildren`)
 
 ### HIER-017 — `HierarchicalVMBuilder<M, VM>` field defaults applied when not set
 
@@ -4236,9 +4243,12 @@ or, on the command path, is emitted once on `ApproveErrors`
 failing `OnApproved` subscriber's failure is the one reported instead
 
 Swift callbacks cannot fail, so a Swift test covers only the call-time
-equality and replay-order clauses.
+equality and replay-order clauses. Rust's replay failure is a panic, so on
+both paths the first replay panic resumes from the call, `approve()` or
+`approve_command().execute()`, and nothing is emitted on `approve_errors`
+(ADR-0185).
 
-> Spec: `20-form-vm.md §5.3/§5.4`, ADR-0174.
+> Spec: `20-form-vm.md §5.3/§5.4`, ADR-0174, ADR-0185.
 
 ### FORM-041 — a nested update notifies after it returns
 
