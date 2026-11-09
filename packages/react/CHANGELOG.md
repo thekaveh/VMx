@@ -5,10 +5,20 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.3] - 2026-11-08
+## [0.1.3] - unreleased source version
 
 First npm release since 0.1.1. The `react-v0.1.2` tag never reached npm, so
-this package also contains every change listed below for 0.1.2.
+this package also contains the changes in the 0.1.2 section of
+`packages/react/CHANGELOG.md`.
+
+### Changed
+
+- The `@thekaveh/vmx` peer range is now `^3.30.0`; it was `^3.24.1` (#1357).
+  `useVm` and `createVmxStore` see `CompositeVM` and `GroupVM` membership
+  changes only through hub messages, and the core sends those messages from
+  3.27.0. Version 3.30.0 is the lowest published core that sends them. With
+  an older core, a `useVm(composite, (c) => c.count)` selector could stay
+  stale after `add`.
 
 ### Fixed
 

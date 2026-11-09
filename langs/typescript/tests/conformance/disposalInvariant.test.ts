@@ -142,19 +142,24 @@ describe("DISP-003", () => {
   it("completes a reentrantly disposed notification hub once", async () => {
     const hub = new NotificationHub();
     let completions = 0;
+    let values = 0;
     hub.pending.subscribe({
+      next: () => (values += 1),
       complete: () => {
         completions += 1;
         hub.dispose();
       },
     });
     const pending = hub.post(new Notification(NotificationType.Notification, "info"));
+    const valuesBeforeDispose = values;
 
     hub.dispose();
     hub.dispose();
 
     await expect(pending).resolves.toBe(NotificationReaction.Pending);
     expect(completions).toBe(1);
+    // ADR-0197: no terminal Pending snapshot.
+    expect(values).toBe(valuesBeforeDispose);
   });
 });
 

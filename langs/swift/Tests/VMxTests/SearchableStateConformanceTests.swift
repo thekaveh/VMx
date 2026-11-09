@@ -165,7 +165,7 @@ final class SearchableStateConformanceTests: XCTestCase {
 
         sut.searchTerm = "x"
 
-        wait(for: [recomputed], timeout: 5)
+        wait(for: [recomputed], timeout: hangGuard)
         XCTAssertEqual(snap.last, ["x", "yx"])
 
         sut.dispose()

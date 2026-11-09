@@ -363,6 +363,23 @@ public final class NoteFormVM: ComponentVMBase {
     /// suggestions. Mirrors C# `ApproveAsync()`.
     public func approveAsync() async throws {
         guard let form = _form else { return }
+        try await approve(form)
+    }
+
+    /// Approves the draft only when the editor still holds the note with
+    /// `noteId` and its draft is dirty and valid (ADR-0201 §2.3).
+    ///
+    /// The check and the capture of the bound form are one step, so a note
+    /// switch after the caller's decision cannot redirect the save to a
+    /// clean draft of another note.
+    public func approveDraftAsync(ofNote noteId: String) async throws {
+        guard let form = _form, form.snapshot.id == noteId, form.isDirty, form.isValid else {
+            return
+        }
+        try await approve(form)
+    }
+
+    private func approve(_ form: FormVM<NoteModel>) async throws {
         let key = ObjectIdentifier(form)
         _retireLock.withLock { _pendingApprovals[key, default: 0] += 1 }
         let saved: NoteModel?

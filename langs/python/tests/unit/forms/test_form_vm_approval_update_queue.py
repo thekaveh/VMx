@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.forms import FormVM
 from vmx.messages import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
@@ -330,7 +330,7 @@ def _start_blocked_reset_approval(
 
     def reset(_: Model) -> Model:
         in_reset.set()
-        assert release_reset.wait(HANG_GUARD)
+        assert wait_event(release_reset)
         return Model("pristine")
 
     form = FormVM(Model("initial"), persister, reset_on_approved=reset)
@@ -347,7 +347,7 @@ def _start_blocked_reset_approval(
 
     approver = Thread(target=approve, daemon=True)
     approver.start()
-    assert in_reset.wait(HANG_GUARD)
+    assert wait_event(in_reset)
     return form, release_reset, approver, seen, failures
 
 
@@ -363,8 +363,8 @@ def _run_foreign(action: Any) -> None:
     worker.start()
     # The approving thread is still blocked in the reset: the commit holds
     # no other thread (spec/20 §5.3 rule 7).
-    assert done.wait(HANG_GUARD)
-    worker.join(timeout=HANG_GUARD)
+    assert wait_event(done)
+    join_thread(worker)
     assert not worker.is_alive()
 
 
@@ -377,7 +377,7 @@ def test_another_threads_update_during_the_commit_is_not_held_and_the_reset_wins
         assert form.model == Model("foreign")
     finally:
         release_reset.set()
-    approver.join(timeout=HANG_GUARD * 2)
+    join_thread(approver, 2 * HANG_GUARD)
 
     assert not approver.is_alive()
     assert failures == []
@@ -395,7 +395,7 @@ def test_another_threads_approve_during_the_commit_is_refused() -> None:
         _run_foreign(lambda: asyncio.run(form.approve_async()))
     finally:
         release_reset.set()
-    approver.join(timeout=HANG_GUARD * 2)
+    join_thread(approver, 2 * HANG_GUARD)
 
     assert not approver.is_alive()
     assert failures == []
@@ -412,7 +412,7 @@ def test_another_threads_dispose_during_the_commit_suppresses_settlement() -> No
         _run_foreign(form.dispose)
     finally:
         release_reset.set()
-    approver.join(timeout=HANG_GUARD * 2)
+    join_thread(approver, 2 * HANG_GUARD)
 
     assert not approver.is_alive()
     assert failures == []

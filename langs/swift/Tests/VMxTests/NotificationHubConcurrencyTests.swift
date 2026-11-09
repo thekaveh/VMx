@@ -5,11 +5,11 @@ import XCTest
 
 private typealias ConcurrentNotification = VMx.Notification
 
-private final class TwoPartyBarrier {
+private final class TwoPartyBarrier: @unchecked Sendable {
     private let condition = NSCondition()
     private var arrivals = 0
 
-    func rendezvous(timeout: TimeInterval = 1) -> Bool {
+    func rendezvous(timeout: TimeInterval = hangGuard) -> Bool {
         condition.lock()
         defer { condition.unlock() }
         arrivals += 1
@@ -82,7 +82,7 @@ private final class PendingTrace {
     }
 }
 
-private final class FailureCounter {
+private final class FailureCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var value = 0
 
@@ -99,7 +99,7 @@ private final class FailureCounter {
     }
 }
 
-private final class CancellableStore {
+private final class CancellableStore: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [AnyCancellable] = []
 
@@ -141,7 +141,7 @@ final class NotificationHubConcurrencyTests: XCTestCase {
             subscriptionsReturned.fulfill()
         }
 
-        await fulfillment(of: [subscriptionsReturned], timeout: 2)
+        await fulfillment(of: [subscriptionsReturned], timeout: hangGuard * 2)
         XCTAssertEqual(barrierFailures.snapshot(), 0)
     }
 
@@ -161,13 +161,13 @@ final class NotificationHubConcurrencyTests: XCTestCase {
         ).store(in: &cancellables)
 
         let posted = Task.detached { await hub.post(notification) }
-        XCTAssertEqual(gate.entered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(gate.entered.wait(timeout: .now() + hangGuard), .success)
         let resolveReturned = expectation(description: "resolve returned")
         DispatchQueue.global().async {
             hub.resolve(notification, .approve)
             resolveReturned.fulfill()
         }
-        XCTAssertEqual(counter.second.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(counter.second.wait(timeout: .now() + hangGuard), .success)
         let lateTrace = PendingTrace()
         hub.pending.sink(
             receiveCompletion: { _ in lateTrace.complete() },
@@ -177,7 +177,7 @@ final class NotificationHubConcurrencyTests: XCTestCase {
                        "a subscriber must replay the current resolved state")
         gate.release.signal()
 
-        await fulfillment(of: [resolveReturned], timeout: 1)
+        await fulfillment(of: [resolveReturned], timeout: hangGuard)
         let reaction = await posted.value
         XCTAssertEqual(reaction, .approve)
         let (values, completions) = trace.snapshot()
@@ -192,7 +192,7 @@ final class NotificationHubConcurrencyTests: XCTestCase {
             replay = value
             late.fulfill()
         }.store(in: &cancellables)
-        await fulfillment(of: [late], timeout: 1)
+        await fulfillment(of: [late], timeout: hangGuard)
         XCTAssertEqual(replay?.count, 0)
     }
 
@@ -212,16 +212,16 @@ final class NotificationHubConcurrencyTests: XCTestCase {
         ).store(in: &cancellables)
 
         let posted = Task.detached { await hub.post(notification) }
-        XCTAssertEqual(gate.entered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(gate.entered.wait(timeout: .now() + hangGuard), .success)
         let disposeReturned = expectation(description: "dispose returned")
         DispatchQueue.global().async {
             hub.dispose()
             disposeReturned.fulfill()
         }
-        XCTAssertEqual(counter.second.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(counter.second.wait(timeout: .now() + hangGuard), .success)
         gate.release.signal()
 
-        await fulfillment(of: [disposeReturned], timeout: 1)
+        await fulfillment(of: [disposeReturned], timeout: hangGuard)
         let reaction = await posted.value
         XCTAssertEqual(reaction, .pending)
         let (values, completions) = trace.snapshot()
@@ -289,7 +289,7 @@ final class NotificationHubConcurrencyTests: XCTestCase {
             reactionsCompleted.fulfill()
         }
 
-        await fulfillment(of: [callbacksEntered, reactionsCompleted], timeout: 2)
+        await fulfillment(of: [callbacksEntered, reactionsCompleted], timeout: hangGuard * 2)
         XCTAssertEqual(barrierFailures.snapshot(), 0)
     }
 }

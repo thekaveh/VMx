@@ -19,6 +19,7 @@ on:
       - "tools/check-conformance-coverage.py"
       - "tools/check-conformance-execution.py"
       - "tools/check-python-package.py"
+      - "tools/check-python-api.py"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
@@ -89,6 +90,14 @@ jobs:
 
       - name: Mypy
         run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m mypy --strict src/vmx
+
+      - name: Compare the public API with the baseline
+        # The rendered API depends on a few interpreter reprs, so the check
+        # runs on the Python version that tools/check-python-api.py pins.
+        # Update langs/python/api/vmx.api.txt for an intended change
+        # (CONTRIBUTING.md, "Public API baselines").
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- ../../tools/check-python-api.py
 
       - name: Pytest
         run: uv run python ../../tools/check-python-interpreter.py --venv .venv -- -m pytest --cov=vmx --cov-report=xml -v --junitxml=conformance-results.xml -o junit_family=xunit1

@@ -19,7 +19,10 @@ current public surfaces express that invariant as follows:
 | Swift      | `Message.senderName`, `Message.senderObject`         | concrete typed messages expose `sender`        |
 | Rust       | `sender_name`, `sender_id`                           | enum variants retain the same numeric identity |
 
-The diagnostic name typically equals the sender VM's `Name`. In the four
+The diagnostic name typically equals the sender VM's `Name`. A
+`CollectionChangedMessage` from a `CompositeVM` or `GroupVM` always carries the
+container's `Name`; a plain collection or dictionary uses a flavor-defined name
+(chapter 21 §2.4, ADR-0194). In the four
 object-sender flavors, typed messages expose the canonical runtime sender as
 `Sender`/`sender`. TypeScript also exposes that canonical member on its untyped
 base. C#, Python, and Swift retain their legacy untyped base aliases for source
@@ -238,6 +241,7 @@ column instead of blocking.
 | A cross-thread container disposal waits for a membership transaction                    | The transaction owner                        | Deferred terminal intent that the owner finishes (chapter 06 §4.2, ADR-0153)                                                                                                                                     |
 | A structural operation waits for a child's ownership gate or lock                       | The thread whose transaction holds it        | The operation fails before mutation: `InvalidOperationException` in C#, `RuntimeError` in Python, and the container's attachment failure in Swift. Rust claims ownership without waiting, so it has no such wait |
 | A `FormVM` call, settlement, or `Dispose()` waits for a form publication scope          | A thread that holds a scope on that form     | `SetModel` and deny are queued for the publisher, an approve call is admitted, a settlement opens its own scope, and `Dispose()` leaves the teardown to the publisher (chapter 20 §5.5, ADR-0176)                |
+| A Rust `ObservableMultiDictionary` mutation waits for another thread's delivery         | The thread that delivers the changes         | The mutation commits and queues its change for that thread, which delivers it in commit order (chapter 21 §4.2, ADR-0208)                                                                                        |
 | A Rust `ValueStream` send or `dispose()` waits for another thread's delivery            | The thread that drains the stream            | The call returns without waiting. The value or terminal stays queued, and the drainer delivers it in order (ADR-0209)                                                                                            |
 | A Rust `DerivedProperty::recompute` waits for another thread's recompute gate           | The thread that holds the gate               | The call runs its transform at once, without the gate. Its result is discarded if another commit lands after its snapshot (ADR-0209)                                                                             |
 
@@ -249,8 +253,8 @@ column instead of blocking.
    resource instance it waits for, and the thread that owns that resource. The
    resource instance is one hub, one lifecycle delivery, one hook lease, one
    container's membership transaction, one ownership gate or lock object, one
-   form's publication scope, one Rust stream value or terminal delivery, or
-   one Rust recompute gate.
+   form's publication scope, one Rust dictionary's delivery, one Rust stream
+   value or terminal delivery, or one Rust recompute gate.
    An edge is never keyed by VM identity: a container that is also a child has
    a membership transaction and an ownership gate, and they are two resources.
    A waiting thread has at most one edge. A wait with several possible owners
@@ -265,8 +269,9 @@ column instead of blocking.
    wakes the waiters. This applies when a thread finishes a hook, delivers a
    publication, ends a membership transaction, releases an ownership gate,
    ends a batch, releases a drain, closes its outermost form publication
-   scope, delivers a Rust stream value or terminal, releases a Rust recompute
-   gate, and when a borrower ends or partially exits its borrowed scopes. A
+   scope, ends a Rust dictionary delivery, delivers a Rust stream value or
+   terminal, releases a Rust recompute gate, and when a borrower ends or
+   partially exits its borrowed scopes. A
    woken waiter that must still wait records its wait
    again. A stale edge never makes an operation take its refused-wait result,
    and a released owner never keeps a waiter blocked.

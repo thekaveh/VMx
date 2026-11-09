@@ -67,6 +67,11 @@ version or reuse that tag.
 
 1. Land the intended package version and matching core or package-qualified
    `langs/csharp/CHANGELOG.md` section on `main` through develop/main PRs.
+   For each package you release, a release-prep PR replaces
+   `unreleased source version` in that package's heading (`## [X.Y.Z]` for
+   `VMx`, `## [<package> X.Y.Z]` for a companion) with the release date,
+   immediately before its tag, so the heading date equals the tag date
+   (`CONTRIBUTING.md` §4.3).
 2. From a clean current `origin/main`, confirm the tag and NuGet version are
    absent. For example:
 

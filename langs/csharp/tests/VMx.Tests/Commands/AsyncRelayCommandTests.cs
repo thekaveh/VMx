@@ -174,6 +174,60 @@ public class AsyncRelayCommandTests
     }
 
     [Fact]
+    public async Task Cancel_Racing_Completion_Does_Not_Hide_External_Cancellation_Of_The_Next_Execution()
+    {
+        // #1342: Cancel() tags the cancellation origin under the gate that swaps
+        // executions. The probe pauses Cancel() after it releases the gate. In
+        // that window execution A completes and execution B starts with an
+        // external token. A late tag would mark B as cancelled by the command,
+        // and B would then swallow its external cancellation.
+        var limit = TimeSpan.FromSeconds(30);
+        var aStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var aRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runs = 0;
+        using var external = new CancellationTokenSource();
+        using var command = AsyncRelayCommand.Builder()
+            .Task(async token =>
+            {
+                if (Interlocked.Increment(ref runs) == 1)
+                {
+                    aStarted.SetResult();
+                    await aRelease.Task;
+                    return;
+                }
+                bStarted.SetResult();
+                await Task.Delay(Timeout.Infinite, token);
+            })
+            .Build();
+        using var paused = new ManualResetEventSlim();
+        using var resume = new ManualResetEventSlim();
+        command.AfterCancelReleasesGateForTesting = () =>
+        {
+            command.AfterCancelReleasesGateForTesting = null;
+            paused.Set();
+            resume.Wait(limit).Should().BeTrue("the test resumes Cancel()");
+        };
+
+        var a = command.ExecuteAsync();
+        await aStarted.Task.WaitAsync(limit);
+        var cancel = Task.Run(command.Cancel);
+        paused.Wait(limit).Should().BeTrue("Cancel() reaches the probe");
+
+        aRelease.SetResult();
+        await a.WaitAsync(limit);
+        var b = command.ExecuteAsync(null, external.Token);
+        await bStarted.Task.WaitAsync(limit);
+
+        resume.Set();
+        await cancel.WaitAsync(limit);
+        command.IsExecuting.Should().BeTrue("the paused Cancel() captured A's source, not B's");
+
+        external.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await b.WaitAsync(limit));
+    }
+
+    [Fact]
     public async Task Start_Observer_Failure_Restores_Idle_Without_Running_Task()
     {
         var calls = 0;

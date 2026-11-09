@@ -373,7 +373,7 @@ fn dictionary_get_value_clone_may_read_the_dictionary() {
 #[test]
 fn multi_dictionary_get_and_entries_value_clone_may_read_the_dictionary() {
     let probe: Probe = Arc::new(Mutex::new(None));
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
     for (key, id) in [("a", 10), ("b", 20)] {
         dictionary
             .add(
@@ -636,7 +636,7 @@ fn keyed_collection_clear_replace_all_and_upsert_drop_may_read_the_collection() 
 #[test]
 fn observable_list_clear_and_replace_all_drop_may_read_the_list() {
     let hook: Probe = Arc::new(Mutex::new(None));
-    let list = ObservableList::new(1, MessageHub::new());
+    let list = ObservableList::with_hub(1, MessageHub::new());
     list.push(DropProbing::new(1, &hook));
     let reader = list.clone();
     *hook.lock().unwrap() = Some(Arc::new(move || {
@@ -727,7 +727,7 @@ fn dictionary_get_retries_after_eq_mutates_the_dictionary() {
 fn shifting_multi_dictionary(
     probe: &Probe,
 ) -> ObservableMultiDictionary<Probing, u8, &'static str> {
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
     dictionary.insert(Probing::new(1, probe), 0, "one");
     dictionary.insert(Probing::new(2, probe), 0, "two");
     let writer = dictionary.clone();

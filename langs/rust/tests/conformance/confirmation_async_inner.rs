@@ -429,6 +429,12 @@ where
     let inner_errors = ErrorLog::of(inner.command.error_stream());
 
     decorator.execute();
+    // A settled confirmation reports on a VMx worker after `execute()`
+    // returns (CMDD-018); the inner never starts, so its error comes first.
+    let deadline = Instant::now() + BOUND;
+    while decorator_errors.entries().is_empty() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(1));
+    }
     let admitted = inner.command.is_executing() || inner.runs() > 0;
     if admitted {
         // Let a wrongly admitted body finish instead of waiting out its bound.

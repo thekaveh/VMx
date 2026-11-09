@@ -14,8 +14,6 @@ import Foundation
 import XCTest
 @testable import VMx
 
-private let cycleTimeout: TimeInterval = 5
-
 /// A value shared with a test thread.
 private final class SharedValue<T>: @unchecked Sendable {
     private let lock = NSLock()
@@ -110,7 +108,7 @@ final class ContainerDisposalWaitCycleTests: XCTestCase {
             guard blockOnce.value else { return }
             blockOnce.value = false
             bInSink.signal()
-            _ = aWaiting.wait(timeout: .now() + cycleTimeout)
+            _ = aWaiting.wait(timeout: .now() + hangGuard)
             x.dispose()
         }.store(in: &cancellables)
 
@@ -122,15 +120,15 @@ final class ContainerDisposalWaitCycleTests: XCTestCase {
                 .build())
             bDone.signal()
         }
-        XCTAssertEqual(bInSink.wait(timeout: .now() + cycleTimeout), .success, file: file, line: line)
+        XCTAssertEqual(bInSink.wait(timeout: .now() + hangGuard), .success, file: file, line: line)
         Thread.detachNewThread {
             threadA.value = ThreadWaitGraph.currentThread
             _ = x.addResult(c)
             aDone.signal()
         }
 
-        XCTAssertEqual(aDone.wait(timeout: .now() + cycleTimeout), .success, "thread A (adding to x) hung", file: file, line: line)
-        XCTAssertEqual(bDone.wait(timeout: .now() + cycleTimeout), .success, "thread B (disposing x) hung", file: file, line: line)
+        XCTAssertEqual(aDone.wait(timeout: .now() + hangGuard), .success, "thread A (adding to x) hung", file: file, line: line)
+        XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard), .success, "thread B (disposing x) hung", file: file, line: line)
         XCTAssertTrue(bRefused.value, "the disposal's wait closed a cycle and was refused", file: file, line: line)
         XCTAssertEqual(x.vm.status, .disposed, file: file, line: line)
         XCTAssertEqual([x.contains(c), y.contains(c)].filter { $0 }.count, 1,
@@ -159,7 +157,7 @@ final class ContainerDisposalWaitCycleTests: XCTestCase {
 
         x.collectionChanged.sink { _ in
             aInSink.signal()
-            _ = bWaiting.wait(timeout: .now() + cycleTimeout)
+            _ = bWaiting.wait(timeout: .now() + hangGuard)
             addEnded.value = true
         }.store(in: &cancellables)
 
@@ -168,7 +166,7 @@ final class ContainerDisposalWaitCycleTests: XCTestCase {
             _ = x.addResult(added)
             addReturned.signal()
         }
-        XCTAssertEqual(aInSink.wait(timeout: .now() + cycleTimeout), .success, file: file, line: line)
+        XCTAssertEqual(aInSink.wait(timeout: .now() + hangGuard), .success, file: file, line: line)
         Thread.detachNewThread {
             threadB.value = ThreadWaitGraph.currentThread
             x.dispose()
@@ -176,8 +174,8 @@ final class ContainerDisposalWaitCycleTests: XCTestCase {
             disposed.signal()
         }
 
-        XCTAssertEqual(disposed.wait(timeout: .now() + cycleTimeout), .success, "dispose() hung", file: file, line: line)
-        XCTAssertEqual(addReturned.wait(timeout: .now() + cycleTimeout), .success, "the add hung", file: file, line: line)
+        XCTAssertEqual(disposed.wait(timeout: .now() + hangGuard), .success, "dispose() hung", file: file, line: line)
+        XCTAssertEqual(addReturned.wait(timeout: .now() + hangGuard), .success, "the add hung", file: file, line: line)
         XCTAssertEqual(addEndedBeforeDispose.value, true, "dispose() returned before the add ended", file: file, line: line)
         XCTAssertEqual(x.vm.status, .disposed, file: file, line: line)
         XCTAssertEqual(added.status, .disposed, "the disposal snapshot includes the added child", file: file, line: line)

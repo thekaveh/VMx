@@ -5,7 +5,7 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
-**v3.31.0 source — total parity.** Swift implements `spec-v3.30.0` and covers
+**v4.0.0 source — total parity.** Swift implements spec 3.30.0 and covers
 every library conformance ID in `spec/12-conformance.md`. The SwiftUI
 notes-showcase exercises the additional `THEME-00x` scenarios, matching the other
 UI-backed flavors; Rust covers the library IDs and has no UI scenario suite.

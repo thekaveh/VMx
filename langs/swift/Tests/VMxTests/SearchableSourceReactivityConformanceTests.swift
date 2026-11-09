@@ -7,6 +7,19 @@ private func searchMatches(_ item: String, _ term: String) -> Bool {
     term.isEmpty || item.lowercased().contains(term.lowercased())
 }
 
+/// Records snapshots and supplier reads from any thread.
+private final class SearchEvents {
+    private let lock = NSLock()
+    private var storedSnapshots: [[String]] = []
+    private var storedReads = 0
+
+    var snapshots: [[String]] { lock.withLock { storedSnapshots } }
+    var reads: Int { lock.withLock { storedReads } }
+
+    func record(_ snapshot: [String]) { lock.withLock { storedSnapshots.append(snapshot) } }
+    func read() { lock.withLock { storedReads += 1 } }
+}
+
 private final class OwnedSearchItem {
     let value: String
     private(set) var disposeCount = 0
@@ -137,7 +150,7 @@ final class SearchableSourceReactivityConformanceTests: XCTestCase {
                 pendingTerm.fulfill()
             }
             .store(in: &cancellables)
-        wait(for: [pendingTerm], timeout: 1)
+        wait(for: [pendingTerm], timeout: hangGuard)
         sut.dispose()
     }
 
@@ -222,5 +235,71 @@ final class SearchableSourceReactivityConformanceTests: XCTestCase {
 
         XCTAssertEqual(first.disposeCount, 0)
         XCTAssertEqual(second.disposeCount, 0)
+    }
+
+    /// SRCH-008 — construction starts no term debounce (ADR-0198).
+    func testSRCH008ConstructionStartsNoTermDebounce() {
+        let itemsLock = NSLock()
+        var items = ["one"]
+        let scheduler = DispatchQueue(label: "vmx.search-construction-debounce")
+        let sut = SearchableState<String>(
+            items: { itemsLock.withLock { items } },
+            predicate: searchMatches,
+            debounce: .milliseconds(50),
+            scheduler: scheduler
+        )
+        let events = SearchEvents()
+        sut.filtered.sink { events.record($0) }.store(in: &cancellables)
+        XCTAssertEqual(events.snapshots, [["one"]], "only the replayed value on subscribe")
+
+        itemsLock.withLock { items.append("two") }
+        expectNoFurtherValue(from: sut, within: 0.2)
+        XCTAssertEqual(events.snapshots.count, 1,
+                       "SRCH-008: construction must not start a term debounce")
+
+        sut.search()
+        XCTAssertEqual(events.snapshots.count, 2)
+        XCTAssertEqual(events.snapshots.last, ["one", "two"])
+
+        let termValue = expectation(description: "one value after the term debounce")
+        let termWatch = sut.filtered.dropFirst().first().sink { _ in termValue.fulfill() }
+        sut.searchTerm = "o"
+        wait(for: [termValue], timeout: 1)
+        termWatch.cancel()
+        expectNoFurtherValue(from: sut, within: 0.2)
+        XCTAssertEqual(events.snapshots.count, 3,
+                       "SRCH-008: a new term emits once after its debounce window")
+        XCTAssertEqual(events.snapshots.last, ["one", "two"])
+        sut.dispose()
+    }
+
+    private func expectNoFurtherValue(from sut: SearchableState<String>, within seconds: TimeInterval) {
+        let further = expectation(description: "no further filtered value")
+        further.isInverted = true
+        let watch = sut.filtered.dropFirst().sink { _ in further.fulfill() }
+        wait(for: [further], timeout: seconds)
+        watch.cancel()
+    }
+
+    /// A zero debounce on the main queue reads the supplier once at
+    /// construction and sends no later snapshot (#550, ADR-0198).
+    func testZeroDebounceConstructionReadsSupplierOnce() {
+        let events = SearchEvents()
+        let sut = SearchableState<String>(
+            items: {
+                events.read()
+                return ["one"]
+            },
+            predicate: searchMatches,
+            debounce: .milliseconds(0)
+        )
+        let laterValue = expectation(description: "no filtered value after construction")
+        laterValue.isInverted = true
+        sut.filtered.dropFirst().sink { _ in laterValue.fulfill() }.store(in: &cancellables)
+
+        wait(for: [laterValue], timeout: 0.2)
+
+        XCTAssertEqual(events.reads, 1, "construction reads the supplier once")
+        sut.dispose()
     }
 }

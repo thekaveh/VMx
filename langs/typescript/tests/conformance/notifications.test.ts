@@ -1,5 +1,5 @@
-// Conformance tests: NOTIF-001..016 — notification sub-package.
-// See spec/16-notifications.md, ADR-0013, ADR-0031.
+// Conformance tests: NOTIF-001..020 — notification sub-package.
+// See spec/16-notifications.md, ADR-0013, ADR-0031, ADR-0196, ADR-0197.
 
 import { describe, expect, it } from "vitest";
 
@@ -302,16 +302,23 @@ describe("NOTIF-016", () => {
 describe("NOTIF-017", () => {
   it("dispose resolves in-flight waiters with Pending, completes pending, and is idempotent", async () => {
     const hub = new NotificationHub();
-    let completed = false;
-    hub.pending.subscribe({ complete: () => (completed = true) });
+    let completions = 0;
+    const values: (readonly Notification[])[] = [];
+    hub.pending.subscribe({
+      next: (snapshot) => values.push(snapshot),
+      complete: () => (completions += 1),
+    });
     const task = hub.post(
       new Notification(NotificationType.Confirmation, "in-flight"),
     );
+    const valuesBeforeDispose = values.length;
 
     hub.dispose();
 
     await expect(task).resolves.toBe(NotificationReaction.Pending);
-    expect(completed).toBe(true);
+    expect(completions).toBe(1);
+    // ADR-0197: the dispose sends no final empty snapshot.
+    expect(values).toHaveLength(valuesBeforeDispose);
 
     // Subsequent post resolves immediately with Pending and does not enqueue.
     await expect(
@@ -324,5 +331,134 @@ describe("NOTIF-017", () => {
       NotificationReaction.Approve,
     );
     hub.dispose();
+  });
+});
+
+describe("NOTIF-018", () => {
+  /** Reads the hub's current pending list. */
+  const pendingOf = (hub: INotificationHub): readonly Notification[] => {
+    let current: readonly Notification[] = [];
+    hub.pending.subscribe((list) => (current = list)).unsubscribe();
+    return current;
+  };
+
+  it("ConfirmationVM commands report canExecute false during dispose", async () => {
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Confirmation, "delete?");
+    let settled = false;
+    void hub.post(notification).then(() => (settled = true));
+    const sut = new ConfirmationVM(notification, hub, new FakeScheduler());
+    const commands = [sut.dismissCommand, sut.approveCommand, sut.rejectCommand];
+    const reads: boolean[] = [];
+    let handlerRuns = 0;
+    for (const command of commands) {
+      command.canExecuteChanged.subscribe(() => {
+        handlerRuns += 1;
+        for (const other of commands) reads.push(other.canExecute());
+        sut.rejectCommand.execute();
+      });
+    }
+
+    sut.dispose();
+    await Promise.resolve();
+
+    expect(handlerRuns).toBeGreaterThan(0);
+    expect(reads).not.toContain(true);
+    expect(sut.isResolved).toBe(false);
+    expect(pendingOf(hub)).toContain(notification);
+    expect(settled).toBe(false);
+
+    const runsAfterFirstDispose = handlerRuns;
+    sut.dispose();
+    await Promise.resolve();
+
+    expect(handlerRuns).toBe(runsAfterFirstDispose);
+    expect(pendingOf(hub)).toContain(notification);
+  });
+
+  it("NotificationVM dismissCommand reports canExecute false during dispose", () => {
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "info");
+    hub.post(notification);
+    const sut = new NotificationVM(notification, hub, new FakeScheduler());
+    const reads: boolean[] = [];
+    sut.dismissCommand.canExecuteChanged.subscribe(() =>
+      reads.push(sut.dismissCommand.canExecute()),
+    );
+
+    sut.dispose();
+
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads).not.toContain(true);
+  });
+});
+
+describe("NOTIF-019", () => {
+  const lifespanMs = 10_000;
+
+  function makeVm(): { vm: NotificationVM; scheduler: FakeScheduler } {
+    const scheduler = new FakeScheduler();
+    const hub = new NotificationHub();
+    const notification = new Notification(NotificationType.Notification, "info");
+    void hub.post(notification);
+    const vm = new NotificationVM(notification, hub, scheduler, lifespanMs);
+    return { vm, scheduler };
+  }
+
+  it("keeps remainingMs and opacity from a dismiss at 0 s", () => {
+    const { vm, scheduler } = makeVm();
+
+    vm.dismissCommand.execute();
+    scheduler.advanceBy(10_000);
+
+    expect(vm.remainingMs).toBe(10_000);
+    expect(vm.opacity).toBe(1.0);
+    vm.dispose();
+  });
+
+  it("keeps remainingMs and opacity from a dispose at 0 s", () => {
+    const { vm, scheduler } = makeVm();
+
+    vm.dispose();
+    scheduler.advanceBy(10_000);
+
+    expect(vm.remainingMs).toBe(10_000);
+    expect(vm.opacity).toBe(1.0);
+  });
+
+  it("keeps remainingMs and opacity from a dismiss at 4 s", () => {
+    const { vm, scheduler } = makeVm();
+
+    scheduler.advanceBy(4_000);
+    vm.dismissCommand.execute();
+    scheduler.advanceBy(6_000);
+
+    expect(vm.remainingMs).toBe(6_000);
+    expect(vm.opacity).toBeCloseTo(0.6, 2);
+    vm.dispose();
+  });
+});
+
+describe("NOTIF-020", () => {
+  it("a pending subscription made after dispose receives completion only", () => {
+    const hub = new NotificationHub();
+    void hub.post(new Notification(NotificationType.Notification, "posted"));
+    hub.dispose();
+
+    const values: (readonly Notification[])[] = [];
+    const errors: unknown[] = [];
+    let completions = 0;
+    expect(() =>
+      hub.pending.subscribe({
+        next: (snapshot) => values.push(snapshot),
+        error: (error: unknown) => errors.push(error),
+        complete: () => (completions += 1),
+      }),
+    ).not.toThrow();
+    expect(() => hub.pending.subscribe((snapshot) => values.push(snapshot))).not.toThrow();
+
+    expect(completions).toBe(1);
+    expect(values).toEqual([]);
+    expect(errors).toEqual([]);
   });
 });

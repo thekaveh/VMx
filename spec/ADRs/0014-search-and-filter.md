@@ -1,6 +1,6 @@
 # ADR 0014 — Search / filter on container VMs
 
-**Status:** Accepted (2026-05-25)
+**Status:** Accepted (2026-05-25; amended by ADR-0198)
 **Spec version:** introduced in 2.0.0
 
 ## 1. Context

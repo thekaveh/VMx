@@ -18,7 +18,7 @@ namespace NotesShowcase.Tests.Views;
 /// Drives the real <see cref="MainWindow"/> headlessly to pin that list/tree
 /// refreshes never drop the current selection through the views' TwoWay
 /// <c>SelectedItem</c> bindings (selection must survive a refilter or a
-/// notebook add, as in the React, Textual, and Rust flagships).
+/// notebook add, as ADR-0201 §2.1 requires in every app).
 /// </summary>
 public sealed class SelectionStabilityHeadlessTests
 {
@@ -65,6 +65,47 @@ public sealed class SelectionStabilityHeadlessTests
             Assert.Same(note, list.SelectedItem);
             Assert.True(workspace.NoteForm.HasBoundNote);
             Assert.Equal("Roadmap snapshot (draft)", workspace.NoteForm.Title);
+        }
+        finally
+        {
+            workspace.Dispose();
+            window.Close();
+        }
+    }
+
+    [Trait("Category", "Smoke")]
+    [AvaloniaFact]
+    public async Task Hiding_and_reshowing_the_selected_note_keeps_it_current_and_restores_the_highlight()
+    {
+        var (workspace, window) = await OpenWindowAsync();
+        try
+        {
+            var list = (ListBox)window.FindDescendantByName("NotesList")!;
+            var search = (TextBox)window.FindDescendantByName("SearchInput")!;
+            var titleBox = window.GetVisualDescendants().OfType<TextBox>()
+                .Single(t => AutomationProperties.GetName(t) == "Note title");
+
+            var note = workspace.NotesView.VisibleItems
+                .Single(n => n.Title == "Roadmap snapshot");
+            list.SelectedItem = note;
+            Pump();
+            titleBox.Text = "Roadmap snapshot (draft)";
+            Pump();
+            Assert.True(workspace.NoteForm.IsDirty);
+
+            // A search the note does not match hides its row.
+            search.Text = "Standup";
+            PumpUntil(() => workspace.NotesView.VisibleItems.Count == 1);
+            Assert.Same(note, workspace.NotesView.Current);
+            Assert.Null(list.SelectedItem);
+            Assert.True(workspace.NoteForm.IsDirty);
+            Assert.Equal("Roadmap snapshot (draft)", workspace.NoteForm.Title);
+
+            // Clearing the search shows the row again: the list selects it.
+            search.Text = string.Empty;
+            PumpUntil(() => workspace.NotesView.VisibleItems.Count == 2);
+            Pump();
+            AssertSelectionAndDraftKept(workspace, list, note);
         }
         finally
         {

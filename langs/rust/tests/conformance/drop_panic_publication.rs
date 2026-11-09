@@ -110,7 +110,7 @@ fn keyed_collection_clear_publishes_its_reset_before_a_drop_panic() {
 fn observable_list_clear_publishes_its_reset_and_count_before_a_drop_panic() {
     let armed = Arc::new(AtomicBool::new(false));
     let hub = MessageHub::new();
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
     list.push(PanicOnDrop::new(1, &armed));
     let (external, _external) = record(&hub);
 
@@ -138,7 +138,7 @@ fn observable_dictionary_clear_publishes_its_reset_before_a_drop_panic() {
 fn observable_multi_dictionary_clear_publishes_its_reset_before_a_drop_panic() {
     let armed = Arc::new(AtomicBool::new(false));
     let hub = MessageHub::new();
-    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
+    let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
     dictionary.add("a", 1, PanicOnDrop::new(1, &armed)).unwrap();
     let (external, _external) = record(&hub);
 
@@ -167,4 +167,42 @@ fn serviced_collection_remove_publishes_its_remove_before_a_drop_panic() {
     assert_eq!(collection.len(), 1);
     assert_eq!(recorded(&local), ["Remove"]);
     assert_eq!(recorded(&external), ["Remove"]);
+}
+
+#[test]
+fn observable_list_remove_publishes_its_remove_and_count_before_a_drop_panic() {
+    let armed = Arc::new(AtomicBool::new(false));
+    let unarmed = Arc::new(AtomicBool::new(false));
+    let hub = MessageHub::new();
+    let list = ObservableList::with_hub(1, hub.clone());
+    list.push(PanicOnDrop::new(1, &unarmed));
+    list.push(PanicOnDrop::new(2, &armed));
+    let (external, _external) = record(&hub);
+
+    let target = PanicOnDrop::new(2, &unarmed);
+    assert_panics(&armed, || {
+        list.remove(&target);
+    });
+
+    assert_eq!(list.len(), 1);
+    assert_eq!(recorded(&external), ["Remove", "PropertyChanged:Count"]);
+}
+
+#[test]
+fn observable_multi_dictionary_replace_publishes_its_replace_before_a_drop_panic() {
+    let armed = Arc::new(AtomicBool::new(false));
+    let unarmed = Arc::new(AtomicBool::new(false));
+    let hub = MessageHub::new();
+    let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
+    dictionary.insert("a", 1, PanicOnDrop::new(1, &armed));
+    let (local, _local) = record(&dictionary.collection_changed());
+    let (external, _external) = record(&hub);
+
+    assert_panics(&armed, || {
+        dictionary.insert("a", 1, PanicOnDrop::new(2, &unarmed));
+    });
+
+    assert_eq!(dictionary.count(), 1);
+    assert_eq!(recorded(&local), ["Replace"]);
+    assert_eq!(recorded(&external), ["Replace"]);
 }

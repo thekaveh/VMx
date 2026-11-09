@@ -70,20 +70,6 @@ constructed. The spec does not say whether it should.
 
 ## 2. Small spec gaps
 
-### 2.1. Notification opacity after resolution
-
-`spec/16-notifications.md` says opacity decays toward 0. It does not say what a
-read returns after resolution. C#, Python, TypeScript and Swift compute it from
-the clock, so it keeps decreasing. Rust freezes it at resolution.
-
-### 2.2. Initial debounced search refresh
-
-C#, Python, TypeScript and Swift seed the search term with `""` and debounce it,
-so one filtered emission arrives after construction without a request. With a
-zero debounce, C#, Python and TypeScript emit it inside the constructor, where
-no subscriber can see it. Every SRCH-007 test uses a zero debounce, so no test
-exposes it. Rust is pull-based and does not emit it.
-
 ### 2.3. Duplicate dictionary key error
 
 `spec/21-collections.md` §4 names no error for a duplicate key.
@@ -98,12 +84,6 @@ exposes it. Rust is pull-based and does not emit it.
 
 The keyed serviced collection does name exact types (`spec/21-collections.md`
 §2.10), and there Python uses `ValueError`.
-
-### 2.4. VM-collection `CollectionChanged` sender name
-
-`spec/03-messages.md` says the sender name "typically" equals the VM name. C#,
-Python and TypeScript use the sender's type name. Swift and Rust use the VM
-name.
 
 ### 2.5. Delivery order across subscribers
 
@@ -168,9 +148,9 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 ## 5. Related records
 
 - Rust parity backlog: [Rust parity status](2026-07-16-rust-capability-parity.md),
-  §12.4.7 and §12.7–§12.12.
-- The remaining Notes Showcase UX policies stay with the owner and are not
-  listed here.
+  §12.4.7, §12.7 and §12.9.
+- ADR-0201 decides the Notes Showcase selection, unsaved-edit, Save and theme
+  policies (#1331).
 
 ## 6. Closed items
 

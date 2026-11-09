@@ -1,0 +1,14 @@
+#nullable enable
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Keys1.get -> VMx.Collections.ReadOnlyObservableList<TKey1>!
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Keys2.get -> VMx.Collections.ReadOnlyObservableList<TKey2>!
+VMx.Collections.ReadOnlyObservableList<T>
+VMx.Collections.ReadOnlyObservableList<T>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Collections.ReadOnlyObservableList<T>.Count.get -> int
+VMx.Collections.ReadOnlyObservableList<T>.GetEnumerator() -> System.Collections.Generic.IEnumerator<T>!
+VMx.Collections.ReadOnlyObservableList<T>.ItemAdded -> System.EventHandler<VMx.Collections.ItemAddedEventArgs<T>!>?
+VMx.Collections.ReadOnlyObservableList<T>.ItemRemoved -> System.EventHandler<VMx.Collections.ItemRemovedEventArgs<T>!>?
+VMx.Collections.ReadOnlyObservableList<T>.ItemReplaced -> System.EventHandler<VMx.Collections.ItemReplacedEventArgs<T>!>?
+VMx.Collections.ReadOnlyObservableList<T>.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+VMx.Collections.ReadOnlyObservableList<T>.Reset -> System.EventHandler?
+VMx.Collections.ReadOnlyObservableList<T>.this[int index].get -> T
+VMx.Messages.CollectionChangedMessage<T>.SenderName.init -> void
