@@ -921,7 +921,34 @@ where
     T: Clone + Send + 'static,
     D: Dispatcher,
 {
-    let operation = {
+    if let Some(operation) = restore_baseline(inner, identity) {
+        operation.token.cancel();
+        notify_state(inner);
+    }
+}
+
+/// Restores the stable state when the current loader cancels itself. The
+/// loader has returned, so the waiting load returns on the loader's report,
+/// after this publication. The token is cancelled last for that reason.
+fn restore_after_loader_cancellation<T, D>(inner: &Inner<T, D>, identity: u64)
+where
+    T: Clone + Send + 'static,
+    D: Dispatcher,
+{
+    if let Some(operation) = restore_baseline(inner, identity) {
+        notify_state(inner);
+        operation.token.cancel();
+    }
+}
+
+/// Ends the current operation `identity` and installs its saved stable state.
+/// Returns `None` when the operation is stale or the resource is disposed.
+fn restore_baseline<T, D>(inner: &Inner<T, D>, identity: u64) -> Option<Operation<T>>
+where
+    T: Clone + Send + 'static,
+    D: Dispatcher,
+{
+    let (operation, replaced_state) = {
         let mut machine = lock(&inner.machine);
         if machine.disposed
             || machine
@@ -930,7 +957,7 @@ where
                 .map(|operation| operation.identity)
                 != Some(identity)
         {
-            return;
+            return None;
         }
         machine.identity = machine.identity.wrapping_add(1);
         let operation = machine.operation.take().expect("operation checked above");
@@ -938,11 +965,9 @@ where
             std::mem::replace(&mut machine.state, state_from_stable(&operation.baseline));
         (operation, replaced_state)
     };
-    let (operation, replaced_state) = operation;
     // The replaced state is dropped after the machine lock is released.
     drop(replaced_state);
-    operation.token.cancel();
-    notify_state(inner);
+    Some(operation)
 }
 
 fn complete_operation<T, D>(inner: &Inner<T, D>, operation: &Operation<T>, result: VmxResult<T>)
@@ -990,7 +1015,7 @@ where
         }
         // A loader's own cancellation restores the saved stable state, as
         // `cancel` does (ADR-0199, spec/23 §7). A stale one changes nothing.
-        Err(VmxError::Cancelled) => cancel_operation(inner, operation.identity),
+        Err(VmxError::Cancelled) => restore_after_loader_cancellation(inner, operation.identity),
         Err(error) => {
             let released = {
                 let mut machine = lock(&inner.machine);

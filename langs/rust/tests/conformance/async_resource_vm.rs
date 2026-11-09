@@ -806,6 +806,24 @@ fn async_resource_dispose_cancels_current_loader_token() {
     }
 }
 
+/// Counts the async-command errors that the load and reload commands emit
+/// while the returned subscriptions live.
+fn reload_command_errors(
+    vm: &AsyncResourceVm<i32>,
+) -> (Arc<AtomicUsize>, Vec<vmx::ValueSubscription>) {
+    let errors = Arc::new(AtomicUsize::new(0));
+    let subscriptions = [vm.load_command(), vm.reload_command()]
+        .into_iter()
+        .map(|command| {
+            let observed = errors.clone();
+            command.error_stream().subscribe(move |_| {
+                observed.fetch_add(1, Ordering::SeqCst);
+            })
+        })
+        .collect();
+    (errors, subscriptions)
+}
+
 /// ARES-012 — a current loader that returns `Err(VmxError::Cancelled)` on its
 /// own ends an initial load in `Idle`, through `load_async` and the load
 /// command, with no error state and no command error.
@@ -819,6 +837,22 @@ fn async_resource_loader_cancellation_restores_idle_after_initial_load() {
         let _errors = vm.load_command().error_stream().subscribe(move |_| {
             observed.fetch_add(1, Ordering::SeqCst);
         });
+        // A slow handler makes the load return only after it publishes the
+        // restore, as it does after a loader failure.
+        let delivered = Arc::new(AtomicUsize::new(0));
+        let slow = delivered.clone();
+        let _slow = vm.property_changed().subscribe(move |_| {
+            thread::sleep(Duration::from_millis(30));
+            slow.fetch_add(1, Ordering::SeqCst);
+        });
+        let cancel_changes = Arc::new(AtomicUsize::new(0));
+        let cancel_observed = cancel_changes.clone();
+        let _cancel_changes = vm
+            .cancel_command()
+            .can_execute_changed()
+            .subscribe(move |_| {
+                cancel_observed.fetch_add(1, Ordering::SeqCst);
+            });
 
         let load = if through_command {
             vm.load_command().execute();
@@ -831,9 +865,16 @@ fn async_resource_loader_cancellation_restores_idle_after_initial_load() {
         send.send(Err(VmxError::Cancelled)).unwrap();
         if let Some(load) = load {
             load.join().unwrap().unwrap();
+            assert_eq!(
+                delivered.load(Ordering::SeqCst),
+                2,
+                "load returned before the restore was published"
+            );
+            assert_eq!(cancel_changes.load(Ordering::SeqCst), 2);
+        } else {
+            wait_until(|| delivered.load(Ordering::SeqCst) == 2);
+            wait_until(|| vm.load_command().can_execute());
         }
-        wait_until(|| vm.resource_status() != AsyncResourceStatus::Loading);
-        wait_until(|| vm.load_command().can_execute());
 
         assert_eq!(vm.state(), AsyncResourceState::Idle);
         assert_eq!(vm.error(), None);
@@ -858,14 +899,17 @@ fn async_resource_loader_cancellation_on_discard_reload_restores_idle() {
     send1.send(Ok(5)).unwrap();
     first.join().unwrap().unwrap();
 
+    let (command_errors, _error_subscriptions) = reload_command_errors(&vm);
+
     let reload = vm.reload_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 2);
     assert!(!tokens.lock().unwrap()[1].is_cancelled());
     send2.send(Err(VmxError::Cancelled)).unwrap();
     reload.join().unwrap().unwrap();
-    wait_until(|| vm.resource_status() != AsyncResourceStatus::Loading);
 
     assert_eq!(vm.state(), AsyncResourceState::Idle);
+    assert_eq!(vm.error(), None);
+    assert_eq!(command_errors.load(Ordering::SeqCst), 0);
     assert_eq!(*cleaned.lock().unwrap(), vec![5]);
     assert!(vm.load_command().can_execute());
     assert!(!vm.reload_command().can_execute());
@@ -889,13 +933,16 @@ fn async_resource_loader_cancellation_on_retained_reload_restores_ready() {
     send1.send(Ok(3)).unwrap();
     first.join().unwrap().unwrap();
 
+    let (command_errors, _error_subscriptions) = reload_command_errors(&vm);
+
     let reload = vm.reload_async();
     wait_until(|| starts.load(Ordering::SeqCst) == 2);
     send2.send(Err(VmxError::Cancelled)).unwrap();
     reload.join().unwrap().unwrap();
-    wait_until(|| vm.resource_status() != AsyncResourceStatus::Loading);
 
     assert_eq!(vm.state(), AsyncResourceState::Ready { value: 3 });
+    assert_eq!(vm.error(), None);
+    assert_eq!(command_errors.load(Ordering::SeqCst), 0);
     assert!(cleaned.lock().unwrap().is_empty());
     assert!(!vm.load_command().can_execute());
     assert!(vm.reload_command().can_execute());

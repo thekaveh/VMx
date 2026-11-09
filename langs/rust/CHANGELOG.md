@@ -151,7 +151,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The cancellation can come
   from any source, such as a shared request that another owner cancels. A
   superseded loader's cancellation changes nothing. The signal is
-  `Err(VmxError::Cancelled)`.
+  `Err(VmxError::Cancelled)`. `load_async` and `reload_async` return after the
+  restore is published, as they do after a loader failure.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
