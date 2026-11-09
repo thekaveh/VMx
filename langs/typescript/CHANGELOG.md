@@ -74,6 +74,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A non-strict `FormVM` update no longer compares the model with the
+  snapshot (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict
+  `setModel` runs the equality once, and a non-strict deny not at all.
 - `TokenPagedComposition`: a load also checks `hasMore` when it starts, as in
   the other flavors (#1161, ADR-0169). Behavior does not change: the load body
   already starts in the admission turn.
@@ -100,6 +103,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- When a send of the outermost `FormVM` update's notifications fails, the
+  later notifications are no longer sent. An approval started from a
+  preparation callback or an `errorsChanged` observer is released without
+  calling its persister (ADR-0216, spec/20 §5.4, `FORM-044`, #1415). Before,
+  every later notification was sent and the persister ran.
 - A `FormVM` call nested in a preparation callback or an `errorsChanged`
   observer of `setModel` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,
