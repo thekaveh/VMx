@@ -255,7 +255,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 try { transfer?.Rollback(); }
                 catch (Exception error) { rollbackFailures.Add(error); }
                 // A failed or refused replacement must end its transaction, or
-                // waiters on this group block forever (#718).
+                // later changes fail and a disposal waits forever (#718).
                 EndMembershipTransaction(propagateDisposeFailure: false);
                 if (rollbackFailures.Count > 0)
                     throw new AggregateException(
@@ -570,14 +570,16 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         // stays open until the commit step, which ends it.
         var lateWalk = _lateStarts.BeginWalk(this);
         var visited = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
+        var commit = ConstructCommitForRunningHook();
         var walk = TransitionChildrenAsync(
             ContainerConstructWalk.Enumerate(
                 () => Snapshot().ToArray(), _autoConstructOnAdd, joined, visited, lateWalk),
             construct: true,
             after: null,
             joined: joined,
-            join: lateWalk.Join,
-            seal: _autoConstructOnAdd ? () => SealOrNextLate(joined, visited, lateWalk) : null);
+            join: child => lateWalk.Join(child, IsMember),
+            seal: _autoConstructOnAdd ? () => SealOrNextLate(joined, visited, lateWalk, commit) : null,
+            isMember: IsMember);
         // A failed or abandoned walk ends its own scope; a committed one already did.
         _ = walk.ContinueWith(
             _ => lateWalk.End(),
@@ -588,9 +590,15 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     }
 
     private IComponentVM? SealOrNextLate(
-        ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk)
+        ISet<IComponentVM> joined, ISet<IComponentVM> visited, LateChildStarts.Walk lateWalk, Action commit)
         => ContainerConstructWalk.SealOrNextLate(
-            _membershipGate, _children, joined, visited, lateWalk, MarkConstructedBeforePublication);
+            _membershipGate, _children, joined, visited, lateWalk, commit);
+
+    /// <summary>Whether <paramref name="child"/> is a member now (the construct walk's check).</summary>
+    private bool IsMember(IComponentVM child)
+    {
+        lock (_membershipGate) return _children.Exists(candidate => ReferenceEquals(candidate, child));
+    }
 
     /// <summary>
     /// Called once per Construct() to populate the children collection from
@@ -792,27 +800,15 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
 
     private void BeginMembershipTransactionLocked()
     {
-        // Serialize concurrent (cross-thread) membership transactions instead of
-        // failing, mirroring Dispose(): wait for the owning thread to finish
-        // before starting a new one. EnsureChildAdmission then throws only for a
-        // genuine same-thread re-entrant mutation (or a disposing container).
-        // A wait that would close a wait-for cycle is refused instead, so
-        // opposing transfers fail before they mutate rather than deadlock (#718).
-        var caller = Environment.CurrentManagedThreadId;
-        var waits = WaitForGraph.Shared;
-        while (_membershipTransactionActive && _membershipTransactionOwnerThreadId != caller)
-        {
-            if (!waits.TryBeginWait(_membershipGate, caller))
-                throw new InvalidOperationException(
-                    "A container membership transaction is already in progress on a " +
-                    "thread that waits for this one; waiting would deadlock.");
-            try { Monitor.Wait(_membershipGate); }
-            finally { waits.EndWait(caller); }
-        }
+        // A membership change never waits for another thread's transaction:
+        // it fails at once, like a re-entrant change (spec/07 §1.1, ADR-0187).
+        // Only disposal waits (WaitForForeignTransactionLocked).
         EnsureChildAdmission();
         _membershipTransactionActive = true;
-        _membershipTransactionOwnerThreadId = caller;
-        waits.Acquire(_membershipGate, caller);
+        _membershipTransactionOwnerThreadId = Environment.CurrentManagedThreadId;
+        // Recorded so a disposal that waits for this transaction can see a
+        // wait-for cycle (#717).
+        WaitForGraph.Shared.Acquire(_membershipGate, _membershipTransactionOwnerThreadId);
     }
 
     private void ReleaseMembershipTransactionLocked()

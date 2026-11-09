@@ -355,7 +355,7 @@ public class AutoConstructDuringConstructingTests
     [Theory]
     [InlineData("composite")]
     [InlineData("group")]
-    public void Failed_Add_Started_Late_Child_Undoes_The_Add_And_Rolls_Back(string kind)
+    public void Failed_Add_Started_Late_Child_Undoes_The_Add_And_Root_Constructs(string kind)
     {
         var setup = Create(kind);
         setup.Root.Construct();
@@ -372,7 +372,8 @@ public class AutoConstructDuringConstructingTests
 
         addError.Should().BeOfType<InvalidOperationException>("the add's own construct failed");
         ((IEnumerable<IComponentVM>)setup.Root).Should().NotContain(late, "the failed add is undone");
-        setup.Root.Status.Should().Be(ConstructionStatus.Destructed, "the walk waited on the failing child");
+        setup.Root.Status.Should().Be(
+            ConstructionStatus.Constructed, "the undone add removed the child the walk waited on (ADR-0186)");
         late.Status.Should().Be(ConstructionStatus.Destructed);
         Volatile.Read(ref runs).Should().Be(1);
     }

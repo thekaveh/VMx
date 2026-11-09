@@ -118,12 +118,12 @@ public class HubMembershipWaitCycleTests
     }
 
     // #1055 review: B disposes the hub, so A's send returns and A's
-    // transaction ends. B's add must then wait for that transaction, not be
-    // refused through A's edge to the disposed hub.
+    // transaction ends. B's add then never hangs: it succeeds once A's
+    // transaction ended, or fails at once while it is still open (ADR-0187).
     [Theory]
     [InlineData("group")]
     [InlineData("composite")]
-    public async Task Drainer_That_Disposes_The_Hub_Then_Adds_Is_Not_Refused(string kind)
+    public async Task Drainer_That_Disposes_The_Hub_Then_Adds_Never_Hangs(string kind)
     {
         var hub = new MessageHub();
         var container = Container(hub, kind);
@@ -163,25 +163,20 @@ public class HubMembershipWaitCycleTests
 
         var both = Task.WhenAll(drainer, owner);
         (await Task.WhenAny(both, Task.Delay(HangGuard))).Should().BeSameAs(both,
-            "the disposed hub releases A, so B's add waits for A's transaction");
+            "the disposed hub releases A, and B's add never waits for A's transaction");
         await both;
 
         ownerEdgeAfterDispose.Should().BeFalse("disposing the hub drops every wait edge on it");
         ownerError.Should().BeNull();
         container.Should().Contain(x);
-        if (kind == "group")
-        {
-            step3Error.Should().BeNull("no cycle remains once the hub is disposed");
-            container.Should().Contain(y);
-        }
-        else if (step3Error is null)
+        if (step3Error is null)
         {
             container.Should().Contain(y);
         }
         else
         {
-            // A composite add never waits for another thread's transaction: it
-            // fails fast while A's transaction is still open.
+            // An add never waits for another thread's transaction: it fails
+            // fast while A's transaction is still open (ADR-0187).
             step3Error.Should().BeOfType<InvalidOperationException>()
                 .Which.Message.Should().Contain("already in progress");
         }

@@ -362,6 +362,158 @@ public class AddAfterLastScanTests
     }
 
     [Theory]
+    [InlineData("composite", true)]
+    [InlineData("composite", false)]
+    [InlineData("group", true)]
+    [InlineData("group", false)]
+    public void Add_In_The_Commit_Window_Follows_Add_After_Constructed(string kind, bool otherThread)
+    {
+        // #1374, ADR-0186: the commit step wrote Constructed, so the add reads
+        // Constructed and starts its child without a start record. The root
+        // publishes Constructed while that child is still Constructing.
+        var h = Create(kind);
+        ConstructionStatus? seen = null;
+        var walkWaited = 0;
+        InCommitWindow(h, () =>
+        {
+            h.LateStarts.ProbeForTesting = (_, stage) =>
+            {
+                if (stage == LateChildStage.WalkWaitingOnAdd) Interlocked.Increment(ref walkWaited);
+            };
+            seen = AddLate(h, otherThread);
+        });
+
+        seen.Should().Be(ConstructionStatus.Constructed, "the commit step wrote Constructed");
+        h.LateWhenRootConstructed.Should().Be(
+            ConstructionStatus.Constructing, "the root does not wait for a child added after the commit");
+        Volatile.Read(ref walkWaited).Should().Be(0, "the add registered no start record");
+        h.Root.Status.Should().Be(ConstructionStatus.Constructed);
+        h.Late!.Status.Should().Be(ConstructionStatus.Constructed);
+        Volatile.Read(ref h.LateRuns).Should().Be(1);
+        lock (h.Statuses) h.Statuses.Count(status => status == "root:Constructed").Should().Be(1);
+    }
+
+    /// <summary>A container whose construct hook throws after its walk deferred.</summary>
+    private interface IThrowingRoot
+    {
+        ManualResetEventSlim ThrowNow { get; }
+    }
+
+    private sealed class ThrowingComposite(IMessageHub hub, IDispatcher dispatcher)
+        : CompositeVMBase<ComponentVM>("root", hub, dispatcher, autoConstructOnAdd: true), IThrowingRoot
+    {
+        public ManualResetEventSlim ThrowNow { get; } = new();
+
+        public override ViewModelType Type => ViewModelType.Composite;
+
+        protected override void OnConstruct()
+        {
+            base.OnConstruct();
+            ThrowNow.Wait(Liveness.HangGuard);
+            throw new InvalidOperationException("the hook throws after its walk deferred");
+        }
+    }
+
+    private sealed class ThrowingGroup(IMessageHub hub, IDispatcher dispatcher)
+        : GroupVMBase<ComponentVM>("root", hub, dispatcher, autoConstructOnAdd: true), IThrowingRoot
+    {
+        public ManualResetEventSlim ThrowNow { get; } = new();
+
+        public override ViewModelType Type => ViewModelType.Group;
+
+        protected override void OnConstruct()
+        {
+            base.OnConstruct();
+            ThrowNow.Wait(Liveness.HangGuard);
+            throw new InvalidOperationException("the hook throws after its walk deferred");
+        }
+    }
+
+    [Theory]
+    [InlineData("composite")]
+    [InlineData("group")]
+    public void A_Walk_Its_Hook_Abandoned_Before_The_Commit_Step_Commits_Nothing(string kind)
+    {
+        // #1374, ADR-0186: the hook throws after the walk passed its stop
+        // check and before the commit step takes the membership gate. The
+        // commit step sees the abandoned walk under the status lock, so
+        // Status never reads Constructed.
+        var hub = new TestHub();
+        var dispatcher = new QueuedDispatcher();
+        var anchor = ComponentVM.Builder().Name("anchor").Services(hub, dispatcher).Background(true).Build();
+        ComponentVMBase root;
+        LateChildStarts lateStarts;
+        if (kind == "composite")
+        {
+            var composite = new ThrowingComposite(hub, dispatcher);
+            composite.Add(anchor);
+            (root, lateStarts) = (composite, composite.LateStartsForTesting);
+        }
+        else
+        {
+            var group = new ThrowingGroup(hub, dispatcher);
+            group.Add(anchor);
+            (root, lateStarts) = (group, group.LateStartsForTesting);
+        }
+        var statuses = new List<string>();
+        hub.Messages.OfType<ConstructionStatusChangedMessage>().Subscribe(message =>
+        {
+            lock (statuses) statuses.Add($"{message.SenderName}:{message.Status}");
+        });
+        using var abandoned = new ManualResetEventSlim();
+        using var sealDone = new ManualResetEventSlim();
+        ConstructionStatus? atWalkEnd = null;
+        lateStarts.ProbeForTesting = (_, stage) =>
+        {
+            if (stage == LateChildStage.Sealing)
+            {
+                // The walk passed its stop check: the hook throws now.
+                ((IThrowingRoot)root).ThrowNow.Set();
+                abandoned.Wait(Liveness.HangGuard).Should().BeTrue("the hook abandons the walk");
+            }
+            else if (stage == LateChildStage.WalkEnded && !sealDone.IsSet)
+            {
+                atWalkEnd = root.Status;
+                sealDone.Set();
+            }
+        };
+        root.AfterHookLeaseReleasedForTesting = () =>
+        {
+            // The hook threw and abandoned its walk; its rollback waits for the commit step.
+            abandoned.Set();
+            sealDone.Wait(Liveness.HangGuard);
+        };
+
+        Exception? constructError = null;
+        var constructing = new Thread(() =>
+        {
+            try { root.Construct(); }
+            catch (Exception error) { constructError = error; }
+        })
+        { IsBackground = true };
+        constructing.Start();
+        SpinWait.SpinUntil(() => dispatcher.Bg.Count > 0, Liveness.HangGuard)
+            .Should().BeTrue("the walk starts the anchor");
+        dispatcher.Bg.RunAll();
+        SpinWait.SpinUntil(
+            () =>
+            {
+                dispatcher.Fg.RunOne();
+                return sealDone.IsSet;
+            },
+            Liveness.HangGuard).Should().BeTrue("the walk reaches its commit step");
+        constructing.Join(Liveness.HangGuard).Should().BeTrue();
+        dispatcher.Fg.RunAll();
+        dispatcher.Bg.RunAll();
+
+        constructError.Should().BeOfType<InvalidOperationException>();
+        atWalkEnd.Should().Be(ConstructionStatus.Constructing, "an abandoned walk commits nothing");
+        root.Status.Should().Be(ConstructionStatus.Destructed);
+        lock (statuses) statuses.Should().NotContain("root:Constructed");
+        root.CanConstruct().Should().BeTrue("the root rolled back and can construct again");
+    }
+
+    [Theory]
     [InlineData("component")]
     [InlineData("composite")]
     [InlineData("group")]
