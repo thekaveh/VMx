@@ -9,6 +9,7 @@ import {
   beginParentTransfer,
   captureParentTransferCommit,
   ContainerRollbackError,
+  compensateAutoConstruct,
   ComponentVMBase,
   ParentTransfer,
 } from "../components/componentVMBase.js";
@@ -156,14 +157,7 @@ export class GroupVM<VM extends ComponentVMBase>
         if (index >= 0) this._children.splice(index, 1);
         if (item._parent === this.#groupParent) item._parent = null;
       }
-      if (
-        originalStatus === ConstructionStatus.Destructed &&
-        item.status === ConstructionStatus.Constructed
-      ) {
-        try { item.destruct(); } catch (rollbackError) {
-          compensationError = rollbackError;
-        }
-      }
+      compensationError = compensateAutoConstruct(item, originalStatus);
       try { transfer?.rollback(); } finally { this.#endMembershipTransaction(false); }
       if (compensationError !== undefined) {
         throw new ContainerRollbackError(error, compensationError);
@@ -211,14 +205,7 @@ export class GroupVM<VM extends ComponentVMBase>
         if (actual >= 0) this._children.splice(actual, 1);
         if (item._parent === this.#groupParent) item._parent = null;
       }
-      if (
-        originalStatus === ConstructionStatus.Destructed &&
-        item.status === ConstructionStatus.Constructed
-      ) {
-        try { item.destruct(); } catch (rollbackError) {
-          compensationError = rollbackError;
-        }
-      }
+      compensationError = compensateAutoConstruct(item, originalStatus);
       try { transfer?.rollback(); } finally { this.#endMembershipTransaction(false); }
       if (compensationError !== undefined) {
         throw new ContainerRollbackError(error, compensationError);
@@ -288,14 +275,7 @@ export class GroupVM<VM extends ComponentVMBase>
         old._parent = this.#groupParent;
         if (value._parent === this.#groupParent) value._parent = null;
       }
-      if (
-        originalStatus === ConstructionStatus.Destructed &&
-        value.status === ConstructionStatus.Constructed
-      ) {
-        try { value.destruct(); } catch (rollbackError) {
-          compensationError = rollbackError;
-        }
-      }
+      compensationError = compensateAutoConstruct(value, originalStatus);
       try { transfer?.rollback(); } finally { this.#endMembershipTransaction(false); }
       if (compensationError !== undefined) {
         throw new ContainerRollbackError(error, compensationError);
@@ -553,14 +533,8 @@ export class GroupVM<VM extends ComponentVMBase>
       while (this._children.length > start) {
         const child = this._children.pop();
         const originalStatus = originalStatuses[this._children.length - start];
-        if (
-          child !== undefined &&
-          originalStatus === ConstructionStatus.Destructed &&
-          child.status === ConstructionStatus.Constructed
-        ) {
-          try { child.destruct(); } catch (rollbackError) {
-            compensationError ??= rollbackError;
-          }
+        if (child !== undefined && originalStatus !== undefined) {
+          compensationError ??= compensateAutoConstruct(child, originalStatus);
         }
         if (child?._parent === this.#groupParent) child._parent = null;
       }
