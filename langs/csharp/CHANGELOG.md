@@ -587,7 +587,7 @@ All notable changes to the C# flavor are documented here. The format is based on
   `ApproveErrors` as a `TaskCanceledException`. Before, the cancellation reached
   no channel (spec/20 §5.3).
 
-- The `netstandard2.0` dependency floors of all three packages move to the
+- The `netstandard2.0` dependency floors of the `VMx` package move to the
   10.0.14 servicing releases of `System.Text.Json`,
   `System.Collections.Immutable`, and `Microsoft.Bcl.AsyncInterfaces` (#519,
   #646).
@@ -674,6 +674,9 @@ All notable changes to the C# flavor are documented here. The format is based on
   its first public NuGet artifact, including symbols. It depends on
   `VMx >= 3.30.0`, the version of the `VMx` package built from the same
   source. The public API does not change.
+- The `netstandard2.0` dependency floors move to the 10.0.14 servicing releases
+  of `System.Text.Json`, `System.Collections.Immutable`, and
+  `Microsoft.Bcl.AsyncInterfaces` (#519, #646).
 
 ## [VMx.Extensions.DependencyInjection 2.1.1] — unreleased source version
 
@@ -684,6 +687,9 @@ All notable changes to the C# flavor are documented here. The format is based on
   immutable historical core tag.
 - `Microsoft.Extensions.DependencyInjection.Abstractions` moves to 10.0.14
   (#519, #645).
+- The `netstandard2.0` dependency floors move to the 10.0.14 servicing releases
+  of `System.Text.Json`, `System.Collections.Immutable`, and
+  `Microsoft.Bcl.AsyncInterfaces` (#519, #646).
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 
