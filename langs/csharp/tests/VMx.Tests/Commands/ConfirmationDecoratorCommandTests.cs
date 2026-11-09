@@ -69,4 +69,55 @@ public class ConfirmationDecoratorCommandTests
 
         await Task.WhenAll(execute, dispose);
     }
+
+    // ADR-0195 D1/D3: a completed confirmation does not run the inner command
+    // inside Execute(), and the deferred run is not posted to the caller's
+    // SynchronizationContext (VMx does not marshal; spec/11 §3.1).
+    [Fact]
+    public async Task Execute_With_Completed_Confirmation_Defers_Inner_Without_Posting_To_Caller_Context()
+    {
+        var ran = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callerThread = Environment.CurrentManagedThreadId;
+        var insideExecute = false;
+        var ranInside = false;
+        using var inner = RelayCommand.Builder()
+            .Task(() =>
+            {
+                ranInside = insideExecute && Environment.CurrentManagedThreadId == callerThread;
+                ran.TrySetResult(Environment.CurrentManagedThreadId);
+            })
+            .Build();
+        using var command = new ConfirmationDecoratorCommand(inner, () => Task.FromResult(true));
+        var context = new RecordingSynchronizationContext();
+        var previous = SynchronizationContext.Current;
+
+        SynchronizationContext.SetSynchronizationContext(context);
+        insideExecute = true;
+        try
+        {
+            command.Execute(null);
+        }
+        finally
+        {
+            insideExecute = false;
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+
+        await ran.Task.WaitAsync(HangGuard);
+        ranInside.Should().BeFalse("Execute() never runs the inner command inside its own call");
+        context.Posts.Should().Be(0, "VMx does not marshal the confirmed inner command to the caller's context");
+    }
+
+    private sealed class RecordingSynchronizationContext : SynchronizationContext
+    {
+        private int _posts;
+
+        public int Posts => Volatile.Read(ref _posts);
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            Interlocked.Increment(ref _posts);
+            base.Post(d, state);
+        }
+    }
 }
