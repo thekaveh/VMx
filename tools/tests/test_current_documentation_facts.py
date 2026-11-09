@@ -151,11 +151,11 @@ def test_jsdom_hold_stays_below_30() -> None:
     config = (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
     for relative in JSDOM_MANIFESTS:
         manifest = (ROOT / relative).read_text(encoding="utf-8")
-        version = re.search(r'"jsdom": "\^?(\d+)\.\d+\.\d+"', manifest)
+        version = re.search(r'"jsdom": "(\^?(\d+)\.\d+\.\d+)"', manifest)
         assert version, f"{relative} must pin jsdom"
-        assert version.group(1) == "29", (
+        assert version.group(2) == "29", (
             f"hold: jsdom stays below 30.0.0 until the Node floor rises (contract ledger "
-            f"section 2); {relative} has jsdom {version.group(0)}"
+            f"section 2); {relative} has jsdom {version.group(1)}"
         )
     assert re.search(r'dependency-name: jsdom\n\s+versions: \[">=30\.0\.0"\]', config), (
         "hold: .github/dependabot.yml must ignore jsdom >=30.0.0"
