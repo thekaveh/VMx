@@ -10,6 +10,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `NOTIF-019` conformance tests (#1306, ADR-0197). `remaining_time_ms()` and
+  `opacity()` keep their values from the first resolution or disposal. Rust
+  already behaved this way.
+- `SRCH-008` conformance tests (#1307, ADR-0198). Construction sends no
+  `filtered_changed` notification. Rust already behaved this way.
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
@@ -144,6 +149,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `NotificationHub::dispose()` sends no final empty snapshot (ADR-0197,
+  #1476). It sends no value on `pending_stream()`, no `pending` message on
+  `pending_changed()`, and adds no `pending_snapshots()` entry before
+  completion. A `pending_stream()` subscription made after dispose completes
+  at once with no replay (`NOTIF-020`). Before, it replayed the final empty
+  snapshot.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
