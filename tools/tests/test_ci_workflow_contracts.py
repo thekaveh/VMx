@@ -84,7 +84,7 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
             "required: python",
             "needs: [build, examples, small-examples, inspector, nicegui, package]",
         ),
-        "rust.yml": ("required: rust", "needs: [audit, build, examples, package, coverage]"),
+        "rust.yml": ("required: rust", "needs: [audit, build, msrv, examples, package, coverage]"),
         "swift.yml": ("required: swift", "needs: [build, platforms, examples, coverage]"),
         "typescript.yml": (
             "required: typescript",
@@ -185,6 +185,36 @@ def test_release_yml_alone_creates_the_python_github_release() -> None:
     runbook = (REPO_ROOT / "langs/python/RELEASING.md").read_text(encoding="utf-8")
     assert "skip-github-release: true" in runbook
     assert "autorelease: tagged" in runbook
+    assert "tools/release-please-labels.py" in runbook
+
+
+def _release_job(workflow: str, name: str) -> str:
+    return workflow.split(f"\n  {name}:\n", 1)[1].split("\n\n  ", 1)[0]
+
+
+def test_python_release_notes_job_relabels_after_the_github_release() -> None:
+    # #1447: release-please builds no Python release, so release.yml relabels.
+    job = _release_job(
+        (WORKFLOWS / "release.yml").read_text(encoding="utf-8"), "python-release-notes"
+    )
+
+    assert "    permissions:\n      contents: write\n      pull-requests: write\n" in job
+    create = job.index('gh release create "$tag"')
+    relabel = job.index("python3 tools/release-please-labels.py relabel")
+    assert create < relabel
+    assert '--version "${GITHUB_REF#refs/tags/python-v}"' in job
+
+
+def test_release_please_workflow_fails_on_a_stale_pending_label() -> None:
+    workflow = (WORKFLOWS / "release-please.yml").read_text(encoding="utf-8")
+
+    assert "permissions:\n  contents: read\n  pull-requests: read\n" in workflow
+    check = workflow.index("run: python3 tools/release-please-labels.py check")
+    action = workflow.index("googleapis/release-please-action@")
+    assert check < action
+    step = workflow[workflow.rindex("      - name:", 0, check) : check]
+    assert "if:" not in step
+    assert "GH_TOKEN: ${{ github.token }}" in step
 
 
 def test_release_please_explicitly_targets_main_when_develop_is_default() -> None:
@@ -273,3 +303,99 @@ def test_filtered_csharp_test_steps_fail_when_no_test_matches() -> None:
     assert filtered, "csharp.yml has no filtered dotnet test command"
     for command in filtered:
         assert "RunConfiguration.TreatNoTestsAsError=true" in command, command
+
+
+# #1333: a step in a job with id-token: write can request the publishing OIDC
+# token, so such a job must not install, build or test third-party code.
+_OIDC_FORBIDDEN = (
+    re.compile(r"\bnpm ci\b"),
+    re.compile(r"\bnpm (?:run|test)\b"),
+    re.compile(r"\bnpm install\b(?! --global npm@\d+\.\d+\.\d+\s*$)"),
+    re.compile(r"\buv (?:sync|build|run|pip|tool|venv)\b"),
+    re.compile(r"\buvx\b"),
+    re.compile(r"\bpytest\b"),
+    re.compile(r"\bcargo (?:test|build|clippy|install)\b"),
+    re.compile(r"\bdotnet (?:restore|build|test|pack)\b"),
+    re.compile(r"tools/smoke-[a-z-]+\.py"),
+)
+
+
+def _workflow_jobs(text: str) -> dict[str, str]:
+    body = text.split("\njobs:\n", maxsplit=1)[1]
+    body = re.sub(r"(?m)^\s*#.*\n", "", body)
+    parts = re.split(r"(?m)^  ([A-Za-z0-9_-]+):\n", body)
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
+
+
+def oidc_job_violations(text: str) -> list[str]:
+    """Return 'job: line' for each forbidden command in a job with id-token: write."""
+    violations: list[str] = []
+    for name, job in _workflow_jobs(text).items():
+        if not re.search(r"(?m)^      id-token: write$", job):
+            continue
+        violations.extend(
+            f"{name}: {line.strip()}"
+            for line in job.splitlines()
+            if any(pattern.search(line) for pattern in _OIDC_FORBIDDEN)
+        )
+    return violations
+
+
+def test_release_jobs_with_id_token_install_build_and_test_nothing() -> None:
+    workflow = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    assert oidc_job_violations(workflow) == []
+
+
+def test_oidc_job_check_rejects_each_forbidden_command() -> None:
+    for command in (
+        "npm ci",
+        "npm test --prefix packages/react",
+        "uv sync --project langs/python --locked --all-extras",
+        "uv build --project langs/python --out-dir dist",
+        "uv run python -m pytest",
+        "python3 tools/smoke-rust-consumer.py --package-dir langs/rust",
+        "npm install left-pad",
+    ):
+        workflow = (
+            "on: push\njobs:\n  publish:\n    permissions:\n      id-token: write\n"
+            f"    steps:\n      - run: {command}\n"
+        )
+        assert oidc_job_violations(workflow) == [f"publish: - run: {command}"], command
+    allowed = (
+        "on: push\njobs:\n  publish:\n    permissions:\n      id-token: write\n"
+        "    steps:\n      - run: npm install --global npm@11.18.0\n"
+        "  build:\n    permissions:\n      contents: read\n"
+        "    steps:\n      - run: npm ci\n"
+    )
+    assert oidc_job_violations(allowed) == []
+
+
+def test_registry_publish_jobs_alone_hold_id_token_and_an_environment() -> None:
+    jobs = _workflow_jobs((WORKFLOWS / "release.yml").read_text(encoding="utf-8"))
+    oidc = {name for name, job in jobs.items() if "      id-token: write\n" in job}
+    environments = {name for name, job in jobs.items() if "    environment:\n" in job}
+    publishers = {
+        "csharp-publish",
+        "python-publish",
+        "typescript-publish",
+        "react-publish",
+        "rust-publish",
+    }
+    assert oidc == environments == publishers
+    for flavor, artifact in (
+        ("python", "python-dist-${{ github.run_id }}"),
+        ("typescript", "typescript-release-${{ github.run_id }}"),
+        ("react", "react-release-${{ github.run_id }}"),
+    ):
+        build = jobs[f"{flavor}-build"]
+        publish = jobs[f"{flavor}-publish"]
+        assert "actions/upload-artifact@" in build
+        assert f"name: {artifact}" in build
+        assert "actions/download-artifact@" in publish
+        assert f"name: {artifact}" in publish
+        assert f"needs: [{flavor}-build, release-metadata]" in publish
+        assert "actions/checkout@" not in publish
+    for flavor in ("typescript", "react"):
+        publish = jobs[f"{flavor}-publish"]
+        assert publish.count('npm publish "$TARBALL" --access public') == 2
+    assert "smoke-rust-consumer.py" in jobs["rust-test"]

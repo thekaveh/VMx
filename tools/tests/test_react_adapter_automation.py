@@ -34,7 +34,7 @@ def test_release_is_tag_driven_and_core_gated() -> None:
     assert (
         "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/react-v')" in workflow
     )
-    react = workflow.split("\n  react:\n", 1)[1].split("\n  react-verify-published:\n", 1)[0]
+    react = workflow.split("\n  react-build:\n", 1)[1].split("\n  react-publish:\n", 1)[0]
     assert 'peerDependencies?.["@thekaveh/vmx"]' in react
     assert 'npm view "@thekaveh/vmx@${core_range}" version --json' in react
     assert "langs/typescript/package.json" not in react
@@ -45,7 +45,7 @@ def test_release_is_tag_driven_and_core_gated() -> None:
 
 def test_release_audit_is_production_only_and_ci_audits_everything() -> None:
     release = (ROOT / ".github/workflows/release.yml").read_text()
-    react = release.split("\n  react:\n", 1)[1].split("\n  react-verify-published:\n", 1)[0]
+    react = release.split("\n  react-build:\n", 1)[1].split("\n  react-publish:\n", 1)[0]
     ci = (ROOT / ".github/workflows/typescript.yml").read_text()
     full = "npm audit --prefix packages/react --package-lock-only --audit-level=low"
     assert (

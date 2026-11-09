@@ -33,7 +33,7 @@ workflow's public-install checks time out.
 
 The workflow uses OIDC when the environment has no `NPM_TOKEN` secret.
 Trusted publishing requires Node.js 22.14 or newer and npm CLI 11.5.1 or newer;
-the publish job pins Node 24 and npm 11.18.0. npm automatically attaches
+the `typescript-publish` job pins Node 24 and npm 11.18.0. npm automatically attaches
 provenance for an eligible GitHub-hosted trusted-publishing run.
 
 ## 2. Cutting a release
@@ -66,11 +66,15 @@ provenance for an eligible GitHub-hosted trusted-publishing run.
 ### 2.1 Release gates
 
 Before publishing, the `release-metadata` preflight checks versions, tags, and
-release notes. The publish job verifies main ancestry and exact tag/package
+release notes. The `typescript-build` job has no `id-token: write` and no
+publishing environment. It verifies main ancestry and exact tag/package
 version. It then runs the dependency-graph check, fixture sync, both
 typechecks, lint, build, tests, audit, a strict package-content allowlist, and
-a packed local consumer smoke test. The publish
-job uses Node 24 and npm 11.18.0 without an npm dependency cache.
+a packed local consumer smoke test, then packs and uploads the release
+tarball. The `typescript-publish` job holds `id-token: write` in the
+`npm-typescript` environment. It installs only the pinned npm CLI, checks the
+tarball's name and version against the tag, and publishes that tarball. Both
+jobs use Node 24 and npm 11.18.0 without an npm dependency cache.
 
 After npm accepts the package, separate Node 20.5.0, 22, 24, and 26 jobs poll for
 and install the exact public version in clean consumers. They test ESM imports,
