@@ -218,6 +218,22 @@ ADR check. Use sparingly; the label is intended for changes with zero semantic e
 
 See the ADRs in `spec/ADRs/` for the rationale behind each architectural rule.
 
+### 3.2 No copied ADR or conformance-ID counts
+
+Each catalog fact has one source. `spec/ADRs/README.md` lists the ADRs, and
+the `### XXX-NNN` headings in `spec/12-conformance.md` list the conformance IDs.
+Other files link to these sources or describe them without a number. Do not
+write an ADR count, an ADR range such as `0001..NNNN`, or a library, THEME, or
+total conformance-ID count in another file. Diagram generators do not render
+these counts either.
+
+A PR that adds an ADR or a conformance ID then edits only the registry row, the
+catalog entry, and its own files. Parallel PRs of this kind do not conflict on
+count lines or on diagram images. Historical records keep their numbers: ADR
+bodies, `spec/HISTORY.md`, CHANGELOG entries, proposals, and audit reports.
+`tools/tests/test_current_documentation_facts.py` fails when a current-facing
+file states one of these counts.
+
 ## 4. Releases and tagging
 
 Each flavor versions and releases independently. Most operational tags use

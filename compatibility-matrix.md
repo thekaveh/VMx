@@ -45,8 +45,8 @@ source footnote names an unreleased source version. A cell with the
 registry. A cell with the `[^swift-subdir]` footnote names a tagged Swift
 version that SwiftPM cannot resolve from the repository URL.
 
-Every flavor covers all 451 library conformance IDs. The five `THEME-00x`
-scenario IDs live in the flagship example apps. `spec/HISTORY.md` records the
+Every flavor covers every library conformance ID in `spec/12-conformance.md`.
+The `THEME-00x` scenario IDs live in the flagship example apps. `spec/HISTORY.md` records the
 release and ADR that added each group of IDs. Swift has member-level parity with C#,
 Python, and TypeScript. Rust's remaining public-surface and behavior gaps are
 the open items §12.4.7 and §12.7–§12.12 in
@@ -72,7 +72,7 @@ point to the same verified `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
 is at source version 0.36.0, declares `MIN_SPEC_VERSION = "3.30.0"`, and carries
-behavioral tests for all 451 library conformance IDs. The parity ledger
+behavioral tests for every library conformance ID. The parity ledger
 `docs/maintenance/2026-07-16-rust-capability-parity.md` records its member
 evidence and open items §12.4.7 and §12.7–§12.12. Rust is not published to crates.io.
 
