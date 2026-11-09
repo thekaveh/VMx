@@ -225,8 +225,11 @@ fn imperative_raise_after_disposal_is_noop() {
     let relay = RelayCommand::noop();
     let parameterized = RelayCommandOf::<i32>::noop();
     let async_command = AsyncRelayCommand::noop();
-    // Subscribe before disposal: after disposal the eligibility hub hands out
-    // no-op subscriptions, so a later subscriber could never fail the check.
+    // Disposal disposes each eligibility hub, and a disposed hub delivers no
+    // later message. So the closed channel alone keeps a later raise from
+    // reaching these subscribers, with or without the disposed check.
+    // `raise_from_final_disposal_notification_publishes_nothing_more`
+    // observes the check itself.
     let fired = Arc::new(AtomicUsize::new(0));
     let subscriptions = [
         relay.can_execute_changed(),
@@ -253,6 +256,48 @@ fn imperative_raise_after_disposal_is_noop() {
 
     assert_eq!(fired.load(Ordering::SeqCst), 0);
     drop(subscriptions);
+}
+
+/// Counts the notifications of `hub` and raises once from the first one.
+fn raise_once_from_first_notification(
+    hub: &MessageHub,
+    raise: impl Fn() + Send + Sync + 'static,
+) -> (Arc<AtomicUsize>, vmx::Subscription) {
+    let fired = Arc::new(AtomicUsize::new(0));
+    let counter = fired.clone();
+    let subscription = hub.subscribe(move |_| {
+        if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+            raise();
+        }
+    });
+    (fired, subscription)
+}
+
+#[test]
+fn raise_from_final_disposal_notification_publishes_nothing_more() {
+    // `RelayCommand` and `RelayCommandOf` set the disposed flag, publish one
+    // final notification, then dispose the hub. A raise from that
+    // notification reaches the open hub, so only the disposed check drops it
+    // (#1341). `AsyncRelayCommand` publishes no final notification.
+    let relay = RelayCommand::noop();
+    let raiser = relay.clone();
+    let (relay_fired, relay_subscription) =
+        raise_once_from_first_notification(&relay.can_execute_changed(), move || {
+            raiser.raise_can_execute_changed()
+        });
+    relay.dispose();
+    assert_eq!(relay_fired.load(Ordering::SeqCst), 1);
+    drop(relay_subscription);
+
+    let parameterized = RelayCommandOf::<i32>::noop();
+    let raiser = parameterized.clone();
+    let (parameterized_fired, parameterized_subscription) =
+        raise_once_from_first_notification(&parameterized.can_execute_changed(), move || {
+            raiser.raise_can_execute_changed()
+        });
+    parameterized.dispose();
+    assert_eq!(parameterized_fired.load(Ordering::SeqCst), 1);
+    drop(parameterized_subscription);
 }
 
 #[test]

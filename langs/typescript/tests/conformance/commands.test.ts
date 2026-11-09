@@ -199,8 +199,10 @@ describe("CMD-016", () => {
     const relay = RelayCommand.builder().build();
     const parameterized = RelayCommandOf.builder<number>().build();
     const asyncCommand = AsyncRelayCommand.builder().build();
-    // Subscribe before disposal: a subscription made afterwards could never
-    // observe a stray emission, so the assertion below could not fail.
+    // Disposal completes each change subject, and a completed subject drops
+    // later values. So the closed channel alone keeps a later raise from
+    // reaching these subscribers, with or without the disposed check. The
+    // next case observes the check itself.
     let fired = 0;
     relay.canExecuteChanged.subscribe(() => fired++);
     parameterized.canExecuteChanged.subscribe(() => fired++);
@@ -215,6 +217,25 @@ describe("CMD-016", () => {
     asyncCommand.raiseCanExecuteChanged();
 
     expect(fired).toBe(0);
+  });
+
+  it("a raise from the final disposal notification publishes nothing more", () => {
+    // RelayCommand and RelayCommandOf set the disposed flag, publish one final
+    // notification, then complete the subject. A raise from that notification
+    // reaches the open subject, so only the disposed check drops it (#1341).
+    // AsyncRelayCommand publishes no final notification.
+    const commands = [RelayCommand.builder().build(), RelayCommandOf.builder<number>().build()];
+    for (const command of commands) {
+      let fired = 0;
+      command.canExecuteChanged.subscribe(() => {
+        fired++;
+        if (fired === 1) command.raiseCanExecuteChanged();
+      });
+
+      command.dispose();
+
+      expect(fired).toBe(1);
+    }
   });
 });
 
