@@ -10,6 +10,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189). A refused child `select()` or `deselect()` already
+  changed nothing and returned nothing in Rust (`COMP-052`).
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
@@ -144,6 +147,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Disposing the current child of a `CompositeVm` now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `on_current_changed(None)` once. The
+  disposed child reads `is_current()` false and publishes no change for it. A
+  disposed child can no longer become current: `set_current` returns
+  `VmxError::NonChild`. The composite's own dispose cascade does not clear
+  `current`.
+- A `CompositeVm`, `GroupVm` or fixed-arity aggregate that holds a directly
+  disposed child now destructs, constructs and reconstructs (ADR-0189,
+  #1383). Container walks and the child-transition helper skip a disposed
+  child. A walk that waits for a background child that is disposed meanwhile
+  now goes on. Before, every `destruct()` failed with `VmxError::Disposed`
+  and the container stayed `Constructed`.
+- A non-null selection while a `CompositeVm` is `Destructing` now changes
+  nothing and returns `Ok(())` (ADR-0188, #1425). This covers `set_current`,
+  `select_component`, the child `select()` path, and an async call and its
+  delivery. `can_select_component` returns `false` meanwhile. `destruct()`
+  and `reconstruct()` therefore return with no current child, also when
+  `on_current_changed`, a child's destruct hook or another thread selects a
+  child.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
