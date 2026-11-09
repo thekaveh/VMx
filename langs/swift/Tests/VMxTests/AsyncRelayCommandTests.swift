@@ -1,7 +1,7 @@
 //
-// AsyncRelayCommandTests — CMD-012, CMD-016, CMD-018, CMD-019.
+// AsyncRelayCommandTests — CMD-012, CMD-016, CMD-018, CMD-019, CMD-020.
 //
-// See spec/04-commands.md §10, ADR-0056.
+// See spec/04-commands.md §10, ADR-0056, and ADR-0195.
 //
 // Design notes:
 // - Each test starts the command's body in an unstructured Task (`run`).
@@ -558,5 +558,49 @@ final class AsyncRelayCommandTests: XCTestCase {
 
         XCTAssertFalse(cmd.canExecute())
         XCTAssertFalse(invoked)
+    }
+
+    /// CMD-020 — a fire-and-forget fault reaches `errors` after the completion
+    /// `canExecuteChanged`, and the `errors` subscriber reads `isExecuting == false`.
+    func testCmd020FaultReachesErrorsAfterCompletionNotification() async {
+        struct Failure: Error {}
+        final class Log: @unchecked Sendable {
+            private let lock = NSLock()
+            private var storage: [String] = []
+            func append(_ entry: String) {
+                lock.lock()
+                storage.append(entry)
+                lock.unlock()
+            }
+            var entries: [String] {
+                lock.lock()
+                defer { lock.unlock() }
+                return storage
+            }
+        }
+        let log = Log()
+        let failed = expectation(description: "CMD-020: error delivered")
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                await Task.yield()
+                throw Failure()
+            }
+            .build()
+        var cancellables = Set<AnyCancellable>()
+        cmd.canExecuteChanged.sink { log.append("change") }.store(in: &cancellables)
+        cmd.errors
+            .sink { error in
+                log.append("error(\(error is Failure), isExecuting: \(cmd.isExecuting))")
+                failed.fulfill()
+            }
+            .store(in: &cancellables)
+
+        cmd.execute()
+        await fulfillment(of: [failed], timeout: 2.0)
+
+        XCTAssertEqual(log.entries, ["change", "change", "error(true, isExecuting: false)"],
+                       "CMD-020: start, completion, then the fault")
+        cancellables.removeAll()
+        cmd.dispose()
     }
 }

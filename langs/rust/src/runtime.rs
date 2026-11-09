@@ -661,7 +661,9 @@ pub enum CollectionChangeAction {
 pub struct CollectionChangedMessage {
     /// Identity of the publishing owner.
     pub sender_id: usize,
-    /// Human-readable identity of the publishing owner.
+    /// Human-readable identity of the publishing owner. A `CompositeVm` or
+    /// `GroupVm` message carries the container's `name()`. A plain collection
+    /// or dictionary message carries its type name (ADR-0194).
     pub sender_name: String,
     /// Logical collection property name.
     pub property_name: String,

@@ -1,8 +1,8 @@
 //
 // ConfirmationDecoratorCommand conformance tests — CMDD-007, CMDD-008,
-// CMDD-009, CMDD-010.
+// CMDD-009, CMDD-010, CMDD-018.
 //
-// See spec/04-commands.md §8.3, ADR-0049.
+// See spec/04-commands.md §8.3, ADR-0049, and ADR-0195.
 //
 // All async tests use `await fulfillment(of:timeout:)` (available from
 // macOS 13 / iOS 16, matching the package's minimum deployment targets) to
@@ -129,5 +129,34 @@ final class ConfirmationDecoratorCommandTests: XCTestCase {
                        "the error must be the confirm error that was thrown")
         XCTAssertTrue(rec.entries.isEmpty,
                       "inner must NOT execute when confirm throws")
+    }
+
+    /// CMDD-018 — the fire-and-forget `execute()` never runs the inner command
+    /// inside its own call, even when the confirmation is already complete.
+    func testCmdd018ExecuteNeverRunsInnerInsideItsOwnCall() async {
+        let marker = "vmx.cmdd018.insideExecute"
+        let ran = expectation(description: "CMDD-018: inner ran")
+        let rec = Recorder()
+        let inner = RelayCommand.builder()
+            .task {
+                let inside = Thread.current.threadDictionary[marker] as? Bool ?? false
+                rec.entries.append(inside ? "inside" : "outside")
+                ran.fulfill()
+            }
+            .build()
+        let cmd = ConfirmationDecoratorCommand(inner, confirm: { true })
+
+        Self.runMarked(marker) { cmd.execute() }
+        await fulfillment(of: [ran], timeout: 2.0)
+
+        XCTAssertEqual(rec.entries, ["outside"],
+                       "CMDD-018: the inner ran once, outside the execute() call")
+    }
+
+    /// Marks the current thread as inside `body` for the duration of the call.
+    private static func runMarked(_ marker: String, _ body: () -> Void) {
+        Thread.current.threadDictionary[marker] = true
+        defer { Thread.current.threadDictionary.removeObject(forKey: marker) }
+        body()
     }
 }

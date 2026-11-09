@@ -1,6 +1,6 @@
 # ADR 0124 — Canonicalize forwarding ownership and callback boundaries
 
-**Status:** Accepted (2026-07-18)
+**Status:** Accepted (2026-07-18; extended by ADR-0125)
 **Spec version:** clarified in 3.22.0
 **Extends:** [ADR-0123](0123-preserve-container-causality-and-forwarding-ownership.md)
 

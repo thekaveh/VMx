@@ -233,6 +233,33 @@ describe("NotesViewVM", () => {
     sub2.unsubscribe();
   });
 
+  it("ADR-0201 §2.1: a search, the starred filter or a page change never changes current", async () => {
+    const { vm } = makeVM({ searchDebounceMs: 0 });
+    await vm.bindToAsync("nb-reviews");
+    const plain = vm.visibleItems.find((n) => !n.starred)!;
+    vm.current = plain;
+
+    vm.searchTerm = "auth";
+    vm.search();
+    expect(vm.visibleItems).not.toContain(plain);
+    expect(vm.current).toBe(plain);
+
+    vm.searchTerm = "";
+    vm.search();
+    vm.showStarredOnly = true;
+    expect(vm.visibleItems).not.toContain(plain);
+    expect(vm.current).toBe(plain);
+    vm.showStarredOnly = false;
+
+    vm.moveToNextPage();
+    expect(vm.visibleItems).not.toContain(plain);
+    expect(vm.current).toBe(plain);
+    vm.moveToFirstPage();
+    expect(vm.visibleItems).toContain(plain);
+    expect(vm.current).toBe(plain);
+    vm.dispose();
+  });
+
   it("setting current emits PropertyChangedMessage and equality-guards", async () => {
     const { vm } = makeVM();
     await vm.bindToAsync("nb-personal");

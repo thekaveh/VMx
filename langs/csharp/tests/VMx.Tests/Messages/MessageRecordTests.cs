@@ -62,6 +62,16 @@ public class MessageRecordTests
     }
 
     [Fact]
+    public void CollectionChangedMessage_SenderName_Defaults_To_The_Sender_Type_Name_And_Is_Settable()
+    {
+        var sender = new List<int>();
+        var message = CollectionChangedMessage<int>.ForReset(sender);
+
+        message.SenderName.Should().Be("List`1");
+        (message with { SenderName = "people" }).SenderName.Should().Be("people");
+    }
+
+    [Fact]
     public void CollectionChangedMessage_LegacyInterfaceImplementerReceivesCompatiblePositionDefaults()
     {
         ICollectionChangedMessage<int> message = new LegacyCollectionChangedMessage();
