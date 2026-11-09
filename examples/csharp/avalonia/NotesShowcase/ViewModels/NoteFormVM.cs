@@ -55,6 +55,14 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     private readonly object _retireGate = new();
     private readonly Dictionary<FormVM<NoteModel>, int> _pendingApprovals = new();
     private readonly Dictionary<FormVM<NoteModel>, IDisposable?> _retiredForms = new();
+    // Save order (#1379): the number of the save each form runs, and the
+    // number of the latest save started for each note id. Only the latest
+    // save of a note refreshes its list row and rebinds the editor, so an
+    // older save that settles last never shows the older values.
+    private readonly object _saveOrderGate = new();
+    private long _savesStarted;
+    private readonly Dictionary<FormVM<NoteModel>, long> _formSaves = new();
+    private readonly Dictionary<string, long> _latestSaves = new(StringComparer.Ordinal);
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Component;
@@ -215,9 +223,10 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     {
         RetireCurrentForm();
         _bound = note;
-        _form = new FormVM<NoteModel>(
+        FormVM<NoteModel>? created = null;
+        _form = created = new FormVM<NoteModel>(
             initial: note,
-            persister: PersistAsync,
+            persister: model => PersistAsync(created!, model),
             hub: Hub,
             strict: true,
             validators: new Dictionary<string, Func<NoteModel, string?>>
@@ -227,6 +236,9 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         var form = _form;
         _approvedSub = form.OnApproved.Subscribe(m =>
         {
+            // A newer save of this note started after this one. Its values
+            // are the ones the repository keeps, so this one shows nothing.
+            if (!SettleSave(form, m.Id)) return;
             _onSaved.OnNext(m);
             // OnApproved can arrive off the UI thread; BindTo raises INPC.
             _dispatcher.Foreground.Schedule(() => AdoptSaved(form, m));
@@ -410,11 +422,42 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         sub?.Dispose();
     }
 
-    private async Task PersistAsync(NoteModel note)
+    private async Task PersistAsync(FormVM<NoteModel> form, NoteModel note)
     {
         // The form calls its persister only for an admitted approval.
         Interlocked.Increment(ref _admissions);
-        await _repo.SaveNoteAsync(note).ConfigureAwait(false);
+        lock (_saveOrderGate)
+        {
+            _savesStarted++;
+            _formSaves[form] = _savesStarted;
+            _latestSaves[note.Id] = _savesStarted;
+        }
+        try
+        {
+            await _repo.SaveNoteAsync(note).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A failed save never settles, so it has no entry to keep.
+            lock (_saveOrderGate) _formSaves.Remove(form);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when <paramref name="source"/> ran the latest save
+    /// started for <paramref name="noteId"/>, and forgets that save once it
+    /// settles.
+    /// </summary>
+    private bool SettleSave(FormVM<NoteModel> source, string noteId)
+    {
+        lock (_saveOrderGate)
+        {
+            if (!_formSaves.Remove(source, out var save)) return true;
+            if (!_latestSaves.TryGetValue(noteId, out var latest) || latest != save) return false;
+            _latestSaves.Remove(noteId);
+            return true;
+        }
     }
 
     private void AddTag()

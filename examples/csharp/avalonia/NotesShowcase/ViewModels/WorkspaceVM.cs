@@ -345,6 +345,9 @@ public sealed class WorkspaceVM : IDisposable
         if (string.IsNullOrEmpty(path)) return;
         var (nbs, notes) = await _repo.LoadAllAsync().ConfigureAwait(false);
         await _repo.ExportAsync(nbs, notes, path).ConfigureAwait(false);
+        // The scenario's Export step confirms the written file with a toast.
+        _ = _notificationHub.Post(new Notification(
+            NotificationType.Notification, $"Exported to {path}"));
     }
 
     /// <summary>Synchronous construct — synchronous OnConstruct cascade.</summary>
