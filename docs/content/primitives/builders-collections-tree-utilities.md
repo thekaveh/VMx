@@ -414,6 +414,12 @@ Representative traversal contract:
 - `walk(root)` yields root first, then descendants in depth-first pre-order
 - `find(root, predicate)` returns the first match in walk order
 - `walk_expanded(root)` respects `IExpandable` boundaries
+- `walk`, `walk_expanded`, and `find` report a children factory's invalid
+  output as an error and leave the node retryable. Swift `walk`,
+  `walkExpanded`, and `find` are `throws` functions, so each call needs `try`.
+  Rust `walk`, `walk_expanded`, and `find` return a `VmxResult`. C#, Python,
+  and TypeScript raise the `children` error when the walk reaches the node
+  ([spec/13 §6.1](../../../spec/13-tree-utilities.md#61-invalid-factory-output)).
 
 On the collection side, the Notes Workspace note lists and notifications layers
 are practical references for observable-list and paging composition.

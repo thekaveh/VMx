@@ -9,7 +9,7 @@
 //
 // All three throw `HierarchyError.invalidFactoryOutput` when they reach a
 // `HierarchicalVM` whose lazy children factory returns invalid output
-// (spec/13 §6, ADR-0170). They never trap.
+// (spec/13 §6.1, ADR-0170). They never trap.
 //
 
 // MARK: - Internal child-enumeration protocol
