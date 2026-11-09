@@ -263,10 +263,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             commit: {
                 defer { self.endMembershipTransaction() }
                 self.membershipGate.withLock { self.pendingTransferDetaches -= 1 }
-                if child._ownershipParent === self {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: self)
                 // Clear only while the detached child is still current: a
                 // selection made after the detach stays (spec/06 §4.3 rule 6).
                 if wasCurrent { self._clearDetachedCurrent(child) }
@@ -277,13 +274,11 @@ open class CompositeVM<Child: ComponentVMBase>:
                 self.membershipGate.withLock {
                     self.pendingTransferDetaches -= 1
                     guard !self.disposeRequested else {
-                        child._parent = nil
-                        child._ownershipParent = nil
+                        child._unlinkParent()
                         return
                     }
                     self.children.insert(child, at: Swift.min(index, self.children.count))
-                    child._parent = self
-                    child._ownershipParent = self
+                    child._linkParent(self)
                 }
             }
         )
@@ -449,8 +444,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         children.append(child)
-        child._parent = self
-        child._ownershipParent = self
+        child._linkParent(self)
         pendingAdmissions.insert(ObjectIdentifier(child))
         lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
@@ -466,10 +460,7 @@ open class CompositeVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
-                if child._ownershipParent === self {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: self)
             }
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
@@ -484,10 +475,7 @@ open class CompositeVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
-                if child._ownershipParent === self {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: self)
             }
             let compensationError = ContainerSupport.compensateAutoConstruct(
                 child, originalStatus: originalStatus
@@ -559,8 +547,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         children.insert(child, at: index)
-        child._parent = self
-        child._ownershipParent = self
+        child._linkParent(self)
         pendingAdmissions.insert(ObjectIdentifier(child))
         lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
@@ -571,10 +558,7 @@ open class CompositeVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
-                if child._ownershipParent === self {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: self)
             }
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
@@ -589,10 +573,7 @@ open class CompositeVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children.remove(at: attached)
                 }
-                if child._ownershipParent === self {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: self)
             }
             let compensationError = ContainerSupport.compensateAutoConstruct(
                 child, originalStatus: originalStatus
@@ -622,10 +603,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         let removed = _detachClearingCurrent { () -> ((Child, Int), Child?)? in
             guard let index = children.firstIndex(where: { $0 === child }) else { return nil }
             let item = children.remove(at: index)
-            if item._ownershipParent === self {
-                item._parent = nil
-                item._ownershipParent = nil
-            }
+            item._unlinkParent(ifOwnedBy: self)
             return ((item, index), item)
         }
         guard let ((item, index), clear) = removed else { return false }
@@ -659,10 +637,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         }
         let removal = _detachClearingCurrent { () -> (Child, Child?)? in
             let removed = children.remove(at: index)
-            if removed._ownershipParent === self {
-                removed._parent = nil
-                removed._ownershipParent = nil
-            }
+            removed._unlinkParent(ifOwnedBy: self)
             return (removed, removed)
         }
         guard let (item, clear) = removal else { return .success(()) }
@@ -719,8 +694,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         // (COMP-006), and a rollback can always put it back (#1219).
         let old = children[index]
         children[index] = child
-        child._parent = self
-        child._ownershipParent = self
+        child._linkParent(self)
         pendingAdmissions.insert(ObjectIdentifier(child))
         lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
@@ -731,10 +705,7 @@ open class CompositeVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children[attached] = old
                 }
-                if child._ownershipParent === self {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: self)
             }
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
@@ -749,10 +720,7 @@ open class CompositeVM<Child: ComponentVMBase>:
                 if let attached = children.firstIndex(where: { $0 === child }) {
                     children[attached] = old
                 }
-                if child._ownershipParent === self {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: self)
             }
             let compensationError = ContainerSupport.compensateAutoConstruct(
                 child, originalStatus: originalStatus
@@ -774,10 +742,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         membershipGate.withLock { _ = pendingAdmissions.remove(ObjectIdentifier(child)) }
         // Free `old` and clear `current` in one section, as removeAt does.
         let detached = _detachClearingCurrent { () -> (Void, Child?)? in
-            if old._ownershipParent === self {
-                old._parent = nil
-                old._ownershipParent = nil
-            }
+            old._unlinkParent(ifOwnedBy: self)
             return ((), old)
         }
         if let (_, clear) = detached { _publishSelection(clear, to: nil) }
@@ -791,9 +756,8 @@ open class CompositeVM<Child: ComponentVMBase>:
         defer { endMembershipTransaction() }
         let cleared = _detachClearingCurrent { () -> (Void, Child?)? in
             let previous = _current
-            for child in children where child._ownershipParent === self {
-                child._parent = nil
-                child._ownershipParent = nil
+            for child in children {
+                child._unlinkParent(ifOwnedBy: self)
             }
             children.removeAll()
             return ((), previous)
@@ -993,8 +957,7 @@ open class CompositeVM<Child: ComponentVMBase>:
                 try requireTransactionCanContinueLocked()
                 for child in candidates {
                     children.append(child)
-                    child._parent = self
-                    child._ownershipParent = self
+                    child._linkParent(self)
                     // Staged: not a member for selection until admitted
                     // (spec/06 §4.3 rule 2).
                     pendingAdmissions.insert(ObjectIdentifier(child))
@@ -1024,10 +987,7 @@ open class CompositeVM<Child: ComponentVMBase>:
                 }
                 // Detached first: a deferred compensation destructs only a
                 // child with no parent (ADR-0218 rule 7).
-                if child._ownershipParent === self {
-                    child._parent = nil
-                    child._ownershipParent = nil
-                }
+                child._unlinkParent(ifOwnedBy: self)
                 if let error = ContainerSupport.compensateAutoConstruct(
                     child, originalStatus: originalStatuses[offset]
                 ), compensationError == nil {
