@@ -56,6 +56,8 @@ mod conformance {
     mod message_hub;
     mod message_recorder;
     mod modeled_crud;
+    // The notifications sub-package is a Cargo feature (ADR-0211).
+    #[cfg(feature = "notifications")]
     mod notifications;
     mod null_services;
     mod observable_list_replace_all;

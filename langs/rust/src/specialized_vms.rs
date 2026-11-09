@@ -1,10 +1,11 @@
 //! Modal and notification presentation view models.
 //!
-//! Spec: `spec/19-dialogs.md` and `spec/16-notifications.md`.
+//! Spec: `spec/19-dialogs.md` and `spec/16-notifications.md`. The
+//! notification VMs need the `notifications` feature (ADR-0211).
 
-use super::{
-    lock, Arc, AsyncValue, Mutex, Notification, NotificationHub, NotificationReaction, RelayCommand,
-};
+use super::{lock, Arc, AsyncValue, Mutex};
+#[cfg(feature = "notifications")]
+use super::{Notification, NotificationHub, NotificationReaction, RelayCommand};
 
 #[derive(Clone)]
 /// A modal interaction with one first-wins result and a cancellation fallback.
@@ -84,6 +85,10 @@ impl<T: Clone + Send + 'static> ModalVm<T> {
 ///
 /// The VM and its commands hold clones of this state. The state never holds a
 /// command, so a kept command does not keep a reference cycle alive.
+///
+/// Lock order: the flags lock, then the hub state lock. The hub never calls
+/// out while it holds its state lock, so no path takes them the other way.
+#[cfg(feature = "notifications")]
 #[derive(Clone)]
 struct NotificationState {
     notification: Notification,
@@ -93,12 +98,14 @@ struct NotificationState {
     lifespan_ms: u64,
 }
 
+#[cfg(feature = "notifications")]
 #[derive(Default)]
 struct NotificationFlags {
     resolved: bool,
     disposed: bool,
 }
 
+#[cfg(feature = "notifications")]
 impl NotificationState {
     fn new(notification: Notification, hub: NotificationHub, lifespan_ms: u64) -> Self {
         Self {
@@ -128,16 +135,16 @@ impl NotificationState {
     }
 
     fn is_resolved(&self) -> bool {
-        {
-            let flags = lock(&self.flags);
-            if flags.resolved {
-                return true;
-            }
-            // A disposed VM no longer follows the hub, as in the other
-            // flavors, where disposal releases the pending subscription.
-            if flags.disposed {
-                return false;
-            }
+        // The flags lock stays held across the hub read, so no disposal can
+        // complete between the `disposed` check and that read (#1293).
+        let flags = lock(&self.flags);
+        if flags.resolved {
+            return true;
+        }
+        // A disposed VM no longer follows the hub, as in the other
+        // flavors, where disposal releases the pending subscription.
+        if flags.disposed {
+            return false;
         }
         // Removal from the pending list, not the reaction, marks an external
         // resolution: a hub may resolve with `Pending` (NOTIF-015).
@@ -166,18 +173,21 @@ impl NotificationState {
     /// Claims disposal once. The first claim keeps the current resolved
     /// state and returns `true`; every later claim returns `false`.
     fn claim_dispose(&self) -> bool {
-        // Read the hub before taking the flags lock, so no lock nests.
-        let resolved_by_hub = self.hub.was_resolved(self.notification.id);
         let mut flags = lock(&self.flags);
         if flags.disposed {
             return false;
         }
-        flags.resolved |= resolved_by_hub;
+        // The hub read and the `disposed` write share one flags critical
+        // section. A reader that saw a hub resolution therefore either ran
+        // before this claim, which keeps that resolution, or it is ordered
+        // after the claim and returns the kept value (#1293).
+        flags.resolved |= self.hub.was_resolved(self.notification.id);
         flags.disposed = true;
         true
     }
 }
 
+#[cfg(feature = "notifications")]
 #[derive(Clone)]
 /// Presentation state and deterministic lifespan behavior for one notification.
 ///
@@ -188,6 +198,7 @@ pub struct NotificationVm {
     dismiss_command: RelayCommand,
 }
 
+#[cfg(feature = "notifications")]
 impl NotificationVm {
     /// Creates a notification VM with a private hub and 60-second lifespan.
     pub fn new(notification: Notification) -> Self {
@@ -274,6 +285,7 @@ impl NotificationVm {
     }
 }
 
+#[cfg(feature = "notifications")]
 #[derive(Clone)]
 /// A confirmation notification with approve and reject reactions.
 ///
@@ -286,6 +298,7 @@ pub struct ConfirmationVm {
     reject_command: RelayCommand,
 }
 
+#[cfg(feature = "notifications")]
 impl ConfirmationVm {
     /// Creates a confirmation with a private hub.
     pub fn new(notification: Notification) -> Self {
@@ -419,7 +432,7 @@ impl ConfirmationVm {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "notifications"))]
 mod tests {
     use super::*;
     use crate::{Command, NotificationType};
@@ -507,6 +520,74 @@ mod tests {
         assert_eq!(vm.remaining_time_ms(), 300_000);
         assert_eq!(vm.reaction(), NotificationReaction::Pending);
         assert_eq!(hub.pending(), vec![notification]);
+    }
+
+    /// Races `dispose()`, `hub.resolve(id)` and `is_resolved()` on three
+    /// threads. A passing run does not prove that the race is absent (#1293).
+    fn assert_a_seen_resolution_survives_a_racing_dispose<V>(
+        make: impl Fn(Notification, NotificationHub) -> V,
+        dispose: fn(&V),
+        is_resolved: fn(&V) -> bool,
+    ) where
+        V: Clone + Send + 'static,
+    {
+        use std::sync::Barrier;
+
+        for iteration in 0..1_000 {
+            let (hub, notification) = posted(NotificationType::Confirmation);
+            let vm = make(notification.clone(), hub.clone());
+            let barrier = Arc::new(Barrier::new(3));
+            let disposer = {
+                let (vm, barrier) = (vm.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    dispose(&vm);
+                })
+            };
+            let resolver = {
+                let barrier = barrier.clone();
+                let hub = hub.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    hub.resolve(notification.id, NotificationReaction::Reject);
+                })
+            };
+            let reader = {
+                let vm = vm.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    (0..8).any(|_| is_resolved(&vm))
+                })
+            };
+            disposer.join().unwrap();
+            resolver.join().unwrap();
+            let seen_resolved = reader.join().unwrap();
+
+            if seen_resolved {
+                assert!(
+                    is_resolved(&vm),
+                    "iteration {iteration}: is_resolved() returned true, then false"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn notification_is_resolved_never_reverts_when_dispose_races_a_hub_resolution() {
+        assert_a_seen_resolution_survives_a_racing_dispose(
+            |notification, hub| NotificationVm::with_hub(notification, hub, 10_000),
+            NotificationVm::dispose,
+            NotificationVm::is_resolved,
+        );
+    }
+
+    #[test]
+    fn confirmation_is_resolved_never_reverts_when_dispose_races_a_hub_resolution() {
+        assert_a_seen_resolution_survives_a_racing_dispose(
+            ConfirmationVm::with_hub,
+            ConfirmationVm::dispose,
+            ConfirmationVm::is_resolved,
+        );
     }
 
     #[test]
