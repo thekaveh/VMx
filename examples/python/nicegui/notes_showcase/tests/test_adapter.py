@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import pytest
 from nicegui import ui
-from nicegui.testing.user_notify import UserNotify
+from nicegui.testing.user import User
 from nicegui.testing.user_simulation import user_simulation
 from reactivex.abc import DisposableBase
 from reactivex.subject import BehaviorSubject, Subject
@@ -153,15 +153,20 @@ async def test_bind_command_runs_it_and_follows_can_execute() -> None:
 
 
 def _record_notifications(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, object]]:
-    """The user simulation's ``ui.notify`` drops its keyword arguments; keep the type."""
+    """``user.notify`` keeps only the message; record the type as well.
+
+    Since nicegui 3.19, ``ui.notify`` sends a ``notify`` message to the client,
+    and the user simulation hands each sent message to ``User._simulate_browser``.
+    """
     notifications: list[tuple[str, object]] = []
-    original = UserNotify.__call__
+    original = User._simulate_browser
 
-    def record(self: UserNotify, message: str, **kwargs: object) -> None:
-        notifications.append((message, kwargs.get("type")))
-        original(self, message, **kwargs)
+    def record(self: User, message_type: str, data: dict[str, object]) -> None:
+        if message_type == "notify":
+            notifications.append((str(data["message"]), data.get("type")))
+        original(self, message_type, data)
 
-    monkeypatch.setattr(UserNotify, "__call__", record)
+    monkeypatch.setattr(User, "_simulate_browser", record)
     return notifications
 
 
