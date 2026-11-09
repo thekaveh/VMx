@@ -16,6 +16,31 @@ Thanks for your interest in contributing!
    self-approval.
 5. Maintainers promote `develop` to protected `main` through a separate PR.
 
+### 1.1 Branch sync policy
+
+`develop` and `main` stay in sync by tree, not by history. The
+`develop-gitflow` ruleset permits squash merges only, and the `main-gitflow`
+ruleset permits merge commits only. No permitted PR can bring a `main` merge
+commit into `develop`, so `develop` history does not contain the `main` merge
+commits. `git rev-list --count origin/develop..origin/main` is therefore
+never 0, and it grows by one with each promotion.
+
+- **Promotion.** Each promotion PR from `develop` to `main` merges with a merge
+  commit. GitHub reports every promotion PR as `BEHIND` `main`. This state is
+  expected and does not show that the promotion head is out of date. After the
+  merge, check that `main` has the promotion head's tree; the command exits 0:
+
+  ```bash
+  git fetch origin
+  git diff --quiet <promotion head> <main merge commit>
+  ```
+
+- **Back-sync.** A change that reaches `main` by another route, such as a
+  merged release-please release PR, does not reach `develop` by itself. Before
+  the next promotion, open a squash PR to `develop` from a branch cut at that
+  `main` commit. After it merges, `git diff --quiet origin/main origin/develop`
+  exits 0 when no other change has landed on `develop` since.
+
 ## 2. Per-language setup
 
 ### 2.1 C#
@@ -240,6 +265,19 @@ Register the trusted publisher with these exact fields:
 
 Do not add a long-lived registry token or bypass the environment.
 
+**Publish job isolation.** In a job with `id-token: write`, every step can
+request an OIDC token that the trusted publisher accepts. So only the publish
+job has that permission and the protected environment. Earlier jobs without it
+install dependencies, build, lint, test, audit, run the consumer smoke checks,
+and upload the exact artifact: the NuGet packages, the Python `dist/` files, or
+the npm tarball. The publish job downloads that artifact and publishes it. Apart
+from the pinned npm CLI, it installs, builds, and tests nothing. Rust is the one
+exception: `cargo publish` cannot publish a prepared `.crate`, so its
+verification build still compiles the crate's dependencies in the publish job.
+The `rust-test` job runs the packaged-consumer check without `id-token: write`.
+`tools/tests/test_ci_workflow_contracts.py` enforces this split. It does not
+protect against a build step that changes the artifact before the upload.
+
 **Tags.** Create every manual release tag as an annotated tag on the verified
 `origin/main` commit, then push it:
 
@@ -287,7 +325,7 @@ gh workflow run release.yml --ref develop
 This no-input dispatch runs only the five-version Ubuntu `python-test` matrix.
 Every other release job requires a tag push, even when a dispatch targets an
 existing release tag. Validation cannot publish packages or create releases,
-and it does not exercise the protected Python build/publish job. Normal Python
+and it does not exercise the Python build or protected publish jobs. Normal Python
 CI separately checks the wheel and extracted sdist. Real tag pushes retain
 their `origin/main` ancestry check and all publication protections.
 

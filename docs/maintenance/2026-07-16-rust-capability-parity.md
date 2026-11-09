@@ -51,12 +51,22 @@ record does not introduce a package or spec version change.
 
 ### 12.2.1. Message Sender Identity Is An Accepted Idiom
 
-Rust's `sender_id: usize` plus `sender_name: String` message fields are the one
+Rust's `sender_id: usize` plus `sender_name: String` message fields are an
 intentional flavor-specific shape retained by this review. ADR-0120 records
 them as the ownership-safe Rust expression of the canonical sender-identity
 contract. The other four flavors retain runtime sender objects, while Rust
 messages remain owned values that do not retain or borrow a VM. Identity
 filtering behavior remains required across all five flavors.
+
+### 12.2.2. HierarchicalVm Node Data Is An Accepted Idiom
+
+Rust has no subclassing, so `HierarchicalVm<M, N = ()>` takes a node-data type
+`N` in place of the `TVM` subclass of the other flavors (ADR-0202, #1263).
+`parent()`, `children()` and `path()` return `HierarchicalVm<M, N>`, and
+`node_data()` returns the node's own `N`. A consumer keeps per-node state in
+`N` and adds node methods through an extension trait. `TreeSelection<M, N>`
+follows the same node type. The Rust `HIER-001` test builds a three-level tree
+of a consumer node-data type and reads it from each accessor.
 
 ## 12.3. Capability And Reusable-State Closure
 
@@ -313,11 +323,12 @@ recorded in §12.3 and §12.4 is resolved and backed by focused Rust tests. Rust
 is both catalog-complete and aligned with the canonical public concepts and
 observable behavior covered by this review.
 
-The ADR-0120 sender representation in §12.2.1 remains the sole intentional
-flavor-specific shape in this ledger. The §12.5 editorial note applies to all
-five flavors and is not a parity backlog. §12.7 to §12.12 record the items found after
-closure: §12.7, §12.8, §12.11 and §12.12 are open, §12.10 is a recorded
-difference, and §12.9 is resolved. Future differences still require
+The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
+parameter in §12.2.2 are the intentional flavor-specific shapes in this
+ledger. The §12.5 editorial note applies to all five flavors and is not a
+parity backlog. §12.7 to §12.12 record the items found after closure: §12.7,
+§12.8, §12.11 and §12.12 are open, §12.10 is a recorded difference, and §12.9
+is resolved. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 

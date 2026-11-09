@@ -39,6 +39,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
   handle detached before disposal is not completed. A panicking completion is
   contained, and a panicking approval callback still propagates out of
   `approve()`. `subscribe_approved` keeps its signature.
+- `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
+  `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
+  `ComponentVm::own_member` contract and rejects the container itself with
+  `VmxError::OwnershipCycle`. `dispose()` disposes the children and then the
+  registered members, before the container publishes `Disposed`. During a
+  foreign dispose the container publishes `Disposed` first and disposes both
+  after the hook returns (ADR-0179). A member registered after the disposal
+  started is disposed by its registration.
+- `CompositeVm::with_destruct_order` and `GroupVm::with_destruct_order`, public
+  raw constructors that take a `ChildOrder` (#1287, ADR-0204). `new` and
+  `with_services` keep `ChildOrder::Insertion`.
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
@@ -116,6 +127,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
   reaction stays authoritative, and a second call has no effect. Disposal
   never disposes the hub. Before this change, a kept command still resolved
   the hub after the host dropped the view model.
+- `HierarchicalVm<M, N = ()>` takes a node-data type `N`, the Rust form of a
+  `TVM` subclass (#1263, ADR-0202). `parent()`, `children()`, `path()`, the
+  children factory and `attach_many` use `HierarchicalVm<M, N>`, and
+  `node_data()` returns the node's own `N`. `HierarchicalVm::with_node_data`
+  and `HierarchicalVmBuilder::with_node_data` create such nodes, and
+  `TreeSelection<M, N = ()>` follows the node type. `N` defaults to `()`, so
+  code that names `HierarchicalVm<M>` or `TreeSelection<M>` is unchanged.
 
 ### Changed
 
@@ -190,9 +208,49 @@ project adheres to [Semantic Versioning](https://semver.org/).
   ADR-0178). Clones of the view model share the commands. A command holds
   only the shared notification state, so a kept command makes no reference
   cycle.
+- Breaking: `TokenPagedComposition` requires
+  `Token: Clone + Send + Sync + 'static` and runs `Token::clone` with no pager
+  lock held (#1278, ADR-0202). Clones of one stored token no longer take
+  turns, and a clone that reads the cursor again on its own thread no longer
+  blocks forever. A `Send`-only token, for example one that holds a `Cell`, no
+  longer compiles. Wrap its state in a `Mutex` or an atomic.
 
 ### Fixed
 
+- Breaking: a `CompositeVm` or `GroupVm` from the builder or from
+  `create(options)` has no children until its first `construct()` (#1255,
+  ADR-0204, spec/06 §1, spec/07 §3). That construct calls the `children`
+  factory once, inside the construct transition and after the construct hook,
+  as in C# and TypeScript, and attaches the result before the construct walk;
+  `build()` no longer calls it. A construct that starts while the factory runs
+  fails with `VmxError::ConcurrentOperation`. A refused population, such as
+  `VmxError::DuplicateChild`, now fails the first `construct()` instead of
+  `build()`: the container publishes `Constructing`, rolls back to
+  `Destructed`, attaches nothing and keeps the factory for the next construct.
+  A factory that panics also keeps its slot.
+- A stored `reconstruct_command()` of `CompositeVm`, `GroupVm` and
+  `AggregateVm1` to `AggregateVm6` reports `can_execute()` false once every
+  container handle dropped, as in Swift; its `execute()` stays inert (#1483,
+  ADR-0204). The aggregate command now holds the parent registration weakly,
+  so the children of a dropped aggregate report no parent and can join
+  another container while the command handle exists.
+- The `FormVm::dispose()` rustdoc now states the deferred-teardown rule
+  (#1292). After a refused wait, or while a delivery outside a publication
+  scope is in progress, the teardown runs when no publication and no delivery
+  remains on any thread, on the thread that ends the last one. Before, the
+  rustdoc named the publishing or delivering thread that the disposal found.
+  It also lists a validator registration's notifications as a delivery
+  outside a scope. A new test keeps deliveries open on two threads and checks
+  that the channels complete on the thread whose delivery ends last. The code
+  does not change.
+- The `FormVm` rustdoc now states the limit of a re-entrant model `Clone`
+  (#1279). The form runs `M::clone` under the lock of the live model or the
+  snapshot, and these locks are not re-entrant. A model `Clone` that calls a
+  method of its own form that reads the model or the snapshot on the same
+  thread never returns. Examples are `model()`, `snapshot()`, `is_dirty()`,
+  `set_model()`, `approve()`, `revert()` and the approve and deny commands,
+  and `can_approve()` in strict mode. A model `Clone` can read `is_valid()`,
+  `errors()`, `error_map()` and `field_error()`. The code does not change.
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
@@ -305,10 +363,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   clone that waited for a refresh to finish, or for a start while another
   commit waited, blocked forever. The pager now stores the token behind its
   own lock, which no commit takes. A reader takes the cursor lock only to copy
-  that handle, and runs `Token::clone` after it releases the lock. The bound
-  stays `Token: Clone + Send + 'static`. The `current_token()` rustdoc states
-  the remaining limits: clones of one stored token take turns, and a clone
-  must not read the cursor again on its own thread.
+  that handle, and runs `Token::clone` after it releases the lock. #1278
+  later removed the token lock in this release.
 - The `CompositeVm` construct walk's `Current(selector)` assignment follows
   ADR-0165 (#1151). It skips a child that an add, insert, replacement or
   population has attached but not admitted, skips while disposal is pending,
