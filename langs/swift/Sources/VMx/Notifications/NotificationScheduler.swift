@@ -63,40 +63,6 @@ struct NotificationClock {
     init<S: NotificationScheduler>(_ scheduler: S) {
         let origin = scheduler.now
         elapsed = { scheduler.seconds(from: origin, to: scheduler.now) }
-        if let virtual = scheduler as? VirtualTimeScheduler {
-            // The virtual clock removes a cancelled action from its queue.
-            schedule = { delay, action in
-                virtual.schedule(at: virtual.now.advanced(by: .seconds(delay)), action)
-            }
-        } else {
-            // The Combine one-shot `schedule(after:)` returns no token, so a
-            // flag makes a cancelled action a no-op.
-            schedule = { delay, action in
-                let token = OneShotToken()
-                scheduler.schedule(after: scheduler.now.advanced(by: .seconds(delay))) {
-                    token.run(action)
-                }
-                return AnyCancellable { token.cancel() }
-            }
-        }
-    }
-}
-
-/// Cancellation flag for one scheduled action. The scheduler can run the
-/// action on another thread, so the flag is read and written under a lock.
-private final class OneShotToken {
-    private let lock = NSLock()
-    private var cancelled = false
-
-    func cancel() {
-        lock.lock(); cancelled = true; lock.unlock()
-    }
-
-    func run(_ action: () -> Void) {
-        lock.lock()
-        let skip = cancelled
-        cancelled = true
-        lock.unlock()
-        if !skip { action() }
+        schedule = { delay, action in scheduleOnce(on: scheduler, after: delay, action) }
     }
 }

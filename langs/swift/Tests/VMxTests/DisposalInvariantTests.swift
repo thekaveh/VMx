@@ -354,6 +354,17 @@ final class DisposalInvariantTests: XCTestCase {
         expansion.collapse()
         expansion.toggleExpansion()
         XCTAssertFalse(expansion.isExpanded)
+
+        let scheduler = VirtualTimeScheduler()
+        let delayed = DelayedTask(scheduler: scheduler)
+        let delayedRuns = LockedCounter()
+        delayed.schedule(after: 1) { delayedRuns.increment() }
+        delayed.dispose()
+        delayed.dispose()
+        delayed.schedule(after: 1) { delayedRuns.increment() }
+        scheduler.advance(by: .seconds(2))
+        XCTAssertFalse(delayed.isPending)
+        XCTAssertEqual(delayedRuns.value, 0)
     }
 
     /// DISP-006 — disposable collection helpers end one batch exactly once.
