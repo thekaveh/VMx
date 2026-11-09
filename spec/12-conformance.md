@@ -1143,6 +1143,25 @@ wraps `first`
 **And** a resource registered through a decorator is also released when
 `inner` itself is disposed
 
+### FWD-006 — Decorator notification helpers emit through the wrapped component
+
+Per spec/09-forwarding.md §1 and ADR-0221.
+
+**Given** a component decorator around component `inner`, and a composite
+decorator around composite `inner`, each `inner` with a hub
+**And** a hub subscriber that records each `PropertyChangedMessage`, and a
+subscriber of the decorator's property-changed stream
+**When** a decorator subclass calls the dual-channel helper once
+**Then** the decorator's property-changed stream emits the name once
+**And** the hub receives one `PropertyChangedMessage` whose sender is `inner`
+**When** the subclass calls the local-only raise primitive once (not Rust,
+which has no such primitive)
+**Then** the property-changed stream emits that name once, and the hub
+receives no message
+**When** `inner` is disposed and the subclass calls the dual-channel helper
+again
+**Then** neither channel emits
+
 ______________________________________________________________________
 
 ## 12. Builders (`BLD-NNN`)
@@ -1627,7 +1646,7 @@ ______________________________________________________________________
 Each CMDD-NNN test verifies behaviour of the three decorators added in
 spec/04-commands.md §Decorators (CMDD-010 added in spec v3, ADR-0049;
 CMDD-011..CMDD-013 added in spec v3.24, ADR-0134; CMDD-014..CMDD-017 added in
-spec v3.29, ADR-0145).
+spec v3.29, ADR-0145; CMDD-019 added in spec v3.30, ADR-0222).
 
 ### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
 
@@ -1844,6 +1863,19 @@ inner command
 **Then** the inner command ran exactly once
 **And** the inner command did not see the mark, so it did not run inside the
 `Execute()` call
+
+### CMDD-019 — Disposing a live wrapper notifies its own subscribers once
+
+Per spec/04-commands.md §8.4 and ADR-0222.
+
+**Given** a `CompositeCommand`, a `DecoratorCommand`, and a
+`ConfirmationDecoratorCommand`, each over its own inner relay command
+**And** a subscriber of the wrapper's `CanExecuteChanged` and a subscriber of
+the inner command's `CanExecuteChanged`
+**When** each wrapper is disposed twice
+**Then** the wrapper subscriber receives exactly one notification
+**And** the wrapper's `CanExecute()` returns `false`
+**And** the inner subscriber receives nothing
 
 ______________________________________________________________________
 
@@ -2856,7 +2888,8 @@ See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionar
 ADR-0026 (`ObservableList<T>`), ADR-0023 (`PagedComposition<TVM>`), and
 ADR-0096 (serviced collection parity), ADR-0097 (keyed serviced
 collection), ADR-0171 (failing local subscribers), ADR-0177 (dictionary
-key-view order), and ADR-0193 (read-only key views and dictionary positions).
+key-view order), ADR-0193 (read-only key views and dictionary positions), and
+ADR-0220 (failing subscribers skip no notification step).
 
 ### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
 
@@ -3644,6 +3677,40 @@ TypeScript `Error`, Swift `ObservableDictionaryError.duplicateKey`, or Rust
 `Count` do not change
 **And** no local event and no hub message is sent
 **And** Rust, which has no local event, checks the hub subscriber only
+
+### COL-072 — a failing subscriber skips no later notification step
+
+**Given** an `ObservableList<T>` with a subscriber that fails on every
+delivery of `ItemAdded`, `ItemRemoved`, or `Reset`, and a later subscriber of
+the same event
+**When** an add, insert, remove, remove-at, clear, whole-list replacement, or
+batch with one add occurs
+**Then** the change is committed, and the later subscriber receives the event
+once
+**And** `PropertyChanged("Count")` is emitted once, and in C# the
+`CollectionChanged` event is raised once
+**And** in C#, a throwing `ItemReplaced` handler does not skip the
+`CollectionChanged` event of a replace
+**Given** an `ObservableDictionary` with a hub and a `Keys1` or `Keys2`
+subscriber that fails on every delivery
+**When** an `Add`, an indexer or `set` insert, a `Remove`, or a `Clear`
+changes that key view
+**Then** the dictionary raises its granular event once, and in C# its
+`CollectionChanged` event once, and sends one hub `CollectionChangedMessage`
+**And** both key views match the entries when the call returns
+**And** after a failed `Keys2` notification on the add of a new key pair,
+`Keys1` lists the new key
+**And** in C#, a throwing `PropertyChanged("Count")` or
+`PropertyChanged("Item[]")` handler on a serviced or keyed serviced collection
+skips neither the single `CollectionChanged` event nor the single hub message
+of an add, remove, clear, or whole-list replacement, nor, for `Item[]`, of a
+replace or move
+**And** C# and Python rethrow the failure after the last step, TypeScript and
+Rust return normally, and Swift, whose subscribers cannot fail, asserts that
+structure
+
+> Spec: `21-collections.md` §2.5, §3.3, §4.6, `03-messages.md` §3.6,
+> ADR-0220.
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 

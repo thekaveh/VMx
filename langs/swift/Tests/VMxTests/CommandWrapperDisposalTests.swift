@@ -1,6 +1,6 @@
 //
-// CommandWrapperDisposalTests — conformance tests CMDD-011, CMDD-012, CMDD-013,
-// plus the wrapper disposal notification (#1459).
+// CommandWrapperDisposalTests — conformance tests CMDD-011, CMDD-012, CMDD-013
+// and CMDD-019 (the wrapper disposal notification, #1459).
 //
 // Disposed CompositeCommand, DecoratorCommand, and ConfirmationDecoratorCommand
 // are inert, and disposal during execution or a pending confirmation admits no
@@ -371,7 +371,7 @@ final class CommandWrapperDisposalTests: XCTestCase {
         XCTAssertEqual(recorder.entries, ["pre", "post"])
     }
 
-    // MARK: - Disposal notification (#1459)
+    // MARK: - CMDD-019 disposal notification (#1459)
 
     private func assertDisposalNotifiesOnce(
         _ wrapper: Command,
@@ -395,9 +395,9 @@ final class CommandWrapperDisposalTests: XCTestCase {
         innerCancel.cancel()
     }
 
-    /// Disposing a live wrapper notifies the wrapper's
+    /// CMDD-019 — Disposing a live wrapper notifies the wrapper's
     /// `canExecuteChanged` subscribers once; a second dispose and the inner
-    /// command's subscribers receive nothing.
+    /// command's subscribers receive nothing (ADR-0222).
     func testWrapperDisposalNotifiesWrapperSubscribersOnce() {
         let recorder = Recorder()
         let compositeInner = makeCommand(label: "c", into: recorder)

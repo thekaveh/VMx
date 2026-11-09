@@ -388,12 +388,22 @@ admits new inner work. Inner work admitted before disposal may still finish.
 Wrappers invoke no inner command, predicate, pre- or post-execution action, or
 `confirm` delegate while holding a lock.
 
-A wrapper never completes or disposes an inner command's change stream. A
-wrapper that holds its own subscriptions to inner change streams releases them
-at disposal; a wrapper that exposes a merged or delegated inner stream leaves
-that stream to the inner commands. As for relay commands, a flavor MAY notify
-`CanExecuteChanged` once during disposal. In Rust, clones of a wrapper share
-its disposal state.
+A wrapper never sends on, completes, or disposes an inner command's change
+stream. A wrapper that holds its own subscriptions to inner change streams
+releases them at disposal; a wrapper that exposes a merged or delegated inner
+stream leaves that stream to the inner commands. In Rust, clones of a wrapper
+share its disposal state.
+
+Disposing a live wrapper MUST send exactly one `CanExecuteChanged`
+notification to the wrapper's own subscribers (spec v3.30, ADR-0222). The
+wrapper is already inert when it notifies, so a subscriber reads
+`CanExecute == false` and a bound control shows the disabled state. A repeated
+disposal sends nothing, and the subscribers of an inner command receive
+nothing. Each wrapper therefore exposes a change stream of its own, which
+relays the inner notifications. In Python and TypeScript, that stream also
+passes the inner completion through, and a Rust decorator's change hub
+completes when the inner hub completes. Whether the wrapper's own stream
+completes at disposal is flavor-defined (`CMDD-019`).
 
 ## 9. Fluent composition (spec v2.1)
 
@@ -564,7 +574,7 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 
 ## 11. Conformance
 
-`CMD-001` through `CMD-021` and `CMDD-001` through `CMDD-018` in
+`CMD-001` through `CMD-021` and `CMDD-001` through `CMDD-019` in
 `12-conformance.md` cover:
 
 - `Execute` invokes the configured task
@@ -604,6 +614,9 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 - `CMDD-018` — the fire-and-forget `Execute()` never invokes the inner command
   inside its own call, also when `confirm()` is already complete (§8.3.1,
   ADR-0195)
+- `CMDD-019` — disposing a live wrapper notifies the wrapper's own
+  `CanExecuteChanged` subscribers exactly once and the inner command's
+  subscribers never (§8.4, ADR-0222)
 
 `DISP-002` additionally disposes an in-flight async command twice and pins one
 cancellation, one terminal teardown, and inert later execution (ADR-0084).

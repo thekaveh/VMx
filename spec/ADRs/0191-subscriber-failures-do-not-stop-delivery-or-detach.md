@@ -1,6 +1,6 @@
 # ADR 0191 — Subscriber failures do not stop delivery or detach a subscription
 
-- **Status:** Accepted
+- **Status:** Accepted (Extended by ADR-0220)
 - **Date:** 2026-11-09
 - **Spec version:** 3.30.0 (chapter 03 §3.4 and §3.6, chapter 01 §1.4,
   chapter 04 §4, chapter 06 §8.2, chapter 15 §4.1, chapter 21 §2.5, `HUB-007`,

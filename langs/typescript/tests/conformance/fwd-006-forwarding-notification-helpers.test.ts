@@ -1,7 +1,7 @@
-// A forwarding decorator's notification helpers act on the wrapped VM (#1352):
-// the hub message names the wrapped VM as sender, the decorator's
-// propertyChanged emits once, and nothing is published after the wrapped VM is
-// disposed. See spec/09-forwarding.md §1.
+// Conformance tests: FWD-006 — a forwarding decorator's notification helpers
+// act on the wrapped VM (#1352): the hub message names the wrapped VM as
+// sender, the decorator's propertyChanged emits once, and nothing is published
+// after the wrapped VM is disposed. See spec/09-forwarding.md §1 and ADR-0221.
 import { describe, it, expect } from "vitest";
 import {
   MessageHub,
@@ -27,7 +27,7 @@ class NotifyingComposite extends ForwardingCompositeVM<ComponentVMOf<string>> {
   raiseLocal(name: string): void { this._raisePropertyChanged(name); }
 }
 
-describe("forwarding decorator notification helpers (#1352)", () => {
+describe("FWD-006", () => {
   const kinds = [
     {
       kind: "component",

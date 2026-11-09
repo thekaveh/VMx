@@ -1,10 +1,10 @@
-"""Decorator notification helpers act on the wrapped VM (#1352).
+"""FWD-006 — decorator notification helpers act on the wrapped VM (#1352).
 
 A forwarding decorator's dual-channel helper publishes one hub message whose
 sender is the wrapped VM, and the decorator's ``property_changed`` emits the
 name once. The local-only helper emits on ``property_changed`` and sends no hub
 message. After the wrapped VM is disposed, the helpers do nothing. Per
-spec/09-forwarding.md §1.
+spec/09-forwarding.md §1 and ADR-0221.
 """
 
 from __future__ import annotations
@@ -61,6 +61,7 @@ def _composite(hub: MessageHub[Any]) -> tuple[_ComponentVMBase, Any]:
     return inner, _NotifyingComposite(inner)
 
 
+@pytest.mark.conformance("FWD-006")
 @pytest.mark.parametrize("factory", [_component, _composite], ids=["component", "composite"])
 def test_decorator_helpers_publish_through_the_wrapped_vm(factory: Any) -> None:
     hub: MessageHub[Any] = MessageHub()

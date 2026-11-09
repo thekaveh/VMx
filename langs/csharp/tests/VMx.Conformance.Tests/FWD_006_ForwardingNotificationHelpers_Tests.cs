@@ -6,16 +6,17 @@ using VMx.Messages;
 using VMx.Tests.Helpers;
 using Xunit;
 
-namespace VMx.Tests.Forwarding;
+namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// A forwarding decorator's notification helpers act on the wrapped VM
-/// (#1352). The dual-channel helper sends one hub message whose sender is the
-/// wrapped VM, and the decorator's PropertyChanged event fires once. The
-/// local-only helper fires the event and sends no message. After the wrapped
-/// VM is disposed, the dual-channel helper notifies on neither channel.
+/// FWD-006: a forwarding decorator's notification helpers act on the wrapped
+/// VM (spec/09-forwarding.md §1, ADR-0221, #1352). The dual-channel helper
+/// sends one hub message whose sender is the wrapped VM, and the decorator's
+/// PropertyChanged event fires once. The local-only helper fires the event and
+/// sends no message. After the wrapped VM is disposed, the dual-channel helper
+/// notifies on neither channel.
 /// </summary>
-public class ForwardingNotificationHelperTests
+public class FWD_006_ForwardingNotificationHelpers_Tests
 {
     private sealed class NotifyingComponent<M>(IComponentVM<M> wrapped) : ForwardingComponentVM<M>(wrapped)
     {
@@ -34,9 +35,9 @@ public class ForwardingNotificationHelperTests
 
     public static TheoryData<string> Kinds() => new() { "component", "composite" };
 
-    [Theory]
+    [Theory, Trait("Conformance", "FWD-006")]
     [MemberData(nameof(Kinds))]
-    public void Decorator_Notification_Helpers_Act_On_The_Wrapped_VM(string kind)
+    public void FWD_006_Decorator_Notification_Helpers_Act_On_The_Wrapped_VM(string kind)
     {
         using var hub = new TestHub();
         var dispatcher = new TestDispatcher();

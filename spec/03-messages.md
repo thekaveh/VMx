@@ -206,7 +206,11 @@ These rules apply to the hub and to the library channels below (ADR-0191):
 - command `CanExecuteChanged` and the trigger subscriptions (chapter 04 §4);
 - the local collection-change channels of the hub-publishing collections and
   of `CompositeVM` and `GroupVM`, and the dictionary's granular events
-  (chapter 01 §1.4, chapter 21 §2.5).
+  (chapter 01 §1.4, chapter 21 §2.5);
+- the granular, `Reset` and `Count` notifications of `ObservableList`, the
+  dictionary's key views, and the C# `Count` and `Item[]` `PropertyChanged`
+  handlers of the serviced collections (chapter 21 §2.5, §3.3, §4.6,
+  ADR-0220).
 
 Only these deliveries are *call-fed*:
 
@@ -240,10 +244,9 @@ trigger emission, a debounce timer, a `SearchableState` term change and a
    C# Rx disposes such a subscription when its callback throws.
 
 These rules do not fix the order among the subscribers of one delivery. Only
-`AggregateChangeStream` fixes it (chapter 21 §9.5). They do not cover
-`PropertyChanged` handlers, the dictionary key views, `AggregateChangeStream`
-subscriber failures (chapter 21 §9.5), or a failing `DerivedProperty`
-transform or source.
+`AggregateChangeStream` fixes it (chapter 21 §9.5). They do not cover other
+`PropertyChanged` handlers, `AggregateChangeStream` subscriber failures
+(chapter 21 §9.5), or a failing `DerivedProperty` transform or source.
 
 ## 4. Threading
 

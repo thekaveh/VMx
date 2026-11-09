@@ -1,6 +1,6 @@
 # ADR 0151 — Forwarding decorators register owned resources on the wrapped component
 
-- **Status:** Accepted (Decision rule 3 superseded by ADR-0213)
+- **Status:** Accepted (Decision rule 3 superseded by ADR-0213; extended by ADR-0221)
 - **Date:** 2026-10-22
 - **Spec version:** 3.30.0
 - **Related:** [ADR-0090](0090-owned-resource-registration-and-public-hub.md) (owned-resource

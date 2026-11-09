@@ -75,9 +75,23 @@ decorator or directly, in the LIFO order shared by every registration on that
 identity (`DISP-007`). A registration through a decorator whose wrapped
 component is already disposed releases the resource at once (`DISP-010`). A
 decorator that overrides `dispose()` without forwarding keeps its registrations
-until the wrapped component is disposed. In C#, Python, and TypeScript, a
-decorator can wrap a component that does not derive from the VMx base class;
-such a decorator cannot register resources, and the call fails.
+until the wrapped component is disposed.
+
+A decorator's property notification helpers (`05-component-vm.md` §2.3) also
+act on the canonical ownership identity (ADR-0221):
+
+- One call of the dual-channel helper sends one `PropertyChangedMessage` whose
+  sender is the wrapped component. The decorator's property-changed stream,
+  which is the wrapped component's stream, emits the name once.
+- One call of the local-only raise primitive emits the name once on that
+  stream and sends no hub message. Rust has no local-only primitive.
+- After the wrapped component is disposed, neither helper emits on either
+  channel.
+
+C# decorators expose the helpers as protected `NotifyPropertyChanged` and
+`RaisePropertyChanged`. In C#, Python, and TypeScript, a decorator can wrap a
+component that does not derive from the VMx base class; such a decorator cannot
+register resources or report a property change, and the call fails.
 
 ## 2. `ForwardingCompositeVM<VM>`
 
@@ -99,14 +113,15 @@ own the wrapped's lifetime.
 
 A forwarding composite used as a child of another container follows the §1
 ownership rules: one ownership identity with the wrapped composite, and
-transparent parent and current flags. Its owned-resource helper follows §1 in
-C#, Python, TypeScript, Swift, and Rust. The Rust `ForwardingCompositeVm`
-implements `VmNode` by forwarding every node method to the wrapped composite,
-so a composite, group, or aggregate accepts it as a child (ADR-0205).
+transparent parent and current flags. Its owned-resource and property
+notification helpers follow §1 in C#, Python, TypeScript, Swift, and Rust. The
+Rust `ForwardingCompositeVm` implements `VmNode` by forwarding every node method
+to the wrapped composite, so a composite, group, or aggregate accepts it as a
+child (ADR-0205).
 
 ## 3. Conformance
 
-`FWD-001` through `FWD-005` in `12-conformance.md` cover:
+`FWD-001` through `FWD-006` in `12-conformance.md` cover:
 
 - default delegation of every member to the wrapped VM
 - transparent use as a composite or group child, including selection commands
@@ -114,6 +129,8 @@ so a composite, group, or aggregate accepts it as a child (ADR-0205).
 - ForwardingCompositeVM forwards iteration
 - pre-owned and multiply decorated components retain one transferable owner
 - resources registered through a decorator belong to the wrapped component
+- a decorator's property notification helpers emit through the wrapped
+  component, with the wrapped component as the hub message sender
 
 Forwarded disposal inherits `DISP-001`: repeated wrapper disposal may reach the
 wrapped instance repeatedly at the call boundary, but the wrapped VM performs

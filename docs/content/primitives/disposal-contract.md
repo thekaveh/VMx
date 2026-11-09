@@ -328,10 +328,11 @@ flavor unless the exceptions below say otherwise.
 - `AsyncRelayCommand`, `CompositeCommand`, `DecoratorCommand`, and
   `ConfirmationDecoratorCommand` claim disposal through an atomic disposed
   state.
-- `CompositeCommand` and `DecoratorCommand` dispose their change hub once and
-  release child-hub subscriptions. Clones share the disposed state.
-- `ConfirmationDecoratorCommand` disposes its error hub once and releases error
-  subscribers. Confirmation and execution are inert.
+- `CompositeCommand`, `DecoratorCommand`, and `ConfirmationDecoratorCommand`
+  release their inner-hub subscriptions, send one message on their own change
+  hub, and dispose it once. Clones share the disposed state.
+- `ConfirmationDecoratorCommand` also disposes its error hub once and releases
+  error subscribers. Confirmation and execution are inert.
 - `DerivedProperty`, `ExpandableState`, `SearchableState`, and
   `DiscriminatorVm` dispose their hubs once instead of completing streams.
   `DiscriminatorVm` also disposes its key stream. `DerivedProperty` recompute
