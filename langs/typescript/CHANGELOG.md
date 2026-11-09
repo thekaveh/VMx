@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - `ModeledCrudCommandsOptions.currentChanged`, an optional observable
-  (#1346, spec/06 §7, ADR-0049). The helper wires it as a trigger on the
+  (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
   Update and Delete commands, so their `canExecuteChanged` fires when the
   selection changes. `dispose()` releases the trigger subscriptions. A helper
-  built without the trigger behaves as before.
+  built without the trigger behaves as before. Spec/06 §7 still says this
+  helper accepts no trigger. Its update needs an ADR and is tracked in #1346.
 
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view

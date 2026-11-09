@@ -15,11 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `OperationQueue`. The lifespan and decay-tick timers run on the injected
   scheduler, and the VMs have no lock, so pass a serial scheduler on the
   thread that uses the VM, such as `DispatchQueue.main`. Callers that pass a
-  `VirtualTimeScheduler` compile unchanged. The initializers are now generic,
-  so a subclass that overrides `init(notification:hub:scheduler:lifespan:tickInterval:)`
-  must declare its override as generic over `NotificationScheduler`. The notes
-  showcase passes `DispatchQueue.main` and no longer advances a virtual clock
-  from a one-second `Timer`.
+  `VirtualTimeScheduler` compile unchanged. The notes showcase passes
+  `DispatchQueue.main` and no longer advances a virtual clock from a
+  one-second `Timer`.
 
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
@@ -82,6 +80,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   background child is waited for in that order. Construct order does not
   change, and every child is still disposed before the container publishes
   `.disposed` (LIFE-013). The default, `.insertion`, keeps today's order.
+
+### Changed
+
+- **BREAKING:** The `NotificationVM` and `ConfirmationVM` designated
+  initializers are now generic over `S: NotificationScheduler` (#1347). This
+  is source-breaking for a subclass of the `open` class `NotificationVM` that
+  overrides `init(notification:hub:scheduler:lifespan:tickInterval:)` with a
+  `VirtualTimeScheduler` parameter. Such an override no longer compiles, and it
+  must be declared generic over `NotificationScheduler`. Callers that only
+  construct the VMs are not affected. An ADR for #1347 still has to record this
+  decision and its version consequence.
 
 ### Fixed
 

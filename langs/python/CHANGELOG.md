@@ -9,10 +9,11 @@ All notable changes to the Python flavor are documented here. The format is base
 ### Added
 
 - `ModeledCrudCommands` accepts an optional `current_changed` observable
-  (#1346, spec/06 §7, ADR-0049). The helper wires it as a trigger on the
+  (#1346, ADR-0049, spec/04 §4.2). The helper wires it as a trigger on the
   Update and Delete commands, so their `can_execute_changed` fires when the
   selection changes. `dispose()` releases the trigger subscriptions. A helper
-  built without the trigger behaves as before.
+  built without the trigger behaves as before. Spec/06 §7 still says this
+  helper accepts no trigger. Its update needs an ADR and is tracked in #1346.
 
 ### Fixed
 
