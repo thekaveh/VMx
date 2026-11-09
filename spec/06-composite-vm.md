@@ -11,9 +11,9 @@ selected one.
 | `CompositeVM<VM>` (non-modeled) | builder factory `() -> Iterable<VM>`                 | yes       |
 | `CompositeVM<M, VM>` (modeled)  | model factory `() -> Iterable<M>` + mapper `M -> VM` | yes       |
 
-The non-modeled builder factory is evaluated on `construct()`, as for `GroupVM`
-(chapter 07 §3). Open Rust gap: Rust's `CompositeVmBuilder::build()` evaluates
-the factory and attaches the initial population at build time.
+The non-modeled builder factory is evaluated once, on the first `construct()`,
+as for `GroupVM` (chapter 07 §3). A built composite has no children before
+then (ADR-0204).
 
 For domains that are natively recursive (trees), use `HierarchicalVM<TModel, TVM>` (chapter 18) instead of
 recursively nesting `CompositeVM<M, VM>`. `HierarchicalVM` provides built-in parent / depth / path semantics

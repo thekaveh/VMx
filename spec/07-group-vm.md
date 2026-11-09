@@ -80,11 +80,9 @@ publishes `Disposed` first (chapter 02 §7).
 
 The builder accepts:
 
-- `children : () -> Iterable<VM>` (factory, evaluated on `construct()`).
+- `children : () -> Iterable<VM>` (factory, evaluated once, on the first
+  `construct()`; a built group has no children before then, ADR-0204).
 - `DestructOrder : ChildOrder` (optional, default `Insertion`; §2, ADR-0161).
-
-Open Rust gap: Rust's `GroupVmBuilder::build()` evaluates the `children` factory
-and attaches the initial population at build time, not on `construct()`.
 
 The modeled variant (if needed) follows the same pattern as `CompositeVM<M, VM>`.
 Only the non-modeled variant currently ships.

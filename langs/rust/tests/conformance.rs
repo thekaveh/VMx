@@ -6,6 +6,7 @@ mod conformance {
     mod async_value;
     mod auto_construct_during_constructing;
     mod background_child_settle;
+    mod builder_population;
     mod builders;
     mod capabilities;
     mod child_transition_helper;
@@ -21,6 +22,7 @@ mod conformance {
     mod construct_walk_membership;
     mod container_disposal_wait_cycle;
     mod container_hook_disposal;
+    mod container_members;
     mod cross_thread_membership;
     mod derived_properties;
     mod dialogs;
