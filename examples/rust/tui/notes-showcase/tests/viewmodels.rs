@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::thread;
 use std::time::Duration;
-use vmx::{ConstructionStatus, NotificationType, VmNode};
+use vmx::{Command, ConstructionStatus, NotificationReaction, NotificationType, VmNode};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -427,6 +427,55 @@ fn notifications_over_the_cap_are_dismissed() {
     let messages = notifications.messages();
     assert_eq!(messages.len(), 5);
     assert_eq!(messages.last().map(String::as_str), Some("n7"));
+}
+
+/// A disposed notification entry has an inert dismiss command.
+fn is_disposed(vm: &vmx::NotificationVm) -> bool {
+    !vm.dismiss_command().can_execute()
+}
+
+#[test]
+fn a_resolved_notification_entry_is_disposed() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    let id = notifications.post(NotificationType::Notification, "saved");
+    let entry = notifications.visible()[0].clone();
+
+    notifications.resolve(id, NotificationReaction::Approve);
+
+    assert!(notifications.visible().is_empty());
+    assert!(is_disposed(&entry));
+}
+
+#[test]
+fn a_notification_dropped_over_the_cap_is_dismissed_and_disposed() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    notifications.post(NotificationType::Notification, "oldest");
+    let oldest = notifications.visible()[0].clone();
+
+    for index in 0..5 {
+        notifications.post(NotificationType::Notification, format!("n{index}"));
+    }
+
+    assert!(oldest.is_resolved());
+    assert!(is_disposed(&oldest));
+    assert!(notifications.visible().iter().all(|vm| !is_disposed(vm)));
+}
+
+#[test]
+fn workspace_dispose_disposes_the_remaining_notification_entries() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    notifications.post(NotificationType::Notification, "first");
+    notifications.post(NotificationType::Confirmation, "second");
+    let entries = notifications.visible();
+
+    workspace.dispose().unwrap();
+
+    assert_eq!(entries.len(), 2);
+    assert!(entries.iter().all(is_disposed));
+    assert!(notifications.visible().is_empty());
 }
 
 #[test]

@@ -24,7 +24,9 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
 - `GlobalSearchVm` keeps its term in a `SearchableState` and pages repository
   search results with `TokenPagedComposition`. Load More continues the term of
   the loaded pages, as in the four flagships.
-- `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers.
+- `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers. It
+  disposes each entry it removes and, on disposal, every remaining entry, as
+  in the four flagships.
 - `EditorModeVm` uses `DiscriminatorVm` for edit/preview switching.
 
 ## 8.5.2. Parity Scope

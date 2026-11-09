@@ -733,30 +733,46 @@ impl NotificationsVm {
 
     pub fn post(&self, kind: NotificationType, message: impl Into<String>) -> u64 {
         let notification = self.hub.post(kind, message);
-        let dropped = {
+        let (resolved, dropped) = {
             let mut active = lock(&self.active_vms);
             // Entries resolved through the hub must not hold a cap slot.
-            active.retain(|vm| !vm.is_resolved());
+            let resolved = active
+                .extract_if(.., |vm| vm.is_resolved())
+                .collect::<Vec<_>>();
             active.push(NotificationVm::with_hub(
                 notification.clone(),
                 self.hub.clone(),
                 60_000,
             ));
             let excess = active.len().saturating_sub(NOTIFICATION_CAP);
-            active.drain(..excess).collect::<Vec<_>>()
+            (resolved, active.drain(..excess).collect::<Vec<_>>())
         };
+        // A removed entry is disposed, as in spec 16 §8.1.
+        for vm in resolved {
+            vm.dispose();
+        }
         // Over the cap, the oldest are dismissed, not just hidden, so the
         // hub's pending list stays bounded too.
         for vm in dropped {
-            self.hub
-                .resolve(vm.notification().id, NotificationReaction::Approve);
+            vm.dismiss();
+            vm.dispose();
         }
         notification.id
     }
 
     pub fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
         self.hub.resolve(notification_id, reaction);
-        lock(&self.active_vms).retain(|vm| !vm.is_resolved());
+        let resolved = lock(&self.active_vms)
+            .extract_if(.., |vm| vm.is_resolved())
+            .collect::<Vec<_>>();
+        for vm in resolved {
+            vm.dispose();
+        }
+    }
+
+    /// Returns the entries that are still pending, oldest first.
+    pub fn visible(&self) -> Vec<NotificationVm> {
+        lock(&self.active_vms).clone()
     }
 
     pub fn messages(&self) -> Vec<String> {
@@ -771,7 +787,10 @@ impl NotificationsVm {
 impl NotificationsVm {
     /// Releases the primitives this view-model owns once its core is disposed.
     fn release_owned(&self) {
-        lock(&self.active_vms).clear();
+        let remaining = std::mem::take(&mut *lock(&self.active_vms));
+        for vm in remaining {
+            vm.dispose();
+        }
         self.hub.dispose();
     }
 }
