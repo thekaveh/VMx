@@ -510,6 +510,11 @@ public final class WorkspaceVM {
         ), !path.isEmpty else { return }
         let (notebooks, notes) = try await _repo.loadAll()
         try await _repo.export(notebooks: notebooks, notes: notes, path: path)
+        // The scenario's Export step confirms the written file with a toast.
+        publishNotification(
+            VMx.Notification(type: .notification, message: "Exported to \(path)"),
+            to: _notificationHub
+        )
     }
 
     // MARK: - Lifecycle

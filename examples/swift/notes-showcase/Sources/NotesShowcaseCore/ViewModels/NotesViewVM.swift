@@ -455,21 +455,17 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
     }
 
     /// Recomputes `filteredItems` by blending `showStarredOnly` + custom `filter`
-    /// + the current search term (case-insensitive match on title / body / tags).
+    /// + the current search term (`NoteModel.matches(searchTerm:)`, the rule
+    /// every showcase shares).
     /// Updates the paged source and fires property-changed signals.
     private func recomputeFiltered() {
-        let term = _search.searchTerm.lowercased()
+        let term = _search.searchTerm
         var filtered: [NoteVM] = []
         for i in 0..<_inner.count {
             let n = _inner.at(i)
             if _showStarredOnly && !n.starred { continue }
             if let f = _filter, !f(n) { continue }
-            if !term.isEmpty {
-                let matchTitle = n.title.lowercased().contains(term)
-                let matchBody  = n.body.lowercased().contains(term)
-                let matchTags  = n.tags.contains { $0.lowercased().contains(term) }
-                if !matchTitle && !matchBody && !matchTags { continue }
-            }
+            if !n.model.matches(searchTerm: term) { continue }
             filtered.append(n)
         }
         _filteredItems = filtered

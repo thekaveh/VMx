@@ -85,17 +85,9 @@ public sealed class InMemoryNoteRepository : INoteRepository
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var normalized = term.Trim().ToLowerInvariant();
             var start = int.TryParse(token, out var parsed) && parsed > 0 ? parsed : 0;
             var safePageSize = Math.Max(1, pageSize);
-            var matches = _notes
-                .Where(n =>
-                {
-                    if (normalized.Length == 0) return true;
-                    var haystack = $"{n.Title} {n.Body} {string.Join(" ", n.Tags)}".ToLowerInvariant();
-                    return haystack.Contains(normalized, StringComparison.Ordinal);
-                })
-                .ToList();
+            var matches = _notes.Where(n => NoteSearch.Matches(n, term)).ToList();
             var items = matches.Skip(start).Take(safePageSize).ToList();
             var next = start + items.Count;
             return new NoteSearchPage(items, next < matches.Count ? next.ToString() : null);

@@ -94,13 +94,13 @@ shipping translated application catalogs is outside this example scenario.
 | 4   | `FormVM` snapshot/revert/validation (ch. 20) — note editor with title errors | Yes | Yes | Yes | Yes |
 | 5   | `DerivedProperty` (ch. 15) — status bar, `isDirty`, capability actions | Yes | Yes      | Yes                | Yes             |
 | 6   | `RelayCommand` + `AsyncRelayCommand` reactive `canExecute` (ch. 4) — persistence-backed workspace, notebook, form, capability, Save, and Delete actions are awaitable; repository failures remain observable and success notifications follow persistence | Yes | Yes | Yes | Yes |
-| 7   | `SearchableState` + `IFilterable<TItem>` (ch. 14 §2.5–2.6) — title search + starred filter | Yes | Yes | Yes | Yes |
+| 7   | `SearchableState` + `IFilterable<TItem>` (ch. 14 §2.5–2.6) — note search + starred filter. The notes list and the global search share one rule: the term is trimmed, an empty term matches every note, and otherwise a note matches when its title, its body or one of its tags contains the term, ignoring case | Yes | Yes | Yes | Yes |
 | 8   | `IPageable` + `PagedComposition` (ch. 14 §2.10, ch. 21) — notes pagination | Yes | Yes           | Yes                | Yes             |
 | 9   | `INotificationHub` + `NotificationVM` (ch. 16) — toast region | Yes   | Yes              | Yes                | Yes             |
 | 10  | Async `construct()` + dispatcher (ch. 2, 11) — workspace load + notebook switch + save[^dispatcher] | Yes | Yes | Yes | Yes |
 | 11  | `TreeStructureChangedMessage` (ch. 18) — add notebook re-publishes tree | Yes | Yes           | Yes                | Yes             |
 | 12  | `ConfirmationDecoratorCommand` (ch. 4) — delete confirm | Yes         | Yes              | Yes                | Yes             |
-| 13  | `IDialogService` (ch. 19) — export → save-file dialog | Yes           | Yes              | Yes                | Yes             |
+| 13  | `IDialogService` (ch. 19) — export → save-file dialog, then a notification once the file is written | Yes | Yes | Yes | Yes |
 | 14  | Capability-aware UI (ch. 14 §4) — capability action bar[^readonly] | Yes   | Yes              | Yes                | Yes             |
 | 15  | `AggregateVM6` (ch. 8) — `WorkspaceVM` composes 6 children | Yes | Yes         | Yes                | Yes             |
 | 16  | `ThemeVM` scenario contract (proposal 2026-06-02) — palette + accent + font scale + high contrast as a VM, and the theme control strip of §2.2[^theme] | Yes | Yes | Yes | Yes |

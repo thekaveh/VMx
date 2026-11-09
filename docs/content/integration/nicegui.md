@@ -28,6 +28,7 @@ only source of the value. The hub never carries lifecycle `status` as a
 | `ui.input` value + `on_value_change`          | `bind_property_two_way`, without echoes                                                                                                                 |
 | `ui.button(on_click=…)` + `set_enabled`       | `bind_command`: `execute()`, enabled follows `can_execute()`; a failure on the command's `errors` channel is logged and shown in a negative `ui.notify` |
 | page-local `@ui.refreshable` builder          | `bind_refreshable` on a collection's change stream                                                                                                      |
+| notifications label (`ui.label`)              | `bind_property` on `NotificationsVM.visible`: one line per active notification, such as the save message; every tab shows each one                      |
 | `app.on_startup` (async handlers not awaited) | capture the running loop: `RxDispatcher.asyncio(loop)`                                                                                                  |
 | `client.on_delete`                            | release the page's bindings                                                                                                                             |
 | `app.on_shutdown` (awaited)                   | release pages, dispose the VMs, shut down the dispatcher pool                                                                                           |
@@ -233,6 +234,7 @@ async def build_page(host: NotesHost) -> None:
     with ui.row().classes("w-full no-wrap"):
         bindings = [_notebooks_pane(workspace), *_notes_pane(workspace), *_editor_pane(workspace)]
     bindings.append(bind_derived_property(status, "text", workspace.status_bar.note_count_text))
+    bindings.append(notifications_strip(workspace.notifications))
     host.adopt(release_on_delete(*bindings))
 ```
 

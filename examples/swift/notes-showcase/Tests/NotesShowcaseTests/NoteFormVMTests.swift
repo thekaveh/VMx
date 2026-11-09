@@ -107,6 +107,76 @@ private actor PendingSaveRepository: NoteRepository {
     }
 }
 
+private struct SaveFailure: Error {}
+
+/// Writes each save when it starts, then holds its answer until the test
+/// releases that save, so saves can settle out of order (#1379).
+private actor WriteFirstRepository: NoteRepository {
+    private let store = InMemoryNoteRepository(
+        seed: SeedData.build(),
+        loadAllDelay: 0,
+        loadNotesDelay: 0,
+        saveNoteDelay: 0
+    )
+    private var held: [CheckedContinuation<Void, Never>?] = []
+    /// Indexes of the saves that throw when released, before they write.
+    private var failing: Set<Int> = []
+
+    var heldCount: Int { held.count }
+
+    func fail(_ index: Int) { failing.insert(index) }
+
+    func release(_ index: Int) {
+        let continuation = held[index]
+        held[index] = nil
+        continuation?.resume()
+    }
+
+    func saveNote(_ note: NoteModel) async throws {
+        let index = held.count
+        let fails = failing.contains(index)
+        if !fails { try await store.saveNote(note) }
+        await withCheckedContinuation { held.append($0) }
+        if fails { throw SaveFailure() }
+    }
+
+    func loadAll() async throws -> (notebooks: [NotebookModel], notes: [NoteModel]) {
+        try await store.loadAll()
+    }
+
+    func loadNotes(notebookId: String) async throws -> [NoteModel] {
+        try await store.loadNotes(notebookId: notebookId)
+    }
+
+    func searchNotes(
+        term: String,
+        token: String?,
+        pageSize: Int
+    ) async throws -> (items: [NoteModel], nextToken: String?) {
+        try await store.searchNotes(term: term, token: token, pageSize: pageSize)
+    }
+
+    func deleteNote(id: String) async throws { try await store.deleteNote(id: id) }
+    func addNotebook(_ notebook: NotebookModel) async throws { try await store.addNotebook(notebook) }
+    func export(
+        notebooks: [NotebookModel],
+        notes: [NoteModel],
+        path: String
+    ) async throws {
+        try await store.export(notebooks: notebooks, notes: notes, path: path)
+    }
+}
+
+/// Records the notes that `onSaved` publishes, from any thread.
+private final class SavedRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _titles: [String] = []
+    var cancellables = Set<AnyCancellable>()
+
+    func record(_ note: NoteModel) { lock.withLock { _titles.append(note.title) } }
+    var titles: [String] { lock.withLock { _titles } }
+}
+
 // MARK: - NoteFormVMTests
 
 final class NoteFormVMTests: XCTestCase {
@@ -407,6 +477,168 @@ final class NoteFormVMTests: XCTestCase {
         // The settle does not clobber edits made after the return.
         XCTAssertEqual("Unsaved body", ws.noteForm.body)
         XCTAssertTrue(ws.noteForm.isDirty)
+    }
+
+    // MARK: - Save order (#1379)
+
+    func testAnOlderSaveThatSettlesLast_keepsTheNewerValues() async throws {
+        let repo = WriteFirstRepository()
+        let ws = try WorkspaceVM.builder().repository(repo).build()
+        try await ws.constructAsync()
+        defer { ws.dispose() }
+        let note = try XCTUnwrap(ws.notesView.visibleItems.first)
+        let other = try XCTUnwrap(ws.notesView.visibleItems.first { $0 !== note })
+        let noteId = note.model.id
+        let form = ws.noteForm
+
+        // The approve command admits one run at a time, so the test starts
+        // each save through approveAsync, as a second Save path can.
+        ws.notesView.current = note
+        form.title = "Older title"
+        let saveA = Task { try await form.approveAsync() }
+        await waitUntilAsync { await repo.heldCount == 1 }
+        // Leave the note and return while save A is held, then start save B.
+        ws.notesView.current = other
+        ws.notesView.current = note
+        XCTAssertNotEqual("Older title", form.title)
+        form.title = "Newer title"
+        let saveB = Task { try await form.approveAsync() }
+        await waitUntilAsync { await repo.heldCount == 2 }
+
+        // The newer save settles first, then the older one.
+        await repo.release(1)
+        try await saveB.value
+        await repo.release(0)
+        try await saveA.value
+
+        XCTAssertEqual("Newer title", form.title)
+        XCTAssertFalse(form.isDirty)
+        await waitUntil { note.model.title == "Newer title" }
+        XCTAssertEqual("Newer title", note.model.title, "the list row shows the newer save")
+
+        // A later save stores the newer values.
+        form.body = "Body after both saves"
+        let saveC = Task { try await form.approveAsync() }
+        await waitUntilAsync { await repo.heldCount == 3 }
+        await repo.release(2)
+        try await saveC.value
+        let stored = try await repo.loadAll().notes.first { $0.id == noteId }
+        XCTAssertEqual("Newer title", stored?.title)
+        XCTAssertEqual("Body after both saves", stored?.body)
+    }
+
+    func testAnOlderSave_showsWhenTheNewerSaveFails() async throws {
+        // The newer save fails and the older one succeeds, in both settle
+        // orders. The list row shows the older save's values, which the
+        // repository keeps.
+        for olderSettlesFirst in [true, false] {
+            try await assertAnOlderSaveShowsWhenTheNewerSaveFails(olderSettlesFirst: olderSettlesFirst)
+        }
+    }
+
+    private func assertAnOlderSaveShowsWhenTheNewerSaveFails(olderSettlesFirst: Bool) async throws {
+        let repo = WriteFirstRepository()
+        await repo.fail(1)
+        let ws = try WorkspaceVM.builder().repository(repo).build()
+        try await ws.constructAsync()
+        defer { ws.dispose() }
+        let note = try XCTUnwrap(ws.notesView.visibleItems.first)
+        let other = try XCTUnwrap(ws.notesView.visibleItems.first { $0 !== note })
+        let noteId = note.model.id
+        let form = ws.noteForm
+
+        ws.notesView.current = note
+        form.title = "Older title"
+        let saveA = Task { try? await form.approveAsync() }
+        await waitUntilAsync { await repo.heldCount == 1 }
+        ws.notesView.current = other
+        ws.notesView.current = note
+        form.title = "Newer title"
+        let saveB = Task { try? await form.approveAsync() }
+        await waitUntilAsync { await repo.heldCount == 2 }
+
+        let order = olderSettlesFirst ? [(0, saveA), (1, saveB)] : [(1, saveB), (0, saveA)]
+        for (index, save) in order {
+            await repo.release(index)
+            await save.value
+        }
+
+        let stored = try await repo.loadAll().notes.first { $0.id == noteId }
+        XCTAssertEqual("Older title", stored?.title, "olderSettlesFirst: \(olderSettlesFirst)")
+        await waitUntil { note.model.title == "Older title" }
+        XCTAssertEqual(
+            "Older title", note.model.title,
+            "the list row shows the older save; olderSettlesFirst: \(olderSettlesFirst)"
+        )
+        // The failed save keeps its unsaved edits in the editor.
+        XCTAssertEqual("Newer title", form.title)
+    }
+
+    func testASaveAdoptedOnADeferredForeground_showsOnlyAfterTheForegroundRuns() async throws {
+        // #1379: the workspace runs adoptSaved through the foreground
+        // dispatcher. A deferred dispatcher shows that path.
+        let repo = PendingSaveRepository()
+        let dispatcher = ManualDispatcher()
+        let form = try NoteFormVM.builder()
+            .name("form")
+            .services(hub: MessageHub(), dispatcher: dispatcher)
+            .repository(repo)
+            .build()
+        try form.construct()
+        defer { form.dispose() }
+        let saved = SavedRecorder()
+        form.onSaved
+            .sink { [saved] note in saved.record(note) }
+            .store(in: &saved.cancellables)
+        let notes = SeedData.build().notes
+        let note = try XCTUnwrap(notes.first { $0.title == "Standup notes" })
+        let other = try XCTUnwrap(notes.first { $0.id != note.id })
+
+        form.bindTo(note)
+        form.title = "Renamed"
+        let finished = SavedRecorder()
+        let save = Task {
+            try await form.approveAsync()
+            finished.record(note)
+        }
+        await repo.waitForPendingSave()
+        // Leave the note and return while the save is held.
+        form.bindTo(other)
+        form.bindTo(note)
+        await repo.releasePendingSave()
+        await waitUntil { saved.titles == ["Renamed"] }
+
+        // The save settled, but its foreground work has not run yet.
+        XCTAssertEqual(["Renamed"], saved.titles)
+        XCTAssertEqual("Standup notes", form.title)
+
+        dispatcher.flushForeground()
+        XCTAssertEqual("Renamed", form.title)
+        XCTAssertFalse(form.isDirty)
+
+        // Let the rest of the approval run on the deferred foreground.
+        for _ in 0..<2_000 where finished.titles.isEmpty {
+            dispatcher.flushForeground()
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        // Fail here, not in a hang, when the approval never finished.
+        XCTAssertFalse(finished.titles.isEmpty, "the approval finished on the deferred foreground")
+        guard !finished.titles.isEmpty else {
+            save.cancel()
+            return
+        }
+        try await save.value
+        XCTAssertEqual("Renamed", form.title)
+    }
+
+    private func waitUntilAsync(
+        _ condition: @escaping () async -> Bool,
+        attempts: Int = 1_000
+    ) async {
+        for _ in 0..<attempts {
+            if await condition() { return }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
     }
 
     // MARK: - Deny

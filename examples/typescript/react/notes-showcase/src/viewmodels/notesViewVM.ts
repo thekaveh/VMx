@@ -34,7 +34,7 @@ import {
 } from "@thekaveh/vmx";
 import { type INotificationHub } from "@thekaveh/vmx/notifications";
 
-import type { NoteModel } from "../models/noteModel.js";
+import { type NoteModel, noteMatches } from "../models/noteModel.js";
 import type { INoteRepository } from "../models/noteRepository.js";
 import { type IDialogService } from "./dialogService.js";
 import { NoteVM } from "./noteVM.js";
@@ -430,16 +430,12 @@ export class NotesViewVM extends ComponentVMBase {
   }
 
   #recomputeFiltered(): void {
-    const term = this.#search.searchTerm.trim().toLowerCase();
+    const term = this.#search.searchTerm;
     this.#filtered.length = 0;
     for (const n of this.#inner) {
       if (this.#showStarredOnly && !n.model.starred) continue;
       if (this.#filter !== null && !this.#filter(n)) continue;
-      if (term.length > 0) {
-        const haystack =
-          (n.title + " " + n.body + " " + n.tags.join(" ")).toLowerCase();
-        if (!haystack.includes(term)) continue;
-      }
+      if (!noteMatches(n.model, term)) continue;
       this.#filtered.push(n);
     }
     // The paged view reads #filtered through a factory, so it gets no mutation

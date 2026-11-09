@@ -29,7 +29,9 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
   the loaded pages, as in the four flagships.
 - `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers. It
   disposes each entry it removes and, on disposal, every remaining entry, as
-  in the four flagships.
+  in the four flagships. `visible()` lists only pending entries: it removes
+  and disposes an entry that its dismiss command, its lifespan or the hub
+  resolved. After disposal, `post()` adds no entry.
 - `EditorModeVm` uses `DiscriminatorVm` for edit/preview switching.
 
 ## 8.5.2. Parity Scope

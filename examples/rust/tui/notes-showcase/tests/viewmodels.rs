@@ -715,3 +715,195 @@ fn select_next_and_previous_note_stay_on_the_visible_page() {
     let current = workspace.notes().current_note().expect("a current note");
     assert_eq!(current.id, "rust-parity");
 }
+
+/// The two notes of the cross-flavor search-rule tests (#1330).
+fn search_rule_workspace() -> WorkspaceVm {
+    let note = |id: &str, title: &str, tags: &[&str]| NoteModel {
+        id: id.to_string(),
+        notebook_id: "inbox".to_string(),
+        title: title.to_string(),
+        body: format!("(seed body for {title})"),
+        tags: tags.iter().map(|tag| tag.to_string()).collect(),
+        starred: false,
+    };
+    let repository = InMemoryNoteRepository::new(
+        vec![NotebookModel {
+            id: "inbox".to_string(),
+            title: "Inbox".to_string(),
+        }],
+        vec![
+            note("a", "Auth migration plan", &["security", "q2"]),
+            note("b", "Standup notes", &[]),
+        ],
+    );
+    WorkspaceVm::new(repository).expect("workspace builds")
+}
+
+/// Each query of the search-rule tests and the titles it matches. The term
+/// is trimmed, an empty term matches every note, and a note matches when its
+/// title, its body or one tag contains the term, ignoring case.
+const SEARCH_RULE_CASES: [(&str, &[&str]); 3] = [
+    ("plan ", &["Auth migration plan"]),
+    ("  ", &["Auth migration plan", "Standup notes"]),
+    ("notes (seed", &[]),
+];
+
+#[test]
+fn the_notes_list_search_trims_the_term_and_matches_each_field() {
+    let workspace = search_rule_workspace();
+    for (query, expected) in SEARCH_RULE_CASES {
+        workspace.set_search_term(query);
+        assert_eq!(workspace.notes().visible_titles(), expected, "{query:?}");
+    }
+}
+
+#[test]
+fn the_global_search_trims_the_term_and_matches_each_field() {
+    let workspace = search_rule_workspace();
+    let search = workspace.global_search();
+    for (query, expected) in SEARCH_RULE_CASES {
+        search.set_query(query);
+        search.refresh();
+        assert_eq!(search.result_titles(), expected, "{query:?}");
+    }
+}
+
+#[test]
+fn an_entry_dismissed_by_a_clone_of_its_command_leaves_the_visible_list() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    notifications.post(NotificationType::Notification, "saved");
+    let entry = notifications.visible()[0].clone();
+    let dismiss = entry.dismiss_command().clone();
+
+    dismiss.execute();
+
+    assert!(notifications.messages().is_empty());
+    assert!(notifications.visible().is_empty());
+    assert!(!entry.dismiss_command().can_execute());
+}
+
+#[test]
+fn an_entry_resolved_through_the_hub_leaves_the_visible_list() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+    let id = notifications.post(NotificationType::Notification, "saved");
+    let kept = notifications.post(NotificationType::Notification, "kept");
+    let entry = notifications.visible()[0].clone();
+
+    notifications
+        .hub()
+        .resolve(id, NotificationReaction::Approve);
+
+    let visible = notifications.visible();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].notification().id, kept);
+    assert!(!entry.dismiss_command().can_execute());
+}
+
+#[test]
+fn a_post_after_workspace_disposal_adds_no_entry() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+
+    workspace.dispose().unwrap();
+    notifications.post(NotificationType::Notification, "late");
+
+    assert!(notifications.visible().is_empty());
+    assert!(notifications.messages().is_empty());
+}
+
+#[test]
+fn a_same_term_refresh_that_no_load_discards_fetches_the_first_page_once() {
+    let repository = InMemoryNoteRepository::seeded();
+    let fetches = Arc::new(Mutex::new(0_usize));
+    repository.set_search_hook({
+        let fetches = Arc::clone(&fetches);
+        move |term, offset| {
+            if term == "in" && offset == 0 {
+                *fetches.lock().unwrap() += 1;
+            }
+        }
+    });
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let search = workspace.global_search();
+    search.set_query("in");
+    search.refresh();
+    assert_eq!(*fetches.lock().unwrap(), 1);
+
+    // A changed first page is replaced by one fetch, too.
+    repository
+        .delete_note("release-channels")
+        .expect("the note exists");
+    search.refresh();
+
+    assert_eq!(*fetches.lock().unwrap(), 2);
+    let titles = search.result_titles();
+    assert_eq!(
+        titles.first().map(String::as_str),
+        Some("Documentation refresh")
+    );
+    assert_results_match_once(&titles, &repository, "in");
+}
+
+/// Refreshes `in`, deletes the first match, and then runs `refresh()` and
+/// `load_more()` together for the unchanged term (#1469).
+fn race_same_term_refresh_and_load_more(run: usize) {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let search = workspace.global_search();
+    search.set_query("in");
+    search.refresh();
+    assert_eq!(
+        search.result_titles(),
+        vec!["Release channels", "Documentation refresh"]
+    );
+    repository
+        .delete_note("release-channels")
+        .expect("the note exists");
+    // A short first-page fetch gives a racing load time to start during the
+    // refresh and discard it.
+    repository.set_search_hook(|term, offset| {
+        if term == "in" && offset == 0 {
+            thread::sleep(Duration::from_micros(200));
+        }
+    });
+
+    let start = Arc::new(Barrier::new(2));
+    let (done, settled) = mpsc::channel();
+    for refresh in [true, false] {
+        let search = search.clone();
+        let start = Arc::clone(&start);
+        let done = done.clone();
+        thread::spawn(move || {
+            start.wait();
+            if refresh {
+                search.refresh();
+            } else {
+                search.load_more();
+            }
+            let _ = done.send(());
+        });
+    }
+    for _ in 0..2 {
+        settled
+            .recv_timeout(TIMEOUT)
+            .unwrap_or_else(|_| panic!("run {run}: refresh and load more settle"));
+    }
+
+    let titles = search.result_titles();
+    assert_eq!(
+        titles.first().map(String::as_str),
+        Some("Documentation refresh"),
+        "run {run}: {titles:?}"
+    );
+    assert_results_match_once(&titles, &repository, "in");
+    workspace.dispose().expect("workspace disposes");
+}
+
+#[test]
+fn a_same_term_refresh_that_a_racing_load_discards_runs_again() {
+    for run in 0..300 {
+        race_same_term_refresh_and_load_more(run);
+    }
+}

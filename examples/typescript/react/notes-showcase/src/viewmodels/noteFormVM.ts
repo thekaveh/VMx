@@ -51,6 +51,18 @@ const EMPTY: NoteModel = {
   updatedAt: new Date(0).toISOString(),
 };
 
+/**
+ * Save-order state of one note id (#1379). `running` holds the numbers of the
+ * saves that started and have not settled. `shown` is the number of the
+ * newest save shown. `held` is the newest save that succeeded while a newer
+ * save was running; it is shown if every newer save fails.
+ */
+interface NoteSaves {
+  readonly running: Set<number>;
+  shown: number;
+  held: { readonly save: number; readonly source: FormVM<NoteModel>; readonly saved: NoteModel } | null;
+}
+
 export class NoteFormVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
   readonly #notificationHub: INotificationHub | null;
@@ -72,6 +84,17 @@ export class NoteFormVM extends ComponentVMBase {
   #tagSuggestions: readonly string[] = [];
   /** Inner approvals admitted so far; see `#approveFormAsync`. */
   #admissions = 0;
+  /**
+   * Save order (#1379): the note id and number of the save each form runs,
+   * and the save-order state of each note id with a save running. A
+   * successful save refreshes its list row and rebinds the editor only when
+   * no newer save of that note is running or shown. So an older save that
+   * settles last never shows the older values, and an older save is still
+   * shown when every newer save fails.
+   */
+  #savesStarted = 0;
+  readonly #formSaves = new Map<FormVM<NoteModel>, { noteId: string; save: number }>();
+  readonly #noteSaves = new Map<string, NoteSaves>();
   /**
    * Forms with an approval in flight, with the number of pending calls. A
    * form rebound or unbound mid-save is retired but not disposed until its
@@ -275,21 +298,28 @@ export class NoteFormVM extends ComponentVMBase {
   bindTo(note: NoteModel): void {
     this.#retireForm();
     this.#bound = note;
-    this.#form = new FormVM<NoteModel>({
+    const form: FormVM<NoteModel> = new FormVM<NoteModel>({
       initial: note,
-      persister: (m) => this.#persistAsync(m),
+      persister: (m) => this.#persistAsync(form, m),
       hub: this._hub,
       strict: true,
       validators: {
         title: (m) => m.title.trim().length === 0 ? TITLE_REQUIRED : null,
       },
     });
-    const form = this.#form;
+    this.#form = form;
     form.onApproved.subscribe((m) => {
-      this.#onSaved.next(m);
-      this.#adoptSaved(form, m);
+      // A newer save of this note is running or shown. This save is held,
+      // and shown only if every newer save fails (#1379).
+      if (!this.#settleSave(form, m)) return;
+      this.#showSaved(form, m);
     });
     this.#emitDraftChanges();
+  }
+
+  #showSaved(source: FormVM<NoteModel>, saved: NoteModel): void {
+    this.#onSaved.next(saved);
+    this.#adoptSaved(source, saved);
   }
 
   /**
@@ -427,10 +457,81 @@ export class NoteFormVM extends ComponentVMBase {
     if (form !== null && !this.#settling.has(form)) form.dispose();
   }
 
-  async #persistAsync(note: NoteModel): Promise<void> {
+  async #persistAsync(form: FormVM<NoteModel>, note: NoteModel): Promise<void> {
     // The form calls its persister only for an admitted approval.
     this.#admissions += 1;
-    await this.#repo.saveNote(note);
+    const save = this.#beginSave(form, note.id);
+    try {
+      await this.#repo.saveNote(note);
+    } catch (error) {
+      // A failed save never settles; an older held save may show now.
+      this.#failSave(form, note.id, save);
+      throw error;
+    }
+  }
+
+  #beginSave(form: FormVM<NoteModel>, noteId: string): number {
+    this.#savesStarted += 1;
+    const save = this.#savesStarted;
+    this.#formSaves.set(form, { noteId, save });
+    let saves = this.#noteSaves.get(noteId);
+    if (saves === undefined) {
+      saves = { running: new Set<number>(), shown: 0, held: null };
+      this.#noteSaves.set(noteId, saves);
+    }
+    saves.running.add(save);
+    return save;
+  }
+
+  /**
+   * Settles the successful save of `source`. Returns `true` when no newer
+   * save of its note is running or shown; otherwise holds it.
+   */
+  #settleSave(source: FormVM<NoteModel>, saved: NoteModel): boolean {
+    const entry = this.#formSaves.get(source);
+    if (entry === undefined) return true;
+    this.#formSaves.delete(source);
+    const saves = this.#noteSaves.get(entry.noteId);
+    if (saves === undefined) return true;
+    const { save } = entry;
+    saves.running.delete(save);
+    const show = save > saves.shown && [...saves.running].every((other) => save > other);
+    if (show) {
+      saves.shown = save;
+      saves.held = null;
+    } else if (saves.held === null || saves.held.save < save) {
+      saves.held = { save, source, saved };
+    }
+    this.#forgetSettled(entry.noteId, saves);
+    return show;
+  }
+
+  /**
+   * Forgets a failed save. Shows the held save of its note when no newer
+   * save is running or shown.
+   */
+  #failSave(form: FormVM<NoteModel>, noteId: string, save: number): void {
+    const entry = this.#formSaves.get(form);
+    if (entry?.noteId === noteId && entry.save === save) this.#formSaves.delete(form);
+    const saves = this.#noteSaves.get(noteId);
+    if (saves === undefined) return;
+    saves.running.delete(save);
+    const held = saves.held;
+    const show =
+      held !== null &&
+      held.save > saves.shown &&
+      [...saves.running].every((other) => held.save > other);
+    if (held !== null && show) {
+      saves.shown = held.save;
+      saves.held = null;
+    }
+    this.#forgetSettled(noteId, saves);
+    if (held !== null && show) this.#showSaved(held.source, held.saved);
+  }
+
+  #forgetSettled(noteId: string, saves: NoteSaves): void {
+    // With no save running, a later save outnumbers every earlier one.
+    if (saves.running.size === 0) this.#noteSaves.delete(noteId);
   }
 
   #addTag(): void {

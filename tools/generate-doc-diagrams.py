@@ -837,7 +837,7 @@ def showcase_hierarchy(output_root: Path) -> None:
                 "C#/Swift CompositeVM storage",
                 "Python list / TypeScript array",
                 "PagedComposition finite page state",
-                "SearchableState title search",
+                "SearchableState note search",
             ),
             "frontend",
         ),

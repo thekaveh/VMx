@@ -8,7 +8,7 @@
  * interleave half-applied state when called concurrently from VMs.
  */
 import type { NotebookModel } from "./notebookModel.js";
-import type { NoteModel } from "./noteModel.js";
+import { type NoteModel, noteMatches } from "./noteModel.js";
 import type { INoteRepository, NoteSearchPage, RepositorySnapshot } from "./noteRepository.js";
 
 /** Optional per-method delay overrides — useful in tests for zero latency. */
@@ -133,17 +133,12 @@ export class InMemoryNoteRepository implements INoteRepository {
   ): Promise<NoteSearchPage> {
     await delay(this.#loadNotesMs);
     this.#consumeFailure();
-    const normalized = term.trim().toLowerCase();
     const normalizedToken = token?.trim() ?? "";
     const parsed = /^[+-]?\d+$/u.test(normalizedToken) ? Number(normalizedToken) : 0;
     const safeStart = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
     const safePageSize = Math.max(1, pageSize);
     return this.#gate.run(() => {
-      const matches = this.#notes.filter((n) => {
-        if (normalized.length === 0) return true;
-        const haystack = `${n.title} ${n.body} ${n.tags.join(" ")}`.toLowerCase();
-        return haystack.includes(normalized);
-      });
+      const matches = this.#notes.filter((n) => noteMatches(n, term));
       const items = matches.slice(safeStart, safeStart + safePageSize);
       const nextIndex = safeStart + items.length;
       return {
