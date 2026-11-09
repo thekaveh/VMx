@@ -1,0 +1,3 @@
+#nullable enable
+VMx.Messages.ICollectionChangedMessage<T>.NewIndex.get -> int
+VMx.Messages.ICollectionChangedMessage<T>.OldIndex.get -> int

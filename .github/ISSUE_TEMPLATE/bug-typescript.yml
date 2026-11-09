@@ -1,45 +1,73 @@
 name: Bug report — TypeScript (@thekaveh/vmx npm package)
 description: Something is broken in the TypeScript flavor.
-labels: [bug, typescript]
+labels: [bug, javascript]
 body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences that say what is wrong and where.
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
-      label: vmx version
-      placeholder: e.g., 2.1.0
+      label: "@thekaveh/vmx version"
+      placeholder: "e.g., 3.31.0"
     validations:
       required: true
   - type: input
     id: node
     attributes:
       label: Node.js version
-      placeholder: e.g., 22.3.0
+      placeholder: "e.g., 22.13.0"
     validations:
       required: true
   - type: input
     id: typescript
     attributes:
       label: TypeScript version
-      placeholder: e.g., 5.4.5
+      placeholder: "e.g., 5.9.3"
     validations:
       required: false
   - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >-
+        How to reproduce the defect, the observed output (error text, wrong
+        value or stack trace) and the behavior that you expected. Put the
+        reproduction code in the next field.
+    validations:
+      required: true
+  - type: textarea
     id: repro
     attributes:
-      label: Minimal reproduction
-      description: Smallest code snippet that reproduces the issue.
+      label: Reproduction
+      description: The smallest program that shows the defect that Context describes.
       render: typescript
     validations:
       required: true
   - type: textarea
-    id: expected
+    id: acceptance
     attributes:
-      label: Expected behavior
+      label: Acceptance criteria
+      description: >-
+        Checkable conditions that show the defect is fixed, one checkbox per
+        condition.
+      placeholder: "- [ ] Calling `dispose()` twice raises no error."
     validations:
       required: true
   - type: textarea
-    id: actual
+    id: evidence
     attributes:
-      label: Actual behavior
+      label: Evidence
+      description: >-
+        A `Location | What it shows` table. Each row names a file and line
+        range, a log, a CI run or a link, and says in one sentence what it
+        shows.
+      value: |
+        | Location | What it shows |
+        |---|---|
     validations:
-      required: true
+      required: false

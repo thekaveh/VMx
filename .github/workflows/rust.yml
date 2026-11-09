@@ -216,6 +216,37 @@ jobs:
             --package-dir langs/rust \
             --version "$version"
 
+  public-api:
+    timeout-minutes: 30
+    name: public API (cargo-semver-checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # cargo-semver-checks builds the baseline from this repository's
+          # history, so the recorded revision must be present.
+          fetch-depth: 0
+
+      - name: Install Rust 1.99.1
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
+        with:
+          # Pinned: cargo-semver-checks reads rustdoc JSON, whose format
+          # changes between toolchains. Move this pin and the tool version
+          # together.
+          toolchain: 1.99.1
+
+      - name: Install cargo-semver-checks
+        run: cargo install cargo-semver-checks --version 0.51.0 --locked
+
+      - name: Compare the public API with the baseline revision
+        # Fails on a break that the Cargo.toml version does not allow
+        # (a minor bump at 0.x). langs/rust/api/baseline-revision records the
+        # revision (CONTRIBUTING.md, "Public API baselines").
+        run: >-
+          cargo semver-checks check-release --manifest-path langs/rust/Cargo.toml
+          --baseline-rev "$(tr -d '[:space:]' < langs/rust/api/baseline-revision)"
+          --default-features
+
   coverage:
     timeout-minutes: 30
     name: coverage floor
@@ -263,7 +294,7 @@ jobs:
     timeout-minutes: 5
     name: "required: rust"
     if: always()
-    needs: [audit, build, msrv, examples, package, coverage]
+    needs: [audit, build, msrv, examples, package, public-api, coverage]
     runs-on: ubuntu-latest
     steps:
       - name: Require every Rust job

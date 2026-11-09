@@ -84,8 +84,14 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
             "required: python",
             "needs: [build, examples, small-examples, inspector, nicegui, package]",
         ),
-        "rust.yml": ("required: rust", "needs: [audit, build, msrv, examples, package, coverage]"),
-        "swift.yml": ("required: swift", "needs: [build, platforms, examples, coverage]"),
+        "rust.yml": (
+            "required: rust",
+            "needs: [audit, build, msrv, examples, package, public-api, coverage]",
+        ),
+        "swift.yml": (
+            "required: swift",
+            "needs: [build, platforms, examples, public-api, coverage]",
+        ),
         "typescript.yml": (
             "required: typescript",
             "needs: [build, runtime-floor, react, package, examples]",

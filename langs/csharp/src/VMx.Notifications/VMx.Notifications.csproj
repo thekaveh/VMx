@@ -19,4 +19,9 @@
       <_Parameter2>$(MinSpecVersion)</_Parameter2>
     </AssemblyAttribute>
   </ItemGroup>
+  <ItemGroup>
+    <!-- RS0016/RS0017 fail the build when the public API differs from
+         PublicAPI.Shipped.txt + PublicAPI.Unshipped.txt (#1365). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+  </ItemGroup>
 </Project>
