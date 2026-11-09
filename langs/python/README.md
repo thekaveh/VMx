@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.30.0** — implements spec 3.30.0 end-to-end. 451/451 library conformance IDs
+**v3.30.0** — implements spec 3.30.0 end-to-end. 453/453 library conformance IDs
 pass. Supports Python 3.10–3.14.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations.
@@ -219,7 +219,7 @@ The opt-in `vmx.notifications` subpackage adds:
 
 ## 6. Conformance
 
-Implements all 451 library conformance IDs; THEME scenario IDs live in the
+Implements all 453 library conformance IDs; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blob/main/spec/12-conformance.md).
 [`tests/conformance/README.md`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/conformance/README.md)
 documents the test-layout conventions.

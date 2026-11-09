@@ -23,9 +23,9 @@ implementation.
 
 The catalog contains:
 
-- 451 library IDs implemented by all five catalog-complete source flavors
+- 453 library IDs implemented by all five catalog-complete source flavors
 - 5 `THEME-00x` scenario IDs exercised by the flagship example apps
-- 456 total IDs in the published catalog
+- 458 total IDs in the published catalog
 
 The source overview is here:
 [spec/12-conformance.md](../../spec/12-conformance.md).

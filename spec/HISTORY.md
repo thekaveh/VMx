@@ -706,3 +706,23 @@ before a persister starts prevents the persister call (`FORM-041`,
 `FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
 
 See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also lets `FormVM` callbacks run with no form lock held. The equality
+comparisons, the validators, the snapshotter, and `resetOnApproved` run with
+no lock, so another thread's reads and calls never wait for them. A
+preparation that another thread's commit overtakes runs again as a new call.
+Another thread's call during the post-persist commit commits at once, and the
+reset overwrites it. A call in its own pre-publication window does not wait.
+A refused `Dispose()` wakes the waiters at once. An update opens a scope only
+when its error map changes. No conformance ID changes.
+
+See ADR-0215 and chapter 20 §5.1, §5.3, §5.4, §5.5, and §10.
+
+v3.30.0 also states what a failed send of a `FormVM` update queue does. The
+outermost update sends no later notification, releases each nested approval
+whose persister has not started, and propagates the failure after its
+replays (`FORM-044`). A Rust validator registration from a form callback is a
+nested call. An update runs its dirty comparisons only in strict mode
+(`FORM-045`). The catalog now contains 453 library IDs plus 5 scenario IDs.
+
+See ADR-0216 and chapter 20 §5.2, §5.4, and §5.5.
