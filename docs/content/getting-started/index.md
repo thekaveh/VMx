@@ -7,6 +7,12 @@ in every flavor. Each snippet is a complete program. The C# snippet uses
 top-level statements, and the Swift snippet runs in a throwing context such as
 `main.swift`.
 
+To start a new application instead, use a starter. The
+[Application Starters](../integration/index.md#9110-application-starters)
+table names the published starters for TypeScript Node, React and Vite, the
+Python console and Swift packages. The [TypeScript](typescript.md),
+[Python](python.md) and [Swift](swift.md) pages also name their starters.
+
 === "C#"
 
     ```csharp

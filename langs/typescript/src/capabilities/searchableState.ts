@@ -14,6 +14,7 @@ import {
   type Observable,
   type SchedulerLike,
   Subject,
+  skip,
   Subscription,
 } from "rxjs";
 import { declareCapabilities } from "./registry.js";
@@ -47,10 +48,13 @@ export class SearchableState<T> implements ISearchable {
       this.#applyFilter(""),
     );
 
+    // Skip the seeded "" so construction starts no term debounce (ADR-0198).
+    // The initial filtered value above already covers the seed.
+    const termChanges = this.#termSubject.pipe(skip(1));
     const debouncedTerm: Observable<string> =
       debounceMs > 0
-        ? this.#termSubject.pipe(debounceTime(debounceMs, scheduler))
-        : this.#termSubject.asObservable();
+        ? termChanges.pipe(debounceTime(debounceMs, scheduler))
+        : termChanges;
 
     const forceFilter = this.#forceSearchSubject.pipe(
       map(() => this.#termSubject.value),

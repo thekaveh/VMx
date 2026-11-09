@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use vmx::{
     CollectionChangeAction, Command, ConstructionStatus, Dispatcher, ImmediateDispatcher,
-    ManualDispatcher, Message, MessageHub, NullDispatcher, VmNode, VmxError,
+    ManualDispatcher, Message, MessageHub, NullDispatcher, ObservableMembershipSource, VmNode,
+    VmxError,
 };
 
 type Child = vmx::ComponentVm<&'static str>;
@@ -1025,6 +1026,9 @@ fn replacement_disposal_restores_old_child_before_terminal_cascade() {
 }
 
 /// COMP-040 — deferred disposal failure follows committed transfer events.
+///
+/// The old parent's local `Remove` still publishes, but its hub sends no
+/// message once its disposal is requested (COMP-049, ADR-0190).
 #[test]
 fn deferred_disposal_failure_follows_committed_transfer_events() {
     let item = child("moving");
@@ -1046,6 +1050,11 @@ fn deferred_disposal_failure_follows_committed_transfer_events() {
     destination.construct().unwrap();
     let old_from_hook = old_parent.clone();
     item.on_construct(move || old_from_hook.dispose());
+    let old_local_events = Arc::new(AtomicUsize::new(0));
+    let old_local_sink = Arc::clone(&old_local_events);
+    let _old_local = old_parent.subscribe_membership(move || {
+        old_local_sink.fetch_add(1, Ordering::SeqCst);
+    });
 
     assert_eq!(
         destination.add(item.clone()),
@@ -1053,12 +1062,13 @@ fn deferred_disposal_failure_follows_committed_transfer_events() {
     );
 
     assert_eq!(
+        old_local_events.load(Ordering::SeqCst),
+        1,
+        "old local Remove"
+    );
+    assert_eq!(
         collection_actions(&old_recorder),
-        vec![
-            CollectionChangeAction::Add,
-            CollectionChangeAction::Add,
-            CollectionChangeAction::Remove,
-        ]
+        vec![CollectionChangeAction::Add, CollectionChangeAction::Add]
     );
     assert_eq!(
         collection_actions(&destination_recorder),
@@ -1132,7 +1142,9 @@ fn late_disposal_failure_does_not_retry_committed_population() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(destination.items(), vec![item.clone()]);
-    assert!(collection_actions(&old_recorder).contains(&CollectionChangeAction::Remove));
+    // The old parent's disposal is requested, so its hub gets no `Remove`
+    // (COMP-049, ADR-0190).
+    assert!(!collection_actions(&old_recorder).contains(&CollectionChangeAction::Remove));
     assert!(collection_actions(&destination_recorder).contains(&CollectionChangeAction::Add));
 
     destination.construct().unwrap();
@@ -1379,6 +1391,52 @@ fn failed_transfer_publishes_no_membership_event() {
     assert_eq!(old_parent.items(), vec![item.clone()]);
     assert!(destination.is_empty());
     assert_eq!(item.parent_id(), Some(old_parent.id()));
+}
+
+/// COMP-041 — the local streams of both parents order a transfer and skip a failed one
+#[test]
+fn comp_041_local_streams_order_a_transfer_and_skip_a_failed_one() {
+    let old_parent = vmx::GroupVm::with_services("old", MessageHub::new(), NullDispatcher::new());
+    let destination =
+        vmx::CompositeVm::with_services("destination", MessageHub::new(), NullDispatcher::new());
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let record = |stream: MessageHub, parent: &'static str| {
+        let order = Arc::clone(&order);
+        stream.subscribe(move |message| {
+            if let Message::CollectionChanged(change) = message {
+                order.lock().unwrap().push((parent, change.action.clone()));
+            }
+        })
+    };
+    let _old = record(old_parent.collection_changed(), "old");
+    let _destination = record(destination.collection_changed(), "destination");
+    let moved = child("moved");
+    old_parent.add(moved.clone()).unwrap();
+    order.lock().unwrap().clear();
+
+    destination.add(moved.clone()).unwrap();
+    assert_eq!(
+        *order.lock().unwrap(),
+        vec![
+            ("old", CollectionChangeAction::Remove),
+            ("destination", CollectionChangeAction::Add),
+        ]
+    );
+
+    // A failed destination construction rolls the transfer back with no
+    // local event on either parent.
+    order.lock().unwrap().clear();
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let failing = child("failing");
+    old_parent.add(failing.clone()).unwrap();
+    failing.on_construct(|| Err(VmxError::Other("construct failed".to_string())));
+    order.lock().unwrap().clear();
+
+    assert!(destination.add(failing.clone()).is_err());
+    assert!(order.lock().unwrap().is_empty());
+    assert_eq!(old_parent.items(), vec![failing.clone()]);
+    assert_eq!(destination.items(), vec![moved]);
 }
 
 /// COMP-041 — A throwing old-current callback cannot suppress committed events.
@@ -2072,24 +2130,17 @@ mod reentrant_selection {
     //! The current selector and the `on_current_changed` callback may re-enter
     //! the composite without deadlocking it (#716).
 
+    use super::super::bounded_wait::within_timeout;
     use super::{child, Child};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{mpsc, Arc, Mutex};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use vmx::{Command, CompositeVm, Message, VmxResult};
 
     type Composite = CompositeVm<Child>;
 
-    /// Runs `action` on a worker and fails if it does not return in time.
-    fn bounded<R: Send + 'static>(what: &str, action: impl FnOnce() -> R + Send + 'static) -> R {
-        let (sent, received) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = sent.send(action());
-        });
-        received
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap_or_else(|_| panic!("{what} did not return: re-entrant selection deadlocked"))
-    }
+    /// The bound on every wait in this module.
+    const BOUND: Duration = Duration::from_secs(5);
 
     fn two_children() -> (Composite, Child, Child) {
         let composite = Composite::new("composite");
@@ -2117,7 +2168,10 @@ mod reentrant_selection {
         let (composite, _, _) = two_children();
         reselect_from_callback(&composite);
         let worker = composite.clone();
-        assert_eq!(bounded("construct", move || worker.construct()), Ok(()));
+        assert_eq!(
+            within_timeout("construct", BOUND, move || worker.construct()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -2130,7 +2184,10 @@ mod reentrant_selection {
             }
         });
         let worker = composite.clone();
-        assert_eq!(bounded("construct", move || worker.construct()), Ok(()));
+        assert_eq!(
+            within_timeout("construct", BOUND, move || worker.construct()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -2146,7 +2203,7 @@ mod reentrant_selection {
         });
         let worker = composite.clone();
         assert_eq!(
-            bounded("set_current", move || worker.set_current(Some(a))),
+            within_timeout("set_current", BOUND, move || worker.set_current(Some(a))),
             Ok(())
         );
         composite.set_current(Some(b)).unwrap();
@@ -2159,13 +2216,16 @@ mod reentrant_selection {
         composite.construct().unwrap();
         reselect_from_callback(&composite);
         let worker = composite.clone();
-        assert_eq!(bounded("reconstruct", move || worker.reconstruct()), Ok(()));
+        assert_eq!(
+            within_timeout("reconstruct", BOUND, move || worker.reconstruct()),
+            Ok(())
+        );
 
         let (composite, _, _) = two_children();
         composite.construct().unwrap();
         reselect_from_callback(&composite);
         let command = composite.reconstruct_command();
-        bounded("reconstruct_command", move || command.execute());
+        within_timeout("reconstruct_command", BOUND, move || command.execute());
     }
 
     #[test]
@@ -2192,7 +2252,10 @@ mod reentrant_selection {
             }
         });
         let worker = composite.clone();
-        assert_eq!(bounded("construct", move || worker.construct()), Ok(()));
+        assert_eq!(
+            within_timeout("construct", BOUND, move || worker.construct()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -2206,7 +2269,7 @@ mod reentrant_selection {
             }
         });
         let worker = composite.clone();
-        let result: VmxResult<()> = bounded("destruct", move || worker.destruct());
+        let result: VmxResult<()> = within_timeout("destruct", BOUND, move || worker.destruct());
         assert_eq!(result, Ok(()));
     }
 }

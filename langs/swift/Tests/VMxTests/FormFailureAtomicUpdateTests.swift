@@ -526,7 +526,7 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
             validators: ["name": { candidate in
                 if candidate == "first" {
                     validatorEntered.signal()
-                    _ = releaseValidator.wait(timeout: .now() + 10)
+                    _ = releaseValidator.wait(timeout: .now() + hangGuard * 2)
                 }
                 return nil
             }]
@@ -548,7 +548,7 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
             boxedForm.value.setModel("first")
             firstDone.signal()
         }
-        XCTAssertEqual(validatorEntered.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(validatorEntered.wait(timeout: .now() + hangGuard), .success)
         DispatchQueue.global().async {
             boxedForm.value.setModel("second")
             secondDone.signal()
@@ -559,8 +559,8 @@ final class FormFailureAtomicUpdateTests: XCTestCase {
         )
         releaseValidator.signal()
 
-        XCTAssertEqual(firstDone.wait(timeout: .now() + 10), .success)
-        XCTAssertEqual(secondDone.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(firstDone.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(secondDone.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(form.model, "second")
         countLock.lock()
         let publishedCount = published

@@ -7,7 +7,7 @@
 // returns, and the channels complete only after A's delivery returns, as in
 // C# and Python (spec/20 §5.5, ADR-0176).
 //
-// Every wait is bounded by `unscopedTimeout`, so a stall fails the test
+// Every wait is bounded by `hangGuard`, so a stall fails the test
 // instead of hanging the run. No conformance ID: this is a flavor-local
 // repair.
 //
@@ -17,8 +17,6 @@ import Foundation
 import XCTest
 @testable import VMx
 
-/// Bound for every wait in these tests; a stall shows up as a timeout.
-private let unscopedTimeout: TimeInterval = 10
 /// Marks thread A, whose observer blocks.
 private let blockingThread = "FormVMUnscopedDeliveryTests.threadA"
 
@@ -62,7 +60,7 @@ private final class Blocker: @unchecked Sendable {
     /// delivery. Records the channels that had completed when it returns.
     func block(_ completions: Completions) {
         entered.signal()
-        _ = release.wait(timeout: .now() + unscopedTimeout)
+        _ = release.wait(timeout: .now() + hangGuard * 2)
         lock.lock()
         completedOnReturn = completions.finished
         lock.unlock()
@@ -108,7 +106,7 @@ final class FormVMUnscopedDeliveryTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard blocker.entered.wait(timeout: .now() + unscopedTimeout) == .success else {
+        guard blocker.entered.wait(timeout: .now() + hangGuard) == .success else {
             XCTFail("A's observer never ran", file: file, line: line)
             return
         }
@@ -118,10 +116,10 @@ final class FormVMUnscopedDeliveryTests: XCTestCase {
             boxedForm.value.dispose()
             bDone.signal()
         }.start()
-        let bReturned = bDone.wait(timeout: .now() + unscopedTimeout) == .success
+        let bReturned = bDone.wait(timeout: .now() + hangGuard) == .success
         let finishedAtDisposeReturn = completions.finished
         blocker.release.signal()
-        let aReturned = aDone.wait(timeout: .now() + unscopedTimeout) == .success
+        let aReturned = aDone.wait(timeout: .now() + hangGuard) == .success
 
         XCTAssertTrue(bReturned, "B's dispose() returns without waiting", file: file, line: line)
         XCTAssertTrue(aReturned, "A's delivery returns", file: file, line: line)
@@ -135,7 +133,7 @@ final class FormVMUnscopedDeliveryTests: XCTestCase {
         )
         XCTAssertFalse(form.approveCommand.canExecute(), file: file, line: line)
         // The deferred teardown runs on A right after its delivery returns.
-        let deadline = Date().addingTimeInterval(unscopedTimeout)
+        let deadline = Date().addingTimeInterval(hangGuard)
         while completions.finished != channels, Date() < deadline {
             Thread.sleep(forTimeInterval: 0.001)
         }

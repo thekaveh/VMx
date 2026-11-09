@@ -195,6 +195,43 @@ final class PropertyChangedTests: XCTestCase {
         XCTAssertEqual(labels, ["b", "c"])
         cancel.cancel()
     }
+
+    /// The §7.1 and §7.2 helpers have the failure type `Never`, and a Combine
+    /// sink cannot throw, so no subscriber can fail. Two subscribers each
+    /// receive 2 of 2 matching messages (spec/03 §3.6, ADR-0191, #1304).
+    func testHubHelpersCannotFailAndReachEverySubscriber() {
+        let hub = MessageHub()
+        let sender = NSObject()
+        var count = 0
+        let helpers: [(String, AnyPublisher<Void, Never>)] = [
+            ("values", hub.propertyValueChangedMessagesFor(sender, "count", getter: { count })
+                .map { _ in () }.eraseToAnyPublisher()),
+            ("one-name", hub.whenPropertyChanged(sender, "count")
+                .map { _ in () }.eraseToAnyPublisher()),
+            ("many-names", hub.whenPropertyChanged(sender, "count", "other")
+                .map { _ in () }.eraseToAnyPublisher()),
+        ]
+        XCTAssertTrue(failureType(of: hub.propertyValueChangedMessagesFor(sender, "count", getter: { count })) == Never.self)
+        XCTAssertTrue(failureType(of: hub.whenPropertyChanged(sender, "count")) == Never.self)
+        XCTAssertTrue(failureType(of: hub.whenPropertyChanged(sender, "count", "other")) == Never.self)
+
+        for (name, helper) in helpers {
+            var first = 0
+            var second = 0
+            let a = helper.sink { first += 1 }
+            let b = helper.sink { second += 1 }
+            for value in [1, 2] {
+                count = value
+                hub.send(PropertyChangedMessage(sender: sender, senderName: "S", propertyName: "count"))
+            }
+            XCTAssertEqual(first, 2, name)
+            XCTAssertEqual(second, 2, name)
+            a.cancel()
+            b.cancel()
+        }
+    }
+
+    private func failureType<P: Publisher>(of _: P) -> Any.Type { P.Failure.self }
 }
 
 /// Hub stand-in that counts subscriptions to, and cancellations of, `messages`.

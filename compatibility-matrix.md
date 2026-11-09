@@ -6,7 +6,7 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.30.x | 3.30.0[^current] <!-- x-release-please-version --> | 3.30.0[^current] | 3.31.0[^current] | 3.31.0[^current] | 0.36.0[^rust] |
+| 3.30.x | 3.30.0[^current] <!-- x-release-please-version --> | 3.30.0[^current] | 3.31.0[^current] | 4.0.0[^current] | 0.36.0[^rust] |
 | 3.29.x | —[^source-3-29] | —[^source-3-29] | 3.30.0[^typescript-3-30] | —[^source-3-29] | 0.35.0[^source-3-29] |
 | 3.28.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.34.0[^source-3-24-28] |
 | 3.27.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.33.0[^source-3-24-28] |
@@ -24,33 +24,37 @@ Updated alongside spec and flavor releases.
 | 3.15.x | —               | —               | —               | —               | 0.15.0[^rust-source] |
 | 3.14.x | —               | —               | —               | —               | 0.14.0[^rust-source] |
 | 3.13.x | —               | —               | —               | —               | 0.13.0[^rust-source] |
-| 3.3.x | —               | —               | —               | —               | 0.3.0        |
-| 3.2.x | —               | —               | —               | —               | 0.2.0        |
-| 3.1.x | 3.1.0           | —               | —               | —               | 0.1.0        |
-| 2.6.x | 2.6.1           | 2.6.0           | 2.6.0           | 2.6.0 (subset)  | —             |
-| 2.4.x | 2.4.0           | 2.4.0           | 2.4.0           | 2.4.0 (subset)  | —             |
-| 2.3.x | 2.3.0           | 2.3.0           | 2.3.0           | —               | —             |
-| 2.2.x | 2.2.0           | 2.2.0           | 2.2.0           | —               | —             |
-| 2.1.x | 2.1.0           | 2.1.0           | 2.1.0           | —               | —             |
-| 2.0.x | 2.0.0           | 2.0.0           | 2.0.0           | —               | —             |
-| 1.0.x | 1.0.0           | 1.0.0           | —               | —               | —             |
+| 3.3.x | —               | —               | —               | —               | 0.3.0[^rust-source] |
+| 3.2.x | —               | —               | —               | —               | 0.2.0[^rust-source] |
+| 3.1.x | 3.1.0           | —               | —               | —               | 0.1.0[^rust-source] |
+| 2.6.x | 2.6.1           | 2.6.0[^tag-only] | 2.6.0[^tag-only] | 2.6.0 (subset)[^swift-subdir] | —             |
+| 2.4.x | 2.4.0[^tag-only] | 2.4.0[^tag-only] | 2.4.0[^tag-only] | 2.4.0 (subset)[^swift-subdir] | —             |
+| 2.3.x | 2.3.0[^tag-only] | 2.3.0[^tag-only] | 2.3.0[^tag-only] | —               | —             |
+| 2.2.x | 2.2.0[^tag-only] | 2.2.0[^tag-only] | 2.2.0[^tag-only] | —               | —             |
+| 2.1.x | 2.1.0[^tag-only] | 2.1.0[^tag-only] | 2.1.0[^tag-only] | —               | —             |
+| 2.0.x | 2.0.0[^tag-only] | 2.0.0[^tag-only] | 2.0.0[^tag-only] | —               | —             |
+| 1.0.x | 1.0.0[^tag-only] | 1.0.0[^tag-only] | —               | —               | —             |
 
 ## 2. Notes
 
 A `—` cell indicates that this flavor has no version for that spec line. A
 cell shows the version range of the flavor that implements the spec line (e.g.
 `1.0.0` or `1.0.0–1.2.x` once minor/patch releases follow). A cell with a
-source footnote names an unreleased source version.
+source footnote names an unreleased source version. A cell with the
+`[^tag-only]` footnote names a tagged version that was never published to its
+registry. A cell with the `[^swift-subdir]` footnote names a tagged Swift
+version that SwiftPM cannot resolve from the repository URL.
 
 Every flavor covers every library conformance ID in `spec/12-conformance.md`.
 The `THEME-00x` scenario IDs live in the flagship example apps. `spec/HISTORY.md` records the
 release and ADR that added each group of IDs. Swift has member-level parity with C#,
-Python, and TypeScript. Rust's remaining public-surface and behavior gaps are
-the open items §12.4.7 and §12.7–§12.13 in
+Python, and TypeScript. Rust's remaining public-surface and behavior
+differences are the recorded difference in §12.7 and the open item in §12.13 of
 `docs/maintenance/2026-07-16-rust-capability-parity.md`.
 
-[^current]: C# 3.30.0, Python 3.30.0, TypeScript 3.31.0, and Swift 3.31.0 are
-the unreleased source lines implementing spec 3.30.0. Python 3.23.0 is publicly
+[^current]: C# 3.30.0, Python 3.30.0, TypeScript 3.31.0, and Swift 4.0.0 are
+the unreleased source lines implementing spec 3.30.0. Swift 4.0.0 is a major
+version because its tree walks now throw; the Swift CHANGELOG records why. Python 3.23.0 is publicly
 installable from PyPI, Swift 3.24.0 through SwiftPM, and TypeScript 3.30.0 from
 npm. The C# public package remains pending; its release job refuses to
 green-skip a publish without configured credentials.
@@ -71,11 +75,12 @@ point to the same verified `main` commit.
 is at source version 0.36.0, declares `MIN_SPEC_VERSION = "3.30.0"`, and carries
 behavioral tests for every library conformance ID. The parity ledger
 `docs/maintenance/2026-07-16-rust-capability-parity.md` records its member
-evidence and open items §12.4.7 and §12.7–§12.13. Rust is not published to crates.io.
+evidence, the recorded difference in §12.7 and the open item in §12.13. Rust is not published to crates.io.
 
-[^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, `0.16.0`, `0.17.0`,
-`0.18.0`, and `0.19.0` record historical source-tree parity for spec 3.13.x
-through 3.19.x.
+[^rust-source]: Rust `0.1.0`, `0.2.0`, and `0.3.0` record historical
+source-tree parity for spec 3.1.x through 3.3.x. Rust `0.13.0`, `0.14.0`,
+`0.15.0`, `0.16.0`, `0.17.0`, `0.18.0`, and `0.19.0` record historical
+source-tree parity for spec 3.13.x through 3.19.x.
 They were not published to crates.io and do not imply
 corresponding `rust-v*` tags or releases.
 
@@ -111,6 +116,22 @@ source versions per spec line are:
     - 3.27.x: C# 3.27.0, Python 3.27.0, TypeScript 3.28.0, Swift 3.28.0.
     - 3.28.x: C# 3.28.0, Python 3.28.0, TypeScript 3.29.0, Swift 3.29.0.
 
+[^tag-only]: C# 1.0.0 to 2.6.0, TypeScript 2.0.0 to 2.6.0, and Python 1.0.0 to
+2.4.0 are tagged (`csharp-v*`, `typescript-v*`, and `python-v*`) but were never
+published. NuGet, npm, and PyPI do not serve these versions, and none of these
+tags has a GitHub Release. At the 2.x tags, the release workflow published to
+NuGet and npm only when a `NUGET_API_KEY` or `NPM_TOKEN` secret was set.
+`csharp-v1.0.0` and `python-v1.0.0` predate the release workflow, and GitHub
+Actions lists no release run for the Python 2.0.0 to 2.4.0 tags. TypeScript
+2.0.0 to 2.3.0 used the npm package name `vmx`, which a different project owns;
+TypeScript 2.4.0 renamed the package to `@thekaveh/vmx`. Python 2.6.1 and 3.1.0
+are on PyPI.
+
+[^swift-subdir]: Swift 2.4.0 and 2.6.0 are tagged (`v2.4.0`, `swift-v2.4.0`,
+`v2.6.0`, and `swift-v2.6.0`), but at those tags `Package.swift` exists only
+under `langs/swift`. SwiftPM reads the manifest at the repository root, so it
+cannot resolve these versions from the repository URL.
+
 [^legacy-semantic-tag-only]: Spec 3.20.0 predates the canonical `spec-v*`
 namespace and has no `spec-v3.20.0` tag. The existing immutable `v3.20.0` tag
 belongs to the Swift 3.20.0 package for SwiftPM; it is historical evidence, not
@@ -120,6 +141,7 @@ a namespace future specification releases reuse.
 
 | Adapter | VMx TypeScript | React | RxJS | Registry status |
 | --- | --- | --- | --- | --- |
+| 0.1.3 | ^3.30.0 | ^18.3.1 or ^19.0.0 | ^7.8.0 | source version, not yet published |
 | 0.1.1 | ^3.24.1 | ^18.3.1 or ^19.0.0 | ^7.8.0 | published on npm (`react-v0.1.1`, 2026-10-16) |
 
 `@thekaveh/vmx-react` uses independent SemVer and `react-v*` release tags. A

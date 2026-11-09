@@ -30,6 +30,8 @@
                 <TextBlock VerticalAlignment="Center"
                            Foreground="{StaticResource SubtleTextBrush}"
                            Text="VMx Notes Workspace" />
+                <views:ThemeControlsView x:Name="ThemeControls"
+                                         DataContext="{Binding Theme}" />
             </StackPanel>
         </Border>
 

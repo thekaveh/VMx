@@ -8,10 +8,12 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from itertools import islice
 from typing import Any, Generic, TypeVar, overload
 
 from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
+from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.tree_structure_changed import TreeStructureChange, TreeStructureChangedMessage
 from vmx.services.dispatcher import Dispatcher
@@ -66,6 +68,9 @@ class _BatchAttachCandidate(Generic[TVM]):
     key: Hashable
     parent_key: Hashable | None
     retain_if_missing: bool
+    # Keys and nodes of the candidate's materialized descendants, pre-order
+    # (spec/18 §6, ADR-0212). They join the index when the candidate attaches.
+    subtree: tuple[tuple[Hashable, TVM], ...] = ()
 
 
 class _ReadOnlyList(Sequence[_T]):
@@ -288,6 +293,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self._reject_structural_reentry()
         if child is None:
             raise ValueError("child must not be None")
+        self._reject_if_disposed()
         self._attach_child(child, explicit_reparent=False)
 
     def remove_child(self, child: TVM) -> None:
@@ -297,6 +303,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self._reject_structural_reentry()
         if child is None:
             raise ValueError("child must not be None")
+        self._reject_if_disposed()
         self._ensure_children_materialized()
         assert self._children_list is not None
         # Match by identity (not value equality) so a TVM overriding __eq__
@@ -327,11 +334,20 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self._reject_structural_reentry()
         if child is None:
             raise ValueError("child must not be None")
+        self._reject_if_disposed()
         self._attach_child(child, explicit_reparent=True)
 
     def _attach_child(self, child: TVM, *, explicit_reparent: bool) -> None:
         if child._hierarchical_parent is self:
             return  # already our child — no-op
+
+        # A disposed parent's child list is frozen, so a transfer out of it
+        # refuses before any check or materialization (spec/18 §7.1).
+        old_parent = child._hierarchical_parent
+        if old_parent is not None and old_parent._is_status_disposed():
+            raise RuntimeError(
+                f"Cannot move '{child.name}' out of disposed parent '{old_parent.name}'."
+            )
 
         # HIER-018: reparenting this node or one of its ancestors under
         # itself would create a parent cycle and corrupt depth/path/walk.
@@ -344,6 +360,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         # Materialize before mutation so factory failure cannot leave a child
         # detached from its original parent.
         self._ensure_children_materialized()
+        # The receiver's factory can adopt the child, so read the parent again.
         old_parent = child._hierarchical_parent
         old_index = -1
         if old_parent is not None:
@@ -407,7 +424,9 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         missing-parent items are retained by the ``PARK`` policy.
         """
         self._reject_structural_reentry()
+        self._reject_if_disposed()
         root = self._tree_root()
+        root._reject_if_disposed()
         incoming = list(items)
         parked = list(root._parked_attach_items)
         root._parked_attach_items.clear()
@@ -436,6 +455,8 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
 
         candidates: list[_BatchAttachCandidate[TVM]] = []
         candidate_keys: set[Hashable] = set()
+        # The descendant claims of accepted candidates, by key (ADR-0212).
+        descendant_claims: dict[Hashable, TVM] = {}
         for item, was_parked in [
             *((item, True) for item in parked),
             *((item, False) for item in incoming),
@@ -467,6 +488,17 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                     )
                 )
                 continue
+            # An item that is a descendant of an earlier candidate is attached
+            # outside the indexed tree (spec/18 §6, ADR-0212).
+            claimed_descendant = descendant_claims.get(key) is item
+            if claimed_descendant:
+                rejections.append(
+                    BatchAttachRejection(
+                        item,
+                        BatchAttachRejectionReason.ALREADY_ATTACHED,
+                    )
+                )
+                continue
             if key in candidate_keys:
                 duplicates.append(item)
                 rejections.append(
@@ -485,13 +517,48 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                 )
                 continue
 
-            candidate_keys.add(key)
+            # The candidate also claims every key of its materialized subtree
+            # (spec/18 §6, ADR-0212); the first claim of a key stays
+            # authoritative.
+            subtree: list[tuple[Hashable, TVM]] = []
+            claimed: set[Hashable] = {key}
+            subtree_rejection: BatchAttachRejectionReason | None = None
+            subtree_detail: str | None = None
+            for descendant in islice(item._materialized_subtree(), 1, None):
+                try:
+                    descendant_key = key_of(descendant)
+                    self._validate_batch_key(descendant_key)
+                except Exception as exc:
+                    subtree_rejection = BatchAttachRejectionReason.SELECTOR_FAILED
+                    subtree_detail = str(exc)
+                    break
+                if descendant_key in existing:
+                    subtree_rejection = BatchAttachRejectionReason.DUPLICATE_EXISTING_KEY
+                    break
+                if descendant_key in candidate_keys or descendant_key in claimed:
+                    subtree_rejection = BatchAttachRejectionReason.DUPLICATE_BATCH_KEY
+                    break
+                claimed.add(descendant_key)
+                subtree.append((descendant_key, descendant))
+            if subtree_rejection is BatchAttachRejectionReason.SELECTOR_FAILED:
+                if was_parked:
+                    root._parked_attach_items.append(item)
+                rejections.append(BatchAttachRejection(item, subtree_rejection, subtree_detail))
+                continue
+            if subtree_rejection is not None:
+                duplicates.append(item)
+                rejections.append(BatchAttachRejection(item, subtree_rejection))
+                continue
+
+            candidate_keys.update(claimed)
+            descendant_claims.update(subtree)
             candidates.append(
                 _BatchAttachCandidate(
                     item,
                     key,
                     parent_key,
                     was_parked or on_missing_parent is MissingParentPolicy.PARK,
+                    tuple(subtree),
                 )
             )
 
@@ -523,13 +590,20 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                     continue
 
                 existing[candidate.key] = candidate.item
+                existing.update(candidate.subtree)
                 added.append(candidate.item)
                 progressed = True
             unresolved = next_unresolved
             if not progressed:
                 break
 
-        unresolved_by_key = {candidate.key: candidate for candidate in unresolved}
+        # A subtree key maps to the candidate that claims it, so a parent key
+        # that names the candidate's own descendant is a cycle (ADR-0212).
+        unresolved_by_key: dict[Hashable, _BatchAttachCandidate[TVM]] = {}
+        for candidate in unresolved:
+            unresolved_by_key[candidate.key] = candidate
+            for subtree_key, _ in candidate.subtree:
+                unresolved_by_key[subtree_key] = candidate
         for candidate in unresolved:
             is_cycle = self._batch_parent_chain_cycles(candidate, unresolved_by_key)
             reason = (
@@ -549,9 +623,14 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         """Drop this node's materialized child cache.
 
         The next :attr:`children` access invokes ``children_factory`` again.
-        Invalidating an unmaterialized node is a no-op.
+        Invalidating an unmaterialized node is a no-op. A disposed node
+        refuses (spec/18 §7.1).
         """
         self._reject_structural_reentry()
+        self._reject_if_disposed()
+        self._drop_children_cache()
+
+    def _drop_children_cache(self) -> None:
         if self._children_list is None:
             return
         for child in self._children_list:
@@ -570,13 +649,23 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         )
 
     def invalidate_subtree(self) -> None:
-        """Drop cached children for this node and all materialized descendants."""
+        """Drop cached children for this node and all materialized descendants.
+
+        A disposed node refuses. A disposed descendant keeps its cache, and
+        its materialized children are still visited (spec/18 §7.1).
+        """
+        self._reject_structural_reentry()
+        self._reject_if_disposed()
+        self._invalidate_subtree_nodes()
+
+    def _invalidate_subtree_nodes(self) -> None:
         self._reject_structural_reentry()
         if self._children_list is None:
             return
         for child in list(self._children_list):
-            child.invalidate_subtree()
-        self.invalidate_children()
+            child._invalidate_subtree_nodes()
+        if not self._is_status_disposed():
+            self._drop_children_cache()
 
     def _on_dispose(self) -> None:
         self._parked_attach_items.clear()
@@ -625,6 +714,14 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
             return
         self._materialization_reentered = True
         raise ValueError("children factory re-entered a structural operation on its receiver")
+
+    def _is_status_disposed(self) -> bool:
+        return self.status is ConstructionStatus.DISPOSED
+
+    def _reject_if_disposed(self) -> None:
+        """Refuse a structural call on a disposed node (spec/18 §7.1, ADR-0190)."""
+        if self._is_status_disposed():
+            raise RuntimeError(f"Cannot change the children of disposed node '{self.name}'.")
 
     def _tree_root(self) -> TVM:
         node: TVM = self  # type: ignore[assignment]  # CRTP self view

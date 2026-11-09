@@ -6,13 +6,15 @@ Layout (spec §5):
     │  Notebooks   │  Notes list (centre) │  Note form (right)      │
     └──────────────┴──────────────────────┴─────────────────────────┘
     │  StatusBar   ·   ·   ·                                         │
+    │  ThemeControls [dark] [light] [high-contrast] [HC] [A-] [A+]   │
     │  CapabilityActions [ Save ] [ Reconstruct ] …                  │
     └────────────────────────────────────────────────────────────────┘
 
 The screen owns three column panes inside a :class:`Horizontal`, plus the
-status bar, capability strip, and notifications overlay below. Every child
-view delegates its binding work to the adapter (Phase 4.b), so this class
-contains only structural composition.
+status bar, the theme control strip (ADR-0201 §2.4), the capability strip,
+and the notifications overlay below. Every child view delegates its binding
+work to the adapter (Phase 4.b), so this class contains only structural
+composition.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from notes_showcase.views.notebooks_tree import NotebooksTreeView
 from notes_showcase.views.notes_list import NotesListView
 from notes_showcase.views.notifications import NotificationsView
 from notes_showcase.views.status_bar import StatusBarView
+from notes_showcase.views.theme_controls import ThemeControlsView
 
 
 class MainScreen(Screen[None]):
@@ -49,6 +52,7 @@ class MainScreen(Screen[None]):
         )
         yield GlobalSearchView(self._workspace.global_search)
         yield StatusBarView(self._workspace.status_bar)
+        yield ThemeControlsView(self._workspace.theme)
         yield CapabilityActionsView(self._workspace.capability_actions)
         yield NotificationsView(self._workspace.notifications)
         yield Footer()

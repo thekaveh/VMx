@@ -43,8 +43,8 @@ then confirm those rules on its page.
 The normative concepts are shared across C#, Python, TypeScript, Swift, and
 Rust. The
 [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-records the closed original Rust scope, the open Rust items, and the recorded
-differences (§12.4.7 and §12.7–§12.13).
+records the closed original Rust scope, the closed later items, the
+recorded difference (§12.7) and the open item (§12.13).
 Surface spellings follow each language idiom:
 
 | Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |

@@ -14,13 +14,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# The triplet writer rasterizes each SVG to PNG via `rsvg-convert`. That binary
-# is installed in the docs CI job (librsvg2-bin) but not in the conformance job,
-# so tests that render a real triplet skip when it is unavailable.
-_REQUIRES_RSVG = pytest.mark.skipif(
-    shutil.which("rsvg-convert") is None,
-    reason="requires rsvg-convert (docs CI job / local docs toolchain)",
-)
+# The diagram functions write only the SVG and HTML files. `generate` renders a
+# PNG with `rsvg-convert` only when the PNG does not record its current SVG, so
+# none of these tests needs the docs toolchain.
 
 
 def _load_generator() -> ModuleType:
@@ -160,7 +156,6 @@ def test_html_footer_text_meets_wcag_aa_contrast() -> None:
     assert (foreground + 0.05) / (background + 0.05) >= 4.5
 
 
-@_REQUIRES_RSVG
 def test_class_diagram_names_real_message_types_and_capabilities(
     tmp_path: Path,
 ) -> None:
@@ -177,7 +172,6 @@ def test_class_diagram_names_real_message_types_and_capabilities(
     assert "filter / page / count" not in rendered
 
 
-@_REQUIRES_RSVG
 def test_class_diagram_separates_adjacent_edge_labels(tmp_path: Path) -> None:
     generator = _load_generator()
     generator.class_diagram(tmp_path)
@@ -191,7 +185,6 @@ def test_class_diagram_separates_adjacent_edge_labels(tmp_path: Path) -> None:
     assert abs(label_y["AsyncResourceVM"] - label_y["hub events"]) >= 20
 
 
-@_REQUIRES_RSVG
 def test_showcase_hierarchy_has_no_notification_self_edge(tmp_path: Path) -> None:
     generator = _load_generator()
     generator.showcase_hierarchy(tmp_path)
@@ -242,3 +235,152 @@ def test_architecture_portfolio_box_has_no_dead_space(tmp_path: Path) -> None:
     last_baseline = top + 58 + 2 * 24
 
     assert top + int(rect.group(1)) - last_baseline <= 32
+
+
+# --------------------------------------------------------------------------
+# PNG freshness (#1477): a PNG records the digest of the SVG it came from.
+# --------------------------------------------------------------------------
+
+
+def _copy_committed_triplets(generator: ModuleType, destination: Path) -> None:
+    for base in generator.TRIPLET_BASES:
+        for suffix in (".svg", ".html", ".png"):
+            target = destination / base.with_suffix(suffix)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / base.with_suffix(suffix), target)
+
+
+def _png_bytes(generator: ModuleType, root: Path) -> dict[Path, bytes]:
+    return {
+        base: (root / base.with_suffix(".png")).read_bytes() for base in generator.TRIPLET_BASES
+    }
+
+
+def _refuse_rsvg(monkeypatch: pytest.MonkeyPatch, generator: ModuleType) -> None:
+    real_run = generator.subprocess.run
+
+    def guarded_run(args: list[str], *rest: object, **kwargs: object) -> object:
+        if args and args[0] == "rsvg-convert":
+            raise AssertionError(f"unexpected rsvg-convert call: {args}")
+        return real_run(args, *rest, **kwargs)
+
+    monkeypatch.setattr(generator.subprocess, "run", guarded_run)
+
+
+def test_generation_keeps_current_pngs_without_rendering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generator = _load_generator()
+    _copy_committed_triplets(generator, tmp_path)
+    before = _png_bytes(generator, tmp_path)
+    _refuse_rsvg(monkeypatch, generator)
+
+    assert generator.generate(tmp_path) == []
+
+    assert _png_bytes(generator, tmp_path) == before
+
+
+def test_generation_renders_only_the_png_of_a_changed_svg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generator = _load_generator()
+    _copy_committed_triplets(generator, tmp_path)
+    before = _png_bytes(generator, tmp_path)
+    changed = Path("assets/class-diagram")
+    original_class_diagram = generator.class_diagram
+
+    def changed_class_diagram(output_root: Path) -> None:
+        original_class_diagram(output_root)
+        svg = output_root / changed.with_suffix(".svg")
+        svg.write_text(svg.read_text(encoding="utf-8") + "<!-- changed -->\n", encoding="utf-8")
+
+    rendered: list[Path] = []
+
+    def fake_render(svg_path: Path, png_path: Path) -> None:
+        rendered.append(png_path)
+        png_path.write_bytes(before[changed])
+
+    monkeypatch.setattr(generator, "class_diagram", changed_class_diagram)
+    monkeypatch.setattr(generator, "render_png", fake_render)
+
+    reported = generator.generate(tmp_path)
+
+    png = tmp_path / changed.with_suffix(".png")
+    assert rendered == [png]
+    assert reported == [png]
+    svg = (tmp_path / changed.with_suffix(".svg")).read_bytes()
+    assert generator.png_source_digest(png) == generator.svg_render_digest(svg)
+    after = _png_bytes(generator, tmp_path)
+    assert {base for base in before if after[base] != before[base]} == {changed}
+
+
+def test_check_reports_a_png_rendered_from_an_older_svg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    generator = _load_generator()
+    committed = tmp_path / "repo"
+    _copy_committed_triplets(generator, committed)
+    stale = Path("assets/class-diagram.png")
+    generator.stamp_png(
+        committed / stale, generator.svg_render_digest(b"<svg><!-- older --></svg>")
+    )
+    monkeypatch.setattr(generator, "ROOT", committed)
+    _refuse_rsvg(monkeypatch, generator)
+
+    assert generator.main(["--check"]) == 1
+
+    output = capsys.readouterr().out
+    assert output.splitlines() == [
+        f"stale generated diagram: {stale}",
+        "run: python tools/generate-doc-diagrams.py",
+    ]
+
+
+def test_check_passes_committed_triplets_and_reports_an_unstamped_png(tmp_path: Path) -> None:
+    generator = _load_generator()
+    candidate = tmp_path / "candidate"
+    committed = tmp_path / "repo"
+    generator.generate(candidate, render_pngs=False)
+    _copy_committed_triplets(generator, committed)
+
+    assert generator.check_generated(candidate, committed) == []
+
+    unstamped = Path("examples/assets/notes-showcase-vm-hierarchy.png")
+    data = (committed / unstamped).read_bytes()
+    chunks = generator._png_chunks(data)
+    rebuilt = generator._PNG_SIGNATURE + b"".join(
+        generator._png_chunk(kind, body) for kind, body in chunks if kind != b"tEXt"
+    )
+    (committed / unstamped).write_bytes(rebuilt)
+    assert generator.check_generated(candidate, committed) == [unstamped]
+
+
+def test_stamp_keeps_the_png_valid_and_replaces_an_earlier_digest(tmp_path: Path) -> None:
+    generator = _load_generator()
+    png = tmp_path / "x.png"
+    shutil.copyfile(ROOT / "assets/architecture.png", png)
+
+    generator.stamp_png(png, "a" * 64)
+    generator.stamp_png(png, "b" * 64)
+
+    chunks = generator._png_chunks(png.read_bytes())
+    assert chunks[0][0] == b"IHDR"
+    assert chunks[-1][0] == b"IEND"
+    stamps = [body for kind, body in chunks if kind == b"tEXt"]
+    assert stamps == [generator.PNG_SOURCE_KEYWORD + b"\0" + b"b" * 64]
+    assert generator.png_source_digest(png) == "b" * 64
+
+
+def test_both_generators_record_the_same_digest() -> None:
+    root = _load_generator()
+    path = ROOT / "docs/assets/diagrams/generate_diagrams.py"
+    spec = importlib.util.spec_from_file_location("site_doc_diagrams_digest", path)
+    assert spec is not None
+    assert spec.loader is not None
+    site = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = site
+    spec.loader.exec_module(site)
+
+    assert site.PNG_SOURCE_KEYWORD == root.PNG_SOURCE_KEYWORD
+    assert site.PNG_RENDER_RECIPE == root.PNG_RENDER_RECIPE
+    assert site.svg_render_digest(b"<svg/>") == root.svg_render_digest(b"<svg/>")

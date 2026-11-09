@@ -114,21 +114,21 @@ internal static class ContainerMembership
         where TContainer : ComponentVMBase
         where VM : class, IComponentVM
     {
-        // A throwing local handler must not suppress the hub message for the
-        // committed change (spec/01 §1.4, #723): send it, then rethrow.
-        // The first failure wins, as in NotifyPropertyChanged and Python.
-        ExceptionDispatchInfo? firstFailure = null;
-        FirstFailure.Capture(
-            ref firstFailure,
-            (Handler: handler, Container: container, Args: args),
-            static state => state.Handler?.Invoke(state.Container, state.Args));
+        // A throwing local handler stops neither the later handlers nor the
+        // hub message for the committed change (spec/01 §1.4, spec/03 §3.6,
+        // #723, ADR-0191): send it, then rethrow. The first failure wins, as
+        // in NotifyPropertyChanged and Python.
+        ExceptionDispatchInfo? firstFailure =
+            FanOut.Raise(handler, h => h(container, args));
         if (canPublish(container))
         {
+            // The message carries the container's Name (ADR-0194).
             FirstFailure.Capture(
                 ref firstFailure,
                 (Container: container, Args: args),
                 static state => state.Container.Hub.Send(
-                    CollectionChangedMessage<VM>.From(state.Container, state.Args)));
+                    CollectionChangedMessage<VM>.From(state.Container, state.Args)
+                        with { SenderName = state.Container.Name }));
         }
         firstFailure?.Throw();
     }
@@ -205,8 +205,8 @@ internal static class ContainerMembership
 /// The depth and the dirty flag change under one lock, so batches opened and
 /// closed on several threads keep an exact depth, and a change that marks the
 /// batch dirty is never lost to a concurrent close (#1344). Delivery runs
-/// outside the lock. A close that finds the container's disposal requested
-/// delivers nothing, so that close raises no local event without its hub
+/// outside the lock. A close that finds the container's disposal requested or
+/// deferred delivers nothing, so that close raises no local event without its hub
 /// message. The check is best-effort: a disposal that another thread requests
 /// after it and before the hub publish still lets the local <c>Reset</c> go
 /// without a hub message. Every unbatched change has the same window, because
@@ -223,7 +223,8 @@ internal sealed class ContainerBatch
 
     /// <param name="deliver">The container's local-event and hub delivery.</param>
     /// <param name="canDeliverReset">
-    /// False once the container's disposal is requested; the outermost close
+    /// False once the container's disposal is requested or deferred (the
+    /// container's hub publish check, ADR-0190); the outermost close
     /// then drops the pending <c>Reset</c>.
     /// </param>
     internal ContainerBatch(
@@ -700,9 +701,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
-        _batch = new ContainerBatch(
-            DeliverCollectionChanged,
-            () => Volatile.Read(ref _disposeRequested) == 0 && !IsDisposed());
+        _batch = new ContainerBatch(DeliverCollectionChanged, CanPublishCollectionChange);
         _asyncSelection = asyncSelection;
         _autoConstructOnAdd = autoConstructOnAdd;
         _destructOrder = destructOrder;
@@ -1217,13 +1216,26 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <see cref="CollectionChangedMessage{T}"/> sent by this composite through the
     /// hub's ordinary <c>Send</c> (spec/01 §1.4, ADR-0142). Callers run outside
     /// the membership gate and the shared coordination lane, so hub subscribers
-    /// hold neither. A disposed composite publishes nothing.
+    /// hold neither. A composite whose disposal is requested or deferred
+    /// publishes nothing (spec/01 §1.4, ADR-0190).
     /// </summary>
     private void DeliverCollectionChanged(NotifyCollectionChangedEventArgs args)
         => ContainerMembership.DeliverCollectionChanged<CompositeVMBase<VM>, VM>(
             this, CollectionChanged, args,
-            static composite => Volatile.Read(ref composite._disposeRequested) == 0
-                && !composite.IsDisposed());
+            static composite => composite.CanPublishCollectionChange());
+
+    /// <summary>
+    /// Read after the local handlers return, so a handler that requests or
+    /// defers this composite's disposal suppresses the hub message (#1351).
+    /// </summary>
+    private bool CanPublishCollectionChange()
+    {
+        lock (_membershipGate)
+        {
+            if (DisposalPendingLocked()) return false;
+        }
+        return !IsDisposed();
+    }
 
     private LateChildStarts.Record? AttachLateStartLocked(VM item)
         => ContainerMembership.AttachLateStartLocked(this, _lateStarts, _autoConstructOnAdd, item);
@@ -1827,6 +1839,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private void ApplySelectorResult(VM value) => ApplyCurrentChange(value, CurrentChange.Delivery);
 
     /// <summary>
+    /// Test-only seam: runs at the entry of <see cref="DetachClearingCurrent"/>,
+    /// before the coordination lane (#1406). Production code never sets it.
+    /// </summary>
+    internal Action<VM>? DetachProbeForTesting { get; set; }
+
+    /// <summary>
     /// Frees <paramref name="detached"/> and clears it as Current in one locked
     /// section (#1219). Under the coordination lane and the membership gate,
     /// the child loses this composite as its parent and, while it is still
@@ -1838,6 +1856,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     private void DetachClearingCurrent(VM detached)
     {
+        DetachProbeForTesting?.Invoke(detached);
         bool previousFlagChanged;
         lock (CompositeCurrentChangeCoordinator.Gate)
         {

@@ -216,3 +216,20 @@ describe("SearchableState dispose", () => {
     expect(() => s.search()).not.toThrow();
   });
 });
+
+describe("SearchableState construction (ADR-0198)", () => {
+  it("reads the supplier once with zero debounce and no signal", () => {
+    let reads = 0;
+    const state = new SearchableState<string>({
+      items: () => {
+        reads += 1;
+        return ["one"];
+      },
+      predicate: ciSubstr,
+      debounceMs: 0,
+    });
+
+    expect(reads).toBe(1);
+    state.dispose();
+  });
+});

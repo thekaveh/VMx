@@ -5,6 +5,7 @@ See spec/06-composite-vm.md §Search / filter and ADR-0014.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable
 from typing import Generic, TypeVar
 
@@ -17,9 +18,12 @@ from reactivex.scheduler import TimeoutScheduler
 from reactivex.subject import BehaviorSubject, Subject
 
 from vmx._disposal import _run_disposal_steps
+from vmx._subscriber_failures import FanOutBehaviorSubject, isolated
 from vmx.capabilities.search import ISearchable
 
 T = TypeVar("T")
+
+_logger = logging.getLogger(__name__)
 
 # Sentinel for "no first item": a legal None item must not read as "empty".
 _NO_ITEM: object = object()
@@ -51,15 +55,20 @@ class SearchableState(ISearchable, Generic[T]):
         self._items_source = items
         self._predicate = predicate
         self._term_subject: BehaviorSubject[str] = BehaviorSubject("")
-        self._filtered_subject: BehaviorSubject[list[T]] = BehaviorSubject(self._apply_filter(""))
+        self._filtered_subject: BehaviorSubject[list[T]] = FanOutBehaviorSubject(
+            self._apply_filter("")
+        )
         self._force_search: Subject[None] = Subject()
         self._disposed = False
         sched = scheduler or TimeoutScheduler()
 
+        # Skip the seeded "" so construction starts no term debounce
+        # (ADR-0198, SRCH-008); the constructor already emitted that snapshot.
+        term_changes = self._term_subject.pipe(ops.skip(1))
         if debounce_seconds > 0:
-            debounced = self._term_subject.pipe(ops.debounce(debounce_seconds, sched))
+            debounced = term_changes.pipe(ops.debounce(debounce_seconds, sched))
         else:
-            debounced = self._term_subject
+            debounced = term_changes
 
         force = self._force_search.pipe(ops.map(lambda _: self._term_subject.value))
         source = (
@@ -99,11 +108,12 @@ class SearchableState(ISearchable, Generic[T]):
 
     @property
     def filtered(self) -> Observable[list[T]]:
-        # Sealed behind ``as_observable`` so subscribers can only subscribe —
-        # never ``on_next``/``dispose`` the internal BehaviorSubject (VMX-013).
-        # Replay of the current filtered value is preserved (a fresh subscriber
-        # still receives the latest snapshot on subscribe).
-        return self._filtered_subject.pipe(ops.as_observable())
+        # Sealed so subscribers can only subscribe — never ``on_next``/``dispose``
+        # the internal BehaviorSubject (VMX-013). Replay of the current filtered
+        # value is preserved (a fresh subscriber still receives the latest
+        # snapshot on subscribe). A failing subscriber is logged and stays
+        # attached (spec/03 §3.6, ADR-0191).
+        return isolated(self._filtered_subject, _logger, "SearchableState.filtered")
 
     def can_search(self) -> bool:
         # next(iter(...), sentinel) materialises just one element instead of
@@ -127,8 +137,19 @@ class SearchableState(ISearchable, Generic[T]):
         # observers to notify (parity with the C# guard).
         if self._disposed:
             return
+        # A failing predicate or item supplier stops this recompute only:
+        # ``filtered`` keeps its last snapshot, and the failure is logged
+        # instead of reaching the setter, ``search()`` or a timer thread
+        # (spec/03 §3.6, ADR-0191).
         try:
-            self._filtered_subject.on_next(self._apply_filter(term))
+            snapshot = self._apply_filter(term)
+        except Exception:
+            _logger.exception(
+                "SearchableState filter raised; keeping the last snapshot per ADR-0191"
+            )
+            return
+        try:
+            self._filtered_subject.on_next(snapshot)
         except DisposedException:
             pass
 

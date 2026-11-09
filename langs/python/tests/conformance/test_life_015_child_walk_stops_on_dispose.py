@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx import (
     AggregateVM3Builder,
     ComponentVM,
@@ -43,7 +43,7 @@ class _Blocker:
             self.hooks.append(label)
             if self.armed and not self.entered.is_set():
                 self.entered.set()
-                assert self.release.wait(HANG_GUARD)
+                assert wait_event(self.release)
 
         return run
 
@@ -91,13 +91,13 @@ def _run_with_foreign_dispose(box: Any, operation: Callable[[], None], blocker: 
 
     caller = Thread(target=run, daemon=True)
     caller.start()
-    assert blocker.entered.wait(HANG_GUARD)
+    assert wait_event(blocker.entered)
     disposer = Thread(target=box.dispose, daemon=True)
     disposer.start()
     _wait_disposed(box)
     blocker.release.set()
-    caller.join(HANG_GUARD)
-    disposer.join(HANG_GUARD)
+    join_thread(caller)
+    join_thread(disposer)
     assert not caller.is_alive()
     assert not disposer.is_alive()
     assert errors == []

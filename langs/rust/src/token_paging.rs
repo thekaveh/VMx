@@ -3,8 +3,9 @@
 //! Spec: `spec/21-collections.md`; ADR-0033.
 
 use super::{
-    lock, next_id, Arc, AsyncRelayCommand, CollectionChangeAction, CollectionChangedMessage,
-    Message, MessageHub, Mutex, MutexGuard, PropertyChangedMessage, VmNode,
+    clone_locked, lock, next_id, Arc, AsyncRelayCommand, CollectionChangeAction,
+    CollectionChangedMessage, Message, MessageHub, Mutex, MutexGuard, PropertyChangedMessage,
+    VmNode,
 };
 use std::{
     sync::{
@@ -179,6 +180,58 @@ fn publish_command_change(command_trigger: &MessageHub, id: usize) {
     });
 }
 
+/// One accumulated item, held as two copies behind their own locks (#1277).
+///
+/// `items()` clones the `read` copy, and a refresh clones the `compare` copy
+/// for its plan comparison. No commit takes either lock: a commit moves only
+/// the handles, under the items lock. So `T::clone` never runs under a lock
+/// that a load or refresh waits for, and a reader's clone never blocks a
+/// refresh's comparison of the same item. `Mutex<T>` is `Sync` when
+/// `T: Send`, so the pager keeps its `T: Clone + PartialEq + Send` bound.
+struct StoredItem<T> {
+    read: Arc<Mutex<T>>,
+    compare: Arc<Mutex<T>>,
+}
+
+impl<T> Clone for StoredItem<T> {
+    fn clone(&self) -> Self {
+        Self {
+            read: Arc::clone(&self.read),
+            compare: Arc::clone(&self.compare),
+        }
+    }
+}
+
+type StoredItems<T> = Mutex<Vec<StoredItem<T>>>;
+
+/// Clones a loaded page for its comparison copies. It runs `T::clone`, so
+/// callers run it before the commit begins and hold no pager lock.
+fn compare_copies<T: Clone>(page: &[T]) -> Vec<T> {
+    page.to_vec()
+}
+
+/// Stores a loaded page with its comparison copies. No user code runs.
+fn store_page<T>(page: Vec<T>, compare: Vec<T>) -> Vec<StoredItem<T>> {
+    debug_assert_eq!(page.len(), compare.len());
+    page.into_iter()
+        .zip(compare)
+        .map(|(read, compare)| StoredItem {
+            read: Arc::new(Mutex::new(read)),
+            compare: Arc::new(Mutex::new(compare)),
+        })
+        .collect()
+}
+
+/// Copies one copy of every stored item. The items lock is held only to copy
+/// the handles; each `T::clone` runs after it is released.
+fn copy_items<T: Clone>(
+    items: &StoredItems<T>,
+    copy: impl Fn(&StoredItem<T>) -> &Arc<Mutex<T>>,
+) -> Vec<T> {
+    let stored = lock(items).clone();
+    stored.iter().map(|item| clone_locked(copy(item))).collect()
+}
+
 /// How a refreshed first page is committed. `items` and the cursor must
 /// describe one loaded prefix (spec 21 §6.2, ADR-0136): a matching page as
 /// long as the accumulator refreshes its continuation; a shorter matching
@@ -197,6 +250,27 @@ impl RefreshPlan {
         Self {
             replace_items: !retain,
             adopt_token: !retain || same_length,
+        }
+    }
+
+    /// Clones `page` for its comparison copies when the plan replaces the
+    /// items. It runs `T::clone`, so callers run it before the commit begins.
+    fn compare_copies<T: Clone>(&self, page: &[T]) -> Vec<T> {
+        if self.replace_items {
+            compare_copies(page)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Stores `page` when the plan replaces the items. Otherwise it returns
+    /// no items and the unadopted page, which callers drop only after
+    /// releasing the commit. No user code runs.
+    fn store_page<T>(&self, page: Vec<T>, compare: Vec<T>) -> (Vec<StoredItem<T>>, Option<Vec<T>>) {
+        if self.replace_items {
+            (store_page(page, compare), None)
+        } else {
+            (Vec::new(), Some(page))
         }
     }
 
@@ -390,7 +464,7 @@ pub struct TokenPagedComposition<
     Token: Clone + Send + Sync + 'static,
 > {
     id: usize,
-    items: Arc<Mutex<Vec<T>>>,
+    items: Arc<StoredItems<T>>,
     next_token: Arc<Cursor<Token>>,
     has_more: Arc<Mutex<bool>>,
     hub: MessageHub,
@@ -471,9 +545,11 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static
                     return Ok(());
                 }
                 let (page, next) = load_more_loader(token);
+                let compare = compare_copies(&page);
                 let Some(commit) = load_more_lifecycle.begin_commit() else {
                     return Ok(());
                 };
+                let page = store_page(page, compare);
                 let Some(current) = lock_current(
                     &load_more_items,
                     &load_more_gate,
@@ -520,19 +596,24 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static
                 }
                 let operation = begin_operation(&refresh_gate, &refresh_generation);
                 let (page, next) = refresh_loader(None);
+                // Compare before the commit begins, on a copy, so no pager
+                // lock is held and no other commit waits while `T::clone` and
+                // `PartialEq` run: they may wait for another load or refresh
+                // (#1277). Items change only in a commit of a current
+                // operation, and every operation that starts after this one
+                // makes it stale, so a change after the comparison is
+                // rejected by the operation check in `lock_current`.
+                let current = copy_items(&refresh_items, |item| &item.compare);
+                let plan = RefreshPlan::new(&current, &page, next.is_some());
+                drop(current);
+                let compare = plan.compare_copies(&page);
                 let Some(commit) = refresh_lifecycle.begin_commit() else {
                     return Ok(());
                 };
                 if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
                     return Ok(());
                 }
-                // Compare a copy, so no lock is held while `PartialEq` runs.
-                // Every item write happens inside a commit, and this thread
-                // owns it, so only a re-entrant operation started by `eq`
-                // can change the items; the operation check rejects that.
-                let current = lock(&refresh_items).clone();
-                let plan = RefreshPlan::new(&current, &page, next.is_some());
-                drop(current);
+                let (page, unadopted) = plan.store_page(page, compare);
                 let Some(current) = lock_current(
                     &refresh_items,
                     &refresh_gate,
@@ -552,7 +633,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static
                 if publish_command {
                     publish_command_change(&refresh_trigger, id);
                 }
-                drop(displaced);
+                drop((displaced, unadopted));
                 Ok(())
             })
             .trigger(command_change_trigger.clone())
@@ -579,8 +660,20 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static
     }
 
     /// Returns a snapshot of all items accumulated so far.
+    ///
+    /// The pager runs `T::clone` here with no pager lock held (#1277). A
+    /// clone can therefore wait for another thread to start or commit a load
+    /// or refresh of this pager, including a refresh that compares the same
+    /// item. Each loaded item is cloned once more when its page is stored,
+    /// for the refresh comparison. Two limits remain, because every
+    /// `items()` clone of one stored item runs under that item's own lock:
+    ///
+    /// - Clones of the same stored item take turns. A `T::clone` must not
+    ///   wait for another thread's `items()` call.
+    /// - The lock is not re-entrant. A `T::clone` must not call `items()`
+    ///   again on its own thread. That call blocks forever.
     pub fn items(&self) -> Vec<T> {
-        lock(&self.items).clone()
+        copy_items(&self.items, |item| &item.read)
     }
 
     /// Returns the continuation token for the next page.
@@ -621,6 +714,11 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static
     }
 
     /// Executes the configured refresh command.
+    ///
+    /// The refresh clones each item's comparison copy with no pager lock
+    /// held, so that `T::clone` may wait for a load or another operation of
+    /// this pager (#1277). Comparison clones of one stored item take turns,
+    /// so such a clone must not wait for another thread's refresh.
     pub fn refresh(&self) {
         if self.lifecycle.is_terminal() {
             return;
@@ -662,9 +760,11 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + Sync + 'static
             return;
         }
         let (page, next_token) = loader(token);
+        let compare = compare_copies(&page);
         let Some(commit) = self.lifecycle.begin_commit() else {
             return;
         };
+        let page = store_page(page, compare);
         let Some(current) = lock_current(
             &self.items,
             &self.operation_gate,
@@ -751,12 +851,14 @@ impl<T: VmNode, Token: Clone + Send + Sync + 'static> TokenPagedComposition<T, T
                     return Ok(());
                 }
                 let (page, next) = load_loader(token);
+                let compare = compare_copies(&page);
                 let Some(commit) = load_lifecycle.begin_commit() else {
                     return Ok(());
                 };
                 if !construct_while_current(&page, &load_generation, operation, &commit) {
                     return Ok(());
                 }
+                let page = store_page(page, compare);
                 let Some(current) = lock_current(
                     &load_items,
                     &load_gate,
@@ -803,19 +905,20 @@ impl<T: VmNode, Token: Clone + Send + Sync + 'static> TokenPagedComposition<T, T
                 }
                 let operation = begin_operation(&refresh_gate, &refresh_generation);
                 let (page, next) = refresh_loader(None);
+                // Compare before the commit begins, on a copy, so no pager
+                // lock is held and no other commit waits while `T::clone` and
+                // `PartialEq` run: they may wait for another load or refresh
+                // (#1277). Items change only in a commit of a current
+                // operation, and every operation that starts after this one
+                // makes it stale, so a change after the comparison is
+                // rejected by the operation check in `lock_current`.
+                let current = copy_items(&refresh_items, |item| &item.compare);
+                let plan = RefreshPlan::new(&current, &page, next.is_some());
+                drop(current);
+                let compare = plan.compare_copies(&page);
                 let Some(commit) = refresh_lifecycle.begin_commit() else {
                     return Ok(());
                 };
-                if !is_current_operation(&refresh_generation, operation) {
-                    return Ok(());
-                }
-                // Compare a copy, so no lock is held while `PartialEq` runs.
-                // Every item write happens inside a commit, and this thread
-                // owns it, so only a re-entrant operation started by `eq`
-                // can change the items; the operation check rejects that.
-                let current = lock(&refresh_items).clone();
-                let plan = RefreshPlan::new(&current, &page, next.is_some());
-                drop(current);
                 if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
                     return Ok(());
                 }
@@ -824,6 +927,7 @@ impl<T: VmNode, Token: Clone + Send + Sync + 'static> TokenPagedComposition<T, T
                 {
                     return Ok(());
                 }
+                let (page, unadopted) = plan.store_page(page, compare);
                 let Some(current) = lock_current(
                     &refresh_items,
                     &refresh_gate,
@@ -843,7 +947,7 @@ impl<T: VmNode, Token: Clone + Send + Sync + 'static> TokenPagedComposition<T, T
                 if publish_command {
                     publish_command_change(&refresh_trigger, id);
                 }
-                drop(displaced);
+                drop((displaced, unadopted));
                 Ok(())
             })
             .trigger(command_change_trigger.clone())

@@ -65,6 +65,7 @@ public sealed class AggregateChangeStream<T> : IDisposable
 
     private IDisposable? _membershipSubscription;
     private long _nextEpoch;
+    private long _nextRegistrationSequence;
     private long _structuralState = SetupFlag;
     private bool _processing;
     private bool _completed;
@@ -534,8 +535,11 @@ public sealed class AggregateChangeStream<T> : IDisposable
             _batchDepth--;
             if (_batchDepth == 0)
             {
+                // The final Batch reaches its recipients in subscription order
+                // (spec/21 §9.5, ADR-0192); the set itself has no order.
                 Registration[] recipients = _batchRecipients
                     .Where(registration => registration.Active)
+                    .OrderBy(registration => registration.Sequence)
                     .ToArray();
                 _batchRecipients.Clear();
                 if (!_batchDirty) return;
@@ -574,7 +578,7 @@ public sealed class AggregateChangeStream<T> : IDisposable
             completed = _completed;
             if (terminalError is null && !completed)
             {
-                registration = new Registration(observer);
+                registration = new Registration(observer, _nextRegistrationSequence++);
                 _registrations.Add(registration);
                 if (emitInitial)
                 {
@@ -793,9 +797,16 @@ public sealed class AggregateChangeStream<T> : IDisposable
 
     private sealed class Registration
     {
-        internal Registration(IObserver<AggregateChange<T>> observer) => Observer = observer;
+        internal Registration(IObserver<AggregateChange<T>> observer, long sequence)
+        {
+            Observer = observer;
+            Sequence = sequence;
+        }
 
         internal IObserver<AggregateChange<T>> Observer { get; }
+
+        // Subscription order: a resubscription gets a new, later sequence.
+        internal long Sequence { get; }
 
         internal bool Active { get; set; } = true;
     }

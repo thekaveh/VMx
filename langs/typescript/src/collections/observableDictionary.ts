@@ -7,10 +7,15 @@
  *   - itemReplaced  — emits { key1, key2, newValue, oldValue } on replace
  *   - reset         — emits void on clear
  *
- * keys1 and keys2 are live ObservableList<TKeyN> views of the distinct Key1 /
- * Key2 values currently present, in insertion order of their first appearance.
+ * keys1 and keys2 are live, read-only ReadOnlyObservableList<TKeyN> views of
+ * the distinct Key1 / Key2 values currently present, in insertion order of
+ * their first appearance. Only the dictionary changes them (ADR-0193).
  *
  * Null/undefined keys are not permitted; passing one throws Error.
+ *
+ * Hub messages carry the entry's position in enumeration order. Remove reports
+ * the position before the removal. Add and Replace report the position when
+ * the message is sent, or -1 when the entry is gone (spec/21 §4.7, ADR-0193).
  *
  * See spec/21-collections.md §4 and ADR-0025.
  */
@@ -19,6 +24,7 @@ import { Observable, Subject } from "rxjs";
 import type { IMessageHub } from "../services/messageHub.js";
 import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 import { ObservableList } from "./observableList.js";
+import { ReadOnlyObservableList } from "./readOnlyObservableList.js";
 
 // ── Payload shapes ────────────────────────────────────────────────────────────
 
@@ -108,6 +114,9 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   /** Distinct-key observable views. */
   readonly #keys1 = new ObservableList<TKey1>();
   readonly #keys2 = new ObservableList<TKey2>();
+  /** Read-only facades returned to callers. */
+  readonly #keys1View = new ReadOnlyObservableList(this.#keys1);
+  readonly #keys2View = new ReadOnlyObservableList(this.#keys2);
   /**
    * Changes on every add, remove, and clear, so an add can tell whether a
    * key-view subscriber changed the entries during its notification.
@@ -164,19 +173,19 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   // ── Key-axis views ───────────────────────────────────────────────────────────
 
   /**
-   * Live observable view of distinct Key1 values,
+   * Live, read-only observable view of distinct Key1 values,
    * in insertion order of their first appearance.
    */
-  get keys1(): ObservableList<TKey1> {
-    return this.#keys1;
+  get keys1(): ReadOnlyObservableList<TKey1> {
+    return this.#keys1View;
   }
 
   /**
-   * Live observable view of distinct Key2 values,
+   * Live, read-only observable view of distinct Key2 values,
    * in insertion order of their first appearance.
    */
-  get keys2(): ObservableList<TKey2> {
-    return this.#keys2;
+  get keys2(): ReadOnlyObservableList<TKey2> {
+    return this.#keys2View;
   }
 
   // ── Size ─────────────────────────────────────────────────────────────────────
@@ -203,13 +212,15 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
       // 1. Local granular event first.
       this.#itemReplaced.next({ key1, key2, newValue: value, oldValue });
       // 2. Publish to hub (if present). Element type includes both keys so
-      //    subscribers can recover which entry was replaced.
+      //    subscribers can recover which entry was replaced. The position is
+      //    read now, as for an Add: a local subscriber may have moved or
+      //    removed the entry (ADR-0193).
       this.#hub?.send(
         CollectionChangedMessage.forReplace<DictionaryEntry<TKey1, TKey2, TValue>>(
           this,
           { key1, key2, value },
           { key1, key2, value: oldValue },
-          -1,
+          this.#indexOf(key1, key2),
         ),
       );
     } else {
@@ -273,7 +284,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
       CollectionChangedMessage.forRemove<DictionaryEntry<TKey1, TKey2, TValue>>(
         this,
         { key1, key2, value },
-        -1,
+        orderIndex,
       ),
     );
     return true;
@@ -523,6 +534,12 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     const current = this.#data.get(key1)?.get(key2);
     if (current === undefined) return -1;
     return this.#keyOrder[index] === current ? index : this.#keyOrder.indexOf(current);
+  }
+
+  // The key pair's position in enumeration order, or -1 when it is gone.
+  #indexOf(key1: TKey1, key2: TKey2): number {
+    const current = this.#data.get(key1)?.get(key2);
+    return current === undefined ? -1 : this.#keyOrder.indexOf(current);
   }
 
   #requireKeys(key1: TKey1, key2: TKey2): void {

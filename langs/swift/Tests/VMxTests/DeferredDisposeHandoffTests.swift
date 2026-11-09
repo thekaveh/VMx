@@ -60,9 +60,6 @@ private final class HandoffComposite: CompositeVM<ComponentVM> {
 }
 
 final class DeferredDisposeHandoffTests: XCTestCase {
-    /// The hang guard for every wait. Tests resume as soon as the awaited
-    /// event happens; only a regression waits this long.
-    private let hangGuard: TimeInterval = 5
     private var cancellables = Set<AnyCancellable>()
 
     override func setUp() {
@@ -164,7 +161,6 @@ final class DeferredDisposeHandoffTests: XCTestCase {
         let x = try leaf("x")
         let group = makeGroup()
         try group.construct()
-        let guardWait = hangGuard
         let workerProgress = DispatchSemaphore(value: 0)
         let workerDone = DispatchSemaphore(value: 0)
         let mainAddReturned = DispatchSemaphore(value: 0)
@@ -178,7 +174,7 @@ final class DeferredDisposeHandoffTests: XCTestCase {
                 workerProgress.signal()
                 workerDone.signal()
             }
-            hookWait.value = workerProgress.wait(timeout: .now() + guardWait)
+            hookWait.value = workerProgress.wait(timeout: .now() + hangGuard)
         }
         group.collectionChanged.sink { [unowned group] _ in
             if Thread.isMainThread {
@@ -187,7 +183,7 @@ final class DeferredDisposeHandoffTests: XCTestCase {
             }
             // Only an admitted foreign add publishes here.
             workerProgress.signal()
-            handlerWait.value = mainAddReturned.wait(timeout: .now() + guardWait)
+            handlerWait.value = mainAddReturned.wait(timeout: .now() + hangGuard)
         }.store(in: &cancellables)
 
         group.add(b)

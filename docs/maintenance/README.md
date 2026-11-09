@@ -12,10 +12,12 @@ Maintainers keep these files current.
   package, tool, CI, and publication contracts. `tools/check-workflow-pins.py`
   reads its action-pin inventory.
 - [Rust parity status](2026-07-16-rust-capability-parity.md): Rust member
-  evidence and the open items §12.4.7 and §12.7–§12.13. The documentation site publishes
+  evidence, the recorded difference in §12.7 and the open item in §12.13. The documentation site publishes
   it as chapter 12.
 - [Open cross-flavor decisions](2026-10-18-open-cross-flavor-decisions.md):
   known flavor differences and spec gaps that wait for an owner decision.
+- [Dependency lock regeneration](2026-11-09-dependency-lock-regeneration.md):
+  the regeneration command of each lock file and the CI check that names it.
 
 ## 2. Historical records
 
