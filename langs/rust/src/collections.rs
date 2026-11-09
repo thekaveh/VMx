@@ -927,7 +927,8 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 
     /// Creates an empty list whose messages carry the owning container's
-    /// identity and diagnostic name (ADR-0120).
+    /// identity and name (ADR-0120). A `CompositeVm` or `GroupVm` passes its
+    /// `name()`, so each message carries the container's name (ADR-0194).
     pub(crate) fn with_owner_name(
         owner_id: usize,
         owner_name: impl Into<Arc<str>>,
@@ -1332,22 +1333,24 @@ where
     /// Adds `key` or replaces its existing value in place.
     pub fn insert(&self, key: K, value: V) {
         let mut entry = Some((key, value));
-        let ((action, replaced, new_index), retired) = loop {
+        let ((action, replaced, (old_index, new_index)), retired) = loop {
             let (revision, index) = self.locate(&entry.as_ref().expect("entry pending").0);
             let committed = commit_entries(&self.inner, revision, |entries, retired| {
                 let (key, value) = entry.take().expect("entry pending");
                 match index {
                     // The stored key stays; the argument key is returned so
                     // that it drops after the lock is released.
+                    // Replace keeps the entry in place, so both positions
+                    // are its index (spec/21 §2.4 and §4.7, ADR-0193).
                     Some(index) => (
                         CollectionChangeAction::Replace,
                         Some((key, std::mem::replace(&mut entries.values[index], value))),
-                        None,
+                        (Some(index), Some(index)),
                     ),
                     None => {
                         let position = entries.push(key, value, retired);
                         // Add carries its insertion position (spec/21 §2.4).
-                        (CollectionChangeAction::Add, None, Some(position))
+                        (CollectionChangeAction::Add, None, (None, Some(position)))
                     }
                 }
             });
@@ -1356,7 +1359,7 @@ where
             }
         };
         drop((replaced, retired));
-        self.publish_at(action, new_index);
+        self.publish_at(action, old_index, new_index);
     }
 
     /// Returns the value associated with `key`, if present.
@@ -1380,12 +1383,14 @@ where
             if let Some(removed) = commit_entries(&self.inner, revision, |entries, retired| {
                 entries.remove(index, retired)
             }) {
-                break Some(removed);
+                break Some((index, removed));
             }
         };
-        let ((removed_key, value), retired) = removed?;
+        let (index, ((removed_key, value), retired)) = removed?;
         drop((removed_key, retired));
-        self.publish(CollectionChangeAction::Remove);
+        // Remove carries the entry's position before the removal (spec/21
+        // §2.4 and §4.7, ADR-0193).
+        self.publish_at(CollectionChangeAction::Remove, Some(index), None);
         Some(value)
     }
 
@@ -1412,17 +1417,22 @@ where
     }
 
     fn publish(&self, action: CollectionChangeAction) {
-        self.publish_at(action, None);
+        self.publish_at(action, None, None);
     }
 
-    fn publish_at(&self, action: CollectionChangeAction, new_index: Option<usize>) {
+    fn publish_at(
+        &self,
+        action: CollectionChangeAction,
+        old_index: Option<usize>,
+        new_index: Option<usize>,
+    ) {
         self.hub
             .send(Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
                 sender_name: "ObservableDictionary".to_string(),
                 property_name: "items".to_string(),
                 action,
-                old_index: None,
+                old_index,
                 new_index,
             }));
     }
@@ -1481,7 +1491,7 @@ where
         };
         drop(retired);
         // Add carries its insertion position (spec/21 §2.4).
-        self.publish_at(CollectionChangeAction::Add, Some(position));
+        self.publish_at(CollectionChangeAction::Add, None, Some(position));
         Ok(())
     }
 
@@ -1514,7 +1524,7 @@ where
     /// Adds a key pair or replaces its existing value in place.
     pub fn insert(&self, key1: K1, key2: K2, value: V) {
         let mut entry = Some((key1, key2, value));
-        let ((action, replaced, new_index), retired) = loop {
+        let ((action, replaced, (old_index, new_index)), retired) = loop {
             let pending = entry.as_ref().expect("entry pending");
             let (revision, index) = self.locate(&pending.0, &pending.1);
             let committed = commit_entries(&self.inner, revision, |entries, retired| {
@@ -1522,17 +1532,19 @@ where
                 match index {
                     // The stored keys stay; the argument keys are returned so
                     // that they drop after the lock is released.
+                    // Replace keeps the entry in place, so both positions
+                    // are its index (spec/21 §2.4 and §4.7, ADR-0193).
                     Some(index) => (
                         CollectionChangeAction::Replace,
                         Some((
                             (key1, key2),
                             std::mem::replace(&mut entries.values[index], value),
                         )),
-                        None,
+                        (Some(index), Some(index)),
                     ),
                     None => {
                         let position = entries.push((key1, key2), value, retired);
-                        (CollectionChangeAction::Add, None, Some(position))
+                        (CollectionChangeAction::Add, None, (None, Some(position)))
                     }
                 }
             });
@@ -1541,7 +1553,7 @@ where
             }
         };
         drop((replaced, retired));
-        self.publish_at(action, new_index);
+        self.publish_at(action, old_index, new_index);
     }
 
     /// Removes and returns the value associated with a key pair.
@@ -1554,12 +1566,14 @@ where
             if let Some(removed) = commit_entries(&self.inner, revision, |entries, retired| {
                 entries.remove(index, retired)
             }) {
-                break Some(removed);
+                break Some((index, removed));
             }
         };
-        let ((removed_keys, value), retired) = removed?;
+        let (index, ((removed_keys, value), retired)) = removed?;
         drop((removed_keys, retired));
-        self.publish(CollectionChangeAction::Remove);
+        // Remove carries the entry's position before the removal (spec/21
+        // §2.4 and §4.7, ADR-0193).
+        self.publish_at(CollectionChangeAction::Remove, Some(index), None);
         Some(value)
     }
 
@@ -1607,17 +1621,22 @@ where
     }
 
     fn publish(&self, action: CollectionChangeAction) {
-        self.publish_at(action, None);
+        self.publish_at(action, None, None);
     }
 
-    fn publish_at(&self, action: CollectionChangeAction, new_index: Option<usize>) {
+    fn publish_at(
+        &self,
+        action: CollectionChangeAction,
+        old_index: Option<usize>,
+        new_index: Option<usize>,
+    ) {
         self.hub
             .send(Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
                 sender_name: "ObservableMultiDictionary".to_string(),
                 property_name: "items".to_string(),
                 action,
-                old_index: None,
+                old_index,
                 new_index,
             }));
     }

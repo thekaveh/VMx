@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from tests.wait_graph_seams import wait_until_waiting
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -80,12 +80,12 @@ class _Worker:
     @property
     def ident(self) -> int:
         """The thread's ident, once a peer thread has started it."""
-        if not self._started.wait(HANG_GUARD):
+        if not wait_event(self._started):
             raise TimeoutError(f"{self.thread.name} did not start")
         return self.thread.ident or 0
 
     def join(self) -> None:
-        self.thread.join(3 * HANG_GUARD)
+        join_thread(self.thread, 3 * HANG_GUARD)
         assert not self.thread.is_alive(), f"{self.thread.name} hung"
 
 
@@ -145,7 +145,7 @@ def test_a_drainer_disposing_the_container_does_not_hang(kind: str, auto: bool) 
 
     _on_trigger(hub, dispose_when_a_waits, errors)
     drainer = _Worker("B", lambda: hub.send(_trigger())).start()
-    assert draining.wait(HANG_GUARD)
+    assert wait_event(draining)
     adder.start()
     drainer.join()
     adder.join()
@@ -190,13 +190,13 @@ def test_a_send_inside_the_transaction_does_not_hang_on_a_waiting_disposal(kind:
 
     def dispose_after_a_subscriber() -> None:
         draining.set()
-        assert local_subscriber_running.wait(HANG_GUARD)
+        assert wait_event(local_subscriber_running)
         container.dispose()
 
     _on_trigger(hub, dispose_after_a_subscriber, errors)
     disposer.append(_Worker("B", lambda: hub.send(_trigger())))
     disposer[0].start()
-    assert draining.wait(HANG_GUARD)
+    assert wait_event(draining)
     adder.start()
     disposer[0].join()
     adder.join()
@@ -234,7 +234,7 @@ def test_disposing_another_container_keeps_the_add_send_synchronous(kind: str) -
 
     _on_trigger(hub, dispose_other_when_a_waits, errors)
     drainer = _Worker("B", lambda: hub.send(_trigger())).start()
-    assert draining.wait(HANG_GUARD)
+    assert wait_event(draining)
     adder.start()
     drainer.join()
     adder.join()

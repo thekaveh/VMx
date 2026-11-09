@@ -26,7 +26,7 @@ from typing import Any
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import join_thread, wait_event
 from vmx import (
     AggregateVM1Builder,
     ComponentVM,
@@ -352,7 +352,7 @@ def _pause_after_hook(vm: Any, expected: ConstructionStatus, paused: Event, resu
         admitted: bool = original(hook, status)
         if status is expected:
             paused.set()
-            assert resume.wait(HANG_GUARD)
+            assert wait_event(resume)
         return admitted
 
     vm._invoke_lifecycle_hook = types.MethodType(paused_hook, vm)
@@ -411,7 +411,7 @@ def test_LIFE_021_transition_whose_hook_returned_before_the_cascade_commits_noth
         # T resumes once the cascade disposes c1; c1's dispose hook holds
         # until T's call returned, so a commit T makes lands mid-cascade.
         resume.set()
-        assert call_done.wait(HANG_GUARD)
+        assert wait_event(call_done)
 
     c1.on_dispose = hold_child_dispose
 
@@ -425,11 +425,11 @@ def test_LIFE_021_transition_whose_hook_returned_before_the_cascade_commits_noth
 
     caller = Thread(target=run_call, daemon=True)
     caller.start()
-    assert paused.wait(HANG_GUARD)
+    assert wait_event(paused)
     disposer = Thread(target=box.dispose, daemon=True)
     disposer.start()
-    caller.join(HANG_GUARD)
-    disposer.join(HANG_GUARD)
+    join_thread(caller)
+    join_thread(disposer)
     assert not caller.is_alive()
     assert not disposer.is_alive()
 
@@ -466,13 +466,13 @@ def test_LIFE_021_queued_background_commit_run_on_another_thread_publishes_nothi
 
     def hold_member_dispose() -> None:
         member_disposing.set()
-        assert drained.wait(HANG_GUARD)
+        assert wait_event(drained)
 
     member.on_dispose = hold_member_dispose
 
     def run_foreground() -> None:
         try:
-            assert member_disposing.wait(HANG_GUARD)
+            assert wait_event(member_disposing)
             foreground.drain()
         finally:
             drained.set()
@@ -481,8 +481,8 @@ def test_LIFE_021_queued_background_commit_run_on_another_thread_publishes_nothi
     runner.start()
     disposer = Thread(target=leaf.dispose, daemon=True)
     disposer.start()
-    runner.join(HANG_GUARD)
-    disposer.join(HANG_GUARD)
+    join_thread(runner)
+    join_thread(disposer)
     assert not runner.is_alive()
     assert not disposer.is_alive()
 

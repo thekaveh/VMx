@@ -304,7 +304,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     }
 
     /// Returns the immutable presentation hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.core.hint()
     }
 
@@ -882,8 +882,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Attaches the children factory's result once (spec/07 §3, ADR-0204).
     /// It runs inside the admitted construct transition, so a concurrent or
-    /// re-entrant construct fails with [`VmxError::ConcurrentOperation`]
-    /// instead of running it again. The factory leaves its slot only when
+    /// re-entrant construct fails with
+    /// [`VmxError::InvalidLifecycleTransition`] from `Constructing` instead
+    /// of running it again. The factory leaves its slot only when
     /// the population commits.
     fn populate(&self) -> VmxResult<()> {
         if self.dispose_requested.load(Ordering::Acquire)
@@ -1299,7 +1300,7 @@ impl<T: VmNode, D: Dispatcher> GroupVmBuilder<T, D> {
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
         let vm = GroupVm::with_destruct_order(name, hub, dispatcher, self.destruct_order);
         if let Some(hint) = self.hint {
-            vm.core.set_hint(Some(hint));
+            vm.core.set_hint(hint);
         }
         vm.set_auto_construct_on_add(self.auto_construct_on_add);
         *lock(&vm.population) = Some(children);

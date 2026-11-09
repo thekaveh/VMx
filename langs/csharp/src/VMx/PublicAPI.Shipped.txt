@@ -1,0 +1,1344 @@
+#nullable enable
+VMx.Aggregates.AggregateVM1<VM1>
+VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder
+VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder.Build() -> VMx.Aggregates.AggregateVM1<VM1!>!
+VMx.Aggregates.AggregateVM1<VM1>.Component1.get -> VM1?
+VMx.Aggregates.AggregateVM2<VM1, VM2>
+VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder
+VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder.Build() -> VMx.Aggregates.AggregateVM2<VM1!, VM2!>!
+VMx.Aggregates.AggregateVM2<VM1, VM2>.Component1.get -> VM1?
+VMx.Aggregates.AggregateVM2<VM1, VM2>.Component2.get -> VM2?
+VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>
+VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder
+VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder.Build() -> VMx.Aggregates.AggregateVM3<VM1!, VM2!, VM3!>!
+VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.Component1.get -> VM1?
+VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.Component2.get -> VM2?
+VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.Component3.get -> VM3?
+VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>
+VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder
+VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder.Build() -> VMx.Aggregates.AggregateVM4<VM1!, VM2!, VM3!, VM4!>!
+VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.Component1.get -> VM1?
+VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.Component2.get -> VM2?
+VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.Component3.get -> VM3?
+VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.Component4.get -> VM4?
+VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>
+VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder
+VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder.Build() -> VMx.Aggregates.AggregateVM5<VM1!, VM2!, VM3!, VM4!, VM5!>!
+VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component1.get -> VM1?
+VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component2.get -> VM2?
+VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component3.get -> VM3?
+VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component4.get -> VM4?
+VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component5.get -> VM5?
+VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>
+VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder
+VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Build() -> VMx.Aggregates.AggregateVM6<VM1!, VM2!, VM3!, VM4!, VM5!, VM6!>!
+VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component1.get -> VM1?
+VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component2.get -> VM2?
+VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component3.get -> VM3?
+VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component4.get -> VM4?
+VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component5.get -> VM5?
+VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component6.get -> VM6?
+VMx.Aggregates.IAggregateVM1<VM1>
+VMx.Aggregates.IAggregateVM1<VM1>.Component1.get -> VM1?
+VMx.Aggregates.IAggregateVM2<VM1, VM2>
+VMx.Aggregates.IAggregateVM2<VM1, VM2>.Component1.get -> VM1?
+VMx.Aggregates.IAggregateVM2<VM1, VM2>.Component2.get -> VM2?
+VMx.Aggregates.IAggregateVM3<VM1, VM2, VM3>
+VMx.Aggregates.IAggregateVM3<VM1, VM2, VM3>.Component1.get -> VM1?
+VMx.Aggregates.IAggregateVM3<VM1, VM2, VM3>.Component2.get -> VM2?
+VMx.Aggregates.IAggregateVM3<VM1, VM2, VM3>.Component3.get -> VM3?
+VMx.Aggregates.IAggregateVM4<VM1, VM2, VM3, VM4>
+VMx.Aggregates.IAggregateVM4<VM1, VM2, VM3, VM4>.Component1.get -> VM1?
+VMx.Aggregates.IAggregateVM4<VM1, VM2, VM3, VM4>.Component2.get -> VM2?
+VMx.Aggregates.IAggregateVM4<VM1, VM2, VM3, VM4>.Component3.get -> VM3?
+VMx.Aggregates.IAggregateVM4<VM1, VM2, VM3, VM4>.Component4.get -> VM4?
+VMx.Aggregates.IAggregateVM5<VM1, VM2, VM3, VM4, VM5>
+VMx.Aggregates.IAggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component1.get -> VM1?
+VMx.Aggregates.IAggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component2.get -> VM2?
+VMx.Aggregates.IAggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component3.get -> VM3?
+VMx.Aggregates.IAggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component4.get -> VM4?
+VMx.Aggregates.IAggregateVM5<VM1, VM2, VM3, VM4, VM5>.Component5.get -> VM5?
+VMx.Aggregates.IAggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>
+VMx.Aggregates.IAggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component1.get -> VM1?
+VMx.Aggregates.IAggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component2.get -> VM2?
+VMx.Aggregates.IAggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component3.get -> VM3?
+VMx.Aggregates.IAggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component4.get -> VM4?
+VMx.Aggregates.IAggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component5.get -> VM5?
+VMx.Aggregates.IAggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Component6.get -> VM6?
+VMx.Builders.BuilderValidationException
+VMx.Builders.BuilderValidationException.BuilderValidationException(string! missingField) -> void
+VMx.Builders.BuilderValidationException.MissingField.get -> string!
+VMx.Capabilities.ExpandableState
+VMx.Capabilities.ExpandableState.CanCollapse() -> bool
+VMx.Capabilities.ExpandableState.CanExpand() -> bool
+VMx.Capabilities.ExpandableState.CanToggleExpansion() -> bool
+VMx.Capabilities.ExpandableState.Collapse() -> void
+VMx.Capabilities.ExpandableState.CollapseCommand.get -> System.Windows.Input.ICommand!
+VMx.Capabilities.ExpandableState.Dispose() -> void
+VMx.Capabilities.ExpandableState.Expand() -> void
+VMx.Capabilities.ExpandableState.ExpandCommand.get -> System.Windows.Input.ICommand!
+VMx.Capabilities.ExpandableState.ExpandableState(bool initiallyExpanded = false) -> void
+VMx.Capabilities.ExpandableState.IsExpanded.get -> bool
+VMx.Capabilities.ExpandableState.IsExpandedChanged.get -> System.IObservable<bool>!
+VMx.Capabilities.ExpandableState.ToggleExpansion() -> void
+VMx.Capabilities.ExpandableState.ToggleExpansionCommand.get -> System.Windows.Input.ICommand!
+VMx.Capabilities.IApprovable
+VMx.Capabilities.IApprovable.Approve() -> void
+VMx.Capabilities.IApprovable.CanApprove() -> bool
+VMx.Capabilities.ICancelable
+VMx.Capabilities.ICancelable.CanCancel() -> bool
+VMx.Capabilities.ICancelable.Cancel() -> void
+VMx.Capabilities.IClosable
+VMx.Capabilities.IClosable.CanClose() -> bool
+VMx.Capabilities.IClosable.Close() -> void
+VMx.Capabilities.ICollapsible
+VMx.Capabilities.ICollapsible.CanCollapse() -> bool
+VMx.Capabilities.ICollapsible.Collapse() -> void
+VMx.Capabilities.IConstructable
+VMx.Capabilities.IConstructable.CanConstruct() -> bool
+VMx.Capabilities.IConstructable.Construct() -> void
+VMx.Capabilities.IConstructable.ConstructAsync() -> System.Threading.Tasks.Task!
+VMx.Capabilities.ICurrentDeletable
+VMx.Capabilities.ICurrentDeletable.CanDeleteCurrent() -> bool
+VMx.Capabilities.ICurrentDeletable.DeleteCurrent() -> void
+VMx.Capabilities.ICurrentUpdatable
+VMx.Capabilities.ICurrentUpdatable.CanUpdateCurrent() -> bool
+VMx.Capabilities.ICurrentUpdatable.UpdateCurrent() -> void
+VMx.Capabilities.IDeletable<T>
+VMx.Capabilities.IDeletable<T>.CanDelete(T item) -> bool
+VMx.Capabilities.IDeletable<T>.Delete(T item) -> void
+VMx.Capabilities.IDeselectable
+VMx.Capabilities.IDeselectable.CanDeselect() -> bool
+VMx.Capabilities.IDeselectable.Deselect() -> void
+VMx.Capabilities.IDestructable
+VMx.Capabilities.IDestructable.CanDestruct() -> bool
+VMx.Capabilities.IDestructable.Destruct() -> void
+VMx.Capabilities.IDestructable.DestructAsync() -> System.Threading.Tasks.Task!
+VMx.Capabilities.IExpandable
+VMx.Capabilities.IExpandable.CanExpand() -> bool
+VMx.Capabilities.IExpandable.Expand() -> void
+VMx.Capabilities.IExpandable.IsExpanded.get -> bool
+VMx.Capabilities.IExpansionTogglable
+VMx.Capabilities.IExpansionTogglable.CanToggleExpansion() -> bool
+VMx.Capabilities.IExpansionTogglable.ToggleExpansion() -> void
+VMx.Capabilities.IFilterable<TItem>
+VMx.Capabilities.IFilterable<TItem>.CanFilter() -> bool
+VMx.Capabilities.IFilterable<TItem>.Filter.get -> System.Predicate<TItem>?
+VMx.Capabilities.IFilterable<TItem>.Filter.set -> void
+VMx.Capabilities.IManagable<T>
+VMx.Capabilities.IManagable<T>.CanManage(T item) -> bool
+VMx.Capabilities.IManagable<T>.Manage(T item) -> void
+VMx.Capabilities.INewCreatable
+VMx.Capabilities.INewCreatable.CanCreateNew() -> bool
+VMx.Capabilities.INewCreatable.CreateNew() -> void
+VMx.Capabilities.IPageable
+VMx.Capabilities.IPageable.CurrentPageIndex.get -> int
+VMx.Capabilities.IPageable.CurrentPageIndex.set -> void
+VMx.Capabilities.IPageable.IsPagingEnabled.get -> bool
+VMx.Capabilities.IPageable.MoveToFirstPage() -> void
+VMx.Capabilities.IPageable.MoveToLastPage() -> void
+VMx.Capabilities.IPageable.MoveToNextPage() -> void
+VMx.Capabilities.IPageable.MoveToPreviousPage() -> void
+VMx.Capabilities.IPageable.PageCount.get -> int
+VMx.Capabilities.IPageable.PageSize.get -> int
+VMx.Capabilities.IPageable.PageSize.set -> void
+VMx.Capabilities.IReconstructable
+VMx.Capabilities.IReconstructable.CanReconstruct() -> bool
+VMx.Capabilities.IReconstructable.Reconstruct() -> void
+VMx.Capabilities.IReconstructable.ReconstructAsync() -> System.Threading.Tasks.Task!
+VMx.Capabilities.ISavable<T>
+VMx.Capabilities.ISavable<T>.CanSave(T item) -> bool
+VMx.Capabilities.ISavable<T>.Save(T item) -> void
+VMx.Capabilities.ISearchable
+VMx.Capabilities.ISearchable.CanSearch() -> bool
+VMx.Capabilities.ISearchable.Search() -> void
+VMx.Capabilities.ISearchable.SearchTerm.get -> string!
+VMx.Capabilities.ISearchable.SearchTerm.set -> void
+VMx.Capabilities.ISelectable
+VMx.Capabilities.ISelectable.CanSelect() -> bool
+VMx.Capabilities.ISelectable.Select() -> void
+VMx.Capabilities.ISelectionTogglable
+VMx.Capabilities.ISelectionTogglable.CanToggleSelection() -> bool
+VMx.Capabilities.ISelectionTogglable.ToggleSelection() -> void
+VMx.Capabilities.IUpdatable<T>
+VMx.Capabilities.IUpdatable<T>.CanUpdate(T item) -> bool
+VMx.Capabilities.IUpdatable<T>.Update(T item) -> void
+VMx.Capabilities.SearchableState<TItem>
+VMx.Capabilities.SearchableState<TItem>.CanSearch() -> bool
+VMx.Capabilities.SearchableState<TItem>.Dispose() -> void
+VMx.Capabilities.SearchableState<TItem>.Filtered.get -> System.IObservable<System.Collections.Generic.IReadOnlyList<TItem>!>!
+VMx.Capabilities.SearchableState<TItem>.Search() -> void
+VMx.Capabilities.SearchableState<TItem>.SearchTerm.get -> string!
+VMx.Capabilities.SearchableState<TItem>.SearchTerm.set -> void
+VMx.Capabilities.SearchableState<TItem>.SearchableState(System.Func<System.Collections.Generic.IEnumerable<TItem>!>! items, System.Func<TItem, string!, bool>! predicate, System.TimeSpan? debounce = null, System.Reactive.Concurrency.IScheduler? scheduler = null, System.IObservable<System.Reactive.Unit>? sourceChanged = null) -> void
+VMx.Collections.AggregateChange<T>
+VMx.Collections.AggregateChange<T>.Item.get -> T?
+VMx.Collections.AggregateChange<T>.Reason.get -> VMx.Collections.AggregateChangeReason
+VMx.Collections.AggregateChangeReason
+VMx.Collections.AggregateChangeReason.Batch = 3 -> VMx.Collections.AggregateChangeReason
+VMx.Collections.AggregateChangeReason.Initial = 0 -> VMx.Collections.AggregateChangeReason
+VMx.Collections.AggregateChangeReason.Item = 2 -> VMx.Collections.AggregateChangeReason
+VMx.Collections.AggregateChangeReason.Membership = 1 -> VMx.Collections.AggregateChangeReason
+VMx.Collections.AggregateChangeStream
+VMx.Collections.AggregateChangeStream<T>
+VMx.Collections.AggregateChangeStream<T>.AggregateChangeStream(VMx.Collections.IObservableMembershipSource<T!>! source, System.Func<T!, System.IObservable<System.Reactive.Unit>!>! observeItem) -> void
+VMx.Collections.AggregateChangeStream<T>.Batch(System.Action! action) -> void
+VMx.Collections.AggregateChangeStream<T>.Dispose() -> void
+VMx.Collections.AggregateChangeStream<T>.Observe(bool emitInitial = false) -> System.IObservable<VMx.Collections.AggregateChange<T!>!>!
+VMx.Collections.DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>
+VMx.Collections.DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>.Key1.get -> TKey1
+VMx.Collections.DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>.Key2.get -> TKey2
+VMx.Collections.DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>.Value.get -> TValue
+VMx.Collections.DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>
+VMx.Collections.DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>.Key1.get -> TKey1
+VMx.Collections.DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>.Key2.get -> TKey2
+VMx.Collections.DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>.Value.get -> TValue
+VMx.Collections.DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>
+VMx.Collections.DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>.Key1.get -> TKey1
+VMx.Collections.DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>.Key2.get -> TKey2
+VMx.Collections.DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>.NewValue.get -> TValue
+VMx.Collections.DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>.OldValue.get -> TValue
+VMx.Collections.IObservableMembershipSource<T>
+VMx.Collections.IObservableMembershipSource<T>.Snapshot() -> System.Collections.Generic.IReadOnlyList<T>!
+VMx.Collections.IObservableMembershipSource<T>.SubscribeMembership(System.Action! callback) -> System.IDisposable!
+VMx.Collections.ISelectableVmCollection<VM>
+VMx.Collections.ISelectableVmCollection<VM>.CanSelectComponent(VM! vm) -> bool
+VMx.Collections.ISelectableVmCollection<VM>.Current.get -> VM?
+VMx.Collections.ISelectableVmCollection<VM>.Current.set -> void
+VMx.Collections.ISelectableVmCollection<VM>.DeselectComponent(VM! vm) -> void
+VMx.Collections.ISelectableVmCollection<VM>.SelectComponent(VM! vm) -> void
+VMx.Collections.IVmCollection<VM>
+VMx.Collections.IVmCollection<VM>.BatchUpdate() -> System.IDisposable!
+VMx.Collections.IVmCollection<VM>.Move(int fromIndex, int toIndex) -> void
+VMx.Collections.ItemAddedEventArgs<T>
+VMx.Collections.ItemAddedEventArgs<T>.Index.get -> int
+VMx.Collections.ItemAddedEventArgs<T>.Item.get -> T
+VMx.Collections.ItemRemovedEventArgs<T>
+VMx.Collections.ItemRemovedEventArgs<T>.Index.get -> int
+VMx.Collections.ItemRemovedEventArgs<T>.Item.get -> T
+VMx.Collections.ItemReplacedEventArgs<T>
+VMx.Collections.ItemReplacedEventArgs<T>.Index.get -> int
+VMx.Collections.ItemReplacedEventArgs<T>.NewItem.get -> T
+VMx.Collections.ItemReplacedEventArgs<T>.OldItem.get -> T
+VMx.Collections.KeyedServicedObservableCollection<TKey, TItem>
+VMx.Collections.KeyedServicedObservableCollection<TKey, TItem>.ContainsKey(TKey key) -> bool
+VMx.Collections.KeyedServicedObservableCollection<TKey, TItem>.KeyedServicedObservableCollection(System.Func<TItem, TKey>! keySelector, VMx.Services.IMessageHub? hub = null, System.Collections.Generic.IEqualityComparer<TKey>? comparer = null) -> void
+VMx.Collections.KeyedServicedObservableCollection<TKey, TItem>.RemoveKey(TKey key) -> bool
+VMx.Collections.KeyedServicedObservableCollection<TKey, TItem>.TryGetValue(TKey key, out TItem item) -> bool
+VMx.Collections.KeyedServicedObservableCollection<TKey, TItem>.Upsert(TItem item) -> bool
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Add(TKey1 key1, TKey2 key2, TValue value) -> void
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Clear() -> void
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.ContainsKey(TKey1 key1, TKey2 key2) -> bool
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Count.get -> int
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.GetEnumerator() -> System.Collections.Generic.IEnumerator<System.Collections.Generic.KeyValuePair<(TKey1, TKey2), TValue>>!
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.ItemAdded -> System.EventHandler<VMx.Collections.DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>!>?
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.ItemRemoved -> System.EventHandler<VMx.Collections.DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>!>?
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.ItemReplaced -> System.EventHandler<VMx.Collections.DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>!>?
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.ObservableDictionary(VMx.Services.IMessageHub? hub = null) -> void
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Remove(TKey1 key1, TKey2 key2) -> bool
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.Reset -> System.EventHandler?
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.TryGetValue(TKey1 key1, TKey2 key2, out TValue value) -> bool
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.this[TKey1 key1, TKey2 key2].get -> TValue
+VMx.Collections.ObservableDictionary<TKey1, TKey2, TValue>.this[TKey1 key1, TKey2 key2].set -> void
+VMx.Collections.ObservableList<T>
+VMx.Collections.ObservableList<T>.Add(T item) -> void
+VMx.Collections.ObservableList<T>.BatchUpdate() -> System.IDisposable!
+VMx.Collections.ObservableList<T>.Clear() -> void
+VMx.Collections.ObservableList<T>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Collections.ObservableList<T>.Count.get -> int
+VMx.Collections.ObservableList<T>.GetEnumerator() -> System.Collections.Generic.IEnumerator<T>!
+VMx.Collections.ObservableList<T>.Insert(int index, T item) -> void
+VMx.Collections.ObservableList<T>.ItemAdded -> System.EventHandler<VMx.Collections.ItemAddedEventArgs<T>!>?
+VMx.Collections.ObservableList<T>.ItemRemoved -> System.EventHandler<VMx.Collections.ItemRemovedEventArgs<T>!>?
+VMx.Collections.ObservableList<T>.ItemReplaced -> System.EventHandler<VMx.Collections.ItemReplacedEventArgs<T>!>?
+VMx.Collections.ObservableList<T>.ObservableList() -> void
+VMx.Collections.ObservableList<T>.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+VMx.Collections.ObservableList<T>.Remove(T item) -> bool
+VMx.Collections.ObservableList<T>.RemoveAt(int index) -> void
+VMx.Collections.ObservableList<T>.Replace(int index, T newItem) -> void
+VMx.Collections.ObservableList<T>.ReplaceAll(System.Collections.Generic.IEnumerable<T>! items) -> void
+VMx.Collections.ObservableList<T>.Reset -> System.EventHandler?
+VMx.Collections.ObservableList<T>.this[int index].get -> T
+VMx.Collections.PagedComposition<TVM>
+VMx.Collections.PagedComposition<TVM>.Count.get -> int
+VMx.Collections.PagedComposition<TVM>.CurrentPageIndex.get -> int
+VMx.Collections.PagedComposition<TVM>.CurrentPageIndex.set -> void
+VMx.Collections.PagedComposition<TVM>.Dispose() -> void
+VMx.Collections.PagedComposition<TVM>.IsPagingEnabled.get -> bool
+VMx.Collections.PagedComposition<TVM>.Items.get -> System.Collections.Generic.IEnumerable<TVM>!
+VMx.Collections.PagedComposition<TVM>.MoveToFirstPage() -> void
+VMx.Collections.PagedComposition<TVM>.MoveToLastPage() -> void
+VMx.Collections.PagedComposition<TVM>.MoveToNextPage() -> void
+VMx.Collections.PagedComposition<TVM>.MoveToPreviousPage() -> void
+VMx.Collections.PagedComposition<TVM>.PageCount.get -> int
+VMx.Collections.PagedComposition<TVM>.PageSize.get -> int
+VMx.Collections.PagedComposition<TVM>.PageSize.set -> void
+VMx.Collections.PagedComposition<TVM>.PagedComposition(System.Collections.Generic.IEnumerable<TVM>! source, int pageSize = 0) -> void
+VMx.Collections.PagedComposition<TVM>.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+VMx.Collections.PagedComposition<TVM>.Source.get -> System.Collections.Generic.IEnumerable<TVM>!
+VMx.Collections.ServicedObservableCollection<T>
+VMx.Collections.ServicedObservableCollection<T>.Replace(int index, T item) -> void
+VMx.Collections.ServicedObservableCollection<T>.ServicedObservableCollection(VMx.Services.IMessageHub? hub = null) -> void
+VMx.Collections.ServicedObservableCollection<T>.Snapshot() -> System.Collections.Generic.IReadOnlyList<T>!
+VMx.Collections.ServicedObservableCollection<T>.SubscribeMembership(System.Action! callback) -> System.IDisposable!
+VMx.Collections.TokenPage<TVM, TToken>
+VMx.Collections.TokenPage<TVM, TToken>.<Clone>$() -> VMx.Collections.TokenPage<TVM, TToken>!
+VMx.Collections.TokenPage<TVM, TToken>.Deconstruct(out System.Collections.Generic.IReadOnlyList<TVM>! Items, out TToken? NextToken) -> void
+VMx.Collections.TokenPage<TVM, TToken>.Equals(VMx.Collections.TokenPage<TVM, TToken>? other) -> bool
+VMx.Collections.TokenPage<TVM, TToken>.Items.get -> System.Collections.Generic.IReadOnlyList<TVM>!
+VMx.Collections.TokenPage<TVM, TToken>.Items.init -> void
+VMx.Collections.TokenPage<TVM, TToken>.NextToken.get -> TToken?
+VMx.Collections.TokenPage<TVM, TToken>.NextToken.init -> void
+VMx.Collections.TokenPage<TVM, TToken>.TokenPage(System.Collections.Generic.IReadOnlyList<TVM>! Items, TToken? NextToken) -> void
+VMx.Collections.TokenPagedComposition<TVM, TToken>
+VMx.Collections.TokenPagedComposition<TVM, TToken>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Collections.TokenPagedComposition<TVM, TToken>.CurrentToken.get -> TToken?
+VMx.Collections.TokenPagedComposition<TVM, TToken>.Dispose() -> void
+VMx.Collections.TokenPagedComposition<TVM, TToken>.HasMore.get -> bool
+VMx.Collections.TokenPagedComposition<TVM, TToken>.Items.get -> System.Collections.Generic.IReadOnlyList<TVM>!
+VMx.Collections.TokenPagedComposition<TVM, TToken>.LoadMoreCommand.get -> VMx.Commands.AsyncRelayCommand!
+VMx.Collections.TokenPagedComposition<TVM, TToken>.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+VMx.Collections.TokenPagedComposition<TVM, TToken>.RefreshCommand.get -> VMx.Commands.AsyncRelayCommand!
+VMx.Collections.TokenPagedComposition<TVM, TToken>.TokenPagedComposition(System.Func<TToken?, System.Threading.Tasks.Task<VMx.Collections.TokenPage<TVM, TToken>!>!>! fetchNext, bool autoConstructOnAdd = false, System.Func<System.Collections.Generic.IReadOnlyList<TVM>!, System.Collections.Generic.IReadOnlyList<TVM>!, bool>? pagesEqual = null) -> void
+VMx.Commands.AsyncRelayCommand
+VMx.Commands.AsyncRelayCommand.CanExecute(object? parameter) -> bool
+VMx.Commands.AsyncRelayCommand.CanExecuteChanged -> System.EventHandler?
+VMx.Commands.AsyncRelayCommand.Cancel() -> void
+VMx.Commands.AsyncRelayCommand.Dispose() -> void
+VMx.Commands.AsyncRelayCommand.Errors.get -> System.IObservable<System.Exception!>!
+VMx.Commands.AsyncRelayCommand.Execute(object? parameter) -> void
+VMx.Commands.AsyncRelayCommand.ExecuteAsync(object? parameter = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+VMx.Commands.AsyncRelayCommand.IsExecuting.get -> bool
+VMx.Commands.AsyncRelayCommand.RaiseCanExecuteChanged() -> void
+VMx.Commands.AsyncRelayCommandBuilder
+VMx.Commands.AsyncRelayCommandBuilder.AsyncRelayCommandBuilder() -> void
+VMx.Commands.AsyncRelayCommandBuilder.Build() -> VMx.Commands.AsyncRelayCommand!
+VMx.Commands.AsyncRelayCommandBuilder.Predicate(System.Func<bool>! predicate) -> VMx.Commands.AsyncRelayCommandBuilder!
+VMx.Commands.AsyncRelayCommandBuilder.Task(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task!>! task) -> VMx.Commands.AsyncRelayCommandBuilder!
+VMx.Commands.AsyncRelayCommandBuilder.ThrowOnCancel(bool throwOnCancel = true) -> VMx.Commands.AsyncRelayCommandBuilder!
+VMx.Commands.AsyncRelayCommandBuilder.Triggers(System.IObservable<System.Reactive.Unit>! trigger) -> VMx.Commands.AsyncRelayCommandBuilder!
+VMx.Commands.CompositeCommand
+VMx.Commands.CompositeCommand.CanExecute(object? parameter) -> bool
+VMx.Commands.CompositeCommand.CanExecuteChanged -> System.EventHandler?
+VMx.Commands.CompositeCommand.CompositeCommand(System.Collections.Generic.IReadOnlyList<System.Windows.Input.ICommand!>! inner) -> void
+VMx.Commands.CompositeCommand.CompositeCommand(params System.Windows.Input.ICommand![]! inner) -> void
+VMx.Commands.CompositeCommand.Dispose() -> void
+VMx.Commands.CompositeCommand.Execute(object? parameter) -> void
+VMx.Commands.ConfirmationDecoratorCommand
+VMx.Commands.ConfirmationDecoratorCommand.CanExecute(object? parameter) -> bool
+VMx.Commands.ConfirmationDecoratorCommand.CanExecuteChanged -> System.EventHandler?
+VMx.Commands.ConfirmationDecoratorCommand.ConfirmationDecoratorCommand(System.Windows.Input.ICommand! inner, System.Func<System.Threading.Tasks.Task<bool>!>! confirm) -> void
+VMx.Commands.ConfirmationDecoratorCommand.Dispose() -> void
+VMx.Commands.ConfirmationDecoratorCommand.Errors.get -> System.IObservable<System.Exception!>!
+VMx.Commands.ConfirmationDecoratorCommand.Execute(object? parameter) -> void
+VMx.Commands.ConfirmationDecoratorCommand.ExecuteAsync(object? parameter) -> System.Threading.Tasks.Task!
+VMx.Commands.DecoratorCommand
+VMx.Commands.DecoratorCommand.CanExecute(object? parameter) -> bool
+VMx.Commands.DecoratorCommand.CanExecuteChanged -> System.EventHandler?
+VMx.Commands.DecoratorCommand.DecoratorCommand(System.Windows.Input.ICommand! inner, System.Action? preExecute = null, System.Action? postExecute = null, System.Func<bool>? extraPredicate = null) -> void
+VMx.Commands.DecoratorCommand.Dispose() -> void
+VMx.Commands.DecoratorCommand.Execute(object? parameter) -> void
+VMx.Commands.FluentCommandExtensions
+VMx.Commands.IAsyncCommand
+VMx.Commands.IAsyncCommand.Cancel() -> void
+VMx.Commands.IAsyncCommand.ExecuteAsync(object? parameter = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+VMx.Commands.IAsyncCommand.IsExecuting.get -> bool
+VMx.Commands.ICommandBuilder
+VMx.Commands.ICommandBuilder.Build() -> System.Windows.Input.ICommand!
+VMx.Commands.ICommandBuilder.Predicate(System.Func<bool>! predicate) -> VMx.Commands.ICommandBuilder!
+VMx.Commands.ICommandBuilder.Task(System.Action! task) -> VMx.Commands.ICommandBuilder!
+VMx.Commands.ICommandBuilder.Triggers(System.IObservable<System.Reactive.Unit>! trigger) -> VMx.Commands.ICommandBuilder!
+VMx.Commands.ICommandBuilder<T>
+VMx.Commands.ICommandBuilder<T>.Build() -> System.Windows.Input.ICommand!
+VMx.Commands.ICommandBuilder<T>.Predicate(System.Func<T, bool>! predicate) -> VMx.Commands.ICommandBuilder<T>!
+VMx.Commands.ICommandBuilder<T>.Task(System.Action<T>! task) -> VMx.Commands.ICommandBuilder<T>!
+VMx.Commands.ICommandBuilder<T>.Triggers(System.IObservable<System.Reactive.Unit>! trigger) -> VMx.Commands.ICommandBuilder<T>!
+VMx.Commands.ModeledCrudCommands<M, VM>
+VMx.Commands.ModeledCrudCommands<M, VM>.CreateNewCommand.get -> System.Windows.Input.ICommand!
+VMx.Commands.ModeledCrudCommands<M, VM>.DeleteCurrentCommand.get -> System.Windows.Input.ICommand!
+VMx.Commands.ModeledCrudCommands<M, VM>.Dispose() -> void
+VMx.Commands.ModeledCrudCommands<M, VM>.ModeledCrudCommands(System.Func<VM?>! current, System.Action! createNew, System.Action<VM!>! updateCurrent, System.Action<VM!>! deleteCurrent, System.Func<System.Threading.Tasks.Task<bool>!>? confirmUpdate = null, System.Func<System.Threading.Tasks.Task<bool>!>? confirmDelete = null, System.IObservable<System.Reactive.Unit>? currentChanged = null) -> void
+VMx.Commands.ModeledCrudCommands<M, VM>.UpdateCurrentCommand.get -> System.Windows.Input.ICommand!
+VMx.Commands.RelayCommand
+VMx.Commands.RelayCommand.CanExecute(object? parameter) -> bool
+VMx.Commands.RelayCommand.CanExecuteChanged -> System.EventHandler?
+VMx.Commands.RelayCommand.Dispose() -> void
+VMx.Commands.RelayCommand.Execute(object? parameter) -> void
+VMx.Commands.RelayCommand.RaiseCanExecuteChanged() -> void
+VMx.Commands.RelayCommand<T>
+VMx.Commands.RelayCommand<T>.CanExecute(object? parameter) -> bool
+VMx.Commands.RelayCommand<T>.CanExecuteChanged -> System.EventHandler?
+VMx.Commands.RelayCommand<T>.Dispose() -> void
+VMx.Commands.RelayCommand<T>.Execute(object? parameter) -> void
+VMx.Commands.RelayCommand<T>.RaiseCanExecuteChanged() -> void
+VMx.Commands.RelayCommandBuilder
+VMx.Commands.RelayCommandBuilder.Build() -> VMx.Commands.RelayCommand!
+VMx.Commands.RelayCommandBuilder.Predicate(System.Func<bool>! predicate) -> VMx.Commands.RelayCommandBuilder!
+VMx.Commands.RelayCommandBuilder.RelayCommandBuilder() -> void
+VMx.Commands.RelayCommandBuilder.Task(System.Action! task) -> VMx.Commands.RelayCommandBuilder!
+VMx.Commands.RelayCommandBuilder.Triggers(System.IObservable<System.Reactive.Unit>! trigger) -> VMx.Commands.RelayCommandBuilder!
+VMx.Commands.RelayCommandBuilder<T>
+VMx.Commands.RelayCommandBuilder<T>.Build() -> VMx.Commands.RelayCommand<T>!
+VMx.Commands.RelayCommandBuilder<T>.Predicate(System.Func<T, bool>! predicate) -> VMx.Commands.RelayCommandBuilder<T>!
+VMx.Commands.RelayCommandBuilder<T>.RelayCommandBuilder() -> void
+VMx.Commands.RelayCommandBuilder<T>.Task(System.Action<T>! task) -> VMx.Commands.RelayCommandBuilder<T>!
+VMx.Commands.RelayCommandBuilder<T>.Triggers(System.IObservable<System.Reactive.Unit>! trigger) -> VMx.Commands.RelayCommandBuilder<T>!
+VMx.Components.ChildOrder
+VMx.Components.ChildOrder.Insertion = 0 -> VMx.Components.ChildOrder
+VMx.Components.ChildOrder.Reverse = 1 -> VMx.Components.ChildOrder
+VMx.Components.ComponentVM
+VMx.Components.ComponentVM<M>
+VMx.Components.ComponentVM<M>.Model.get -> M
+VMx.Components.ComponentVM<M>.Model.set -> void
+VMx.Components.ComponentVMBase
+VMx.Components.ComponentVMBase.CanConstruct() -> bool
+VMx.Components.ComponentVMBase.CanDeselect() -> bool
+VMx.Components.ComponentVMBase.CanDestruct() -> bool
+VMx.Components.ComponentVMBase.CanReconstruct() -> bool
+VMx.Components.ComponentVMBase.CanSelect() -> bool
+VMx.Components.ComponentVMBase.CompleteLifecycleHookAfter(System.Threading.Tasks.Task! task) -> void
+VMx.Components.ComponentVMBase.ComponentVMBase(string! name, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, System.Action? onConstruct = null, System.Action? onDestruct = null, bool background = false) -> void
+VMx.Components.ComponentVMBase.ComponentVMBase(string! name, string! hint, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, System.Action? onConstruct, System.Action? onDestruct, bool background = false) -> void
+VMx.Components.ComponentVMBase.Construct() -> void
+VMx.Components.ComponentVMBase.ConstructAsync() -> System.Threading.Tasks.Task!
+VMx.Components.ComponentVMBase.Deselect() -> void
+VMx.Components.ComponentVMBase.DeselectCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.ComponentVMBase.Destruct() -> void
+VMx.Components.ComponentVMBase.DestructAsync() -> System.Threading.Tasks.Task!
+VMx.Components.ComponentVMBase.Hint.get -> string!
+VMx.Components.ComponentVMBase.Hub.get -> VMx.Services.IMessageHub!
+VMx.Components.ComponentVMBase.IsConstructed.get -> bool
+VMx.Components.ComponentVMBase.IsCurrent.get -> bool
+VMx.Components.ComponentVMBase.IsDisposed() -> bool
+VMx.Components.ComponentVMBase.Name.get -> string!
+VMx.Components.ComponentVMBase.NotifyPropertyChanged(string! propertyName) -> void
+VMx.Components.ComponentVMBase.Own(System.Action! cleanup) -> System.IDisposable!
+VMx.Components.ComponentVMBase.Own<T>(T resource) -> T
+VMx.Components.ComponentVMBase.OwnMember<T>(T member) -> T
+VMx.Components.ComponentVMBase.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+VMx.Components.ComponentVMBase.RaisePropertyChanged(string! propertyName) -> void
+VMx.Components.ComponentVMBase.Reconstruct() -> void
+VMx.Components.ComponentVMBase.ReconstructAsync() -> System.Threading.Tasks.Task!
+VMx.Components.ComponentVMBase.ReconstructCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.ComponentVMBase.Select() -> void
+VMx.Components.ComponentVMBase.SelectCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.ComponentVMBase.SelectNextCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.ComponentVMBase.SelectPreviousCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.ComponentVMBase.Status.get -> VMx.Lifecycle.ConstructionStatus
+VMx.Components.ComponentVMBaseOfM<M>
+VMx.Components.ComponentVMBaseOfM<M>.ComponentVMBaseOfM(string! name, M initialModel, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, System.Func<M, string!>? modeledHinter = null, System.Action<M>? onModelChanged = null, System.Action? onConstruct = null, System.Action? onDestruct = null, bool background = false) -> void
+VMx.Components.ComponentVMBaseOfM<M>.ComponentVMBaseOfM(string! name, string! hint, M initialModel, System.Func<M, string!>! modeledHinter, System.Action<M>? onModelChanged, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, System.Action? onConstruct, System.Action? onDestruct, bool background = false) -> void
+VMx.Components.ComponentVMBaseOfM<M>.ModelValue.get -> M
+VMx.Components.ComponentVMBaseOfM<M>.ModelValue.set -> void
+VMx.Components.ComponentVMBaseOfM<M>.ModeledHint.get -> string!
+VMx.Components.ComponentVMBaseOfM<M>.RepublishModel() -> void
+VMx.Components.ComponentVMBuilder
+VMx.Components.ComponentVMBuilder.Background(bool background) -> VMx.Components.ComponentVMBuilder!
+VMx.Components.ComponentVMBuilder.Build() -> VMx.Components.ComponentVM!
+VMx.Components.ComponentVMBuilder.Hint(string! hint) -> VMx.Components.ComponentVMBuilder!
+VMx.Components.ComponentVMBuilder.Name(string! name) -> VMx.Components.ComponentVMBuilder!
+VMx.Components.ComponentVMBuilder.OnConstruct(System.Action! callback) -> VMx.Components.ComponentVMBuilder!
+VMx.Components.ComponentVMBuilder.OnDestruct(System.Action! callback) -> VMx.Components.ComponentVMBuilder!
+VMx.Components.ComponentVMBuilder.Services(System.IServiceProvider! serviceProvider) -> VMx.Components.ComponentVMBuilder!
+VMx.Components.ComponentVMBuilder.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Components.ComponentVMBuilder!
+VMx.Components.ComponentVMBuilder<M>
+VMx.Components.ComponentVMBuilder<M>.Background(bool background) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.Build() -> VMx.Components.ComponentVM<M>!
+VMx.Components.ComponentVMBuilder<M>.Hint(string! hint) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.Model(M model) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.ModeledHinter(System.Func<M, string!>! hinter) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.Name(string! name) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.OnConstruct(System.Action! callback) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.OnDestruct(System.Action! callback) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.OnModelChanged(System.Action<M>! callback) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.Services(System.IServiceProvider! serviceProvider) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilder<M>.Type(VMx.Components.ViewModelType type) -> VMx.Components.ComponentVMBuilder<M>!
+VMx.Components.ComponentVMBuilderExtensions
+VMx.Components.ComponentVMOptions
+VMx.Components.ComponentVMOptions.<Clone>$() -> VMx.Components.ComponentVMOptions!
+VMx.Components.ComponentVMOptions.Background.get -> bool
+VMx.Components.ComponentVMOptions.Background.init -> void
+VMx.Components.ComponentVMOptions.ComponentVMOptions() -> void
+VMx.Components.ComponentVMOptions.Dispatcher.get -> VMx.Services.IDispatcher?
+VMx.Components.ComponentVMOptions.Dispatcher.init -> void
+VMx.Components.ComponentVMOptions.Equals(VMx.Components.ComponentVMOptions? other) -> bool
+VMx.Components.ComponentVMOptions.Hint.get -> string!
+VMx.Components.ComponentVMOptions.Hint.init -> void
+VMx.Components.ComponentVMOptions.Hub.get -> VMx.Services.IMessageHub?
+VMx.Components.ComponentVMOptions.Hub.init -> void
+VMx.Components.ComponentVMOptions.Name.get -> string?
+VMx.Components.ComponentVMOptions.Name.init -> void
+VMx.Components.ComponentVMOptions.OnConstruct.get -> System.Action?
+VMx.Components.ComponentVMOptions.OnConstruct.init -> void
+VMx.Components.ComponentVMOptions.OnDestruct.get -> System.Action?
+VMx.Components.ComponentVMOptions.OnDestruct.init -> void
+VMx.Components.ComponentVMOptions<M>
+VMx.Components.ComponentVMOptions<M>.<Clone>$() -> VMx.Components.ComponentVMOptions<M>!
+VMx.Components.ComponentVMOptions<M>.Background.get -> bool
+VMx.Components.ComponentVMOptions<M>.Background.init -> void
+VMx.Components.ComponentVMOptions<M>.ComponentVMOptions() -> void
+VMx.Components.ComponentVMOptions<M>.Dispatcher.get -> VMx.Services.IDispatcher?
+VMx.Components.ComponentVMOptions<M>.Dispatcher.init -> void
+VMx.Components.ComponentVMOptions<M>.Equals(VMx.Components.ComponentVMOptions<M>? other) -> bool
+VMx.Components.ComponentVMOptions<M>.Hint.get -> string!
+VMx.Components.ComponentVMOptions<M>.Hint.init -> void
+VMx.Components.ComponentVMOptions<M>.Hub.get -> VMx.Services.IMessageHub?
+VMx.Components.ComponentVMOptions<M>.Hub.init -> void
+VMx.Components.ComponentVMOptions<M>.Model.get -> M
+VMx.Components.ComponentVMOptions<M>.Model.init -> void
+VMx.Components.ComponentVMOptions<M>.ModeledHinter.get -> System.Func<M, string!>?
+VMx.Components.ComponentVMOptions<M>.ModeledHinter.init -> void
+VMx.Components.ComponentVMOptions<M>.Name.get -> string?
+VMx.Components.ComponentVMOptions<M>.Name.init -> void
+VMx.Components.ComponentVMOptions<M>.OnConstruct.get -> System.Action?
+VMx.Components.ComponentVMOptions<M>.OnConstruct.init -> void
+VMx.Components.ComponentVMOptions<M>.OnDestruct.get -> System.Action?
+VMx.Components.ComponentVMOptions<M>.OnDestruct.init -> void
+VMx.Components.ComponentVMOptions<M>.OnModelChanged.get -> System.Action<M>?
+VMx.Components.ComponentVMOptions<M>.OnModelChanged.init -> void
+VMx.Components.ComponentVMOptions<M>.Type.get -> VMx.Components.ViewModelType
+VMx.Components.ComponentVMOptions<M>.Type.init -> void
+VMx.Components.IComponentVM
+VMx.Components.IComponentVM.CanDeselect() -> bool
+VMx.Components.IComponentVM.CanSelect() -> bool
+VMx.Components.IComponentVM.Deselect() -> void
+VMx.Components.IComponentVM.DeselectCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.IComponentVM.Hint.get -> string!
+VMx.Components.IComponentVM.Hub.get -> VMx.Services.IMessageHub!
+VMx.Components.IComponentVM.IsConstructed.get -> bool
+VMx.Components.IComponentVM.IsCurrent.get -> bool
+VMx.Components.IComponentVM.Name.get -> string!
+VMx.Components.IComponentVM.ReconstructCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.IComponentVM.Select() -> void
+VMx.Components.IComponentVM.SelectCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.IComponentVM.SelectNextCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.IComponentVM.SelectPreviousCommand.get -> System.Windows.Input.ICommand!
+VMx.Components.IComponentVM.Status.get -> VMx.Lifecycle.ConstructionStatus
+VMx.Components.IComponentVM.Type.get -> VMx.Components.ViewModelType
+VMx.Components.IComponentVM<M>
+VMx.Components.IComponentVM<M>.Model.get -> M
+VMx.Components.IComponentVM<M>.Model.set -> void
+VMx.Components.IComponentVM<M>.ModeledHint.get -> string!
+VMx.Components.IComponentVM<M>.RepublishModel() -> void
+VMx.Components.IReadonlyComponentVM<M>
+VMx.Components.IReadonlyComponentVM<M>.Model.get -> M
+VMx.Components.IReadonlyComponentVM<M>.ModeledHint.get -> string!
+VMx.Components.IReadonlyComponentVM<M>.RepublishModel() -> void
+VMx.Components.ReadonlyComponentVM<M>
+VMx.Components.ReadonlyComponentVM<M>.Model.get -> M
+VMx.Components.ReadonlyComponentVM<M>.ModeledHint.get -> string!
+VMx.Components.ReadonlyComponentVM<M>.RepublishModel() -> void
+VMx.Components.ReadonlyComponentVMBuilder<M>
+VMx.Components.ReadonlyComponentVMBuilder<M>.Background(bool background) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+VMx.Components.ReadonlyComponentVMBuilder<M>.Build() -> VMx.Components.ReadonlyComponentVM<M>!
+VMx.Components.ReadonlyComponentVMBuilder<M>.Hint(string! hint) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+VMx.Components.ReadonlyComponentVMBuilder<M>.Model(M model) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+VMx.Components.ReadonlyComponentVMBuilder<M>.ModeledHinter(System.Func<M, string!>! hinter) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+VMx.Components.ReadonlyComponentVMBuilder<M>.Name(string! name) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+VMx.Components.ReadonlyComponentVMBuilder<M>.OnConstruct(System.Action! callback) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+VMx.Components.ReadonlyComponentVMBuilder<M>.OnDestruct(System.Action! callback) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+VMx.Components.ReadonlyComponentVMBuilder<M>.Services(System.IServiceProvider! serviceProvider) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+VMx.Components.ReadonlyComponentVMBuilder<M>.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+VMx.Components.ViewModelType
+VMx.Components.ViewModelType.Aggregate = 2 -> VMx.Components.ViewModelType
+VMx.Components.ViewModelType.Component = 0 -> VMx.Components.ViewModelType
+VMx.Components.ViewModelType.Composite = 4 -> VMx.Components.ViewModelType
+VMx.Components.ViewModelType.Group = 3 -> VMx.Components.ViewModelType
+VMx.Components.ViewModelType.ReadOnlyComponent = 1 -> VMx.Components.ViewModelType
+VMx.Composites.CompositeVM<VM>
+VMx.Composites.CompositeVMBase<VM>
+VMx.Composites.CompositeVMBase<VM>.Add(VM! item) -> void
+VMx.Composites.CompositeVMBase<VM>.AttachPopulation(System.Collections.Generic.IEnumerable<VM!>! children, System.Action? onCommitted = null) -> void
+VMx.Composites.CompositeVMBase<VM>.BatchUpdate() -> System.IDisposable!
+VMx.Composites.CompositeVMBase<VM>.CanSelectComponent(VM! vm) -> bool
+VMx.Composites.CompositeVMBase<VM>.Clear() -> void
+VMx.Composites.CompositeVMBase<VM>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Composites.CompositeVMBase<VM>.CompositeVMBase(string! name, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, bool asyncSelection = false, bool autoConstructOnAdd = false, System.Action? onConstruct = null, System.Action? onDestruct = null, System.Func<System.Collections.Generic.IEnumerable<VM!>!, VM?>? currentSelector = null, System.Action<VM?>? onCurrentChanged = null) -> void
+VMx.Composites.CompositeVMBase<VM>.CompositeVMBase(string! name, string! hint, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, bool asyncSelection, bool autoConstructOnAdd, System.Action? onConstruct, System.Action? onDestruct, System.Func<System.Collections.Generic.IEnumerable<VM!>!, VM?>? currentSelector, System.Action<VM?>? onCurrentChanged) -> void
+VMx.Composites.CompositeVMBase<VM>.CompositeVMBase(string! name, string! hint, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, bool asyncSelection, bool autoConstructOnAdd, System.Action? onConstruct, System.Action? onDestruct, System.Func<System.Collections.Generic.IEnumerable<VM!>!, VM?>? currentSelector, System.Action<VM?>? onCurrentChanged, VMx.Components.ChildOrder destructOrder) -> void
+VMx.Composites.CompositeVMBase<VM>.ConstructChildren() -> void
+VMx.Composites.CompositeVMBase<VM>.Contains(VM! item) -> bool
+VMx.Composites.CompositeVMBase<VM>.CopyTo(VM![]! array, int arrayIndex) -> void
+VMx.Composites.CompositeVMBase<VM>.Count.get -> int
+VMx.Composites.CompositeVMBase<VM>.Current.get -> VM?
+VMx.Composites.CompositeVMBase<VM>.Current.set -> void
+VMx.Composites.CompositeVMBase<VM>.DeselectComponent(VM! vm) -> void
+VMx.Composites.CompositeVMBase<VM>.GetEnumerator() -> System.Collections.Generic.IEnumerator<VM!>!
+VMx.Composites.CompositeVMBase<VM>.IndexOf(VM! item) -> int
+VMx.Composites.CompositeVMBase<VM>.Insert(int index, VM! item) -> void
+VMx.Composites.CompositeVMBase<VM>.IsReadOnly.get -> bool
+VMx.Composites.CompositeVMBase<VM>.Move(int fromIndex, int toIndex) -> void
+VMx.Composites.CompositeVMBase<VM>.Remove(VM! item) -> bool
+VMx.Composites.CompositeVMBase<VM>.RemoveAt(int index) -> void
+VMx.Composites.CompositeVMBase<VM>.SelectComponent(VM! vm) -> void
+VMx.Composites.CompositeVMBase<VM>.Snapshot() -> System.Collections.Generic.IReadOnlyList<VM!>!
+VMx.Composites.CompositeVMBase<VM>.SubscribeMembership(System.Action! callback) -> System.IDisposable!
+VMx.Composites.CompositeVMBase<VM>.this[int index].get -> VM!
+VMx.Composites.CompositeVMBase<VM>.this[int index].set -> void
+VMx.Composites.CompositeVMBuilder<VM>
+VMx.Composites.CompositeVMBuilder<VM>.AsyncSelection(bool asyncSelection) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.AutoConstructOnAdd(bool autoConstructOnAdd) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.Build() -> VMx.Composites.CompositeVM<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.Children(System.Func<System.Collections.Generic.IEnumerable<VM!>!>! factory) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.Current(System.Func<System.Collections.Generic.IEnumerable<VM!>!, VM?>! selector) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.DestructOrder(VMx.Components.ChildOrder order) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.Hint(string! hint) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.Name(string! name) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.OnConstruct(System.Action! callback) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.OnCurrentChanged(System.Action<VM?>! callback) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.OnDestruct(System.Action! callback) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.Services(System.IServiceProvider! serviceProvider) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMBuilder<VM>.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Composites.CompositeVMBuilder<VM!>!
+VMx.Composites.CompositeVMOfM<M, VM>
+VMx.Composites.CompositeVMOfMBuilder<M, VM>
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.AsyncSelection(bool asyncSelection) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.AutoConstructOnAdd(bool autoConstructOnAdd) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.Build() -> VMx.Composites.CompositeVMOfM<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.ChildModelToChildViewModel(System.Func<M, VM!>! mapper) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.ChildrenModels(System.Func<System.Collections.Generic.IEnumerable<M>!>! factory) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.Current(System.Func<System.Collections.Generic.IEnumerable<VM!>!, VM?>! selector) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.DestructOrder(VMx.Components.ChildOrder order) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.Hint(string! hint) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.Name(string! name) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.OnConstruct(System.Action! callback) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.OnCurrentChanged(System.Action<VM?>! callback) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.OnDestruct(System.Action! callback) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.Services(System.IServiceProvider! serviceProvider) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOfMBuilder<M, VM>.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+VMx.Composites.CompositeVMOptions<VM>
+VMx.Composites.CompositeVMOptions<VM>.AsyncSelection.get -> bool
+VMx.Composites.CompositeVMOptions<VM>.AsyncSelection.init -> void
+VMx.Composites.CompositeVMOptions<VM>.AutoConstructOnAdd.get -> bool
+VMx.Composites.CompositeVMOptions<VM>.AutoConstructOnAdd.init -> void
+VMx.Composites.CompositeVMOptions<VM>.Children.get -> System.Func<System.Collections.Generic.IEnumerable<VM!>!>?
+VMx.Composites.CompositeVMOptions<VM>.Children.init -> void
+VMx.Composites.CompositeVMOptions<VM>.CompositeVMOptions() -> void
+VMx.Composites.CompositeVMOptions<VM>.Current.get -> System.Func<System.Collections.Generic.IEnumerable<VM!>!, VM?>?
+VMx.Composites.CompositeVMOptions<VM>.Current.init -> void
+VMx.Composites.CompositeVMOptions<VM>.DestructOrder.get -> VMx.Components.ChildOrder
+VMx.Composites.CompositeVMOptions<VM>.DestructOrder.init -> void
+VMx.Composites.CompositeVMOptions<VM>.Dispatcher.get -> VMx.Services.IDispatcher?
+VMx.Composites.CompositeVMOptions<VM>.Dispatcher.init -> void
+VMx.Composites.CompositeVMOptions<VM>.Hint.get -> string!
+VMx.Composites.CompositeVMOptions<VM>.Hint.init -> void
+VMx.Composites.CompositeVMOptions<VM>.Hub.get -> VMx.Services.IMessageHub?
+VMx.Composites.CompositeVMOptions<VM>.Hub.init -> void
+VMx.Composites.CompositeVMOptions<VM>.Name.get -> string?
+VMx.Composites.CompositeVMOptions<VM>.Name.init -> void
+VMx.Composites.CompositeVMOptions<VM>.OnConstruct.get -> System.Action?
+VMx.Composites.CompositeVMOptions<VM>.OnConstruct.init -> void
+VMx.Composites.CompositeVMOptions<VM>.OnCurrentChanged.get -> System.Action<VM?>?
+VMx.Composites.CompositeVMOptions<VM>.OnCurrentChanged.init -> void
+VMx.Composites.CompositeVMOptions<VM>.OnDestruct.get -> System.Action?
+VMx.Composites.CompositeVMOptions<VM>.OnDestruct.init -> void
+VMx.Composites.FilteredCompositeVM<VM>
+VMx.Composites.FilteredCompositeVM<VM>.Changed -> System.EventHandler?
+VMx.Composites.FilteredCompositeVM<VM>.Current.get -> VM?
+VMx.Composites.FilteredCompositeVM<VM>.Current.set -> void
+VMx.Composites.FilteredCompositeVM<VM>.Dispose() -> void
+VMx.Composites.FilteredCompositeVM<VM>.FilteredCompositeVM(VMx.Composites.CompositeVMBase<VM!>! source, System.Func<VM!, bool>? predicate = null, VMx.Composites.FilteredCursorPolicy cursorPolicy = VMx.Composites.FilteredCursorPolicy.SnapToFirst) -> void
+VMx.Composites.FilteredCompositeVM<VM>.FilteredCompositeVM(VMx.Composites.CompositeVMBase<VM!>! source, System.Func<VM!, bool>? predicate, VMx.Composites.FilteredCursorPolicy cursorPolicy, bool deferInitialRecompute) -> void
+VMx.Composites.FilteredCompositeVM<VM>.MoveToNextVisible() -> void
+VMx.Composites.FilteredCompositeVM<VM>.MoveToPreviousVisible() -> void
+VMx.Composites.FilteredCompositeVM<VM>.Recompute() -> void
+VMx.Composites.FilteredCompositeVM<VM>.SetCurrent(VM? item) -> void
+VMx.Composites.FilteredCompositeVM<VM>.SetPredicate(System.Func<VM!, bool>! predicate) -> void
+VMx.Composites.FilteredCompositeVM<VM>.Source.get -> VMx.Composites.CompositeVMBase<VM!>!
+VMx.Composites.FilteredCompositeVM<VM>.Visible.get -> System.Collections.Generic.IReadOnlyList<VM!>!
+VMx.Composites.FilteredCompositeVM<VM>.VisibleCount.get -> int
+VMx.Composites.FilteredCursorPolicy
+VMx.Composites.FilteredCursorPolicy.Clear = 1 -> VMx.Composites.FilteredCursorPolicy
+VMx.Composites.FilteredCursorPolicy.PreserveIfVisible = 2 -> VMx.Composites.FilteredCursorPolicy
+VMx.Composites.FilteredCursorPolicy.SnapToFirst = 0 -> VMx.Composites.FilteredCursorPolicy
+VMx.Composites.ICompositeVM<M, VM>
+VMx.Composites.ICompositeVM<VM>
+VMx.Composites.ScoredFilteredCompositeVM<VM>
+VMx.Composites.ScoredFilteredCompositeVM<VM>.RefreshScores() -> void
+VMx.Composites.ScoredFilteredCompositeVM<VM>.ScoredFilteredCompositeVM(VMx.Composites.CompositeVMBase<VM!>! source, System.Func<VM!, double?>! scorer, VMx.Composites.FilteredCursorPolicy cursorPolicy = VMx.Composites.FilteredCursorPolicy.SnapToFirst) -> void
+VMx.Dialogs.DialogServiceModalExtensions
+VMx.Dialogs.FileFilter
+VMx.Dialogs.FileFilter.<Clone>$() -> VMx.Dialogs.FileFilter!
+VMx.Dialogs.FileFilter.Deconstruct(out string! Description, out System.Collections.Generic.IReadOnlyList<string!>! Extensions) -> void
+VMx.Dialogs.FileFilter.Description.get -> string!
+VMx.Dialogs.FileFilter.Description.init -> void
+VMx.Dialogs.FileFilter.Equals(VMx.Dialogs.FileFilter? other) -> bool
+VMx.Dialogs.FileFilter.Extensions.get -> System.Collections.Generic.IReadOnlyList<string!>!
+VMx.Dialogs.FileFilter.Extensions.init -> void
+VMx.Dialogs.FileFilter.FileFilter(string! Description, System.Collections.Generic.IReadOnlyList<string!>! Extensions) -> void
+VMx.Dialogs.IDialogService
+VMx.Dialogs.IDialogService.Confirm(string! message, string? title = null) -> System.Threading.Tasks.Task<bool>!
+VMx.Dialogs.IDialogService.Notify(string! message, string? title = null, VMx.Dialogs.NotificationSeverity severity = VMx.Dialogs.NotificationSeverity.Info) -> System.Threading.Tasks.Task!
+VMx.Dialogs.IDialogService.PickFileToOpen(VMx.Dialogs.FileFilter? filter = null, string? title = null) -> System.Threading.Tasks.Task<string?>!
+VMx.Dialogs.IDialogService.PickFileToSave(VMx.Dialogs.FileFilter? filter = null, string? title = null, string? suggestedName = null) -> System.Threading.Tasks.Task<string?>!
+VMx.Dialogs.IModalDialogService
+VMx.Dialogs.IModalDialogService.Present<T>(VMx.Dialogs.IModalVM<T>! modal, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<T>!
+VMx.Dialogs.IModalVM<T>
+VMx.Dialogs.IModalVM<T>.CancellationResult.get -> T
+VMx.Dialogs.IModalVM<T>.Completion.get -> System.Threading.Tasks.Task<T>!
+VMx.Dialogs.IModalVM<T>.Dismiss(T result) -> void
+VMx.Dialogs.IModalVM<T>.IsDismissed.get -> bool
+VMx.Dialogs.IModalVM<T>.Result.get -> T?
+VMx.Dialogs.ModalVM<T>
+VMx.Dialogs.ModalVM<T>.CancellationResult.get -> T
+VMx.Dialogs.ModalVM<T>.Completion.get -> System.Threading.Tasks.Task<T>!
+VMx.Dialogs.ModalVM<T>.Dismiss(T result) -> void
+VMx.Dialogs.ModalVM<T>.Dispose() -> void
+VMx.Dialogs.ModalVM<T>.IsDismissed.get -> bool
+VMx.Dialogs.ModalVM<T>.ModalVM(T cancellationResult) -> void
+VMx.Dialogs.ModalVM<T>.Result.get -> T?
+VMx.Dialogs.NotificationSeverity
+VMx.Dialogs.NotificationSeverity.Error = 2 -> VMx.Dialogs.NotificationSeverity
+VMx.Dialogs.NotificationSeverity.Info = 0 -> VMx.Dialogs.NotificationSeverity
+VMx.Dialogs.NotificationSeverity.Warning = 1 -> VMx.Dialogs.NotificationSeverity
+VMx.Dialogs.NullDialogService
+VMx.Dialogs.NullDialogService.Confirm(string! message, string? title = null) -> System.Threading.Tasks.Task<bool>!
+VMx.Dialogs.NullDialogService.Notify(string! message, string? title = null, VMx.Dialogs.NotificationSeverity severity = VMx.Dialogs.NotificationSeverity.Info) -> System.Threading.Tasks.Task!
+VMx.Dialogs.NullDialogService.PickFileToOpen(VMx.Dialogs.FileFilter? filter = null, string? title = null) -> System.Threading.Tasks.Task<string?>!
+VMx.Dialogs.NullDialogService.PickFileToSave(VMx.Dialogs.FileFilter? filter = null, string? title = null, string? suggestedName = null) -> System.Threading.Tasks.Task<string?>!
+VMx.Dialogs.NullDialogService.Present<T>(VMx.Dialogs.IModalVM<T>! modal, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<T>!
+VMx.Forms.FormRevertedMessage
+VMx.Forms.FormRevertedMessage.<Clone>$() -> VMx.Forms.FormRevertedMessage!
+VMx.Forms.FormRevertedMessage.Deconstruct(out object! Sender, out string! SenderName) -> void
+VMx.Forms.FormRevertedMessage.Equals(VMx.Forms.FormRevertedMessage? other) -> bool
+VMx.Forms.FormRevertedMessage.FormRevertedMessage(object! Sender, string! SenderName) -> void
+VMx.Forms.FormRevertedMessage.Sender.get -> object!
+VMx.Forms.FormRevertedMessage.Sender.init -> void
+VMx.Forms.FormRevertedMessage.SenderName.get -> string!
+VMx.Forms.FormRevertedMessage.SenderName.init -> void
+VMx.Forms.FormRevertedMessage.SenderObject.get -> object!
+VMx.Forms.FormVM<TM>
+VMx.Forms.FormVM<TM>.ApproveAsync() -> System.Threading.Tasks.Task!
+VMx.Forms.FormVM<TM>.ApproveCommand.get -> System.Windows.Input.ICommand!
+VMx.Forms.FormVM<TM>.ApproveErrors.get -> System.IObservable<System.Exception!>!
+VMx.Forms.FormVM<TM>.DenyCommand.get -> System.Windows.Input.ICommand!
+VMx.Forms.FormVM<TM>.Dispose() -> void
+VMx.Forms.FormVM<TM>.Errors.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+VMx.Forms.FormVM<TM>.ErrorsChanged.get -> System.IObservable<System.Collections.Generic.IReadOnlyDictionary<string!, string!>!>!
+VMx.Forms.FormVM<TM>.FieldError(string! field) -> string?
+VMx.Forms.FormVM<TM>.FormVM(TM initial, System.Func<TM, System.Threading.Tasks.Task!>! persister, VMx.Services.IMessageHub? hub = null, bool strict = false, System.Func<TM, TM>? snapshotter = null, System.Collections.Generic.IReadOnlyDictionary<string!, System.Func<TM, string?>!>? validators = null, System.Func<TM, System.Collections.Generic.IReadOnlyDictionary<string!, string?>!>? modelValidator = null, System.Func<TM, TM>? resetOnApproved = null) -> void
+VMx.Forms.FormVM<TM>.FormVM(TM initial, VMx.Forms.IFormPersister<TM>! persister, VMx.Services.IMessageHub? hub = null, bool strict = false, System.Func<TM, TM>? snapshotter = null, System.Collections.Generic.IReadOnlyDictionary<string!, System.Func<TM, string?>!>? validators = null, System.Func<TM, System.Collections.Generic.IReadOnlyDictionary<string!, string?>!>? modelValidator = null, System.Func<TM, TM>? resetOnApproved = null) -> void
+VMx.Forms.FormVM<TM>.IsDirty.get -> bool
+VMx.Forms.FormVM<TM>.IsValid.get -> bool
+VMx.Forms.FormVM<TM>.Model.get -> TM
+VMx.Forms.FormVM<TM>.OnApproved.get -> System.IObservable<TM>!
+VMx.Forms.FormVM<TM>.SetModel(TM model) -> void
+VMx.Forms.FormVM<TM>.Snapshot.get -> TM
+VMx.Forms.FormVMBuilder<TM>
+VMx.Forms.FormVMBuilder<TM>.Build() -> VMx.Forms.FormVM<TM>!
+VMx.Forms.FormVMBuilder<TM>.Hub(VMx.Services.IMessageHub! hub) -> VMx.Forms.FormVMBuilder<TM>!
+VMx.Forms.FormVMBuilder<TM>.Initial(TM initial) -> VMx.Forms.FormVMBuilder<TM>!
+VMx.Forms.FormVMBuilder<TM>.ModelValidator(System.Func<TM, System.Collections.Generic.IReadOnlyDictionary<string!, string?>!>! modelValidator) -> VMx.Forms.FormVMBuilder<TM>!
+VMx.Forms.FormVMBuilder<TM>.Persister(System.Func<TM, System.Threading.Tasks.Task!>! persister) -> VMx.Forms.FormVMBuilder<TM>!
+VMx.Forms.FormVMBuilder<TM>.ResetOnApproved(System.Func<TM, TM>! resetOnApproved) -> VMx.Forms.FormVMBuilder<TM>!
+VMx.Forms.FormVMBuilder<TM>.Snapshotter(System.Func<TM, TM>! snapshotter) -> VMx.Forms.FormVMBuilder<TM>!
+VMx.Forms.FormVMBuilder<TM>.Strict(bool strict) -> VMx.Forms.FormVMBuilder<TM>!
+VMx.Forms.FormVMBuilder<TM>.Validator(string! field, System.Func<TM, string?>! validator) -> VMx.Forms.FormVMBuilder<TM>!
+VMx.Forms.FormVMBuilder<TM>.WithFormPersister(VMx.Forms.IFormPersister<TM>! persister) -> VMx.Forms.FormVMBuilder<TM>!
+VMx.Forms.IFormPersister<TM>
+VMx.Forms.IFormPersister<TM>.PersistAsync(TM model) -> System.Threading.Tasks.Task!
+VMx.Forwarding.ForwardingComponentVM<M>
+VMx.Forwarding.ForwardingComponentVM<M>.ForwardingComponentVM(VMx.Components.IComponentVM<M>! wrapped) -> void
+VMx.Forwarding.ForwardingComponentVM<M>.Own(System.Action! cleanup) -> System.IDisposable!
+VMx.Forwarding.ForwardingComponentVM<M>.Own<T>(T resource) -> T
+VMx.Forwarding.ForwardingComponentVM<M>.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+VMx.Forwarding.ForwardingCompositeVM<VM>
+VMx.Forwarding.ForwardingCompositeVM<VM>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Forwarding.ForwardingCompositeVM<VM>.ForwardingCompositeVM(VMx.Composites.ICompositeVM<VM!>! wrapped) -> void
+VMx.Forwarding.ForwardingCompositeVM<VM>.Own(System.Action! cleanup) -> System.IDisposable!
+VMx.Forwarding.ForwardingCompositeVM<VM>.Own<T>(T resource) -> T
+VMx.Forwarding.ForwardingCompositeVM<VM>.PropertyChanged -> System.ComponentModel.PropertyChangedEventHandler?
+VMx.Groups.GroupVM<VM>
+VMx.Groups.GroupVMBase<VM>
+VMx.Groups.GroupVMBase<VM>.Add(VM! item) -> void
+VMx.Groups.GroupVMBase<VM>.AttachPopulation(System.Collections.Generic.IEnumerable<VM!>! children, System.Action? onCommitted = null) -> void
+VMx.Groups.GroupVMBase<VM>.BatchUpdate() -> System.IDisposable!
+VMx.Groups.GroupVMBase<VM>.Clear() -> void
+VMx.Groups.GroupVMBase<VM>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?
+VMx.Groups.GroupVMBase<VM>.Contains(VM! item) -> bool
+VMx.Groups.GroupVMBase<VM>.CopyTo(VM![]! array, int arrayIndex) -> void
+VMx.Groups.GroupVMBase<VM>.Count.get -> int
+VMx.Groups.GroupVMBase<VM>.GetEnumerator() -> System.Collections.Generic.IEnumerator<VM!>!
+VMx.Groups.GroupVMBase<VM>.GroupVMBase(string! name, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, bool autoConstructOnAdd = false, System.Action? onConstruct = null, System.Action? onDestruct = null) -> void
+VMx.Groups.GroupVMBase<VM>.GroupVMBase(string! name, string! hint, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, bool autoConstructOnAdd, System.Action? onConstruct, System.Action? onDestruct) -> void
+VMx.Groups.GroupVMBase<VM>.GroupVMBase(string! name, string! hint, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, bool autoConstructOnAdd, System.Action? onConstruct, System.Action? onDestruct, VMx.Components.ChildOrder destructOrder) -> void
+VMx.Groups.GroupVMBase<VM>.IndexOf(VM! item) -> int
+VMx.Groups.GroupVMBase<VM>.Insert(int index, VM! item) -> void
+VMx.Groups.GroupVMBase<VM>.IsReadOnly.get -> bool
+VMx.Groups.GroupVMBase<VM>.Move(int fromIndex, int toIndex) -> void
+VMx.Groups.GroupVMBase<VM>.Remove(VM! item) -> bool
+VMx.Groups.GroupVMBase<VM>.RemoveAt(int index) -> void
+VMx.Groups.GroupVMBase<VM>.Snapshot() -> System.Collections.Generic.IReadOnlyList<VM!>!
+VMx.Groups.GroupVMBase<VM>.SubscribeMembership(System.Action! callback) -> System.IDisposable!
+VMx.Groups.GroupVMBase<VM>.this[int index].get -> VM!
+VMx.Groups.GroupVMBase<VM>.this[int index].set -> void
+VMx.Groups.GroupVMBuilder<VM>
+VMx.Groups.GroupVMBuilder<VM>.AutoConstructOnAdd(bool autoConstructOnAdd) -> VMx.Groups.GroupVMBuilder<VM!>!
+VMx.Groups.GroupVMBuilder<VM>.Build() -> VMx.Groups.GroupVM<VM!>!
+VMx.Groups.GroupVMBuilder<VM>.Children(System.Func<System.Collections.Generic.IEnumerable<VM!>!>! factory) -> VMx.Groups.GroupVMBuilder<VM!>!
+VMx.Groups.GroupVMBuilder<VM>.DestructOrder(VMx.Components.ChildOrder order) -> VMx.Groups.GroupVMBuilder<VM!>!
+VMx.Groups.GroupVMBuilder<VM>.Hint(string! hint) -> VMx.Groups.GroupVMBuilder<VM!>!
+VMx.Groups.GroupVMBuilder<VM>.Name(string! name) -> VMx.Groups.GroupVMBuilder<VM!>!
+VMx.Groups.GroupVMBuilder<VM>.OnConstruct(System.Action! callback) -> VMx.Groups.GroupVMBuilder<VM!>!
+VMx.Groups.GroupVMBuilder<VM>.OnDestruct(System.Action! callback) -> VMx.Groups.GroupVMBuilder<VM!>!
+VMx.Groups.GroupVMBuilder<VM>.Services(System.IServiceProvider! serviceProvider) -> VMx.Groups.GroupVMBuilder<VM!>!
+VMx.Groups.GroupVMBuilder<VM>.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Groups.GroupVMBuilder<VM!>!
+VMx.Groups.GroupVMOptions<VM>
+VMx.Groups.GroupVMOptions<VM>.AutoConstructOnAdd.get -> bool
+VMx.Groups.GroupVMOptions<VM>.AutoConstructOnAdd.init -> void
+VMx.Groups.GroupVMOptions<VM>.Children.get -> System.Func<System.Collections.Generic.IEnumerable<VM!>!>?
+VMx.Groups.GroupVMOptions<VM>.Children.init -> void
+VMx.Groups.GroupVMOptions<VM>.DestructOrder.get -> VMx.Components.ChildOrder
+VMx.Groups.GroupVMOptions<VM>.DestructOrder.init -> void
+VMx.Groups.GroupVMOptions<VM>.Dispatcher.get -> VMx.Services.IDispatcher?
+VMx.Groups.GroupVMOptions<VM>.Dispatcher.init -> void
+VMx.Groups.GroupVMOptions<VM>.GroupVMOptions() -> void
+VMx.Groups.GroupVMOptions<VM>.Hint.get -> string!
+VMx.Groups.GroupVMOptions<VM>.Hint.init -> void
+VMx.Groups.GroupVMOptions<VM>.Hub.get -> VMx.Services.IMessageHub?
+VMx.Groups.GroupVMOptions<VM>.Hub.init -> void
+VMx.Groups.GroupVMOptions<VM>.Name.get -> string?
+VMx.Groups.GroupVMOptions<VM>.Name.init -> void
+VMx.Groups.GroupVMOptions<VM>.OnConstruct.get -> System.Action?
+VMx.Groups.GroupVMOptions<VM>.OnConstruct.init -> void
+VMx.Groups.GroupVMOptions<VM>.OnDestruct.get -> System.Action?
+VMx.Groups.GroupVMOptions<VM>.OnDestruct.init -> void
+VMx.Groups.IGroupVM<VM>
+VMx.Hierarchical.BatchAttachRejection<TVM>
+VMx.Hierarchical.BatchAttachRejection<TVM>.Detail.get -> string?
+VMx.Hierarchical.BatchAttachRejection<TVM>.Item.get -> TVM
+VMx.Hierarchical.BatchAttachRejection<TVM>.Reason.get -> VMx.Hierarchical.BatchAttachRejectionReason
+VMx.Hierarchical.BatchAttachRejectionReason
+VMx.Hierarchical.BatchAttachRejectionReason.AlreadyAttached = 2 -> VMx.Hierarchical.BatchAttachRejectionReason
+VMx.Hierarchical.BatchAttachRejectionReason.AttachmentFailed = 6 -> VMx.Hierarchical.BatchAttachRejectionReason
+VMx.Hierarchical.BatchAttachRejectionReason.Cycle = 4 -> VMx.Hierarchical.BatchAttachRejectionReason
+VMx.Hierarchical.BatchAttachRejectionReason.DuplicateBatchKey = 1 -> VMx.Hierarchical.BatchAttachRejectionReason
+VMx.Hierarchical.BatchAttachRejectionReason.DuplicateExistingKey = 0 -> VMx.Hierarchical.BatchAttachRejectionReason
+VMx.Hierarchical.BatchAttachRejectionReason.MissingParent = 3 -> VMx.Hierarchical.BatchAttachRejectionReason
+VMx.Hierarchical.BatchAttachRejectionReason.SelectorFailed = 5 -> VMx.Hierarchical.BatchAttachRejectionReason
+VMx.Hierarchical.BatchAttachResult<TVM>
+VMx.Hierarchical.BatchAttachResult<TVM>.Added.get -> System.Collections.Generic.IReadOnlyList<TVM>!
+VMx.Hierarchical.BatchAttachResult<TVM>.Duplicates.get -> System.Collections.Generic.IReadOnlyList<TVM>!
+VMx.Hierarchical.BatchAttachResult<TVM>.Orphans.get -> System.Collections.Generic.IReadOnlyList<TVM>!
+VMx.Hierarchical.BatchAttachResult<TVM>.Rejections.get -> System.Collections.Generic.IReadOnlyList<VMx.Hierarchical.BatchAttachRejection<TVM>!>!
+VMx.Hierarchical.BatchParentKey<TKey>
+VMx.Hierarchical.BatchParentKey<TKey>.BatchParentKey() -> void
+VMx.Hierarchical.BatchParentKey<TKey>.IsRoot.get -> bool
+VMx.Hierarchical.BatchParentKey<TKey>.Key.get -> TKey
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.AddChild(TVM! child) -> void
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.AttachMany<TKey>(System.Collections.Generic.IEnumerable<TVM!>! items, System.Func<TVM!, TKey>! keyOf, System.Func<TVM!, VMx.Hierarchical.BatchParentKey<TKey>>! parentKeyOf, VMx.Hierarchical.MissingParentPolicy onMissingParent = VMx.Hierarchical.MissingParentPolicy.Park) -> VMx.Hierarchical.BatchAttachResult<TVM!>!
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.Children.get -> System.Collections.Generic.IReadOnlyList<TVM!>!
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.Depth.get -> int
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.GetEnumerator() -> System.Collections.Generic.IEnumerator<VMx.Components.IComponentVM!>!
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.HierarchicalParent.get -> TVM?
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.HierarchicalVM(TModel model, System.Func<TVM!, System.Collections.Generic.IEnumerable<TVM!>!>! childrenFactory, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, string? name = null, string! hint = "", bool eagerChildren = false) -> void
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.InvalidateChildren() -> void
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.InvalidateSubtree() -> void
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.IsFirst.get -> bool
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.IsLast.get -> bool
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.IsLeaf.get -> bool
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.IsRoot.get -> bool
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.Model.get -> TModel
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.ParkedAttachCount.get -> int
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.Path.get -> System.Collections.Generic.IReadOnlyList<TVM!>!
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.RemoveChild(TVM! child) -> void
+VMx.Hierarchical.HierarchicalVM<TModel, TVM>.ReparentChild(TVM! child) -> void
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.Build() -> TVM!
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.ChildrenFactory(System.Func<TVM!, System.Collections.Generic.IEnumerable<TVM!>!>! factory) -> VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM!>!
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.EagerChildren(bool eagerChildren) -> VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM!>!
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.Hint(string! hint) -> VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM!>!
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.Model(TModel model) -> VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM!>!
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.Name(string! name) -> VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM!>!
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.Services(System.IServiceProvider! serviceProvider) -> VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM!>!
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM!>!
+VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.VmFactory(System.Func<VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM!>!, TVM!>! factory) -> VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM!>!
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.ChildrenFactory.get -> System.Func<TVM!, System.Collections.Generic.IEnumerable<TVM!>!>!
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.ChildrenFactory.init -> void
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Deconstruct(out TModel Model, out System.Func<TVM!, System.Collections.Generic.IEnumerable<TVM!>!>! ChildrenFactory, out VMx.Services.IMessageHub! Hub, out VMx.Services.IDispatcher! Dispatcher, out string? Name, out string! Hint, out bool EagerChildren) -> void
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Dispatcher.get -> VMx.Services.IDispatcher!
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Dispatcher.init -> void
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.EagerChildren.get -> bool
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.EagerChildren.init -> void
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.HierarchicalVMConstructionContext(TModel Model, System.Func<TVM!, System.Collections.Generic.IEnumerable<TVM!>!>! ChildrenFactory, VMx.Services.IMessageHub! Hub, VMx.Services.IDispatcher! Dispatcher, string? Name, string! Hint, bool EagerChildren) -> void
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Hint.get -> string!
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Hint.init -> void
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Hub.get -> VMx.Services.IMessageHub!
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Hub.init -> void
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Model.get -> TModel
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Model.init -> void
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Name.get -> string?
+VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Name.init -> void
+VMx.Hierarchical.MissingParentPolicy
+VMx.Hierarchical.MissingParentPolicy.Park = 0 -> VMx.Hierarchical.MissingParentPolicy
+VMx.Hierarchical.MissingParentPolicy.Reject = 1 -> VMx.Hierarchical.MissingParentPolicy
+VMx.Hierarchical.TreeSelection<TModel, TVM>
+VMx.Hierarchical.TreeSelection<TModel, TVM>.CanSelect(TVM? node) -> bool
+VMx.Hierarchical.TreeSelection<TModel, TVM>.Clear() -> void
+VMx.Hierarchical.TreeSelection<TModel, TVM>.Current.get -> TVM?
+VMx.Hierarchical.TreeSelection<TModel, TVM>.CurrentChanged.get -> System.IObservable<TVM?>!
+VMx.Hierarchical.TreeSelection<TModel, TVM>.Dispose() -> void
+VMx.Hierarchical.TreeSelection<TModel, TVM>.Select(TVM! node) -> void
+VMx.Hierarchical.TreeSelection<TModel, TVM>.TreeSelection(TVM! root) -> void
+VMx.Hierarchical.TreeStructureChange
+VMx.Hierarchical.TreeStructureChange.Added = 0 -> VMx.Hierarchical.TreeStructureChange
+VMx.Hierarchical.TreeStructureChange.Removed = 1 -> VMx.Hierarchical.TreeStructureChange
+VMx.Hierarchical.TreeStructureChange.Reparented = 2 -> VMx.Hierarchical.TreeStructureChange
+VMx.Hierarchical.TreeStructureChangedMessage
+VMx.Hierarchical.TreeStructureChangedMessage.<Clone>$() -> VMx.Hierarchical.TreeStructureChangedMessage!
+VMx.Hierarchical.TreeStructureChangedMessage.Affected.get -> object!
+VMx.Hierarchical.TreeStructureChangedMessage.Affected.init -> void
+VMx.Hierarchical.TreeStructureChangedMessage.Change.get -> VMx.Hierarchical.TreeStructureChange
+VMx.Hierarchical.TreeStructureChangedMessage.Change.init -> void
+VMx.Hierarchical.TreeStructureChangedMessage.Deconstruct(out object! Source, out VMx.Hierarchical.TreeStructureChange Change, out object! Affected, out int Index) -> void
+VMx.Hierarchical.TreeStructureChangedMessage.Equals(VMx.Hierarchical.TreeStructureChangedMessage? other) -> bool
+VMx.Hierarchical.TreeStructureChangedMessage.Index.get -> int
+VMx.Hierarchical.TreeStructureChangedMessage.Index.init -> void
+VMx.Hierarchical.TreeStructureChangedMessage.SenderName.get -> string!
+VMx.Hierarchical.TreeStructureChangedMessage.SenderObject.get -> object!
+VMx.Hierarchical.TreeStructureChangedMessage.Source.get -> object!
+VMx.Hierarchical.TreeStructureChangedMessage.Source.init -> void
+VMx.Hierarchical.TreeStructureChangedMessage.TreeStructureChangedMessage(object! Source, VMx.Hierarchical.TreeStructureChange Change, object! Affected, int Index) -> void
+VMx.Lifecycle.ConstructionStatus
+VMx.Lifecycle.ConstructionStatus.Constructed = 4 -> VMx.Lifecycle.ConstructionStatus
+VMx.Lifecycle.ConstructionStatus.Constructing = 3 -> VMx.Lifecycle.ConstructionStatus
+VMx.Lifecycle.ConstructionStatus.Destructed = 2 -> VMx.Lifecycle.ConstructionStatus
+VMx.Lifecycle.ConstructionStatus.Destructing = 1 -> VMx.Lifecycle.ConstructionStatus
+VMx.Lifecycle.ConstructionStatus.Disposed = 0 -> VMx.Lifecycle.ConstructionStatus
+VMx.Lifecycle.LifecycleTransitionValidator
+VMx.Lifecycle.StatusTransitionException
+VMx.Lifecycle.StatusTransitionException.AttemptedOperation.get -> string!
+VMx.Lifecycle.StatusTransitionException.CurrentStatus.get -> VMx.Lifecycle.ConstructionStatus
+VMx.Lifecycle.StatusTransitionException.StatusTransitionException(VMx.Lifecycle.ConstructionStatus currentStatus, string! attemptedOperation) -> void
+VMx.Localization.ILocalizer
+VMx.Localization.ILocalizer.Localize(string! key) -> string!
+VMx.Localization.ILocalizer.Localize(string! key, System.Collections.Generic.IEnumerable<object?>! args) -> string!
+VMx.Localization.NullLocalizer
+VMx.Localization.NullLocalizer.Localize(string! key) -> string!
+VMx.Localization.NullLocalizer.Localize(string! key, System.Collections.Generic.IEnumerable<object?>! args) -> string!
+VMx.Messages.CollectionChangedMessage<T>
+VMx.Messages.CollectionChangedMessage<T>.<Clone>$() -> VMx.Messages.CollectionChangedMessage<T>!
+VMx.Messages.CollectionChangedMessage<T>.Action.get -> System.Collections.Specialized.NotifyCollectionChangedAction
+VMx.Messages.CollectionChangedMessage<T>.Action.init -> void
+VMx.Messages.CollectionChangedMessage<T>.CollectionChangedMessage(object! Sender, System.Collections.Specialized.NotifyCollectionChangedAction Action, System.Collections.Generic.IReadOnlyList<T>! NewItems, System.Collections.Generic.IReadOnlyList<T>! OldItems, int Index) -> void
+VMx.Messages.CollectionChangedMessage<T>.Deconstruct(out object! Sender, out System.Collections.Specialized.NotifyCollectionChangedAction Action, out System.Collections.Generic.IReadOnlyList<T>! NewItems, out System.Collections.Generic.IReadOnlyList<T>! OldItems, out int Index) -> void
+VMx.Messages.CollectionChangedMessage<T>.Equals(VMx.Messages.CollectionChangedMessage<T>? other) -> bool
+VMx.Messages.CollectionChangedMessage<T>.Index.get -> int
+VMx.Messages.CollectionChangedMessage<T>.Index.init -> void
+VMx.Messages.CollectionChangedMessage<T>.NewIndex.get -> int
+VMx.Messages.CollectionChangedMessage<T>.NewIndex.init -> void
+VMx.Messages.CollectionChangedMessage<T>.NewItems.get -> System.Collections.Generic.IReadOnlyList<T>!
+VMx.Messages.CollectionChangedMessage<T>.NewItems.init -> void
+VMx.Messages.CollectionChangedMessage<T>.OldIndex.get -> int
+VMx.Messages.CollectionChangedMessage<T>.OldIndex.init -> void
+VMx.Messages.CollectionChangedMessage<T>.OldItems.get -> System.Collections.Generic.IReadOnlyList<T>!
+VMx.Messages.CollectionChangedMessage<T>.OldItems.init -> void
+VMx.Messages.CollectionChangedMessage<T>.Sender.get -> object!
+VMx.Messages.CollectionChangedMessage<T>.Sender.init -> void
+VMx.Messages.CollectionChangedMessage<T>.SenderName.get -> string!
+VMx.Messages.CollectionChangedMessage<T>.SenderObject.get -> object!
+VMx.Messages.ConstructionStatusChangedMessage
+VMx.Messages.ConstructionStatusChangedMessage.<Clone>$() -> VMx.Messages.ConstructionStatusChangedMessage!
+VMx.Messages.ConstructionStatusChangedMessage.ConstructionStatusChangedMessage(object! Sender, string! SenderName, VMx.Lifecycle.ConstructionStatus Status) -> void
+VMx.Messages.ConstructionStatusChangedMessage.Deconstruct(out object! Sender, out string! SenderName, out VMx.Lifecycle.ConstructionStatus Status) -> void
+VMx.Messages.ConstructionStatusChangedMessage.Equals(VMx.Messages.ConstructionStatusChangedMessage? other) -> bool
+VMx.Messages.ConstructionStatusChangedMessage.Sender.get -> object!
+VMx.Messages.ConstructionStatusChangedMessage.Sender.init -> void
+VMx.Messages.ConstructionStatusChangedMessage.SenderName.get -> string!
+VMx.Messages.ConstructionStatusChangedMessage.SenderName.init -> void
+VMx.Messages.ConstructionStatusChangedMessage.SenderObject.get -> object!
+VMx.Messages.ConstructionStatusChangedMessage.Status.get -> VMx.Lifecycle.ConstructionStatus
+VMx.Messages.ConstructionStatusChangedMessage.Status.init -> void
+VMx.Messages.ICollectionChangedMessage<T>
+VMx.Messages.ICollectionChangedMessage<T>.Action.get -> System.Collections.Specialized.NotifyCollectionChangedAction
+VMx.Messages.ICollectionChangedMessage<T>.Index.get -> int
+VMx.Messages.ICollectionChangedMessage<T>.NewItems.get -> System.Collections.Generic.IReadOnlyList<T>!
+VMx.Messages.ICollectionChangedMessage<T>.OldItems.get -> System.Collections.Generic.IReadOnlyList<T>!
+VMx.Messages.IConstructionStatusChangedMessage
+VMx.Messages.IConstructionStatusChangedMessage.Status.get -> VMx.Lifecycle.ConstructionStatus
+VMx.Messages.IMessage
+VMx.Messages.IMessage.SenderName.get -> string!
+VMx.Messages.IMessage.SenderObject.get -> object!
+VMx.Messages.IMessage<TSender>
+VMx.Messages.IMessage<TSender>.Sender.get -> TSender
+VMx.Messages.IPropertyChangedMessage<TSender>
+VMx.Messages.IPropertyChangedMessage<TSender>.PropertyName.get -> string!
+VMx.Messages.PropertyChangedMessage<TSender>
+VMx.Messages.PropertyChangedMessage<TSender>.<Clone>$() -> VMx.Messages.PropertyChangedMessage<TSender>!
+VMx.Messages.PropertyChangedMessage<TSender>.Deconstruct(out TSender Sender, out string! SenderName, out string! PropertyName) -> void
+VMx.Messages.PropertyChangedMessage<TSender>.Equals(VMx.Messages.PropertyChangedMessage<TSender>? other) -> bool
+VMx.Messages.PropertyChangedMessage<TSender>.PropertyChangedMessage(TSender Sender, string! SenderName, string! PropertyName) -> void
+VMx.Messages.PropertyChangedMessage<TSender>.PropertyName.get -> string!
+VMx.Messages.PropertyChangedMessage<TSender>.PropertyName.init -> void
+VMx.Messages.PropertyChangedMessage<TSender>.Sender.get -> TSender
+VMx.Messages.PropertyChangedMessage<TSender>.Sender.init -> void
+VMx.Messages.PropertyChangedMessage<TSender>.SenderName.get -> string!
+VMx.Messages.PropertyChangedMessage<TSender>.SenderName.init -> void
+VMx.Messages.PropertyChangedMessage<TSender>.SenderObject.get -> object!
+VMx.Messages.PropertyValueChangedExtensions
+VMx.Messages.SubscribeValueExtensions
+VMx.Properties.DerivedProperty
+VMx.Properties.DerivedProperty<TValue>
+VMx.Properties.DerivedProperty<TValue>.CanSet(TValue value) -> bool
+VMx.Properties.DerivedProperty<TValue>.Dispose() -> void
+VMx.Properties.DerivedProperty<TValue>.SetValue(TValue value) -> void
+VMx.Properties.DerivedProperty<TValue>.Value.get -> TValue
+VMx.Properties.DerivedProperty<TValue>.ValueChanged.get -> System.IObservable<TValue>!
+VMx.Services.IDispatcher
+VMx.Services.IDispatcher.Background.get -> System.Reactive.Concurrency.IScheduler!
+VMx.Services.IDispatcher.Foreground.get -> System.Reactive.Concurrency.IScheduler!
+VMx.Services.IMessageHub
+VMx.Services.IMessageHub.Messages.get -> System.IObservable<VMx.Messages.IMessage!>!
+VMx.Services.IMessageHub.Send<TMessage>(TMessage message) -> void
+VMx.Services.ITransactionalMessageHub
+VMx.Services.ITransactionalMessageHub.Batch(System.Action! transaction) -> void
+VMx.Services.MessageHub
+VMx.Services.MessageHub.Batch(System.Action! transaction) -> void
+VMx.Services.MessageHub.Dispose() -> void
+VMx.Services.MessageHub.MessageHub() -> void
+VMx.Services.MessageHub.Messages.get -> System.IObservable<VMx.Messages.IMessage!>!
+VMx.Services.MessageHub.Send<TMessage>(TMessage message) -> void
+VMx.Services.MessageHubExtensions
+VMx.Services.NullDispatcher
+VMx.Services.NullDispatcher.Background.get -> System.Reactive.Concurrency.IScheduler!
+VMx.Services.NullDispatcher.Foreground.get -> System.Reactive.Concurrency.IScheduler!
+VMx.Services.NullMessageHub
+VMx.Services.NullMessageHub.Batch(System.Action! transaction) -> void
+VMx.Services.NullMessageHub.Messages.get -> System.IObservable<VMx.Messages.IMessage!>!
+VMx.Services.NullMessageHub.Send<TMessage>(TMessage message) -> void
+VMx.Services.RxDispatcher
+VMx.Services.RxDispatcher.Background.get -> System.Reactive.Concurrency.IScheduler!
+VMx.Services.RxDispatcher.Foreground.get -> System.Reactive.Concurrency.IScheduler!
+VMx.Services.RxDispatcher.RxDispatcher(System.Reactive.Concurrency.IScheduler! foreground, System.Reactive.Concurrency.IScheduler! background) -> void
+VMx.State.AsyncResourceRetention
+VMx.State.AsyncResourceRetention.DiscardPrevious = 0 -> VMx.State.AsyncResourceRetention
+VMx.State.AsyncResourceRetention.RetainPrevious = 1 -> VMx.State.AsyncResourceRetention
+VMx.State.AsyncResourceState<T>
+VMx.State.AsyncResourceState<T>.Error.get -> System.Exception?
+VMx.State.AsyncResourceState<T>.HasValue.get -> bool
+VMx.State.AsyncResourceState<T>.Status.get -> VMx.State.AsyncResourceStatus
+VMx.State.AsyncResourceState<T>.Value.get -> T?
+VMx.State.AsyncResourceStatus
+VMx.State.AsyncResourceStatus.Error = 3 -> VMx.State.AsyncResourceStatus
+VMx.State.AsyncResourceStatus.Idle = 0 -> VMx.State.AsyncResourceStatus
+VMx.State.AsyncResourceStatus.Loading = 1 -> VMx.State.AsyncResourceStatus
+VMx.State.AsyncResourceStatus.Ready = 2 -> VMx.State.AsyncResourceStatus
+VMx.State.AsyncResourceVM<T>
+VMx.State.AsyncResourceVM<T>.AsyncResourceVM(string! name, System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<T>!>! loader, VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher, string! hint = "", VMx.State.AsyncResourceRetention retention = VMx.State.AsyncResourceRetention.DiscardPrevious, System.Action<T>? cleanupValue = null) -> void
+VMx.State.AsyncResourceVM<T>.Cancel() -> void
+VMx.State.AsyncResourceVM<T>.CancelCommand.get -> VMx.Commands.RelayCommand!
+VMx.State.AsyncResourceVM<T>.LoadAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+VMx.State.AsyncResourceVM<T>.LoadCommand.get -> VMx.Commands.AsyncRelayCommand!
+VMx.State.AsyncResourceVM<T>.ReloadAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+VMx.State.AsyncResourceVM<T>.ReloadCommand.get -> VMx.Commands.AsyncRelayCommand!
+VMx.State.AsyncResourceVM<T>.State.get -> VMx.State.AsyncResourceState<T>!
+VMx.State.DiscriminatorVM<TKey>
+VMx.State.DiscriminatorVM<TKey>.ActiveChanged.get -> System.IObservable<TKey>!
+VMx.State.DiscriminatorVM<TKey>.ActiveKey.get -> TKey
+VMx.State.DiscriminatorVM<TKey>.ClearModals() -> void
+VMx.State.DiscriminatorVM<TKey>.DiscriminatorVM(TKey initial) -> void
+VMx.State.DiscriminatorVM<TKey>.Dispose() -> void
+VMx.State.DiscriminatorVM<TKey>.IsActive(TKey key) -> bool
+VMx.State.DiscriminatorVM<TKey>.ModalClose() -> void
+VMx.State.DiscriminatorVM<TKey>.ModalDepth.get -> int
+VMx.State.DiscriminatorVM<TKey>.ModalOpen(TKey modalKey) -> void
+VMx.State.DiscriminatorVM<TKey>.SetActiveKey(TKey key) -> void
+VMx.Tree.Tree
+abstract VMx.Components.ComponentVMBase.Type.get -> VMx.Components.ViewModelType
+override VMx.Aggregates.AggregateVM1<VM1>.Dispose() -> void
+override VMx.Aggregates.AggregateVM1<VM1>.Type.get -> VMx.Components.ViewModelType
+override VMx.Aggregates.AggregateVM2<VM1, VM2>.Dispose() -> void
+override VMx.Aggregates.AggregateVM2<VM1, VM2>.Type.get -> VMx.Components.ViewModelType
+override VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.Dispose() -> void
+override VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.Type.get -> VMx.Components.ViewModelType
+override VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.Dispose() -> void
+override VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.Type.get -> VMx.Components.ViewModelType
+override VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.Dispose() -> void
+override VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.Type.get -> VMx.Components.ViewModelType
+override VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Dispose() -> void
+override VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Type.get -> VMx.Components.ViewModelType
+override VMx.Collections.KeyedServicedObservableCollection<TKey, TItem>.ReplaceAll(System.Collections.Generic.IEnumerable<TItem>! items) -> void
+override VMx.Collections.ServicedObservableCollection<T>.ClearItems() -> void
+override VMx.Collections.ServicedObservableCollection<T>.MoveItem(int oldIndex, int newIndex) -> void
+override VMx.Collections.ServicedObservableCollection<T>.OnCollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventArgs! e) -> void
+override VMx.Collections.TokenPage<TVM, TToken>.Equals(object? obj) -> bool
+override VMx.Collections.TokenPage<TVM, TToken>.GetHashCode() -> int
+override VMx.Collections.TokenPage<TVM, TToken>.ToString() -> string!
+override VMx.Components.ComponentVM.Type.get -> VMx.Components.ViewModelType
+override VMx.Components.ComponentVM<M>.Type.get -> VMx.Components.ViewModelType
+override VMx.Components.ComponentVMOptions.Equals(object? obj) -> bool
+override VMx.Components.ComponentVMOptions.GetHashCode() -> int
+override VMx.Components.ComponentVMOptions.ToString() -> string!
+override VMx.Components.ComponentVMOptions<M>.Equals(object? obj) -> bool
+override VMx.Components.ComponentVMOptions<M>.GetHashCode() -> int
+override VMx.Components.ComponentVMOptions<M>.ToString() -> string!
+override VMx.Components.ReadonlyComponentVM<M>.Type.get -> VMx.Components.ViewModelType
+override VMx.Composites.CompositeVMBase<VM>.Dispose() -> void
+override VMx.Composites.CompositeVMBase<VM>.OnConstruct() -> void
+override VMx.Composites.CompositeVMBase<VM>.OnDestruct() -> void
+override VMx.Composites.CompositeVMBase<VM>.Type.get -> VMx.Components.ViewModelType
+override VMx.Composites.CompositeVMOptions<VM>.Equals(object? obj) -> bool
+override VMx.Composites.CompositeVMOptions<VM>.GetHashCode() -> int
+override VMx.Composites.CompositeVMOptions<VM>.ToString() -> string!
+override VMx.Dialogs.FileFilter.Equals(object? obj) -> bool
+override VMx.Dialogs.FileFilter.GetHashCode() -> int
+override VMx.Dialogs.FileFilter.ToString() -> string!
+override VMx.Forms.FormRevertedMessage.Equals(object? obj) -> bool
+override VMx.Forms.FormRevertedMessage.GetHashCode() -> int
+override VMx.Forms.FormRevertedMessage.ToString() -> string!
+override VMx.Groups.GroupVMBase<VM>.Dispose() -> void
+override VMx.Groups.GroupVMBase<VM>.OnConstruct() -> void
+override VMx.Groups.GroupVMBase<VM>.OnDestruct() -> void
+override VMx.Groups.GroupVMBase<VM>.Type.get -> VMx.Components.ViewModelType
+override VMx.Groups.GroupVMOptions<VM>.Equals(object? obj) -> bool
+override VMx.Groups.GroupVMOptions<VM>.GetHashCode() -> int
+override VMx.Groups.GroupVMOptions<VM>.ToString() -> string!
+override VMx.Hierarchical.HierarchicalVM<TModel, TVM>.OnConstruct() -> void
+override VMx.Hierarchical.HierarchicalVM<TModel, TVM>.OnDispose() -> void
+override VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Equals(object? obj) -> bool
+override VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.GetHashCode() -> int
+override VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.ToString() -> string!
+override VMx.Hierarchical.TreeStructureChangedMessage.Equals(object? obj) -> bool
+override VMx.Hierarchical.TreeStructureChangedMessage.GetHashCode() -> int
+override VMx.Hierarchical.TreeStructureChangedMessage.ToString() -> string!
+override VMx.Messages.CollectionChangedMessage<T>.Equals(object? obj) -> bool
+override VMx.Messages.CollectionChangedMessage<T>.GetHashCode() -> int
+override VMx.Messages.CollectionChangedMessage<T>.ToString() -> string!
+override VMx.Messages.ConstructionStatusChangedMessage.Equals(object? obj) -> bool
+override VMx.Messages.ConstructionStatusChangedMessage.GetHashCode() -> int
+override VMx.Messages.ConstructionStatusChangedMessage.ToString() -> string!
+override VMx.Messages.PropertyChangedMessage<TSender>.Equals(object? obj) -> bool
+override VMx.Messages.PropertyChangedMessage<TSender>.GetHashCode() -> int
+override VMx.Messages.PropertyChangedMessage<TSender>.ToString() -> string!
+override VMx.State.AsyncResourceVM<T>.Type.get -> VMx.Components.ViewModelType
+readonly VMx.Forwarding.ForwardingComponentVM<M>._wrapped -> VMx.Components.IComponentVM<M>!
+readonly VMx.Forwarding.ForwardingCompositeVM<VM>._wrappedComposite -> VMx.Composites.ICompositeVM<VM!>!
+static VMx.Builders.BuilderValidationException.Require(object? value, string! fieldName) -> void
+static VMx.Collections.AggregateChangeStream.ForComponents<T>(VMx.Collections.IObservableMembershipSource<T!>! source) -> VMx.Collections.AggregateChangeStream<T!>!
+static VMx.Collections.TokenPage<TVM, TToken>.operator !=(VMx.Collections.TokenPage<TVM, TToken>? left, VMx.Collections.TokenPage<TVM, TToken>? right) -> bool
+static VMx.Collections.TokenPage<TVM, TToken>.operator ==(VMx.Collections.TokenPage<TVM, TToken>? left, VMx.Collections.TokenPage<TVM, TToken>? right) -> bool
+static VMx.Commands.AsyncRelayCommand.Builder() -> VMx.Commands.AsyncRelayCommandBuilder!
+static VMx.Commands.FluentCommandExtensions.Confirm(this System.Windows.Input.ICommand! command, System.Func<System.Threading.Tasks.Task<bool>!>! confirm, System.Collections.Generic.ICollection<System.IDisposable!>? track = null) -> System.Windows.Input.ICommand!
+static VMx.Commands.FluentCommandExtensions.Confirm(this System.Windows.Input.ICommand! command, VMx.Dialogs.IDialogService! dialogService, string! prompt, System.Collections.Generic.ICollection<System.IDisposable!>? track = null) -> System.Windows.Input.ICommand!
+static VMx.Commands.FluentCommandExtensions.PrecedeWith(this System.Windows.Input.ICommand! command, System.Windows.Input.ICommand! other, System.Collections.Generic.ICollection<System.IDisposable!>? track = null) -> System.Windows.Input.ICommand!
+static VMx.Commands.FluentCommandExtensions.SucceedWith(this System.Windows.Input.ICommand! command, System.Windows.Input.ICommand! other, System.Collections.Generic.ICollection<System.IDisposable!>? track = null) -> System.Windows.Input.ICommand!
+static VMx.Commands.FluentCommandExtensions.WrapWith(this System.Windows.Input.ICommand! command, System.Func<bool>? predicate = null, System.Action? pre = null, System.Action? post = null, System.Collections.Generic.ICollection<System.IDisposable!>? track = null) -> System.Windows.Input.ICommand!
+static VMx.Commands.RelayCommand.Builder() -> VMx.Commands.RelayCommandBuilder!
+static VMx.Commands.RelayCommand<T>.Builder() -> VMx.Commands.RelayCommandBuilder<T>!
+static VMx.Components.ComponentVM.Builder() -> VMx.Components.ComponentVMBuilder!
+static VMx.Components.ComponentVM.Create(VMx.Components.ComponentVMOptions! options) -> VMx.Components.ComponentVM!
+static VMx.Components.ComponentVM<M>.Builder() -> VMx.Components.ComponentVMBuilder<M>!
+static VMx.Components.ComponentVM<M>.Create(VMx.Components.ComponentVMOptions<M>! options) -> VMx.Components.ComponentVM<M>!
+static VMx.Components.ComponentVMBase.DisposeChildren(System.Collections.Generic.IEnumerable<System.IDisposable?>! children) -> System.Runtime.ExceptionServices.ExceptionDispatchInfo?
+static VMx.Components.ComponentVMBase.TransitionChildrenAsync(System.Collections.Generic.IEnumerable<VMx.Components.IComponentVM!>! children, bool construct, System.Action? after = null) -> System.Threading.Tasks.Task!
+static VMx.Components.ComponentVMBuilderExtensions.WithNullServices(this VMx.Components.ComponentVMBuilder! builder) -> VMx.Components.ComponentVMBuilder!
+static VMx.Components.ComponentVMBuilderExtensions.WithNullServices<M>(this VMx.Components.ComponentVMBuilder<M>! builder) -> VMx.Components.ComponentVMBuilder<M>!
+static VMx.Components.ComponentVMBuilderExtensions.WithNullServices<M>(this VMx.Components.ReadonlyComponentVMBuilder<M>! builder) -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+static VMx.Components.ComponentVMOptions.operator !=(VMx.Components.ComponentVMOptions? left, VMx.Components.ComponentVMOptions? right) -> bool
+static VMx.Components.ComponentVMOptions.operator ==(VMx.Components.ComponentVMOptions? left, VMx.Components.ComponentVMOptions? right) -> bool
+static VMx.Components.ComponentVMOptions<M>.operator !=(VMx.Components.ComponentVMOptions<M>? left, VMx.Components.ComponentVMOptions<M>? right) -> bool
+static VMx.Components.ComponentVMOptions<M>.operator ==(VMx.Components.ComponentVMOptions<M>? left, VMx.Components.ComponentVMOptions<M>? right) -> bool
+static VMx.Components.ReadonlyComponentVM<M>.Builder() -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+static VMx.Composites.CompositeVM<VM>.Builder() -> VMx.Composites.CompositeVMBuilder<VM!>!
+static VMx.Composites.CompositeVM<VM>.Create(VMx.Composites.CompositeVMOptions<VM!>! options) -> VMx.Composites.CompositeVM<VM!>!
+static VMx.Composites.CompositeVMOfM<M, VM>.Builder() -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+static VMx.Dialogs.DialogServiceModalExtensions.Present<T>(this VMx.Dialogs.IDialogService! dialogService, VMx.Dialogs.IModalVM<T>! modal, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<T>!
+static VMx.Dialogs.FileFilter.operator !=(VMx.Dialogs.FileFilter? left, VMx.Dialogs.FileFilter? right) -> bool
+static VMx.Dialogs.FileFilter.operator ==(VMx.Dialogs.FileFilter? left, VMx.Dialogs.FileFilter? right) -> bool
+static VMx.Dialogs.NullDialogService.Instance.get -> VMx.Dialogs.NullDialogService!
+static VMx.Forms.FormRevertedMessage.operator !=(VMx.Forms.FormRevertedMessage? left, VMx.Forms.FormRevertedMessage? right) -> bool
+static VMx.Forms.FormRevertedMessage.operator ==(VMx.Forms.FormRevertedMessage? left, VMx.Forms.FormRevertedMessage? right) -> bool
+static VMx.Forms.FormVM<TM>.Builder() -> VMx.Forms.FormVMBuilder<TM>!
+static VMx.Groups.GroupVM<VM>.Builder() -> VMx.Groups.GroupVMBuilder<VM!>!
+static VMx.Groups.GroupVM<VM>.Create(VMx.Groups.GroupVMOptions<VM!>! options) -> VMx.Groups.GroupVM<VM!>!
+static VMx.Hierarchical.BatchParentKey<TKey>.For(TKey key) -> VMx.Hierarchical.BatchParentKey<TKey>
+static VMx.Hierarchical.BatchParentKey<TKey>.Root.get -> VMx.Hierarchical.BatchParentKey<TKey>
+static VMx.Hierarchical.TreeStructureChangedMessage.operator !=(VMx.Hierarchical.TreeStructureChangedMessage? left, VMx.Hierarchical.TreeStructureChangedMessage? right) -> bool
+static VMx.Hierarchical.TreeStructureChangedMessage.operator ==(VMx.Hierarchical.TreeStructureChangedMessage? left, VMx.Hierarchical.TreeStructureChangedMessage? right) -> bool
+static VMx.Lifecycle.LifecycleTransitionValidator.FinalState(VMx.Lifecycle.ConstructionStatus current, string! operation) -> VMx.Lifecycle.ConstructionStatus
+static VMx.Lifecycle.LifecycleTransitionValidator.IsLegal(VMx.Lifecycle.ConstructionStatus current, string! operation) -> bool
+static VMx.Lifecycle.LifecycleTransitionValidator.Require(VMx.Lifecycle.ConstructionStatus current, string! operation) -> void
+static VMx.Localization.NullLocalizer.Instance.get -> VMx.Localization.NullLocalizer!
+static VMx.Messages.CollectionChangedMessage<T>.ForAdd(object! sender, T item, int index) -> VMx.Messages.CollectionChangedMessage<T>!
+static VMx.Messages.CollectionChangedMessage<T>.ForMove(object! sender, T item, int oldIndex, int newIndex) -> VMx.Messages.CollectionChangedMessage<T>!
+static VMx.Messages.CollectionChangedMessage<T>.ForRemove(object! sender, T item, int index) -> VMx.Messages.CollectionChangedMessage<T>!
+static VMx.Messages.CollectionChangedMessage<T>.ForReplace(object! sender, T newItem, T oldItem, int index) -> VMx.Messages.CollectionChangedMessage<T>!
+static VMx.Messages.CollectionChangedMessage<T>.ForReset(object! sender) -> VMx.Messages.CollectionChangedMessage<T>!
+static VMx.Messages.CollectionChangedMessage<T>.operator !=(VMx.Messages.CollectionChangedMessage<T>? left, VMx.Messages.CollectionChangedMessage<T>? right) -> bool
+static VMx.Messages.CollectionChangedMessage<T>.operator ==(VMx.Messages.CollectionChangedMessage<T>? left, VMx.Messages.CollectionChangedMessage<T>? right) -> bool
+static VMx.Messages.ConstructionStatusChangedMessage.Create(object! sender, string! senderName, VMx.Lifecycle.ConstructionStatus status) -> VMx.Messages.ConstructionStatusChangedMessage!
+static VMx.Messages.ConstructionStatusChangedMessage.operator !=(VMx.Messages.ConstructionStatusChangedMessage? left, VMx.Messages.ConstructionStatusChangedMessage? right) -> bool
+static VMx.Messages.ConstructionStatusChangedMessage.operator ==(VMx.Messages.ConstructionStatusChangedMessage? left, VMx.Messages.ConstructionStatusChangedMessage? right) -> bool
+static VMx.Messages.PropertyChangedMessage<TSender>.Create(TSender sender, string! senderName, string! propertyName) -> VMx.Messages.PropertyChangedMessage<TSender>!
+static VMx.Messages.PropertyChangedMessage<TSender>.operator !=(VMx.Messages.PropertyChangedMessage<TSender>? left, VMx.Messages.PropertyChangedMessage<TSender>? right) -> bool
+static VMx.Messages.PropertyChangedMessage<TSender>.operator ==(VMx.Messages.PropertyChangedMessage<TSender>? left, VMx.Messages.PropertyChangedMessage<TSender>? right) -> bool
+static VMx.Messages.PropertyValueChangedExtensions.PropertyValueChangedMessagesFor<TSource, TProperty>(this VMx.Services.IMessageHub! hub, TSource source, System.Linq.Expressions.Expression<System.Func<TSource, TProperty>!>! propertyExpression) -> System.IObservable<TProperty>!
+static VMx.Messages.SubscribeValueExtensions.SubscribeValue<TSource, TValue>(this TSource! source, System.Func<TSource!, TValue>! selector, System.Action<TValue, TValue>! callback, System.Collections.Generic.IEqualityComparer<TValue>? equalityComparer = null, bool fireImmediately = false) -> System.IDisposable!
+static VMx.Properties.DerivedProperty.From<T1, T2, T3, T4, T5, TValue>(System.IObservable<T1>! s1, System.IObservable<T2>! s2, System.IObservable<T3>! s3, System.IObservable<T4>! s4, System.IObservable<T5>! s5, System.Func<T1, T2, T3, T4, T5, TValue>! transform, System.Func<TValue, bool>? canSet = null, System.Action<TValue>? setAction = null) -> VMx.Properties.DerivedProperty<TValue>!
+static VMx.Properties.DerivedProperty.From<T1, T2, T3, T4, TValue>(System.IObservable<T1>! s1, System.IObservable<T2>! s2, System.IObservable<T3>! s3, System.IObservable<T4>! s4, System.Func<T1, T2, T3, T4, TValue>! transform, System.Func<TValue, bool>? canSet = null, System.Action<TValue>? setAction = null) -> VMx.Properties.DerivedProperty<TValue>!
+static VMx.Properties.DerivedProperty.From<T1, T2, T3, TValue>(System.IObservable<T1>! s1, System.IObservable<T2>! s2, System.IObservable<T3>! s3, System.Func<T1, T2, T3, TValue>! transform, System.Func<TValue, bool>? canSet = null, System.Action<TValue>? setAction = null) -> VMx.Properties.DerivedProperty<TValue>!
+static VMx.Properties.DerivedProperty.From<T1, T2, TValue>(System.IObservable<T1>! s1, System.IObservable<T2>! s2, System.Func<T1, T2, TValue>! transform, System.Func<TValue, bool>? canSet = null, System.Action<TValue>? setAction = null) -> VMx.Properties.DerivedProperty<TValue>!
+static VMx.Properties.DerivedProperty.From<T1, TValue>(System.IObservable<T1>! s1, System.Func<T1, TValue>! transform, System.Func<TValue, bool>? canSet = null, System.Action<TValue>? setAction = null) -> VMx.Properties.DerivedProperty<TValue>!
+static VMx.Properties.DerivedProperty.FromMany<TValue>(System.Collections.Generic.IReadOnlyList<System.IObservable<object?>!>! sources, System.Func<System.Collections.Generic.IReadOnlyList<object?>!, TValue>! transform, System.Func<TValue, bool>? canSet = null, System.Action<TValue>? setAction = null) -> VMx.Properties.DerivedProperty<TValue>!
+static VMx.Services.MessageHubExtensions.WhenPropertyChanged(this VMx.Services.IMessageHub! hub, object! sender, params string![]! propertyNames) -> System.IObservable<VMx.Messages.IPropertyChangedMessage<object!>!>!
+static VMx.Services.MessageHubExtensions.WhenPropertyChanged(this VMx.Services.IMessageHub! hub, object! sender, string! propertyName) -> System.IObservable<VMx.Messages.IPropertyChangedMessage<object!>!>!
+static VMx.Services.NullDispatcher.Instance.get -> VMx.Services.NullDispatcher!
+static VMx.Services.NullMessageHub.Instance.get -> VMx.Services.NullMessageHub!
+static VMx.Services.RxDispatcher.CreateForCurrentContext() -> VMx.Services.RxDispatcher!
+static VMx.Services.RxDispatcher.Immediate() -> VMx.Services.RxDispatcher!
+static VMx.Tree.Tree.Find(VMx.Components.IComponentVM! root, System.Func<VMx.Components.IComponentVM!, bool>! predicate) -> VMx.Components.IComponentVM?
+static VMx.Tree.Tree.Walk(VMx.Components.IComponentVM! root) -> System.Collections.Generic.IEnumerable<VMx.Components.IComponentVM!>!
+static VMx.Tree.Tree.WalkExpanded(VMx.Components.IComponentVM! root) -> System.Collections.Generic.IEnumerable<VMx.Components.IComponentVM!>!
+static readonly VMx.Components.ComponentVMBuilder.Empty -> VMx.Components.ComponentVMBuilder!
+static readonly VMx.Components.ComponentVMBuilder<M>.Empty -> VMx.Components.ComponentVMBuilder<M>!
+static readonly VMx.Components.ReadonlyComponentVMBuilder<M>.Empty -> VMx.Components.ReadonlyComponentVMBuilder<M>!
+static readonly VMx.Composites.CompositeVMBuilder<VM>.Empty -> VMx.Composites.CompositeVMBuilder<VM!>!
+static readonly VMx.Composites.CompositeVMOfMBuilder<M, VM>.Empty -> VMx.Composites.CompositeVMOfMBuilder<M, VM!>!
+static readonly VMx.Forms.FormVMBuilder<TM>.Empty -> VMx.Forms.FormVMBuilder<TM>!
+static readonly VMx.Groups.GroupVMBuilder<VM>.Empty -> VMx.Groups.GroupVMBuilder<VM!>!
+static readonly VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM>.Empty -> VMx.Hierarchical.HierarchicalVMBuilder<TModel, TVM!>!
+virtual VMx.Collections.ServicedObservableCollection<T>.ReplaceAll(System.Collections.Generic.IEnumerable<T>! items) -> void
+virtual VMx.Components.ComponentVMBase.Dispose() -> void
+virtual VMx.Components.ComponentVMBase.OnConstruct() -> void
+virtual VMx.Components.ComponentVMBase.OnDestruct() -> void
+virtual VMx.Components.ComponentVMBase.OnDispose() -> void
+virtual VMx.Composites.CompositeVMBase<VM>.PopulateChildren() -> void
+virtual VMx.Composites.FilteredCompositeVM<VM>.OrderedVisible() -> System.Collections.Generic.IReadOnlyList<VM!>!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.CanConstruct() -> bool
+virtual VMx.Forwarding.ForwardingComponentVM<M>.CanDeselect() -> bool
+virtual VMx.Forwarding.ForwardingComponentVM<M>.CanDestruct() -> bool
+virtual VMx.Forwarding.ForwardingComponentVM<M>.CanReconstruct() -> bool
+virtual VMx.Forwarding.ForwardingComponentVM<M>.CanSelect() -> bool
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Construct() -> void
+virtual VMx.Forwarding.ForwardingComponentVM<M>.ConstructAsync() -> System.Threading.Tasks.Task!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Deselect() -> void
+virtual VMx.Forwarding.ForwardingComponentVM<M>.DeselectCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Destruct() -> void
+virtual VMx.Forwarding.ForwardingComponentVM<M>.DestructAsync() -> System.Threading.Tasks.Task!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Dispose() -> void
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Hint.get -> string!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Hub.get -> VMx.Services.IMessageHub!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.IsConstructed.get -> bool
+virtual VMx.Forwarding.ForwardingComponentVM<M>.IsCurrent.get -> bool
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Model.get -> M
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Model.set -> void
+virtual VMx.Forwarding.ForwardingComponentVM<M>.ModeledHint.get -> string!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Name.get -> string!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Reconstruct() -> void
+virtual VMx.Forwarding.ForwardingComponentVM<M>.ReconstructAsync() -> System.Threading.Tasks.Task!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.ReconstructCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.RepublishModel() -> void
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Select() -> void
+virtual VMx.Forwarding.ForwardingComponentVM<M>.SelectCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.SelectNextCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.SelectPreviousCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Status.get -> VMx.Lifecycle.ConstructionStatus
+virtual VMx.Forwarding.ForwardingComponentVM<M>.Type.get -> VMx.Components.ViewModelType
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Add(VM! item) -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.BatchUpdate() -> System.IDisposable!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.CanConstruct() -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.CanDeselect() -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.CanDestruct() -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.CanReconstruct() -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.CanSelect() -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.CanSelectComponent(VM! vm) -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Clear() -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Construct() -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.ConstructAsync() -> System.Threading.Tasks.Task!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Contains(VM! item) -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.CopyTo(VM![]! array, int arrayIndex) -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Count.get -> int
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Current.get -> VM?
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Current.set -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Deselect() -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.DeselectCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.DeselectComponent(VM! vm) -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Destruct() -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.DestructAsync() -> System.Threading.Tasks.Task!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Dispose() -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.GetEnumerator() -> System.Collections.Generic.IEnumerator<VM!>!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Hint.get -> string!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Hub.get -> VMx.Services.IMessageHub!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.IndexOf(VM! item) -> int
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Insert(int index, VM! item) -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.IsConstructed.get -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.IsCurrent.get -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.IsReadOnly.get -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Move(int fromIndex, int toIndex) -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Name.get -> string!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Reconstruct() -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.ReconstructAsync() -> System.Threading.Tasks.Task!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.ReconstructCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Remove(VM! item) -> bool
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.RemoveAt(int index) -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Select() -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.SelectCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.SelectComponent(VM! vm) -> void
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.SelectNextCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.SelectPreviousCommand.get -> System.Windows.Input.ICommand!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Status.get -> VMx.Lifecycle.ConstructionStatus
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.Type.get -> VMx.Components.ViewModelType
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.this[int index].get -> VM!
+virtual VMx.Forwarding.ForwardingCompositeVM<VM>.this[int index].set -> void
+virtual VMx.Groups.GroupVMBase<VM>.PopulateChildren() -> void
+~VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder.Component1(System.Func<VM1!>! factory) -> VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder!
+~VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder.Hint(string! hint) -> VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder!
+~VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder.Name(string! name) -> VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder!
+~VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder!
+~VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder.Component1(System.Func<VM1!>! factory) -> VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder!
+~VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder.Component2(System.Func<VM2!>! factory) -> VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder!
+~VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder.Hint(string! hint) -> VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder!
+~VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder.Name(string! name) -> VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder!
+~VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder!
+~VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder.Component1(System.Func<VM1!>! factory) -> VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder!
+~VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder.Component2(System.Func<VM2!>! factory) -> VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder!
+~VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder.Component3(System.Func<VM3!>! factory) -> VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder!
+~VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder.Hint(string! hint) -> VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder!
+~VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder.Name(string! name) -> VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder!
+~VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder!
+~VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder.Component1(System.Func<VM1!>! factory) -> VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder!
+~VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder.Component2(System.Func<VM2!>! factory) -> VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder!
+~VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder.Component3(System.Func<VM3!>! factory) -> VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder!
+~VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder.Component4(System.Func<VM4!>! factory) -> VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder!
+~VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder.Hint(string! hint) -> VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder!
+~VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder.Name(string! name) -> VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder!
+~VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder!
+~VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder.Component1(System.Func<VM1!>! factory) -> VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder!
+~VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder.Component2(System.Func<VM2!>! factory) -> VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder!
+~VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder.Component3(System.Func<VM3!>! factory) -> VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder!
+~VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder.Component4(System.Func<VM4!>! factory) -> VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder!
+~VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder.Component5(System.Func<VM5!>! factory) -> VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder!
+~VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder.Hint(string! hint) -> VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder!
+~VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder.Name(string! name) -> VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder!
+~VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder!
+~VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Component1(System.Func<VM1!>! factory) -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Component2(System.Func<VM2!>! factory) -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Component3(System.Func<VM3!>! factory) -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Component4(System.Func<VM4!>! factory) -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Component5(System.Func<VM5!>! factory) -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Component6(System.Func<VM6!>! factory) -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Hint(string! hint) -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Name(string! name) -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder.Services(VMx.Services.IMessageHub! hub, VMx.Services.IDispatcher! dispatcher) -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~VMx.Composites.CompositeVMOptions<VM>.<Clone>$() -> VMx.Composites.CompositeVMOptions<VM>!
+~VMx.Composites.CompositeVMOptions<VM>.Equals(VMx.Composites.CompositeVMOptions<VM>? other) -> bool
+~VMx.Groups.GroupVMOptions<VM>.<Clone>$() -> VMx.Groups.GroupVMOptions<VM>!
+~VMx.Groups.GroupVMOptions<VM>.Equals(VMx.Groups.GroupVMOptions<VM>? other) -> bool
+~VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.<Clone>$() -> VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>!
+~VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.Equals(VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>? other) -> bool
+~static VMx.Aggregates.AggregateVM1<VM1>.Builder() -> VMx.Aggregates.AggregateVM1<VM1>.AggregateVM1Builder!
+~static VMx.Aggregates.AggregateVM2<VM1, VM2>.Builder() -> VMx.Aggregates.AggregateVM2<VM1, VM2>.AggregateVM2Builder!
+~static VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.Builder() -> VMx.Aggregates.AggregateVM3<VM1, VM2, VM3>.AggregateVM3Builder!
+~static VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.Builder() -> VMx.Aggregates.AggregateVM4<VM1, VM2, VM3, VM4>.AggregateVM4Builder!
+~static VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.Builder() -> VMx.Aggregates.AggregateVM5<VM1, VM2, VM3, VM4, VM5>.AggregateVM5Builder!
+~static VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.Builder() -> VMx.Aggregates.AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6>.AggregateVM6Builder!
+~static VMx.Composites.CompositeVMOptions<VM>.operator !=(VMx.Composites.CompositeVMOptions<VM>? left, VMx.Composites.CompositeVMOptions<VM>? right) -> bool
+~static VMx.Composites.CompositeVMOptions<VM>.operator ==(VMx.Composites.CompositeVMOptions<VM>? left, VMx.Composites.CompositeVMOptions<VM>? right) -> bool
+~static VMx.Groups.GroupVMOptions<VM>.operator !=(VMx.Groups.GroupVMOptions<VM>? left, VMx.Groups.GroupVMOptions<VM>? right) -> bool
+~static VMx.Groups.GroupVMOptions<VM>.operator ==(VMx.Groups.GroupVMOptions<VM>? left, VMx.Groups.GroupVMOptions<VM>? right) -> bool
+~static VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.operator !=(VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>? left, VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>? right) -> bool
+~static VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>.operator ==(VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>? left, VMx.Hierarchical.HierarchicalVMConstructionContext<TModel, TVM>? right) -> bool

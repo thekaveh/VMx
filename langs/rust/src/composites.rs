@@ -822,7 +822,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     /// Returns the immutable presentation hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.core.hint()
     }
 
@@ -1575,8 +1575,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Attaches the children factory's result once (spec/06 §1, ADR-0204).
     /// It runs inside the admitted construct transition, so a concurrent or
-    /// re-entrant construct fails with [`VmxError::ConcurrentOperation`]
-    /// instead of running it again. The factory leaves its slot only when
+    /// re-entrant construct fails with
+    /// [`VmxError::InvalidLifecycleTransition`] from `Constructing` instead
+    /// of running it again. The factory leaves its slot only when
     /// the population commits.
     fn populate(&self) -> VmxResult<()> {
         if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -2342,7 +2343,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
         let vm = CompositeVm::with_destruct_order(name, hub, dispatcher, self.destruct_order);
         if let Some(hint) = self.hint {
-            vm.core.set_hint(Some(hint));
+            vm.core.set_hint(hint);
         }
         vm.set_auto_construct_on_add(self.auto_construct_on_add);
         vm.set_async_selection(self.async_selection);
@@ -2423,6 +2424,21 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         self.inner.view_model_type()
     }
 
+    /// Returns the stable composite identity.
+    pub fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    /// Returns the immutable composite name.
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    /// Returns the immutable presentation hint.
+    pub fn hint(&self) -> String {
+        self.inner.hint()
+    }
+
     /// Creates a modeled composite from model and mapping factories.
     pub fn new<F, G>(
         name: impl Into<String>,
@@ -2480,6 +2496,36 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         F: FnOnce() + Send + 'static,
     {
         self.inner.own(cleanup);
+    }
+
+    /// Replaces the hook invoked during construction, including the construct
+    /// phase of `reconstruct` (spec/02 §2.2, ADR-0203). It runs as
+    /// [`CompositeVm::on_construct`] does, after the children are
+    /// materialized. The hook must not capture this composite (#750).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_construct(hook);
+    }
+
+    /// Replaces the hook invoked during destruction, including the destruct
+    /// phase of `reconstruct` (spec/02 §2.2, ADR-0203). The hook must not
+    /// capture this composite (#750).
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_destruct(hook);
+    }
+
+    /// Replaces the hook invoked during disposal (spec/02 §2.2, ADR-0203).
+    /// The hook must not capture this composite (#750).
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_dispose(hook);
     }
 
     /// Registers `member` for depth-first disposal, as
@@ -2649,6 +2695,7 @@ pub struct ModeledCompositeVmBuilder<
     D: Dispatcher = NullDispatcher,
 > {
     name: Option<String>,
+    hint: Option<String>,
     hub: Option<MessageHub>,
     dispatcher: Option<D>,
     children_models: Option<ModelFactory<M>>,
@@ -2664,6 +2711,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> Def
     fn default() -> Self {
         Self {
             name: None,
+            hint: Some(String::new()),
             hub: None,
             dispatcher: None,
             children_models: None,
@@ -2681,6 +2729,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
     /// Sets the required composite name.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// Sets the optional presentation hint.
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
         self
     }
 
@@ -2757,6 +2811,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
             child_model_to_child_view_model,
             loaded: Arc::new(Mutex::new(false)),
         };
+        if let Some(hint) = self.hint {
+            vm.inner.core.set_hint(hint);
+        }
         vm.inner.set_async_selection(self.async_selection);
         if let Some(selector) = self.current_selector {
             vm.inner.set_current_selector(move |items| selector(items));

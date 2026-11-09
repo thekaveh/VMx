@@ -122,7 +122,8 @@ internal static class ContainerMembership
         catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
         if (canPublish(container))
         {
-            try { container.Hub.Send(CollectionChangedMessage<VM>.From(container, args)); }
+            // The message carries the container's Name (ADR-0194).
+            try { container.Hub.Send(CollectionChangedMessage<VM>.From(container, args) with { SenderName = container.Name }); }
             catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
         }
         firstFailure?.Throw();
@@ -1813,6 +1814,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private void ApplySelectorResult(VM value) => ApplyCurrentChange(value, CurrentChange.Delivery);
 
     /// <summary>
+    /// Test-only seam: runs at the entry of <see cref="DetachClearingCurrent"/>,
+    /// before the coordination lane (#1406). Production code never sets it.
+    /// </summary>
+    internal Action<VM>? DetachProbeForTesting { get; set; }
+
+    /// <summary>
     /// Frees <paramref name="detached"/> and clears it as Current in one locked
     /// section (#1219). Under the coordination lane and the membership gate,
     /// the child loses this composite as its parent and, while it is still
@@ -1824,6 +1831,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     private void DetachClearingCurrent(VM detached)
     {
+        DetachProbeForTesting?.Invoke(detached);
         bool previousFlagChanged;
         lock (CompositeCurrentChangeCoordinator.Gate)
         {

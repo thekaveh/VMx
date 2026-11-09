@@ -44,8 +44,6 @@ private struct CycleOutcome {
 
 final class HubMembershipWaitCycleTests: XCTestCase {
 
-    private let timeout: TimeInterval = 5
-
     // ── Harness ──────────────────────────────────────────────────────────
 
     private func leaf(_ hub: MessageHubProtocol, _ name: String) -> ComponentVM {
@@ -91,7 +89,6 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         let stepTwoDone = DispatchSemaphore(value: 0)
         let stepThreeDone = DispatchSemaphore(value: 0)
         let stepThreeRan = Box(false)
-        let waitTimeout = timeout
 
         hub.onWaitRegisteredForTesting = { stepTwoWaiting.signal() }
         defer { hub.onWaitRegisteredForTesting = nil }
@@ -99,7 +96,7 @@ final class HubMembershipWaitCycleTests: XCTestCase {
             guard let changed = message as? PropertyChangedMessage,
                   changed.sender === trigger else { return }
             subscriberEntered.signal()
-            guard stepTwoWaiting.wait(timeout: .now() + waitTimeout) == .success else { return }
+            guard stepTwoWaiting.wait(timeout: .now() + hangGuard) == .success else { return }
             stepThreeRan.value = true
             stepThree()
         }
@@ -111,13 +108,13 @@ final class HubMembershipWaitCycleTests: XCTestCase {
             ))
             stepThreeDone.signal()
         }
-        XCTAssertEqual(subscriberEntered.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(subscriberEntered.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             stepTwo()
             stepTwoDone.signal()
         }
-        let stepThreeFinished = stepThreeDone.wait(timeout: .now() + timeout) == .success
-        let stepTwoFinished = stepTwoDone.wait(timeout: .now() + timeout) == .success
+        let stepThreeFinished = stepThreeDone.wait(timeout: .now() + hangGuard) == .success
+        let stepTwoFinished = stepTwoDone.wait(timeout: .now() + hangGuard) == .success
         return CycleOutcome(
             stepTwoFinished: stepTwoFinished,
             stepThreeFinished: stepThreeFinished,
@@ -349,7 +346,6 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         let composite = try constructedComposite(hub, autoConstructOnAdd: true)
         let transactionOpen = DispatchSemaphore(value: 0)
         let drainerCalling = DispatchSemaphore(value: 0)
-        let waitTimeout = timeout
         // The first child publishes its lifecycle on another hub, so the owner's
         // only send on `hub` is the composite's add, after the drainer waits.
         let first = ComponentVM(
@@ -358,7 +354,7 @@ final class HubMembershipWaitCycleTests: XCTestCase {
             dispatcher: ImmediateDispatcher.INSTANCE,
             onConstruct: {
                 transactionOpen.signal()
-                _ = drainerCalling.wait(timeout: .now() + waitTimeout)
+                _ = drainerCalling.wait(timeout: .now() + hangGuard)
                 Thread.sleep(forTimeInterval: 0.1)
             }
         )
@@ -373,7 +369,7 @@ final class HubMembershipWaitCycleTests: XCTestCase {
             guard let changed = message as? PropertyChangedMessage,
                   changed.sender === trigger else { return }
             subscriberEntered.signal()
-            guard transactionOpen.wait(timeout: .now() + waitTimeout) == .success else { return }
+            guard transactionOpen.wait(timeout: .now() + hangGuard) == .success else { return }
             drainerCalling.signal()
             drainerResult.value = composite.addResult(second)
         }
@@ -385,14 +381,14 @@ final class HubMembershipWaitCycleTests: XCTestCase {
             ))
             drainerDone.signal()
         }
-        XCTAssertEqual(subscriberEntered.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(subscriberEntered.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             ownerResult.value = composite.addResult(first)
             ownerDone.signal()
         }
 
-        XCTAssertEqual(ownerDone.wait(timeout: .now() + timeout), .success, "transaction owner hung")
-        XCTAssertEqual(drainerDone.wait(timeout: .now() + timeout), .success, "hub drainer hung")
+        XCTAssertEqual(ownerDone.wait(timeout: .now() + hangGuard), .success, "transaction owner hung")
+        XCTAssertEqual(drainerDone.wait(timeout: .now() + hangGuard), .success, "hub drainer hung")
         XCTAssertNoThrow(try ownerResult.value?.get())
         XCTAssertNotNil(drainerResult.value)
     }
@@ -416,12 +412,11 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         let callerDone = DispatchSemaphore(value: 0)
         let callerThread = Box<UInt64>(0)
         let window = OneShot()
-        let waitTimeout = timeout
 
         hub.onWaitRegisteredForTesting = { ownerWaiting.signal() }
         hub.onWaitEndedForTesting = {
             guard window.take() else { return }
-            _ = callerDecided.wait(timeout: .now() + waitTimeout)
+            _ = callerDecided.wait(timeout: .now() + hangGuard)
         }
         ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, _ in
             if caller == callerThread.value { callerDecided.signal() }
@@ -435,7 +430,7 @@ final class HubMembershipWaitCycleTests: XCTestCase {
             guard let changed = message as? PropertyChangedMessage,
                   changed.sender === trigger else { return }
             subscriberEntered.signal()
-            _ = ownerWaiting.wait(timeout: .now() + waitTimeout)
+            _ = ownerWaiting.wait(timeout: .now() + hangGuard)
         }
         defer { subscription.cancel() }
 
@@ -447,13 +442,13 @@ final class HubMembershipWaitCycleTests: XCTestCase {
             operation()
             callerDone.signal()
         }
-        XCTAssertEqual(subscriberEntered.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(subscriberEntered.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             ownerStep()
             ownerDone.signal()
         }
-        let callerFinished = callerDone.wait(timeout: .now() + timeout) == .success
-        let ownerFinished = ownerDone.wait(timeout: .now() + timeout) == .success
+        let callerFinished = callerDone.wait(timeout: .now() + hangGuard) == .success
+        let ownerFinished = ownerDone.wait(timeout: .now() + hangGuard) == .success
         return (ownerFinished, callerFinished)
     }
 
@@ -532,7 +527,6 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         let waiterDone = DispatchSemaphore(value: 0)
         let probeDelivered = Box(false)
         let probeDeliveredOnReturn = Box<Bool?>(nil)
-        let waitTimeout = timeout
 
         ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, _ in
             if caller == waiterThread.value { waiterDecided.signal() }
@@ -547,10 +541,10 @@ final class HubMembershipWaitCycleTests: XCTestCase {
                   status.sender === vm else { return }
             if status.status == .constructing {
                 drainerEntered.signal()
-                _ = waiterDecided.wait(timeout: .now() + waitTimeout)
+                _ = waiterDecided.wait(timeout: .now() + hangGuard)
             } else if status.status == .disposed {
                 waiterDelivering.signal()
-                _ = probeDecided.wait(timeout: .now() + waitTimeout)
+                _ = probeDecided.wait(timeout: .now() + hangGuard)
             }
         }
         defer { subscription.cancel() }
@@ -558,22 +552,22 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         Thread.detachNewThread {
             drainerThread.value = ThreadWaitGraph.currentThread
             try? vm.construct()
-            _ = waiterDelivering.wait(timeout: .now() + waitTimeout)
+            _ = waiterDelivering.wait(timeout: .now() + hangGuard)
             hub.send(PropertyChangedMessage(
                 sender: probe, senderName: "probe", propertyName: "probe"
             ))
             probeDeliveredOnReturn.value = probeDelivered.value
             drainerDone.signal()
         }
-        XCTAssertEqual(drainerEntered.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(drainerEntered.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             waiterThread.value = ThreadWaitGraph.currentThread
             vm.dispose()
             waiterDone.signal()
         }
 
-        XCTAssertEqual(drainerDone.wait(timeout: .now() + timeout), .success)
-        XCTAssertEqual(waiterDone.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(drainerDone.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(waiterDone.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(
             probeDeliveredOnReturn.value, true,
             "no cycle exists, so the send must wait and deliver synchronously"
@@ -608,7 +602,6 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         let qDone = DispatchSemaphore(value: 0)
         let yResult = Box<Result<Void, ContainerOwnershipError>?>(nil)
         let xResult = Box<Result<Void, ContainerOwnershipError>?>(nil)
-        let waitTimeout = timeout
         let hSubscription = h.messages.sink { message in
             guard let status = message as? ConstructionStatusChangedMessage,
                   status.senderObject === x, firstStatus.take() else { return }
@@ -618,7 +611,7 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         let h2Subscription = h2.messages.sink { message in
             guard (message as? PropertyChangedMessage)?.propertyName == "p0", firstTrigger.take() else { return }
             pInSubscriber.signal()
-            guard qWaitingForP.wait(timeout: .now() + waitTimeout) == .success else { return }
+            guard qWaitingForP.wait(timeout: .now() + hangGuard) == .success else { return }
             try? h.batch {
                 h2.dispose()
                 Thread.sleep(forTimeInterval: 0.3)
@@ -631,15 +624,15 @@ final class HubMembershipWaitCycleTests: XCTestCase {
             h2.send(PropertyChangedMessage(sender: y, senderName: "y", propertyName: "p0"))
             pDone.signal()
         }
-        XCTAssertEqual(pInSubscriber.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(pInSubscriber.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             q.value = ThreadWaitGraph.currentThread
             xResult.value = composite.addResult(x)
             qDone.signal()
         }
 
-        XCTAssertEqual(pDone.wait(timeout: .now() + timeout), .success, "thread P hung")
-        XCTAssertEqual(qDone.wait(timeout: .now() + timeout), .success, "thread Q hung")
+        XCTAssertEqual(pDone.wait(timeout: .now() + hangGuard), .success, "thread P hung")
+        XCTAssertEqual(qDone.wait(timeout: .now() + hangGuard), .success, "thread Q hung")
         XCTAssertNoThrow(try xResult.value?.get())
         XCTAssertEqual(x.status, .constructed)
         switch yResult.value {

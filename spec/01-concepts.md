@@ -96,10 +96,8 @@ Each `CompositeVM<VM>` has an optional `Current` child. The contract:
 Every viewmodel exposes:
 
 - `Name : string` — immutable post-construction; an identifier for the VM.
-- `Hint : string` — immutable post-construction; a human-readable hint. Open
-  Rust gap: Rust types `Hint` as `Option<String>`. The builders default an unset
-  hint to `Some("")`, but the direct constructors leave it `None` instead of the
-  empty string.
+- `Hint : string` — immutable post-construction; a human-readable hint. It
+  defaults to the empty string.
 - `Type : ViewModelType` — enum (`Component`, `ReadOnlyComponent`, `Aggregate`,
   `Group`, `Composite`); immutable.
 - `IsCurrent : bool` — derived from parent's `Current` reference. Raised through

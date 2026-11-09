@@ -300,8 +300,10 @@ fn a_panicking_field_validator_leaves_the_form_unchanged() {
     trace.assert_quiet();
 
     // After earlier successful runs: from an invalid form ...
+    // A strict form that becomes invalid and dirty raises one approve
+    // change (FORM-043).
     form.set_model(-1);
-    assert_eq!(trace.take(), ["errors", "model -1"]);
+    assert_eq!(trace.take(), ["errors", "can_execute", "model -1"]);
     let invalid = state(&form);
     assert_unwinds_from("field validator", || form.set_model(MARKED));
     assert_eq!(state(&form), invalid);
@@ -392,8 +394,9 @@ fn a_panicking_equality_leaves_the_form_unchanged() {
         .unwrap();
     let value = |model: &Hooked| model.value;
     let trace = Trace::observe(&form);
+    // Valid and clean to invalid and dirty: one approve change (FORM-043).
     form.set_model(model(2));
-    assert_eq!(trace.take(), ["errors", "model 2"]);
+    assert_eq!(trace.take(), ["errors", "can_execute", "model 2"]);
     let before = state_with(&form, value);
 
     // The candidate is compared with the live model first.
