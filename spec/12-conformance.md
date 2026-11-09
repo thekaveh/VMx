@@ -1,8 +1,8 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 451 library IDs
-in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
+`XXX-NNN`. Each of the five language flavors MUST implement every library ID
+in `langs/<lang>/tests/conformance/` before it can be marked stable. The
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
 `tools/check-conformance-coverage.py` and the example suites verify THEME.
