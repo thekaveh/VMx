@@ -162,6 +162,7 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 | Item  | Title                                                                                         | Closed by | Pull request                                       |
 | ----- | --------------------------------------------------------------------------------------------- | --------- | -------------------------------------------------- |
 | §1.4  | Notifications of an update nested in a form callback                                          | ADR-0180  | [#1239](https://github.com/thekaveh/VMx/pull/1239) |
+| §2.3  | Duplicate dictionary key error                                                                | ADR-0214  | [#1522](https://github.com/thekaveh/VMx/pull/1522) |
 | §2.6  | `SetModel` while approval publishes                                                           | ADR-0174  | [#1211](https://github.com/thekaveh/VMx/pull/1211) |
 | §2.9  | Selecting from a composite's own structural transaction                                       | ADR-0173  | [#1212](https://github.com/thekaveh/VMx/pull/1212) |
 | §2.11 | Lifecycle call during a container's inline dispose cascade                                    | ADR-0175  | [#1216](https://github.com/thekaveh/VMx/pull/1216) |
