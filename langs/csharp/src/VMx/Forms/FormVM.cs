@@ -355,21 +355,27 @@ public sealed class FormVM<TM> : IDisposable
         // otherwise emit on disposed validation subjects and throw
         // ObjectDisposedException (parity with the TS/Swift no-op).
         var caller = Environment.CurrentManagedThreadId;
-        var admitted = false;
-        var retry = false;
-        Notices? delivery = null;
-        ExceptionDispatchInfo? failure = null;
-        try
+        // An update that another thread's commit overtook runs again as a
+        // new call. A loop keeps the stack flat under contention.
+        bool retry;
+        do
         {
-            ApplySetModel(model, caller, ref admitted, ref retry, ref delivery);
+            var admitted = false;
+            retry = false;
+            Notices? delivery = null;
+            ExceptionDispatchInfo? failure = null;
+            try
+            {
+                ApplySetModel(model, caller, ref admitted, ref retry, ref delivery);
+            }
+            catch (Exception error)
+            {
+                failure = ExceptionDispatchInfo.Capture(error);
+            }
+            var deliveryFailure = Deliver(delivery, caller, out var replay);
+            FinishUpdate(admitted, failure ?? deliveryFailure, replay);
         }
-        catch (Exception error)
-        {
-            failure = ExceptionDispatchInfo.Capture(error);
-        }
-        var deliveryFailure = Deliver(delivery, caller, out var replay);
-        FinishUpdate(admitted, failure ?? deliveryFailure, replay);
-        if (retry) SetModel(model);
+        while (retry);
     }
 
     private void ApplySetModel(
@@ -586,21 +592,27 @@ public sealed class FormVM<TM> : IDisposable
     private void Deny()
     {
         var caller = Environment.CurrentManagedThreadId;
-        var admitted = false;
-        var retry = false;
-        Notices? delivery = null;
-        ExceptionDispatchInfo? failure = null;
-        try
+        // An update that another thread's commit overtook runs again as a
+        // new call. A loop keeps the stack flat under contention.
+        bool retry;
+        do
         {
-            ApplyDeny(caller, ref admitted, ref retry, ref delivery);
+            var admitted = false;
+            retry = false;
+            Notices? delivery = null;
+            ExceptionDispatchInfo? failure = null;
+            try
+            {
+                ApplyDeny(caller, ref admitted, ref retry, ref delivery);
+            }
+            catch (Exception error)
+            {
+                failure = ExceptionDispatchInfo.Capture(error);
+            }
+            var deliveryFailure = Deliver(delivery, caller, out var replay);
+            FinishUpdate(admitted, failure ?? deliveryFailure, replay);
         }
-        catch (Exception error)
-        {
-            failure = ExceptionDispatchInfo.Capture(error);
-        }
-        var deliveryFailure = Deliver(delivery, caller, out var replay);
-        FinishUpdate(admitted, failure ?? deliveryFailure, replay);
-        if (retry) Deny();
+        while (retry);
     }
 
     private void ApplyDeny(int caller, ref bool admitted, ref bool retry, ref Notices? delivery)
