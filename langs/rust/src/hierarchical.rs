@@ -1111,7 +1111,7 @@ pub struct HierarchicalVmBuilder<
     N: Send + Sync + 'static = (),
 > {
     model: Option<M>,
-    node_data: Option<N>,
+    node_data: N,
     children_factory: Option<HierChildrenFactory<M, N>>,
     services: Option<(MessageHub, NullDispatcher)>,
     hint: Option<String>,
@@ -1139,7 +1139,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
     pub fn with_node_data(node_data: N) -> Self {
         Self {
             model: None,
-            node_data: Some(node_data),
+            node_data,
             children_factory: None,
             services: None,
             hint: Some(String::new()),
@@ -1195,7 +1195,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static>
         let (hub, _dispatcher) = self
             .services
             .ok_or_else(|| VmxError::BuilderValidation("services are required".to_string()))?;
-        let node_data = self.node_data.expect("node data is set");
+        let node_data = self.node_data;
         let node = HierarchicalVm::with_node_data(
             "HierarchicalVm",
             model,
