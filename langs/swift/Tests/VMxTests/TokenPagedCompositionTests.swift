@@ -65,7 +65,7 @@ final class TokenPagedCompositionTests: XCTestCase {
         sut.propertyChanged.sink { _ in propertyEvents += 1 }.store(in: &cancellables)
 
         let run = Task { try await sut.loadMoreCommand.executeAsync() }
-        await fulfillment(of: [fetchStarted], timeout: 2.0)
+        await fulfillment(of: [fetchStarted], timeout: hangGuard)
         sut.dispose()
         continuation?.resume(returning: ([1, 2], "next"))
         try await run.value
@@ -165,7 +165,7 @@ final class TokenPagedCompositionTests: XCTestCase {
         let callsBefore = harness.callCount
         harness.lock.withLock { harness.holdNextFirstPage = 1 }
         let refresh = Task.detached { try await sut.refreshCommand.executeAsync() }
-        XCTAssertEqual(harness.heldStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(harness.heldStarted.wait(timeout: .now() + hangGuard), .success)
 
         sut.collectionChanged.sink { _ in
             harness.lock.withLock { harness.resets += 1 }
@@ -178,7 +178,7 @@ final class TokenPagedCompositionTests: XCTestCase {
         sut.loadMoreCommand.canExecuteChanged.sink { _ in
             guard armed.takeOnce() else { return }
             harness.takeHeld()?.resume(returning: ([1, 101, 555], nil))
-            resetWait = harness.resetSeen.wait(timeout: .now() + 2)
+            resetWait = harness.resetSeen.wait(timeout: .now() + hangGuard)
         }.store(in: &cancellables)
 
         try await Task.detached { try await sut.loadMoreCommand.executeAsync() }.value
@@ -232,9 +232,9 @@ final class TokenPagedCompositionTests: XCTestCase {
         })
 
         let load = Task { try await sut.loadMoreCommand.executeAsync() }
-        await fulfillment(of: [loadStarted], timeout: 2.0)
+        await fulfillment(of: [loadStarted], timeout: hangGuard)
         let refresh = Task { try await sut.refreshCommand.executeAsync() }
-        await fulfillment(of: [refreshStarted], timeout: 2.0)
+        await fulfillment(of: [refreshStarted], timeout: hangGuard)
 
         refreshContinuation?.resume(returning: ([9], "fresh"))
         try await refresh.value
@@ -262,7 +262,7 @@ final class TokenPagedCompositionTests: XCTestCase {
         sut.propertyChanged.sink { _ in propertyEvents += 1 }.store(in: &cancellables)
 
         let run = Task { try await sut.refreshCommand.executeAsync() }
-        await fulfillment(of: [fetchStarted], timeout: 2.0)
+        await fulfillment(of: [fetchStarted], timeout: hangGuard)
         sut.dispose()
         continuation?.resume(returning: ([9], nil))
         try await run.value

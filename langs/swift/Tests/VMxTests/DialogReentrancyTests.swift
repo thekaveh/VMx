@@ -144,11 +144,11 @@ final class DialogReentrancyTests: XCTestCase {
         Task { r1.value = await dialog.confirm("first", title: nil); bothResolved.fulfill() }
         Task { r2.value = await dialog.confirm("second", title: nil); bothResolved.fulfill() }
 
-        await fulfillment(of: [bothEnqueued], timeout: 1.0)
+        await fulfillment(of: [bothEnqueued], timeout: hangGuard)
         dialog.completeNext(true)
         dialog.completeNext(false)
 
-        await fulfillment(of: [bothResolved], timeout: 1.0)
+        await fulfillment(of: [bothResolved], timeout: hangGuard)
         // The queueing impl drains continuations in ENQUEUE order, which is not
         // contractually tied to which Task starts first — so assert the
         // outcome set (both resolved; one true, one false) rather than pinning a
@@ -175,17 +175,17 @@ final class DialogReentrancyTests: XCTestCase {
         Task { rA.value = await dialog.confirm("active", title: nil); aResolved.fulfill() }
 
         // Wait until the first confirm has enqueued its continuation (active state set).
-        await fulfillment(of: [firstActivated], timeout: 1.0)
+        await fulfillment(of: [firstActivated], timeout: hangGuard)
 
         // Second call while first is active — must return false immediately.
         Task { rB.value = await dialog.confirm("reentrant", title: nil); bResolved.fulfill() }
-        await fulfillment(of: [bResolved], timeout: 1.0)
+        await fulfillment(of: [bResolved], timeout: hangGuard)
         XCTAssertEqual(rB.value, false,
                        "DIA-006 rejecting: reentrant confirm must resolve false without suspending")
 
         // Complete the first confirm — no exception path (non-throwing protocol).
         dialog.completeActive(true)
-        await fulfillment(of: [aResolved], timeout: 1.0)
+        await fulfillment(of: [aResolved], timeout: hangGuard)
         XCTAssertEqual(rA.value, true,
                        "DIA-006 rejecting: active confirm must resolve true after completeActive")
     }

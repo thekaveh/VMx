@@ -123,7 +123,7 @@ final class MessageHubTests: XCTestCase {
             }
             batchDone.fulfill()
         }
-        XCTAssertEqual(batchEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(batchEntered.wait(timeout: .now() + hangGuard), .success)
         DispatchQueue.global().async {
             producerThread = pthread_mach_thread_np(pthread_self())
             sendStarted.signal()
@@ -131,13 +131,13 @@ final class MessageHubTests: XCTestCase {
             sendFinished.signal()
             sendDone.fulfill()
         }
-        XCTAssertEqual(sendStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(sendStarted.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(
             sendFinished.wait(timeout: .now() + 0.05), .timedOut,
             "the active transaction must serialize another producer"
         )
         releaseBatch.signal()
-        wait(for: [batchDone, sendDone], timeout: 2)
+        wait(for: [batchDone, sendDone], timeout: hangGuard)
 
         XCTAssertEqual(deliveryThread, producerThread)
         cancellable.cancel()
@@ -163,14 +163,14 @@ final class MessageHubTests: XCTestCase {
             }
             batchReturned.signal()
         }
-        XCTAssertEqual(batchEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(batchEntered.wait(timeout: .now() + hangGuard), .success)
         DispatchQueue.global().async {
             disposeStarted.signal()
             hub.dispose()
             disposeReturned.signal()
         }
 
-        XCTAssertEqual(disposeStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(disposeStarted.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(
             disposeReturned.wait(timeout: .now() + 0.05), .timedOut,
             "dispose must serialize with an active foreign batch"
@@ -180,9 +180,9 @@ final class MessageHubTests: XCTestCase {
             "completion must not overtake the active transaction"
         )
         releaseBatch.signal()
-        XCTAssertEqual(batchReturned.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(disposeReturned.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(completed.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(batchReturned.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(disposeReturned.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(completed.wait(timeout: .now() + hangGuard), .success)
         cancellable.cancel()
     }
 
@@ -227,9 +227,9 @@ final class MessageHubTests: XCTestCase {
             workersReturned.signal()
         }
 
-        XCTAssertEqual(workersReturned.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(workersReturned.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(completed.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(workersReturned.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(workersReturned.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(completed.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(completionCount.value, 1)
         source.onWaitRegisteredForTesting = nil
         completionSubscription.cancel()
@@ -272,13 +272,13 @@ final class MessageHubTests: XCTestCase {
             right.send(self.msg("outer"))
             sendsReturned.signal()
         }
-        XCTAssertEqual(callbacksEntered.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(callbacksEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(callbacksEntered.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(callbacksEntered.wait(timeout: .now() + hangGuard), .success)
         releaseCallbacks.signal()
         releaseCallbacks.signal()
 
-        XCTAssertEqual(sendsReturned.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(sendsReturned.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(sendsReturned.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(sendsReturned.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(innerDeliveries.value, 2)
         leftSubscription.cancel()
         rightSubscription.cancel()
@@ -306,22 +306,22 @@ final class MessageHubTests: XCTestCase {
                 releaseBatch.wait()
             }
         }
-        XCTAssertEqual(batchEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(batchEntered.wait(timeout: .now() + hangGuard), .success)
         DispatchQueue.global().async {
             source.send(self.msg("outer"))
             outerReturned.signal()
         }
 
-        XCTAssertEqual(callbackEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(callbackEntered.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(
             callbackReturned.wait(timeout: .now() + 0.05),
             .timedOut,
             "an unrelated callback must not bypass a busy target's synchronous send"
         )
         releaseBatch.signal()
-        XCTAssertEqual(callbackReturned.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(outerReturned.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(delivered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(callbackReturned.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(outerReturned.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(delivered.wait(timeout: .now() + hangGuard), .success)
         sourceSubscription.cancel()
         targetSubscription.cancel()
     }
@@ -353,12 +353,12 @@ final class MessageHubTests: XCTestCase {
             transactionsReturned.signal()
         }
 
-        XCTAssertEqual(outerBatchesEntered.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(outerBatchesEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(outerBatchesEntered.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(outerBatchesEntered.wait(timeout: .now() + hangGuard), .success)
         releaseNestedBatches.signal()
         releaseNestedBatches.signal()
-        XCTAssertEqual(transactionsReturned.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(transactionsReturned.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(transactionsReturned.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(transactionsReturned.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(deliveries.value, 2)
         leftSubscription.cancel()
         rightSubscription.cancel()
@@ -414,7 +414,6 @@ private final class BorrowCycle {
     let pWaitingForQ = DispatchSemaphore(value: 0)
     /// Set by P just before the action whose accepted wait it reports.
     let pActing = BorrowBox(false)
-    let timeout: TimeInterval = 5
     private var cancellables: [AnyCancellable] = []
     /// Extra behavior for each `h` delivery, after it is logged.
     var onH: ((String) -> Void)?
@@ -463,14 +462,13 @@ private final class BorrowCycle {
         let pDone = DispatchSemaphore(value: 0)
         let qDone = DispatchSemaphore(value: 0)
         let once = BorrowBox(true)
-        let waitTimeout = timeout
         cancellables.append(h2.messages.sink { [weak self] message in
             guard let self, (message as? PropertyChangedMessage)?.propertyName == "p0" else { return }
             var first = false
             once.mutate { first = $0; $0 = false }
             guard first else { return }
             pInSubscriber.signal()
-            guard self.qWaitingForP.wait(timeout: .now() + waitTimeout) == .success else { return }
+            guard self.qWaitingForP.wait(timeout: .now() + hangGuard) == .success else { return }
             try? self.h.batch {
                 self.h2.dispose()
                 if pause > 0 { Thread.sleep(forTimeInterval: pause) }
@@ -483,14 +481,14 @@ private final class BorrowCycle {
             h2.send(msg("p0"))
             pDone.signal()
         }
-        guard pInSubscriber.wait(timeout: .now() + timeout) == .success else { return (false, false) }
+        guard pInSubscriber.wait(timeout: .now() + hangGuard) == .success else { return (false, false) }
         Thread.detachNewThread { [self] in
             q.value = ThreadWaitGraph.currentThread
             qAction(self)
             qDone.signal()
         }
-        let pFinished = pDone.wait(timeout: .now() + timeout) == .success
-        let qFinished = qDone.wait(timeout: .now() + timeout) == .success
+        let pFinished = pDone.wait(timeout: .now() + hangGuard) == .success
+        let qFinished = qDone.wait(timeout: .now() + hangGuard) == .success
         return (pFinished, qFinished)
     }
 
@@ -606,7 +604,7 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             cycle.onH = { name in
                 guard name == "q0" else { return }
                 cycle.h2.send(cycle.msg("q1"))
-                _ = cycle.pWaitingForQ.wait(timeout: .now() + cycle.timeout)
+                _ = cycle.pWaitingForQ.wait(timeout: .now() + hangGuard)
             }
             try? cycle.h3.batch { cycle.h.send(cycle.msg("q0")) }
         }, pAction: { cycle in
@@ -630,7 +628,7 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
                 guard name == "q0" else { return }
                 cycle.h.send(cycle.msg("qLate"))
                 cycle.h2.send(cycle.msg("q1"))
-                _ = cycle.pWaitingForQ.wait(timeout: .now() + cycle.timeout)
+                _ = cycle.pWaitingForQ.wait(timeout: .now() + hangGuard)
             }
             try? cycle.h3.batch {
                 cycle.h.send(cycle.msg("q0"))
@@ -663,7 +661,6 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
         let a = MessageHub()   // B2 drains it; D waits for B2 on it
         let b = MessageHub()   // B1 drains it; B2 waits for B1 on it
         let c = MessageHub()   // W drains it
-        let timeout: TimeInterval = 5
         let d = BorrowBox<UInt64>(0), b1 = BorrowBox<UInt64>(0)
         let b2 = BorrowBox<UInt64>(0), w = BorrowBox<UInt64>(0)
         let phase = BorrowBox("")
@@ -695,15 +692,15 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
         subscriptions.append(a.messages.sink { message in
             guard name(message) == "a0" else { return }
             b2Draining.signal()
-            _ = dWaiting.wait(timeout: .now() + timeout)
+            _ = dWaiting.wait(timeout: .now() + hangGuard)
             try? h.batch {
                 a.dispose()
-                _ = dBatchReturned.wait(timeout: .now() + timeout)
+                _ = dBatchReturned.wait(timeout: .now() + hangGuard)
                 Thread.detachNewThread {
                     w.value = ThreadWaitGraph.currentThread
                     c.send(msg("c0"))
                 }
-                _ = wWaiting.wait(timeout: .now() + timeout)
+                _ = wWaiting.wait(timeout: .now() + hangGuard)
                 phase.value = "b2-on-b"
                 b.send(msg("b0"))
             }
@@ -713,12 +710,12 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
         subscriptions.append(b.messages.sink { message in
             guard name(message) == "b1" else { return }
             b1Draining.signal()
-            _ = b2WaitingForB1.wait(timeout: .now() + timeout)
+            _ = b2WaitingForB1.wait(timeout: .now() + hangGuard)
             try? h.batch {
                 b.dispose()
-                _ = b2Exited.wait(timeout: .now() + timeout)
+                _ = b2Exited.wait(timeout: .now() + hangGuard)
                 // Hold the last borrowed scope until B2's send has decided.
-                _ = b2WaitingForW.wait(timeout: .now() + 1)
+                _ = b2WaitingForW.wait(timeout: .now() + hangGuard)
             }
         })
         // W's c subscriber: send on h, which waits for a borrower.
@@ -736,7 +733,7 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             b.send(msg("b1"))
             b1Done.signal()
         }
-        XCTAssertEqual(b1Draining.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(b1Draining.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             b2.value = ThreadWaitGraph.currentThread
             a.send(msg("a0"))
@@ -745,7 +742,7 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             xBeforeReturn.value = xDelivered.value
             b2Done.signal()
         }
-        XCTAssertEqual(b2Draining.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(b2Draining.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             d.value = ThreadWaitGraph.currentThread
             try? h.batch { a.send(msg("d")) }
@@ -753,9 +750,9 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             dDone.signal()
         }
 
-        XCTAssertEqual(dDone.wait(timeout: .now() + timeout), .success, "D hung")
-        XCTAssertEqual(b2Done.wait(timeout: .now() + timeout), .success, "B2 hung")
-        XCTAssertEqual(b1Done.wait(timeout: .now() + timeout), .success, "B1 hung")
+        XCTAssertEqual(dDone.wait(timeout: .now() + hangGuard), .success, "D hung")
+        XCTAssertEqual(b2Done.wait(timeout: .now() + hangGuard), .success, "B2 hung")
+        XCTAssertEqual(b1Done.wait(timeout: .now() + hangGuard), .success, "B1 hung")
         XCTAssertEqual(xBeforeReturn.value, true, "B2's send escaped on a stale edge to W")
     }
 
@@ -768,7 +765,6 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
     func testEmptyQueueDrainerReturnsWhileTheBorrowedScopeIsOpen() {
         let h = MessageHub()
         let h2 = MessageHub()
-        let timeout: TimeInterval = 5
         let d = BorrowBox<UInt64>(0)
         let dWaiting = DispatchSemaphore(value: 0)
         ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
@@ -791,15 +787,15 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
         Thread.detachNewThread {
             try? h2.batch {
                 bOwnsH2.signal()
-                _ = dWaiting.wait(timeout: .now() + timeout)
+                _ = dWaiting.wait(timeout: .now() + hangGuard)
                 try? h.batch {
                     h2.dispose()
-                    returnedDuringBorrow.value = dReturned.wait(timeout: .now() + timeout) == .success
+                    returnedDuringBorrow.value = dReturned.wait(timeout: .now() + hangGuard) == .success
                 }
             }
             bDone.signal()
         }
-        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             d.value = ThreadWaitGraph.currentThread
             h.send(msg("m1"))
@@ -807,8 +803,8 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             dDone.signal()
         }
 
-        XCTAssertEqual(bDone.wait(timeout: .now() + 3 * timeout), .success, "B hung")
-        XCTAssertEqual(dDone.wait(timeout: .now() + timeout), .success, "D hung")
+        XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard * 3), .success, "B hung")
+        XCTAssertEqual(dDone.wait(timeout: .now() + hangGuard), .success, "D hung")
         XCTAssertEqual(
             returnedDuringBorrow.value, true,
             "the drainer waited for the borrowed scope with an empty queue"
@@ -826,7 +822,6 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             let label = borrowerExitsLast ? "borrower exits last" : "batch owner exits last"
             let h = MessageHub()
             let h2 = MessageHub()
-            let timeout: TimeInterval = 5
             let o = BorrowBox<UInt64>(0)
             let b = BorrowBox<UInt64>(0)
             let oWaiting = DispatchSemaphore(value: 0)
@@ -851,7 +846,7 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
                 try? h2.batch {
                     bOwnsH2.signal()
                     XCTAssertEqual(
-                        oWaiting.wait(timeout: .now() + timeout), .success,
+                        oWaiting.wait(timeout: .now() + hangGuard), .success,
                         "\(label): O never waited for B's h2 batch"
                     )
                     try? h.batch {
@@ -859,14 +854,14 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
                         guard borrowerExitsLast else { return }
                         // Releasing h2 lets O's h batch exit inside this borrow.
                         h2.dispose()
-                        _ = oReturned.wait(timeout: .now() + timeout)
+                        _ = oReturned.wait(timeout: .now() + hangGuard)
                         completedBeforeBExit.value = completedOn.value
                     }
                     if !borrowerExitsLast { completedBeforeBExit.value = completedOn.value }
                 }
                 bDone.signal()
             }
-            XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success, label)
+            XCTAssertEqual(bOwnsH2.wait(timeout: .now() + hangGuard), .success, label)
             Thread.detachNewThread {
                 o.value = ThreadWaitGraph.currentThread
                 try? h.batch {
@@ -876,8 +871,8 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
                 oDone.signal()
             }
 
-            XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "\(label): B hung")
-            XCTAssertEqual(oDone.wait(timeout: .now() + timeout), .success, "\(label): O hung")
+            XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard * 2), .success, "\(label): B hung")
+            XCTAssertEqual(oDone.wait(timeout: .now() + hangGuard), .success, "\(label): O hung")
             XCTAssertEqual(completedBeforeBExit.value, [], "\(label): h completed too early")
             XCTAssertEqual(completedOn.value, [borrowerExitsLast ? b.value : o.value], label)
             subscription.cancel()
@@ -894,7 +889,6 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
     func testABorrowersDisposeIsFinishedByTheDrainerThatIsStillDelivering() {
         let h = MessageHub()
         let h2 = MessageHub()
-        let timeout: TimeInterval = 5
         let d = BorrowBox<UInt64>(0)
         let dWaiting = DispatchSemaphore(value: 0)
         ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
@@ -922,7 +916,7 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             try? h2.batch {
                 bOwnsH2.signal()
                 XCTAssertEqual(
-                    dWaiting.wait(timeout: .now() + timeout), .success,
+                    dWaiting.wait(timeout: .now() + hangGuard), .success,
                     "D never waited for B's h2 batch"
                 )
                 try? h.batch { h.dispose() }
@@ -930,15 +924,15 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             }
             bDone.signal()
         }
-        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             d.value = ThreadWaitGraph.currentThread
             h.send(PropertyChangedMessage(sender: NSObject(), senderName: "hub", propertyName: "m"))
             dDone.signal()
         }
 
-        XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "B hung")
-        XCTAssertEqual(dDone.wait(timeout: .now() + timeout), .success, "D hung")
+        XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard * 2), .success, "B hung")
+        XCTAssertEqual(dDone.wait(timeout: .now() + hangGuard), .success, "D hung")
         XCTAssertEqual(completedAfterBorrow.value, 0, "B's borrow exit completed h while D was delivering")
         XCTAssertEqual(completed.value.map(\.0), [d.value])
         XCTAssertEqual(completed.value.map(\.1), [false], "h completed inside D's in-flight delivery")
@@ -954,7 +948,6 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
     func testABatchOwnersNestedBatchWaitsForABorrowedScope() {
         let h = MessageHub()
         let h2 = MessageHub()
-        let timeout: TimeInterval = 5
         let o = BorrowBox<UInt64>(0)
         let oWaiting = DispatchSemaphore(value: 0)
         ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
@@ -979,20 +972,20 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             try? h2.batch {
                 bOwnsH2.signal()
                 XCTAssertEqual(
-                    oWaiting.wait(timeout: .now() + timeout), .success,
+                    oWaiting.wait(timeout: .now() + hangGuard), .success,
                     "O never waited for B's h2 batch"
                 )
                 try? h.batch {
                     h.send(msg("b1"))
                     h2.dispose()
                     // Hold the borrowed scope until O waits for it, or 500 ms.
-                    _ = oWaiting.wait(timeout: .now() + 0.5)
+                    _ = oWaiting.wait(timeout: .now() + hangGuard)
                     borrowDone.value = true
                 }
             }
             bDone.signal()
         }
-        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             o.value = ThreadWaitGraph.currentThread
             try? h.batch {
@@ -1006,8 +999,8 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             oDone.signal()
         }
 
-        XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "B hung")
-        XCTAssertEqual(oDone.wait(timeout: .now() + timeout), .success, "O hung")
+        XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard * 2), .success, "B hung")
+        XCTAssertEqual(oDone.wait(timeout: .now() + hangGuard), .success, "O hung")
         XCTAssertEqual(
             nestedSawExit.value, true,
             "the batch owner's nested batch ran inside another thread's borrowed scope"
@@ -1023,7 +1016,6 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
         let h = MessageHub()
         let h2 = MessageHub()
         let h3 = MessageHub()
-        let timeout: TimeInterval = 5
         let o = BorrowBox<UInt64>(0)
         let b = BorrowBox<UInt64>(0)
         let oWaiting = DispatchSemaphore(value: 0)
@@ -1057,7 +1049,7 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             try? h2.batch {
                 bOwnsH2.signal()
                 XCTAssertEqual(
-                    oWaiting.wait(timeout: .now() + timeout), .success,
+                    oWaiting.wait(timeout: .now() + hangGuard), .success,
                     "O never waited for B's h2 batch"
                 )
                 try? h.batch {
@@ -1068,14 +1060,14 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             }
             bDone.signal()
         }
-        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             o.value = ThreadWaitGraph.currentThread
             try? h3.batch {
                 try? h.batch {
                     h2.send(msg("x"))
                     XCTAssertEqual(
-                        bWaiting.wait(timeout: .now() + timeout), .success,
+                        bWaiting.wait(timeout: .now() + hangGuard), .success,
                         "B never waited for O's h3 batch"
                     )
                     let refusalsBefore = oRefusals.value
@@ -1088,8 +1080,8 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             oDone.signal()
         }
 
-        XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "B hung")
-        XCTAssertEqual(oDone.wait(timeout: .now() + timeout), .success, "O hung")
+        XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard * 2), .success, "B hung")
+        XCTAssertEqual(oDone.wait(timeout: .now() + hangGuard), .success, "O hung")
         XCTAssertEqual(nestedRefused.value, true, "the nested batch did not take the refused-wait borrow")
         XCTAssertEqual(o1.value, 1)
         XCTAssertEqual(b3.value, 1)
@@ -1103,7 +1095,6 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
     func testABorrowersBatchOnADisposedHubOpensNoScope() {
         let h = MessageHub()
         let h2 = MessageHub()
-        let timeout: TimeInterval = 5
         let o = BorrowBox<UInt64>(0)
         let b = BorrowBox<UInt64>(0)
         let oWaiting = DispatchSemaphore(value: 0)
@@ -1133,7 +1124,7 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             try? h2.batch {
                 bOwnsH2.signal()
                 XCTAssertEqual(
-                    oWaiting.wait(timeout: .now() + timeout), .success,
+                    oWaiting.wait(timeout: .now() + hangGuard), .success,
                     "O never waited for B's h2 batch"
                 )
                 try? h.batch {
@@ -1142,13 +1133,13 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
                     try? h.batch { depthInBody.value = h.borrowedScopeDepthForTesting }
                     // Releasing h2 lets O's h batch exit inside this borrow.
                     h2.dispose()
-                    oReturnedInBorrow.value = oReturned.wait(timeout: .now() + timeout) == .success
+                    oReturnedInBorrow.value = oReturned.wait(timeout: .now() + hangGuard) == .success
                     completedBeforeBExit.value = completedOn.value
                 }
             }
             bDone.signal()
         }
-        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + timeout), .success)
+        XCTAssertEqual(bOwnsH2.wait(timeout: .now() + hangGuard), .success)
         Thread.detachNewThread {
             o.value = ThreadWaitGraph.currentThread
             try? h.batch {
@@ -1158,8 +1149,8 @@ final class MessageHubBorrowedScopeTests: XCTestCase {
             oDone.signal()
         }
 
-        XCTAssertEqual(bDone.wait(timeout: .now() + 2 * timeout), .success, "B hung")
-        XCTAssertEqual(oDone.wait(timeout: .now() + timeout), .success, "O hung")
+        XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard * 2), .success, "B hung")
+        XCTAssertEqual(oDone.wait(timeout: .now() + hangGuard), .success, "O hung")
         XCTAssertEqual(depthBefore.value, 1)
         XCTAssertEqual(depthInBody.value, 1, "the batch on the disposed hub opened a borrowed scope")
         XCTAssertEqual(oReturnedInBorrow.value, true, "O's h batch did not exit inside B's borrow")
