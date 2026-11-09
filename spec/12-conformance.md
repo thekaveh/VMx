@@ -685,6 +685,8 @@ notification
 **Then** A and B each observe one more notification
 **And** C# and Python rethrow A's failure from the raise call after B has run,
 while TypeScript and Rust return normally
+**And** Rust, whose triggers are hubs, uses a hub trigger, and the operator
+form does not apply
 **And** Swift, whose handlers cannot fail, asserts that structure
 
 > Spec: `04-commands.md` §4 and §4.3, `03-messages.md` §3.6, ADR-0191.

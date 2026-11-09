@@ -203,10 +203,15 @@ These rules apply to the hub and to the library channels below (ADR-0191):
   of `CompositeVM` and `GroupVM`, and the dictionary's granular events
   (chapter 01 §1.4, chapter 21 §2.5).
 
-A delivery is *stream-fed* when another stream starts it: a hub message, a
-source emission, a trigger emission or a debounce timer. It is *call-fed* when
-a caller's method call starts it: a collection or container mutation or
-disposal, or a `RaiseCanExecuteChanged` call.
+Only these deliveries are *call-fed*:
+
+- a mutation or disposal of a collection or container;
+- the disposal of a `DerivedProperty` or `SearchableState`;
+- a `RaiseCanExecuteChanged` call.
+
+Every other delivery is *stream-fed*. This includes a hub `Send`, a source or
+trigger emission, a debounce timer, a `SearchableState` term change and a
+`search()` call (chapter 06 §8.2).
 
 1. **Every subscriber.** A delivery MUST reach each subscriber that is attached
    when it starts, once, even when an earlier subscriber fails. Completion

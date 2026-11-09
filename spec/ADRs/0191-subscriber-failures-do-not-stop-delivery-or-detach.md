@@ -68,9 +68,12 @@ The rules apply to these library channels:
    dictionary's granular events, and the local `CollectionChanged` channel of
    `CompositeVM` and `GroupVM`, including its completion at disposal.
 
-Channels 1 to 3 and the trigger path of channel 4 are *stream-fed*: another
-stream starts the delivery. A `RaiseCanExecuteChanged` call and channel 5 are
-*call-fed*: a caller's own method call starts the delivery.
+Only these deliveries are *call-fed*: a mutation or disposal on channel 5, the
+disposal of a `DerivedProperty` or `SearchableState`, and a
+`RaiseCanExecuteChanged` call. Every other delivery is *stream-fed*. This
+includes a hub `Send`, a trigger emission, a `SearchableState` term change and
+a `search()` call. A closed list keeps the route clear when a caller's method
+call starts a stream-fed delivery.
 
 ### 2.3. Rules
 

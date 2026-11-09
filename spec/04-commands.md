@@ -59,7 +59,8 @@ subscription, also for a trigger built with operators. A trigger emission is
 stream-fed: its failure never reaches the trigger's publisher. A
 `RaiseCanExecuteChanged` call is call-fed: C# and Python rethrow the first
 failure after every handler has run. `CompositeCommand` and the command
-decorators forward the event under the same rule.
+decorators forward the event under the same rule. Rust triggers are hubs, so
+the operator form does not apply to Rust.
 
 ### 4.1 Recipe: trigger from a hub property change
 
