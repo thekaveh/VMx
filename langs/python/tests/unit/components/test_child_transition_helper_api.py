@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import join_thread, wait_event
 from vmx import (
     AggregateVM1Builder,
     ComponentVM,
@@ -365,7 +365,7 @@ def test_member_cascade_waits_for_an_admitted_foreign_hook() -> None:
     class _Blocking(_PanelVM):
         def _on_construct(self) -> None:
             entered.set()
-            assert release.wait(HANG_GUARD)
+            assert wait_event(release)
             member_disposed_during_hook.append(member.status is ConstructionStatus.DISPOSED)
 
     parent = _Blocking(env)
@@ -380,15 +380,15 @@ def test_member_cascade_waits_for_an_admitted_foreign_hook() -> None:
 
     constructor = Thread(target=run, args=(parent.construct,), daemon=True)
     constructor.start()
-    assert entered.wait(HANG_GUARD)
+    assert wait_event(entered)
     disposer = Thread(target=run, args=(parent.dispose,), daemon=True)
     disposer.start()
     disposer.join(0.1)
     assert member.status is not ConstructionStatus.DISPOSED
 
     release.set()
-    constructor.join(HANG_GUARD)
-    disposer.join(HANG_GUARD)
+    join_thread(constructor)
+    join_thread(disposer)
 
     assert not constructor.is_alive() and not disposer.is_alive()
     assert errors == []
@@ -417,7 +417,7 @@ def test_dispose_from_another_thread_during_the_member_cascade_returns_at_once()
         def _on_dispose(self) -> None:
             Thread(target=other_dispose, daemon=True).start()
             # Thread B must return without waiting for this cascade.
-            assert other_returned.wait(HANG_GUARD)
+            assert wait_event(other_returned)
 
     parent.register(_BlocksUntilOtherReturns(name="m1", hub=env.hub, dispatcher=env.dispatcher))
     parent.register(env.leaf("m2"))

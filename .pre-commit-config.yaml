@@ -57,7 +57,8 @@ repos:
     rev: 0.7.22
     hooks:
       - id: mdformat
-        files: ^(spec|docs)/.*\.md$
+        # spec/ and docs/ Markdown plus the six release CHANGELOGs (#1391).
+        files: ^((spec|docs)/.*|(langs/[^/]+|packages/react)/CHANGELOG)\.md$
         # mdformat rewrites indented Material tab content into standalone fenced
         # blocks, which builds but renders as separate single-tab groups.
         exclude: |

@@ -1,4 +1,4 @@
-"""Conformance tests for the dynamic aggregate change stream (AGCH-001..010)."""
+"""Conformance tests for the dynamic aggregate change stream (AGCH-001..011)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from reactivex import Observable
 from reactivex.abc import DisposableBase, ObserverBase, SchedulerBase
 from reactivex.disposable import Disposable
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx import (
     AggregateChange,
     AggregateChangeReason,
@@ -97,7 +97,7 @@ class CountedChanges:
 
                 self.background_thread = threading.Thread(target=emit_from_background)
                 self.background_thread.start()
-                assert started.wait(timeout=HANG_GUARD)
+                assert wait_event(started)
                 # Release the GIL so the callback reaches the aggregate gate
                 # while construction/reconciliation still owns it.
                 time.sleep(0.01)
@@ -260,7 +260,7 @@ def test_AGCH_002_setup_race_reconciles_and_later_staging_follows_membership() -
 
     blocked_source.snapshot_override = blocked_snapshot
     blocked_aggregate = aggregate(blocked_source)
-    assert pulse_thread is not None and pulse_thread.join(timeout=HANG_GUARD) is None
+    assert pulse_thread is not None and join_thread(pulse_thread) is None
     assert blocked_raced.changes.subscribe_count == 1
     assert blocked_observed == []
     assert blocked_subscription is not None
@@ -283,7 +283,7 @@ def test_AGCH_002_setup_race_reconciles_and_later_staging_follows_membership() -
     setup_item.changes.emit_from_background_on_subscribe = True
     setup_aggregate = aggregate(setup_source)
     setup_thread = setup_item.changes.background_thread
-    assert setup_thread is not None and setup_thread.join(timeout=HANG_GUARD) is None
+    assert setup_thread is not None and join_thread(setup_thread) is None
     assert setup_observed == []
     assert setup_subscription is not None
     setup_subscription.dispose()
@@ -297,7 +297,7 @@ def test_AGCH_002_setup_race_reconciles_and_later_staging_follows_membership() -
     post_aggregate.observe().subscribe(post_observed.append)
     post_source.add(post_item)
     post_thread = post_item.changes.background_thread
-    assert post_thread is not None and post_thread.join(timeout=HANG_GUARD) is None
+    assert post_thread is not None and join_thread(post_thread) is None
     assert [change.reason for change in post_observed] == [
         AggregateChangeReason.MEMBERSHIP,
         AggregateChangeReason.ITEM,
@@ -686,3 +686,52 @@ def test_AGCH_010_failures_disposal_ownership_and_observer_recovery_are_bounded(
     recovery_source.items[-1].changes.emit()  # type: ignore[union-attr]
     assert any(change.reason is AggregateChangeReason.ITEM for change in safe)
     recovery.dispose()
+
+
+@pytest.mark.conformance("AGCH-011")
+def test_AGCH_011_subscribers_receive_each_envelope_in_subscription_order() -> None:
+    source = _TestSource(Item("first"))
+    sut = aggregate(source)
+    order: list[tuple[str, int]] = []
+
+    def subscribe(label: int) -> DisposableBase:
+        return sut.observe().subscribe(
+            on_next=lambda change: order.append((change.reason.value, label)),
+            on_completed=lambda: order.append(("completed", label)),
+        )
+
+    for label in range(5):
+        subscribe(label)
+
+    source.add(Item("plain"))
+    assert order == [("membership", label) for label in range(5)]
+
+    order.clear()
+    with sut.batch():
+        source.add(Item("batched"))
+    assert order == [("batch", label) for label in range(5)]
+
+    order.clear()
+    sut.dispose()
+    assert order == [("completed", label) for label in range(5)]
+
+
+def test_AGCH_011_resubscription_receives_last() -> None:
+    source = _TestSource(Item("first"))
+    sut = aggregate(source)
+    order: list[int] = []
+    subscriptions = [
+        sut.observe().subscribe(lambda _, label=label: order.append(label)) for label in range(5)
+    ]
+
+    subscriptions[1].dispose()
+    sut.observe().subscribe(lambda _: order.append(1))
+
+    source.add(Item("plain"))
+    assert order == [0, 2, 3, 4, 1]
+
+    order.clear()
+    with sut.batch():
+        source.add(Item("batched"))
+    assert order == [0, 2, 3, 4, 1]
+    sut.dispose()

@@ -314,7 +314,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Tre
     }
 
     /// Releases the hub subscriptions, clears the selection without emitting,
-    /// and completes the change stream.
+    /// and completes the change stream. The stream's retained value becomes
+    /// `None`, so a kept [`current_changed`](Self::current_changed) clone
+    /// does not keep the last selected node alive.
     ///
     /// Every step runs, and the first panic resumes after the last step.
     /// Afterwards [`current`](Self::current) is `None`,
@@ -361,6 +363,15 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Tre
         }
         retain_first_failure(&mut first_failure, || {
             drop(current);
+            Ok(())
+        });
+        // The stream retains its last emitted node. Release it, so a kept
+        // `current_changed()` clone does not keep that node alive (#1286). A
+        // send that passed its revision check did so before `dispose` bumped
+        // the revision, so it stored its value before this reset, and every
+        // later send fails the check.
+        retain_first_failure(&mut first_failure, || {
+            shared.changed.reset_value(None);
             Ok(())
         });
         retain_first_failure(&mut first_failure, || {
@@ -905,8 +916,35 @@ mod tests {
                 selector.join().unwrap();
 
                 assert!(selection.current().is_none());
+                assert!(selection.current_changed().value().is_none());
                 assert!(lock(&selection.shared.state).subscriptions.is_empty());
             }
         });
+    }
+
+    #[test]
+    fn dispose_releases_the_node_that_the_change_stream_retained() {
+        let model = Arc::new("child".to_string());
+        let weak_model = Arc::downgrade(&model);
+        let root = HierarchicalVm::new("root", Arc::new("root".to_string()));
+        let child = HierarchicalVm::new("child", model);
+        root.add_child(child.clone()).unwrap();
+        let selection = TreeSelection::new(&root);
+        let stream = selection.current_changed();
+        selection.select(&child).unwrap();
+        assert!(stream.value() == Some(child.clone()));
+
+        selection.dispose();
+
+        assert!(selection.current().is_none());
+        assert!(stream.value().is_none());
+        drop(selection);
+        drop(root);
+        drop(child);
+        assert!(
+            weak_model.upgrade().is_none(),
+            "a kept stream clone kept the last selected node alive"
+        );
+        drop(stream);
     }
 }

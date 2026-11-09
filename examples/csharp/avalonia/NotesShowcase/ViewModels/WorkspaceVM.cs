@@ -145,6 +145,8 @@ public sealed class WorkspaceVM : IDisposable
             .Name("notebooks").Services(hub, dispatcher).Repository(repo)
             .NotificationHub(notificationHub)
             .Build();
+        var noteForm = NoteFormVM.Builder()
+            .Name("form").Services(hub, dispatcher).Repository(repo).NotificationHub(notificationHub).Build();
         var notesView = NotesViewVM.Builder()
             .Name("notes").Services(hub, dispatcher).Repository(repo).PageSize(5)
             // Debounce search on the dispatcher's background scheduler (the live
@@ -154,9 +156,10 @@ public sealed class WorkspaceVM : IDisposable
             .SearchScheduler(dispatcher.Background)
             .DialogService(dialogService)
             .NotificationHub(notificationHub)
+            // ADR-0201 §2.3: a note save (the capability-bar Save) is the
+            // editor Save when the editor holds that note.
+            .SaveNote(note => SaveNoteAsync(noteForm, note))
             .Build();
-        var noteForm = NoteFormVM.Builder()
-            .Name("form").Services(hub, dispatcher).Repository(repo).NotificationHub(notificationHub).Build();
         var statusBar = StatusBarVM.Builder()
             .Name("status").Services(hub, dispatcher)
             .NotesView(notesView).Notebooks(notebooks).NoteForm(noteForm)
@@ -295,6 +298,24 @@ public sealed class WorkspaceVM : IDisposable
                 _requestedNotebookId = null;
             }
         }
+    }
+
+    /// <summary>
+    /// The save-note hook (ADR-0201 §2.3). When the editor holds
+    /// <paramref name="note"/>, it runs the editor Save: same validation, same
+    /// "Saved" notification, and nothing persisted for a clean or invalid
+    /// draft. For any other note it saves the stored model.
+    /// </summary>
+    private async Task SaveNoteAsync(NoteFormVM noteForm, NoteVM note)
+    {
+        if (noteForm.HasBoundNote
+            && string.Equals(noteForm.Snapshot.Id, note.Model.Id, StringComparison.Ordinal))
+        {
+            if (!noteForm.IsDirty || !noteForm.IsValid) return;
+            await noteForm.ApproveAsync().ConfigureAwait(false);
+            return;
+        }
+        await _repo.SaveNoteAsync(note.Model).ConfigureAwait(false);
     }
 
     private async Task AddNewNoteToCurrentAsync()

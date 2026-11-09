@@ -85,6 +85,7 @@ struct ValueStreamState<T> {
     dispose_requested: bool,
     dispose_completion: Option<Arc<DeliveryCompletion>>,
     replay_current: bool,
+    refuses_new_subscriptions: bool,
     disposed: bool,
 }
 
@@ -135,6 +136,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                 dispose_requested: false,
                 dispose_completion: None,
                 replay_current: true,
+                refuses_new_subscriptions: false,
                 disposed: false,
             })),
         }
@@ -158,6 +160,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                 dispose_requested: false,
                 dispose_completion: None,
                 replay_current: false,
+                refuses_new_subscriptions: false,
                 disposed: false,
             })),
         }
@@ -166,6 +169,14 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     /// Returns a snapshot of the most recently accepted value.
     pub fn value(&self) -> T {
         lock(&self.inner).current.clone()
+    }
+
+    /// Replaces the retained value without publishing it. An owner calls it
+    /// at disposal so that a kept stream clone does not keep the last value
+    /// alive. The replaced value is dropped after the stream lock is released.
+    pub(crate) fn reset_value(&self, value: T) {
+        let replaced = std::mem::replace(&mut lock(&self.inner).current, value);
+        drop(replaced);
     }
 
     #[cfg(test)]
@@ -200,7 +211,17 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
         handler: ValueSubscriber<T>,
         completion: Option<ValueCompletion>,
     ) -> ValueSubscription {
-        if !lock(&self.inner).replay_current {
+        let (replay_current, refused) = {
+            let state = lock(&self.inner);
+            (state.replay_current, state.refuses_new_subscriptions)
+        };
+        if refused {
+            if let Some(completion) = completion {
+                let _ = catch_unwind(AssertUnwindSafe(|| completion()));
+            }
+            return ValueSubscription::noop();
+        }
+        if !replay_current {
             let mut state = lock(&self.inner);
             if state.disposed || state.dispose_requested {
                 drop(state);
@@ -265,6 +286,18 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
             );
             return ValueSubscription::new(id, Arc::downgrade(&self.inner));
         }
+    }
+
+    /// Makes every later subscription complete at once, with no replay.
+    ///
+    /// Current subscribers, queued values, and a later
+    /// [`dispose`](Self::dispose) are unchanged. An owner calls this when it
+    /// starts a disposal whose late subscribers must receive completion only
+    /// (ADR-0197). Only the notification hub calls it, so it compiles with the
+    /// `notifications` feature (ADR-0211).
+    #[cfg(any(feature = "notifications", test))]
+    pub(crate) fn refuse_new_subscriptions(&self) {
+        lock(&self.inner).refuses_new_subscriptions = true;
     }
 
     /// Publishes `value` to current subscribers unless the stream is disposed.
@@ -454,5 +487,60 @@ impl ValueSubscription {
 impl Drop for ValueSubscription {
     fn drop(&mut self) {
         self.dispose();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn refused_stream_completes_new_subscriptions_without_replay() {
+        let stream = ValueStream::new(1);
+        let current = Arc::new(Mutex::new(Vec::new()));
+        let current_values = current.clone();
+        let current_completions = Arc::new(AtomicUsize::new(0));
+        let current_completed = current_completions.clone();
+        let _current = stream.subscribe_with_completion(
+            move |value| lock(&current_values).push(value),
+            move || {
+                current_completed.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        stream.refuse_new_subscriptions();
+
+        for replay in [true, false] {
+            let late = Arc::new(Mutex::new(Vec::new()));
+            let late_values = late.clone();
+            let completions = Arc::new(AtomicUsize::new(0));
+            let completed = completions.clone();
+            let subscription = if replay {
+                stream.subscribe_with_completion(
+                    move |value| lock(&late_values).push(value),
+                    move || {
+                        completed.fetch_add(1, Ordering::SeqCst);
+                    },
+                )
+            } else {
+                stream.subscribe(move |value| lock(&late_values).push(value))
+            };
+            drop(subscription);
+            assert!(
+                lock(&late).is_empty(),
+                "a refused subscription gets no replay"
+            );
+            if replay {
+                assert_eq!(completions.load(Ordering::SeqCst), 1);
+            }
+        }
+        assert_eq!(stream.active_subscription_count(), 1);
+
+        stream.send(2);
+        stream.dispose();
+
+        assert_eq!(*lock(&current), vec![1, 2]);
+        assert_eq!(current_completions.load(Ordering::SeqCst), 1);
     }
 }

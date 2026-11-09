@@ -255,6 +255,10 @@ optional source-change signal when the supplier can mutate while the search
 term stays unchanged. Every signal immediately re-reads the supplier with the
 current term; it does not wait for, cancel, or restart term debounce.
 
+Construction starts no term debounce. Without a signal, a supplier change
+after construction reaches the filtered output only through `search()` or a
+term change (`SRCH-008`, ADR-0198).
+
 | Flavor     | Optional source input                          |
 | ---------- | ---------------------------------------------- |
 | C#         | `IObservable<Unit> sourceChanged`              |
@@ -410,8 +414,29 @@ class TreeNodeVM extends ComponentVMBase {
 }
 ```
 
-In Rust, the helper reports changes through its `expanded_changed()` hub
-instead of an observable, so the owner subscribes to that hub.
+In Rust, the helper reports each new value on its typed `expansion_changes()`
+stream. The owner subscribes to that stream and disposes the subscription and
+the helper with itself:
+
+<!-- checked-snippet: langs/rust/tests/conformance/expandable.rs#rust-expansion-forwarder -->
+
+```rust
+let expansion = ExpandableState::new();
+let owner = ComponentVm::new("tree-node");
+let forwarder_owner = owner.clone();
+let forwarder = expansion
+    .expansion_changes()
+    .subscribe(move |_expanded| forwarder_owner.notify_property_changed("is_expanded"));
+// The owner disposes the subscription and the helper with itself.
+let owned_expansion = expansion.clone();
+owner.own(move || {
+    forwarder.dispose();
+    owned_expansion.dispose();
+});
+```
+
+The helper also keeps its `expanded_changed()` hub, which the expansion
+commands use as their trigger.
 
 ## 6.5.6. Cross-Language Surface
 

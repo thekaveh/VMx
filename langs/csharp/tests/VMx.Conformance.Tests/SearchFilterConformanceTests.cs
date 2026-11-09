@@ -10,7 +10,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for search/filter, COMP-014..018 and GRP-007..010.
+/// Conformance tests for search/filter, COMP-014..018, GRP-007..010 and SRCH-001..008.
 /// See spec/06-composite-vm.md §Search/filter, spec/07-group-vm.md, ADR-0014.
 /// </summary>
 public class SearchFilterConformanceTests
@@ -386,5 +386,53 @@ public class SearchFilterConformanceTests
 
         first.DisposeCount.Should().Be(0);
         second.DisposeCount.Should().Be(0);
+    }
+
+    /// <summary>
+    /// SRCH-008: construction starts no term debounce. See
+    /// spec/06-composite-vm.md §8 and ADR-0198.
+    /// </summary>
+    [Fact, Trait("Conformance", "SRCH-008")]
+    public void SRCH_008_Construction_Starts_No_Term_Debounce()
+    {
+        var scheduler = new TestScheduler();
+        var items = new List<string> { "one" };
+        using var s = new SearchableState<string>(
+            () => items,
+            CISubstr,
+            debounce: TimeSpan.FromMilliseconds(100),
+            scheduler: scheduler);
+        var snapshots = new List<IReadOnlyList<string>>();
+        using var subscription = s.Filtered.Subscribe(snapshots.Add);
+        snapshots.Should().HaveCount(1, "the replaying output delivers its initial value");
+
+        items.Add("two");
+        scheduler.AdvanceBy(TimeSpan.FromMilliseconds(300).Ticks);
+        snapshots.Should().HaveCount(1, "construction starts no term debounce");
+
+        s.Search();
+        snapshots.Should().HaveCount(2);
+        snapshots.Last().Should().Equal("one", "two");
+
+        s.SearchTerm = "o";
+        scheduler.AdvanceBy(TimeSpan.FromMilliseconds(100).Ticks);
+        snapshots.Should().HaveCount(3, "a term change emits once after its debounce window");
+    }
+
+    [Fact]
+    public void Zero_Debounce_Construction_Reads_The_Supplier_Once()
+    {
+        var reads = 0;
+        var items = new List<string> { "one" };
+        using var s = new SearchableState<string>(
+            () =>
+            {
+                reads++;
+                return items;
+            },
+            CISubstr,
+            debounce: TimeSpan.Zero);
+
+        reads.Should().Be(1, "construction filters the seed term once");
     }
 }

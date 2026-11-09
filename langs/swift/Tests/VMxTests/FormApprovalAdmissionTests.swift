@@ -17,10 +17,6 @@ private enum ApprovalTestError: Error, Equatable {
     case reset
 }
 
-/// Hang guard for every wait. Tests resume as soon as the awaited event
-/// happens; the bound only turns a missing event into a failure.
-private let admissionTimeout: TimeInterval = 10
-
 /// Thread-safe ordered record of observed events.
 private final class ApprovalEventLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -216,11 +212,11 @@ final class FormApprovalAdmissionTests: XCTestCase {
         }.store(in: &cancellables)
 
         let first = ApprovalRun(form, "first approval")
-        await fulfillment(of: [probe.arrivals(1), handlerApproval], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(1), handlerApproval], timeout: hangGuard)
 
         // A direct call and a command execution while the persister is blocked.
         let refused = ApprovalRun(form, "refused approval")
-        await fulfillment(of: [refused.finished], timeout: admissionTimeout)
+        await fulfillment(of: [refused.finished], timeout: hangGuard)
         XCTAssertNil(refused.error, "a refused call returns normally")
         form.approveCommand.execute()
 
@@ -237,7 +233,7 @@ final class FormApprovalAdmissionTests: XCTestCase {
         XCTAssertEqual(failures.events, [])
 
         probe.release()
-        await fulfillment(of: [first.finished], timeout: admissionTimeout)
+        await fulfillment(of: [first.finished], timeout: hangGuard)
         XCTAssertNil(first.error)
         XCTAssertEqual(form.snapshot, "first", "the snapshot is the first approval's capture")
         XCTAssertEqual(approved.events, ["first"])
@@ -245,9 +241,9 @@ final class FormApprovalAdmissionTests: XCTestCase {
         // After settlement the next approval is admitted and persists its own capture.
         form.setModel("second")
         let second = ApprovalRun(form, "second approval")
-        await fulfillment(of: [probe.arrivals(2)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(2)], timeout: hangGuard)
         probe.release()
-        await fulfillment(of: [second.finished], timeout: admissionTimeout)
+        await fulfillment(of: [second.finished], timeout: hangGuard)
         XCTAssertNil(second.error)
         XCTAssertEqual(probe.calls, ["first", "second"])
         XCTAssertEqual(form.snapshot, "second")
@@ -280,12 +276,12 @@ final class FormApprovalAdmissionTests: XCTestCase {
         // Success.
         form.setModel("saved")
         let success = ApprovalRun(form, "successful approval")
-        await fulfillment(of: [probe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(1)], timeout: hangGuard)
         XCTAssertEqual(atEntry.events, ["1 change(s), canExecute false"],
                        "admission notifies exactly once before the persister runs")
         XCTAssertFalse(form.approveCommand.canExecute())
         probe.release()
-        await fulfillment(of: [success.finished], timeout: admissionTimeout)
+        await fulfillment(of: [success.finished], timeout: hangGuard)
         XCTAssertNil(success.error)
         XCTAssertEqual(changes.value, 2, "a successful settlement notifies exactly once")
         XCTAssertTrue(form.approveCommand.canExecute())
@@ -293,11 +289,11 @@ final class FormApprovalAdmissionTests: XCTestCase {
         // Persister failure.
         form.setModel("rejected")
         let failure = ApprovalRun(form, "failed approval")
-        await fulfillment(of: [probe.arrivals(2)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(2)], timeout: hangGuard)
         XCTAssertEqual(atEntry.events.last, "3 change(s), canExecute false")
         XCTAssertFalse(form.approveCommand.canExecute())
         probe.release(throwing: ApprovalTestError.persist)
-        await fulfillment(of: [failure.finished], timeout: admissionTimeout)
+        await fulfillment(of: [failure.finished], timeout: hangGuard)
         XCTAssertEqual(failure.error as? ApprovalTestError, ApprovalTestError.persist)
         XCTAssertEqual(changes.value, 4, "a failed settlement notifies exactly once")
         XCTAssertTrue(form.approveCommand.canExecute())
@@ -315,11 +311,11 @@ final class FormApprovalAdmissionTests: XCTestCase {
             .store(in: &cancellables)
         resetting.setModel("saved")
         let resetRun = ApprovalRun(resetting, "approval whose reset fails")
-        await fulfillment(of: [resetProbe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [resetProbe.arrivals(1)], timeout: hangGuard)
         XCTAssertEqual(resetChanges.value, 1)
         XCTAssertFalse(resetting.approveCommand.canExecute())
         resetProbe.release()
-        await fulfillment(of: [resetRun.finished], timeout: admissionTimeout)
+        await fulfillment(of: [resetRun.finished], timeout: hangGuard)
         XCTAssertEqual(resetRun.error as? ApprovalTestError, ApprovalTestError.reset)
         XCTAssertEqual(resetChanges.value, 2, "a failed reset settles with exactly one notification")
         XCTAssertTrue(resetting.approveCommand.canExecute())
@@ -349,9 +345,9 @@ final class FormApprovalAdmissionTests: XCTestCase {
         XCTAssertEqual(strictChanges.value, 2, "execute() raises the admission notification")
         XCTAssertFalse(strictForm.approveCommand.canExecute(), "execute() admits before returning")
         strictForm.approveCommand.execute()
-        await fulfillment(of: [strictProbe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [strictProbe.arrivals(1)], timeout: hangGuard)
         strictProbe.release()
-        await fulfillment(of: [strictSettled], timeout: admissionTimeout)
+        await fulfillment(of: [strictSettled], timeout: hangGuard)
         XCTAssertEqual(strictChanges.value, 3)
         XCTAssertEqual(strictProbe.calls, ["edited"], "the second execute() was refused")
         XCTAssertFalse(strictForm.approveCommand.canExecute(), "a pristine strict form stays disabled")
@@ -386,11 +382,11 @@ final class FormApprovalAdmissionTests: XCTestCase {
         }.store(in: &cancellables)
 
         let run = ApprovalRun(form, "approval")
-        await fulfillment(of: [probe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(1)], timeout: hangGuard)
         // An edit during the persist invalidates the form; the reset repairs it.
         form.setModel("")
         probe.release()
-        await fulfillment(of: [run.finished], timeout: admissionTimeout)
+        await fulfillment(of: [run.finished], timeout: hangGuard)
 
         XCTAssertNil(run.error)
         XCTAssertEqual(log.events, [
@@ -436,14 +432,14 @@ final class FormApprovalAdmissionTests: XCTestCase {
         }.store(in: &cancellables)
 
         let first = ApprovalRun(form, "first approval")
-        await fulfillment(of: [probe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(1)], timeout: hangGuard)
         probe.release()
         // The observer's approval is admitted and persists the settled model.
-        await fulfillment(of: [first.finished, probe.arrivals(2)], timeout: admissionTimeout)
+        await fulfillment(of: [first.finished, probe.arrivals(2)], timeout: hangGuard)
         XCTAssertNil(first.error)
         XCTAssertEqual(probe.calls, ["first", "reset:first"])
         probe.release()
-        await fulfillment(of: [observerApproval], timeout: admissionTimeout)
+        await fulfillment(of: [observerApproval], timeout: hangGuard)
 
         XCTAssertEqual(observed.events, [
             "approved first, canExecute true",
@@ -486,12 +482,12 @@ final class FormApprovalAdmissionTests: XCTestCase {
 
         // Command path: the failure reaches approveErrors once, after settlement.
         form.approveCommand.execute()
-        await fulfillment(of: [probe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(1)], timeout: hangGuard)
         probe.release(throwing: ApprovalTestError.persist)
-        await fulfillment(of: [probe.arrivals(2)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(2)], timeout: hangGuard)
         XCTAssertEqual(probe.calls, ["first", "first"], "the observer's approval was admitted")
         probe.release()
-        await fulfillment(of: [observerApproval], timeout: admissionTimeout)
+        await fulfillment(of: [observerApproval], timeout: hangGuard)
         XCTAssertEqual(failures.events, [
             "persist: model first, snapshot initial, 0 error(s), canExecute true",
             "observer approval returned",
@@ -518,12 +514,12 @@ final class FormApprovalAdmissionTests: XCTestCase {
             }
             retried.fulfill()
         }
-        await fulfillment(of: [probe.arrivals(3)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(3)], timeout: hangGuard)
         probe.release(throwing: ApprovalTestError.persist)
-        await fulfillment(of: [probe.arrivals(4)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(4)], timeout: hangGuard)
         XCTAssertEqual(probe.calls, ["first", "first", "second", "second"])
         probe.release()
-        await fulfillment(of: [retried], timeout: admissionTimeout)
+        await fulfillment(of: [retried], timeout: hangGuard)
 
         XCTAssertEqual(retryLog.events, ["caught persist, canExecute true", "retry returned"])
         XCTAssertEqual(failures.events.count, 2, "the awaited failure is not emitted on approveErrors")
@@ -547,11 +543,11 @@ final class FormApprovalAdmissionTests: XCTestCase {
 
         // An edit during the persist.
         let edited = ApprovalRun(form, "approval racing an edit")
-        await fulfillment(of: [probe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(1)], timeout: hangGuard)
         form.setModel("newer")
         XCTAssertEqual(form.model, "newer", "setModel is not blocked")
         probe.release()
-        await fulfillment(of: [edited.finished], timeout: admissionTimeout)
+        await fulfillment(of: [edited.finished], timeout: hangGuard)
         XCTAssertNil(edited.error)
         XCTAssertEqual(form.snapshot, "captured")
         XCTAssertEqual(form.model, "newer")
@@ -560,12 +556,12 @@ final class FormApprovalAdmissionTests: XCTestCase {
 
         // A deny during another persist reverts to the current snapshot.
         let denied = ApprovalRun(form, "approval racing a deny")
-        await fulfillment(of: [probe.arrivals(2)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(2)], timeout: hangGuard)
         XCTAssertTrue(form.denyCommand.canExecute())
         form.denyCommand.execute()
         XCTAssertEqual(form.model, "captured", "deny is not blocked")
         probe.release()
-        await fulfillment(of: [denied.finished], timeout: admissionTimeout)
+        await fulfillment(of: [denied.finished], timeout: hangGuard)
         XCTAssertNil(denied.error)
         XCTAssertEqual(probe.calls, ["captured", "newer"])
         XCTAssertEqual(form.snapshot, "newer", "the approval still commits its capture")
@@ -582,10 +578,10 @@ final class FormApprovalAdmissionTests: XCTestCase {
         )
         resetting.setModel("captured")
         let resetEdited = ApprovalRun(resetting, "reset approval racing an edit")
-        await fulfillment(of: [resetProbe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [resetProbe.arrivals(1)], timeout: hangGuard)
         resetting.setModel("newer")
         resetProbe.release()
-        await fulfillment(of: [resetEdited.finished], timeout: admissionTimeout)
+        await fulfillment(of: [resetEdited.finished], timeout: hangGuard)
         XCTAssertNil(resetEdited.error)
         XCTAssertEqual(resetting.model, "reset:captured")
         XCTAssertEqual(resetting.snapshot, "reset:captured")
@@ -593,11 +589,11 @@ final class FormApprovalAdmissionTests: XCTestCase {
 
         resetting.setModel("draft")
         let resetDenied = ApprovalRun(resetting, "reset approval racing a deny")
-        await fulfillment(of: [resetProbe.arrivals(2)], timeout: admissionTimeout)
+        await fulfillment(of: [resetProbe.arrivals(2)], timeout: hangGuard)
         resetting.denyCommand.execute()
         XCTAssertEqual(resetting.model, "reset:captured")
         resetProbe.release()
-        await fulfillment(of: [resetDenied.finished], timeout: admissionTimeout)
+        await fulfillment(of: [resetDenied.finished], timeout: hangGuard)
         XCTAssertNil(resetDenied.error)
         XCTAssertEqual(resetProbe.calls, ["captured", "draft"])
         XCTAssertEqual(resetting.model, "reset:draft")
@@ -626,11 +622,11 @@ final class FormApprovalAdmissionTests: XCTestCase {
             .store(in: &cancellables)
 
         let awaited = ApprovalRun(form, "approval disposed in flight")
-        await fulfillment(of: [probe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [probe.arrivals(1)], timeout: hangGuard)
         form.dispose()
         let atDisposal = events.events
         probe.release()
-        await fulfillment(of: [awaited.finished], timeout: admissionTimeout)
+        await fulfillment(of: [awaited.finished], timeout: hangGuard)
 
         XCTAssertNil(awaited.error, "the awaiter's outcome is unchanged by disposal")
         XCTAssertEqual(events.events, atDisposal, "nothing is emitted after disposal")
@@ -640,7 +636,7 @@ final class FormApprovalAdmissionTests: XCTestCase {
         XCTAssertEqual(form.errors, [:])
 
         let afterDisposal = ApprovalRun(form, "approval after disposal")
-        await fulfillment(of: [afterDisposal.finished], timeout: admissionTimeout)
+        await fulfillment(of: [afterDisposal.finished], timeout: hangGuard)
         XCTAssertNil(afterDisposal.error)
         form.approveCommand.execute()
         XCTAssertEqual(probe.calls, ["captured"], "a disposed form never invokes the persister again")
@@ -656,12 +652,12 @@ final class FormApprovalAdmissionTests: XCTestCase {
         lateFailure.isInverted = true
         commandForm.approveErrors.sink { _ in lateFailure.fulfill() }.store(in: &cancellables)
         commandForm.approveCommand.execute()
-        await fulfillment(of: [commandProbe.arrivals(1)], timeout: admissionTimeout)
+        await fulfillment(of: [commandProbe.arrivals(1)], timeout: hangGuard)
         commandForm.dispose()
         commandProbe.release(throwing: ApprovalTestError.persist)
         await fulfillment(of: [lateFailure], timeout: 0.3)
         let commandAfterDisposal = ApprovalRun(commandForm, "command form approval after disposal")
-        await fulfillment(of: [commandAfterDisposal.finished], timeout: admissionTimeout)
+        await fulfillment(of: [commandAfterDisposal.finished], timeout: hangGuard)
         XCTAssertNil(commandAfterDisposal.error)
         XCTAssertEqual(commandProbe.calls, ["captured"])
         XCTAssertEqual(commandForm.snapshot, "initial")

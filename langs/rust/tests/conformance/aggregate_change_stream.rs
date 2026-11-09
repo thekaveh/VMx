@@ -1018,3 +1018,67 @@ fn aggregate_over_container_sees_member_added_inside_hub_batch() {
     assert_eq!(reasons(&composite_changes), expected);
     assert_eq!(reasons(&group_changes), expected);
 }
+
+/// AGCH-011 — the subscribers of one envelope receive it in subscription order
+#[test]
+fn aggregate_subscribers_receive_each_envelope_in_subscription_order() {
+    let source = TestSource::new(vec![TestNode::new(1101, "first")]);
+    let aggregate = aggregate(source.clone());
+    let order = Arc::new(Mutex::new(Vec::<(&'static str, usize)>::new()));
+    let _subscriptions = (0..5)
+        .map(|label| {
+            let (next, complete) = (Arc::clone(&order), Arc::clone(&order));
+            aggregate
+                .observe(AggregateObserveOptions::default())
+                .subscribe_with_completion(
+                    move |change| {
+                        let reason = match change.reason {
+                            AggregateChangeReason::Batch => "batch",
+                            AggregateChangeReason::Membership => "membership",
+                            _ => "other",
+                        };
+                        locked(&next).push((reason, label));
+                    },
+                    move || locked(&complete).push(("completed", label)),
+                )
+        })
+        .collect::<Vec<_>>();
+    let expected = |reason: &'static str| (0..5).map(|label| (reason, label)).collect::<Vec<_>>();
+
+    source.add(TestNode::new(1102, "plain"));
+    assert_eq!(*locked(&order), expected("membership"));
+
+    locked(&order).clear();
+    aggregate.batch(|| source.add(TestNode::new(1103, "batched")));
+    assert_eq!(*locked(&order), expected("batch"));
+
+    locked(&order).clear();
+    aggregate.dispose();
+    assert_eq!(*locked(&order), expected("completed"));
+}
+
+/// AGCH-011 — a resubscription receives each envelope last
+#[test]
+fn aggregate_resubscription_receives_last() {
+    let source = TestSource::new(vec![TestNode::new(1111, "first")]);
+    let aggregate = aggregate(source.clone());
+    let order = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let subscribe = |label: usize| {
+        let sink = Arc::clone(&order);
+        aggregate
+            .observe(AggregateObserveOptions::default())
+            .subscribe(move |_| locked(&sink).push(label))
+    };
+    let mut subscriptions = (0..5).map(subscribe).collect::<Vec<_>>();
+
+    subscriptions[1].dispose();
+    subscriptions.push(subscribe(1));
+
+    source.add(TestNode::new(1112, "plain"));
+    assert_eq!(*locked(&order), vec![0, 2, 3, 4, 1]);
+
+    locked(&order).clear();
+    aggregate.batch(|| source.add(TestNode::new(1113, "batched")));
+    assert_eq!(*locked(&order), vec![0, 2, 3, 4, 1]);
+    aggregate.dispose();
+}

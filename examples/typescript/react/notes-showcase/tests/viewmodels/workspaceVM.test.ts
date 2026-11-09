@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { IAsyncCommand } from "@thekaveh/vmx";
+import { NotificationHub } from "@thekaveh/vmx/notifications";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import { buildSeed } from "../../src/models/seed.js";
@@ -335,6 +336,191 @@ describe("WorkspaceVM", () => {
     expect(ws.noteForm.hasBoundNote).toBe(false);
     expect(ws.noteForm.draft.title).toBe("");
     expect(ws.noteForm.draft.body).toBe("");
+    ws.dispose();
+  });
+});
+
+// ── ADR-0201 interaction policies (#1331) ───────────────────────────────────
+
+function makePolicyWorkspace(): {
+  ws: WorkspaceVM;
+  repo: InMemoryNoteRepository;
+  notifications: string[];
+} {
+  const repo = new InMemoryNoteRepository(buildSeed(), {
+    loadAllDelayMs: 0,
+    loadNotesDelayMs: 0,
+    saveNoteDelayMs: 0,
+    addNotebookDelayMs: 0,
+  });
+  const notificationHub = new NotificationHub();
+  const notifications: string[] = [];
+  const seen = new Set<unknown>();
+  notificationHub.pending.subscribe((list) => {
+    for (const notification of list) {
+      if (seen.has(notification)) continue;
+      seen.add(notification);
+      notifications.push(notification.message);
+    }
+  });
+  const ws = WorkspaceVM.builder()
+    .repository(repo)
+    .dialogService(NullDialogService.INSTANCE)
+    .notificationHub(notificationHub)
+    .build();
+  return { ws, repo, notifications };
+}
+
+async function storedTitle(
+  repo: InMemoryNoteRepository,
+  notebookId: string,
+  noteId: string,
+): Promise<string | undefined> {
+  const notes = await repo.loadNotes(notebookId);
+  return notes.find((note) => note.id === noteId)?.title;
+}
+
+function noteByTitle(ws: WorkspaceVM, title: string) {
+  const note = ws.notesView.inner.find((n) => n.title === title);
+  if (note === undefined) throw new Error(`no note titled ${title}`);
+  return note;
+}
+
+function actionBarSave(ws: WorkspaceVM): IAsyncCommand {
+  const save = ws.capabilityActions.actions.value.find((a) => a.label === "Save");
+  if (save === undefined) throw new Error("no Save action");
+  return save.command as unknown as IAsyncCommand;
+}
+
+describe("ADR-0201 §2.1 — a search, the starred filter or a page change keeps current", () => {
+  it("keeps the hidden note current with its draft, and shows it again", async () => {
+    const { ws } = makePolicyWorkspace();
+    await ws.constructAsync();
+    const roadmap = noteByTitle(ws, "Roadmap snapshot");
+    ws.notesView.current = roadmap;
+    ws.noteForm.draft = { ...ws.noteForm.draft, title: "Roadmap draft" };
+
+    ws.notesView.searchTerm = "standup";
+    ws.notesView.search();
+    expect(ws.notesView.visibleItems).not.toContain(roadmap);
+    expect(ws.notesView.current).toBe(roadmap);
+    expect(ws.noteForm.draft.title).toBe("Roadmap draft");
+    expect(ws.noteForm.isDirty).toBe(true);
+
+    ws.notesView.showStarredOnly = true;
+    expect(ws.notesView.current).toBe(roadmap);
+    ws.notesView.showStarredOnly = false;
+
+    ws.notesView.searchTerm = "";
+    ws.notesView.search();
+    expect(ws.notesView.current).toBe(roadmap);
+    expect(ws.notesView.visibleItems).toContain(roadmap);
+    expect(ws.noteForm.draft.title).toBe("Roadmap draft");
+    ws.dispose();
+  });
+
+  it("keeps current and the draft across a page change", async () => {
+    const { ws } = makePolicyWorkspace();
+    await ws.constructAsync();
+    await ws.notesView.bindToAsync("nb-reviews");
+    const first = ws.notesView.visibleItems[0]!;
+    ws.notesView.current = first;
+    ws.noteForm.draft = { ...ws.noteForm.draft, title: "Page one draft" };
+
+    ws.notesView.moveToNextPage();
+    expect(ws.notesView.visibleItems).not.toContain(first);
+    expect(ws.notesView.current).toBe(first);
+    expect(ws.noteForm.draft.title).toBe("Page one draft");
+
+    ws.notesView.moveToFirstPage();
+    expect(ws.notesView.visibleItems).toContain(first);
+    expect(ws.notesView.current).toBe(first);
+    ws.dispose();
+  });
+});
+
+describe("ADR-0201 §2.2 — a note switch discards the unsaved draft", () => {
+  it("shows the stored values of each note and persists nothing", async () => {
+    const { ws, repo } = makePolicyWorkspace();
+    await ws.constructAsync();
+    const standup = noteByTitle(ws, "Standup notes");
+    const roadmap = noteByTitle(ws, "Roadmap snapshot");
+
+    ws.notesView.current = standup;
+    ws.noteForm.draft = { ...ws.noteForm.draft, title: "Unsaved edit" };
+    expect(ws.noteForm.isDirty).toBe(true);
+
+    ws.notesView.current = roadmap;
+    expect(ws.noteForm.draft.title).toBe("Roadmap snapshot");
+    expect(ws.noteForm.isDirty).toBe(false);
+
+    ws.notesView.current = standup;
+    expect(ws.noteForm.draft.title).toBe("Standup notes");
+    expect(ws.noteForm.isDirty).toBe(false);
+    expect(await storedTitle(repo, "nb-work", standup.noteId)).toBe("Standup notes");
+    ws.dispose();
+  });
+});
+
+describe("ADR-0201 §2.3 — the action-bar Save is the editor Save", () => {
+  it("persists the editor draft and posts the Saved notification", async () => {
+    const { ws, repo, notifications } = makePolicyWorkspace();
+    await ws.constructAsync();
+    const roadmap = noteByTitle(ws, "Roadmap snapshot");
+    ws.notesView.current = roadmap;
+    ws.noteForm.draft = { ...ws.noteForm.draft, title: "Roadmap v2" };
+
+    await actionBarSave(ws).executeAsync();
+
+    expect(await storedTitle(repo, "nb-work", roadmap.noteId)).toBe("Roadmap v2");
+    expect(ws.noteForm.isDirty).toBe(false);
+    expect(notifications).toContain("Saved “Roadmap v2”");
+    ws.dispose();
+  });
+
+  it("persists nothing when the draft is not valid", async () => {
+    const { ws, repo, notifications } = makePolicyWorkspace();
+    await ws.constructAsync();
+    const roadmap = noteByTitle(ws, "Roadmap snapshot");
+    ws.notesView.current = roadmap;
+    ws.noteForm.draft = { ...ws.noteForm.draft, title: "" };
+    const saveSpy = vi.spyOn(repo, "saveNote");
+
+    await actionBarSave(ws).executeAsync();
+
+    expect(saveSpy).not.toHaveBeenCalled();
+    expect(await storedTitle(repo, "nb-work", roadmap.noteId)).toBe("Roadmap snapshot");
+    expect(notifications.some((m) => m.startsWith("Saved"))).toBe(false);
+    ws.dispose();
+  });
+
+  it("persists nothing when the draft is clean", async () => {
+    const { ws, repo } = makePolicyWorkspace();
+    await ws.constructAsync();
+    ws.notesView.current = noteByTitle(ws, "Roadmap snapshot");
+    const saveSpy = vi.spyOn(repo, "saveNote");
+
+    await actionBarSave(ws).executeAsync();
+
+    expect(saveSpy).not.toHaveBeenCalled();
+    ws.dispose();
+  });
+
+  it("persists the stored model of a focused note the editor does not hold", async () => {
+    const { ws, repo } = makePolicyWorkspace();
+    await ws.constructAsync();
+    const standup = noteByTitle(ws, "Standup notes");
+    const roadmap = noteByTitle(ws, "Roadmap snapshot");
+    ws.notesView.current = roadmap;
+    ws.noteForm.draft = { ...ws.noteForm.draft, title: "Roadmap draft" };
+    ws.setFocus(standup);
+    const saveSpy = vi.spyOn(repo, "saveNote");
+
+    await actionBarSave(ws).executeAsync();
+
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+    expect(saveSpy.mock.calls[0]![0]).toBe(standup.model);
+    expect(ws.noteForm.draft.title).toBe("Roadmap draft");
     ws.dispose();
   });
 });

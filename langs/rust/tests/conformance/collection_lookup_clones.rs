@@ -95,7 +95,7 @@ fn dictionary_get_insert_and_remove_clone_no_stored_key() {
 #[test]
 fn multi_dictionary_get_insert_and_remove_clone_no_stored_key() {
     let clones = Arc::new(AtomicUsize::new(0));
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
     for id in 0..SIZE {
         dictionary.insert(Counted::new(id, &clones), Counted::new(id, &clones), id);
     }
@@ -305,7 +305,7 @@ fn dictionary_write_during_a_lookup_drops_the_displaced_keys_unlocked() {
 #[test]
 fn multi_dictionary_write_during_a_lookup_drops_the_displaced_keys_unlocked() {
     let (on_eq, on_drop) = (hook(), hook());
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
     dictionary.insert(Hooked::new(1, &on_eq, &on_drop), 0_u8, "one");
     dictionary.insert(Hooked::new(2, &on_eq, &on_drop), 0_u8, "two");
     let writer = dictionary.clone();
@@ -435,7 +435,7 @@ fn dictionary_insert_of_a_present_key_drops_the_argument_key_unlocked() {
 #[test]
 fn multi_dictionary_insert_of_a_present_key_drops_the_argument_keys_unlocked() {
     let (on_eq, on_drop) = (hook(), hook());
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
     dictionary.insert(Hooked::new(1, &on_eq, &on_drop), 0_u8, "one");
     let reader = dictionary.clone();
     *on_drop.lock().unwrap() = Some(Arc::new(move || {

@@ -68,7 +68,7 @@ function expectHubFollowsEachLocalEvent(log: string[], localEvents: number): voi
 describe("COMP-042", () => {
   it("publishes one hub message after each local event, sent by the composite", () => {
     const hub = new MessageHub();
-    const parent = composite(hub);
+    const parent = composite(hub, "people");
     const [a, b, c, d] = ["a", "b", "c", "d"].map((name) => child(hub, name)) as [
       ComponentVM, ComponentVM, ComponentVM, ComponentVM,
     ];
@@ -86,6 +86,7 @@ describe("COMP-042", () => {
 
     expectHubFollowsEachLocalEvent(log, 9);
     expect(messages.every((message) => message.sender === parent)).toBe(true);
+    expect(messages.map((message) => message.senderName)).toEqual(Array(9).fill("people"));
     expect(messages.map((message) => message.action)).toEqual([
       "add", "add", "move", "remove", "add", "remove", "remove", "add", "reset",
     ]);
@@ -265,7 +266,7 @@ describe("COMP-045", () => {
 describe("GRP-012", () => {
   it("publishes one hub message after each local event, sent by the group", () => {
     const hub = new MessageHub();
-    const peers = group(hub);
+    const peers = group(hub, "team");
     const [a, b, c] = ["a", "b", "c"].map((name) => child(hub, name)) as [
       ComponentVM, ComponentVM, ComponentVM,
     ];
@@ -282,6 +283,7 @@ describe("GRP-012", () => {
 
     expectHubFollowsEachLocalEvent(log, 7);
     expect(messages.every((message) => message.sender === peers)).toBe(true);
+    expect(messages.map((message) => message.senderName)).toEqual(Array(7).fill("team"));
   });
 
   it("publishes nothing after the group is disposed", () => {

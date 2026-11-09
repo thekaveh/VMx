@@ -4,13 +4,13 @@ Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framewo
 
 ## 1. Status
 
-**v0.36.0** implements `spec-v3.30.0`. Behavioral Rust tests cover every
+**v0.36.0** implements spec 3.30.0. Behavioral Rust tests cover every
 library conformance ID. Rust has no UI scenario suite for the THEME IDs.
 
 The public surface and some behaviors are not fully aligned with the other
 flavors. See the
 [Rust parity ledger](https://github.com/thekaveh/VMx/blob/main/docs/maintenance/2026-07-16-rust-capability-parity.md)
-(original scope closed; open items in §12.4.7 and §12.7–§12.12).
+(original scope closed; open items and recorded differences in §12.4.7, §12.7 and §12.9).
 
 ## 2. Install
 
@@ -20,11 +20,14 @@ flavors. See the
   sub-package of spec/16 (`NotificationHub`, `NullNotificationHub`,
   `NotificationHubApi`, `make_confirm`, `NotificationVm`, `ConfirmationVm`).
   Set `default-features = false` to build the core without it (ADR-0211).
-- The crate is not published to crates.io. Use a git or path dependency.
+- Add the crate from crates.io. A git or path dependency also works.
 
 ```toml
 [dependencies]
-vmx-rs = { git = "https://github.com/thekaveh/VMx.git" }
+vmx-rs = "0.36.0"
+
+# Or, from the repository:
+# vmx-rs = { git = "https://github.com/thekaveh/VMx.git" }
 
 # Or, with VMx cloned beside your project:
 # vmx-rs = { path = "../VMx/langs/rust" }
@@ -60,7 +63,6 @@ fn start_in_background(
 ) -> VmxResult<(ComponentVm<(), DefaultDispatcher>, ValueSubscription)> {
     let vm = ComponentVm::builder()
         .name("loader")
-        .model(())
         .background(true)
         .services(MessageHub::new(), DefaultDispatcher::new())
         .build()?;
@@ -131,7 +133,14 @@ The crate uses idiomatic Rust naming and error handling:
 - `TreeSelection<M, N = ()>` keeps one current node for the tree under a root
   `HierarchicalVm` and clears it when the node leaves that tree.
 - `ObservableList::replace_all(...)` emits one reset with a
-  cardinality-correct `Count` notification.
+  cardinality-correct `Count` notification. `ObservableList::new(owner_id)`
+  has no hub and sends typed `item_added`, `item_removed`, `item_replaced` and
+  `reset` events; `with_hub(owner_id, hub)` also publishes to a hub.
+- `ObservableMultiDictionary` has a local `collection_changed()` event, live
+  read-only `keys1()` and `keys2()` views, and a hash index. Containers expose
+  their children's local stream as `collection_changed()`.
+- `PagedComposition` publishes its paging properties on its hub and can follow
+  a `CompositeVm` through `from_composite`.
 - `VmCollection<T>` unifies groups and composites. `SelectableVmCollection<T>`
   adds composite-only selection, and `move_item` preserves child identity.
 - `AggregateChangeStream<T>` follows dynamic membership with typed provenance.

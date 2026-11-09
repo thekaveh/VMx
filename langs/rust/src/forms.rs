@@ -596,9 +596,9 @@ impl<M> Notices<M> {
 /// A queued notification other than `errors_changed`. Every kind but
 /// [`Notice::Reverted`] already sends nothing on a disposed form.
 enum Notice {
-    /// The approve command's eligibility change of an update, when its gates
-    /// moved from the first value to the second.
-    Eligibility(bool, bool),
+    /// The approve command's eligibility change of an update, when the update
+    /// changed one of its gates.
+    Eligibility(bool),
     /// The `"model"` hub message.
     Model,
     /// The [`FormRevertedMessage`] of a revert. A nested one is dropped once
@@ -726,11 +726,9 @@ struct PreparedUpdate<M> {
     generation: u64,
     model: M,
     errors: BTreeMap<String, String>,
-    /// Whether the validity and strict-mode gates admitted approval before
-    /// the update.
-    was_eligible: bool,
-    /// Whether they admit approval after it.
-    eligible: bool,
+    /// Whether the update changes `is_valid`, or `is_dirty` in strict mode
+    /// (spec/20 §5.2, ADR-0196).
+    approve_gate_changed: bool,
 }
 
 /// The validation errors, kept in step with the model they belong to (#770).
@@ -1077,8 +1075,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             generation,
             model,
             errors,
-            was_eligible,
-            eligible,
+            approve_gate_changed,
         } = self.prepare_update(generation, Some(live), None, model);
         let model = match self.place_prepared(
             generation,
@@ -1104,15 +1101,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             generation,
             model,
             errors,
-            was_eligible,
-            eligible,
+            approve_gate_changed,
         };
         let Some(errors_changed) = self.commit_update(update) else {
             return Step::default();
         };
         self.committed(
             errors_changed,
-            vec![Notice::Eligibility(was_eligible, eligible), Notice::Model],
+            vec![Notice::Eligibility(approve_gate_changed), Notice::Model],
         )
     }
 
@@ -1277,9 +1273,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             }
             for notice in after.drain(..) {
                 match notice {
-                    Notice::Eligibility(was_eligible, eligible) => {
-                        self.publish_eligibility_change(was_eligible, eligible);
-                    }
+                    Notice::Eligibility(changed) => self.publish_eligibility_change(changed),
                     Notice::Model => self.publish_model_changed(),
                     Notice::Reverted { nested } => {
                         if !(nested && *lock(&self.disposed)) {
@@ -1859,7 +1853,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 };
             }
         }
-        let (was_eligible, eligible) = (update.was_eligible, update.eligible);
+        let approve_gate_changed = update.approve_gate_changed;
         let Some(errors_changed) = self.commit_update(update) else {
             return Step::default();
         };
@@ -1868,7 +1862,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             vec![
                 Notice::Reverted { nested: false },
                 Notice::Model,
-                Notice::Eligibility(was_eligible, eligible),
+                Notice::Eligibility(approve_gate_changed),
             ],
         )
     }
@@ -1879,7 +1873,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// [`approve_errors`](Self::approve_errors). Its eligibility is
     /// [`can_approve`](Self::can_approve), so it is disabled while an approval
     /// is in flight, and its eligibility change fires when an approval is
-    /// admitted and once when it settles. A settlement observer, such as an
+    /// admitted and once when it settles. An update also fires it once when
+    /// it changes [`is_valid`](Self::is_valid), or
+    /// [`is_dirty`](Self::is_dirty) in strict mode, also while an approval is
+    /// in flight (spec/20 §5.2, ADR-0196). A settlement observer, such as an
     /// approval or `approve_errors` subscriber, may execute it again: that
     /// approval is admitted and runs before the observer's `execute` returns.
     /// Executed from a preparation callback or an update's `errors_changed`
@@ -2156,8 +2153,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Revalidates the live model after a validator registration, then
-    /// publishes an effective error change and the approve command's
-    /// eligibility change.
+    /// publishes an effective error change and, when the run changed
+    /// `is_valid`, the approve command's eligibility change (spec/20 §5.2,
+    /// ADR-0196).
     ///
     /// The run is an update (spec/20 §5.5, #1231). It waits like
     /// [`set_model`](Self::set_model) while another thread holds a publication
@@ -2188,12 +2186,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             return;
         }
         self.revalidations.fetch_add(1, Ordering::SeqCst);
-        let could_approve = self.can_approve();
+        let was_valid = self.is_valid();
         let generation = self.commit_generation.load(Ordering::SeqCst);
         let errors = self.validation_errors_for(&self.model());
         let mut publication = None;
+        let mut validity_changed = false;
         if self.commit_generation.load(Ordering::SeqCst) == generation && !*lock(&self.disposed) {
             self.commit_generation.fetch_add(1, Ordering::SeqCst);
+            validity_changed = was_valid != errors.is_empty();
             let errors_changed = self.replace_validation_errors(errors);
             publication = self.open_update_scope(errors_changed);
         }
@@ -2204,7 +2204,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 self.publish_validation_changed();
                 publication.close_scope();
             }
-            self.publish_approve_state_change(could_approve);
+            self.publish_eligibility_change(validity_changed);
         }));
         self.finish_update(publication, delivery, notified);
     }
@@ -2388,13 +2388,13 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Computes the rest of an update to `model` without changing the form:
-    /// the approval gates before and after it, and the model's validation
+    /// whether it changes an approval gate, and the model's validation
     /// result. Every callback runs on copies, with no state mutex held; only
     /// the re-entrant update lock is.
     ///
     /// Only strict mode reads dirty state, so only a strict form runs the
-    /// dirty comparisons, and only while its validity gate is open. A missing
-    /// `live` or `snapshot` is copied from the form when needed.
+    /// dirty comparisons. A missing `live` or `snapshot` is copied from the
+    /// form when needed.
     fn prepare_update(
         &self,
         generation: u64,
@@ -2409,21 +2409,21 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 snapshot.unwrap_or_else(|| self.snapshot()),
             )
         });
-        let was_eligible = self.is_valid()
-            && dirty_inputs
-                .as_ref()
-                .is_none_or(|(live, snapshot)| live != snapshot);
+        let was_valid = self.is_valid();
+        let was_dirty = dirty_inputs
+            .as_ref()
+            .map(|(live, snapshot)| live != snapshot);
         let errors = self.validation_errors_for(&model);
-        let eligible = errors.is_empty()
-            && dirty_inputs
-                .as_ref()
-                .is_none_or(|(_, snapshot)| model != *snapshot);
+        let is_dirty = dirty_inputs
+            .as_ref()
+            .map(|(_, snapshot)| model != *snapshot);
+        // An update that changes both gates raises one change (spec/20 §5.2).
+        let approve_gate_changed = was_valid != errors.is_empty() || was_dirty != is_dirty;
         PreparedUpdate {
             generation,
             model,
             errors,
-            was_eligible,
-            eligible,
+            approve_gate_changed,
         }
     }
 
@@ -2543,18 +2543,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
     }
 
-    /// Raises the approve command's eligibility change when an update moved
-    /// its validity or strict-mode gate. While the form is disposed or an
-    /// approval is in flight, the command stays disabled whatever the update
-    /// changed.
-    fn publish_eligibility_change(&self, was_eligible: bool, eligible: bool) {
-        if was_eligible != eligible && !self.approval_in_flight.load(Ordering::SeqCst) {
-            self.raise_approve_can_execute_changed();
-        }
-    }
-
-    fn publish_approve_state_change(&self, previous: bool) {
-        if self.can_approve() != previous {
+    /// Raises the approve command's eligibility change when an update
+    /// `changed` its validity or strict-mode dirty gate (spec/20 §5.2,
+    /// ADR-0196). The rule compares the gates, not `can_approve`, so an
+    /// approval in flight does not suppress it. A disposed form sends nothing.
+    fn publish_eligibility_change(&self, changed: bool) {
+        if changed {
             self.raise_approve_can_execute_changed();
         }
     }

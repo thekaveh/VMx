@@ -189,10 +189,10 @@ describe("real wiring", () => {
       addNotebookDelayMs: 0,
       exportDelayMs: 0,
     });
-    let saveCalls = 0;
+    const saved: string[] = [];
     const originalSave = repo.saveNote.bind(repo);
     repo.saveNote = async (note) => {
-      saveCalls += 1;
+      saved.push(note.title);
       await originalSave(note);
     };
     const dialog = new ReactDialogService();
@@ -204,14 +204,17 @@ describe("real wiring", () => {
     await workspace.constructAsync();
     render(<App workspace={workspace} dialog={dialog} />);
 
-    await selectFirstNote();
+    const titleInput = await selectFirstNote();
     const current = workspace.notesView.current;
     expect(current).not.toBeNull();
+    // ADR-0201 §2.3: on the edited note the bar's Save is the editor Save,
+    // so it persists the draft (a clean draft persists nothing).
+    fireEvent.change(titleInput, { target: { value: "Saved from the bar" } });
 
     const bar = await screen.findByRole("toolbar", { name: /actions/i });
     fireEvent.click(within(bar).getByRole("button", { name: "Save" }));
     await waitFor(() => {
-      expect(saveCalls).toBeGreaterThan(0);
+      expect(saved).toEqual(["Saved from the bar"]);
     });
     // Close clears the selection → editor unbinds.
     fireEvent.click(within(bar).getByRole("button", { name: "Close" }));
@@ -220,5 +223,37 @@ describe("real wiring", () => {
       expect(workspace.notesView.current).toBeNull();
     });
     expect(workspace.noteForm.hasBoundNote).toBe(false);
+  });
+
+  it("ADR-0201 §2.1: a search keeps the selection and re-marks the row when shown", async () => {
+    const { workspace, dialog } = buildWorkspace();
+    await workspace.constructAsync();
+    render(<App workspace={workspace} dialog={dialog} />);
+
+    const notesList = await screen.findByRole("listbox", { name: /notes/i });
+    fireEvent.click(within(notesList).getByText("Roadmap snapshot"));
+    const titleInput = (await screen.findByLabelText("Title")) as HTMLInputElement;
+    fireEvent.change(titleInput, { target: { value: "Roadmap draft" } });
+
+    const search = screen.getByRole("searchbox", { name: "Search notes" });
+    fireEvent.change(search, { target: { value: "standup" } });
+    await waitFor(() => {
+      expect(within(notesList).queryByText("Roadmap snapshot")).toBeNull();
+    });
+    expect(workspace.notesView.current?.title).toBe("Roadmap snapshot");
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Roadmap draft");
+    expect(
+      within(notesList).getAllByRole("option").some(
+        (row) => row.getAttribute("aria-selected") === "true",
+      ),
+    ).toBe(false);
+
+    fireEvent.change(search, { target: { value: "" } });
+    await waitFor(() => {
+      expect(within(notesList).getByText("Roadmap snapshot")).toBeTruthy();
+    });
+    const row = within(notesList).getByText("Roadmap snapshot").closest("[role=option]");
+    expect(row?.getAttribute("aria-selected")).toBe("true");
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Roadmap draft");
   });
 });

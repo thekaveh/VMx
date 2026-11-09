@@ -238,7 +238,7 @@ fn collection_case(operation: &'static str, length: u64, total_ops: u64) -> Case
         run: Box::new(move |spin_iterations| {
             for _ in 0..repetitions {
                 let hub = MessageHub::new();
-                let list = ObservableList::new(1, hub.clone());
+                let list = ObservableList::with_hub(1, hub.clone());
                 for index in 0..length {
                     if operation == "push" {
                         list.push(index);

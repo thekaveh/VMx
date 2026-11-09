@@ -28,6 +28,11 @@ or reparent its children; only eager construction cascades (spec 18 §3). The
 consumer owns child lifetimes: dispose a subtree explicitly (§6.2.6.4), or
 register cleanup through the owned-resource helper.
 
+A disposed node keeps its children, but it refuses every structural call:
+add, remove, reparent, batch attach, and cache invalidation. A transfer out of
+a disposed node refuses too. To reuse a child, move it before you dispose its
+parent (spec 18 §7.1).
+
 A consumer `TVM` subclass adds per-node fields and methods. Rust has no
 subclassing, so `HierarchicalVm<M, N = ()>` takes a node-data type `N`.
 `parent()`, `children()` and `path()` return `HierarchicalVm<M, N>`, and

@@ -33,23 +33,32 @@ state.
 
 ### 1.2. Failures inside derived streams
 
-The only consumer-isolation rule is for the hub (`spec/03-messages.md` §3.4,
-HUB-007). `spec/15-derived-properties.md` has no rule for a throwing consumer,
-transform or source. For `SearchableState`, SRCH-005 covers only a failing
-source signal.
+**Consumer cases decided by
+[ADR-0191](../../spec/ADRs/0191-subscriber-failures-do-not-stop-delivery-or-detach.md)**
+(2026-11-09, under the owner's delegation). Chapter 03 §3.6 now states one rule
+for a failing subscriber or callback on these channels: the hub and its §7.1
+and §7.2 helpers, `DerivedProperty.ValueChanged`, `SearchableState` (its
+predicate, item supplier and `Filtered` subscribers), and command
+`CanExecuteChanged` handlers on the trigger path and on a direct raise.
 
-| Flavor     | Throwing consumer                                                          | Throwing transform or failing source       |
-| ---------- | -------------------------------------------------------------------------- | ------------------------------------------ |
-| C#         | Rx detaches the subscription; the property stops updating for every reader | Unhandled `OnError` is rethrown; detaches  |
-| Python     | Exception reaches the publisher; the subscription stays                    | Default `on_error` raises; detaches        |
-| TypeScript | Reported through the rxjs unhandled-error hook; the subscription stays     | The stream errors; detaches                |
-| Swift      | Not possible: sinks and transforms cannot throw                            | Not possible: sources are `Never`-failing  |
-| Rust       | Panic is caught per subscriber; the subscription stays                     | Panic is caught; the value does not update |
+- A delivery reaches every subscriber once, even when an earlier one fails.
+- No failure detaches a subscriber or the library's own source subscription.
+- A stream-fed failure never reaches the upstream publisher. C# discards it,
+  Python logs it, TypeScript reports it through rxjs, and Rust catches the
+  panic. Swift subscribers on these channels cannot fail.
+- A failing `SearchableState` predicate keeps the last snapshot, and a later
+  valid term recomputes as usual.
 
-The C# consumer behavior also applies to a throwing `SearchableState` consumer
-or predicate (built on `Merge`) and to command triggers built from Rx operators.
-The C# hub's isolating observer (`langs/csharp/src/VMx/Services/MessageHub.cs:376`)
-protects only raw `hub.Messages` subscribers.
+One case stays open: a throwing `DerivedProperty` transform or a failing source
+(#374).
+
+| Flavor     | Throwing transform or failing source       |
+| ---------- | ------------------------------------------ |
+| C#         | Unhandled `OnError` is rethrown; detaches  |
+| Python     | Default `on_error` raises; detaches        |
+| TypeScript | The stream errors; detaches                |
+| Swift      | Not possible: sources are `Never`-failing  |
+| Rust       | Panic is caught; the value does not update |
 
 ### 1.3. Rollback failure loses the original failure in Swift and Rust
 
@@ -70,20 +79,6 @@ constructed. The spec does not say whether it should.
 
 ## 2. Small spec gaps
 
-### 2.1. Notification opacity after resolution
-
-`spec/16-notifications.md` says opacity decays toward 0. It does not say what a
-read returns after resolution. C#, Python, TypeScript and Swift compute it from
-the clock, so it keeps decreasing. Rust freezes it at resolution.
-
-### 2.2. Initial debounced search refresh
-
-C#, Python, TypeScript and Swift seed the search term with `""` and debounce it,
-so one filtered emission arrives after construction without a request. With a
-zero debounce, C#, Python and TypeScript emit it inside the constructor, where
-no subscriber can see it. Every SRCH-007 test uses a zero debounce, so no test
-exposes it. Rust is pull-based and does not emit it.
-
 ### 2.3. Duplicate dictionary key error
 
 `spec/21-collections.md` §4 names no error for a duplicate key.
@@ -99,19 +94,18 @@ exposes it. Rust is pull-based and does not emit it.
 The keyed serviced collection does name exact types (`spec/21-collections.md`
 §2.10), and there Python uses `ValueError`.
 
-### 2.4. VM-collection `CollectionChanged` sender name
-
-`spec/03-messages.md` says the sender name "typically" equals the VM name. C#,
-Python and TypeScript use the sender's type name. Swift and Rust use the VM
-name.
-
 ### 2.5. Delivery order across subscribers
 
-No rule fixes the order in which several subscribers receive one event. Swift's
-`AggregateChangeStream` stores observers in a dictionary, so its order is
-unspecified. The other flavors, and Swift's `VMxConcurrentSubject` (the per-VM
-`propertyChanged` subject and the `FormVM` channels, ADR-0174), deliver one
-event in subscription order.
+**Decided for `AggregateChangeStream` by
+[ADR-0192](../../spec/ADRs/0192-aggregate-change-stream-delivers-in-subscription-order.md)**
+(2026-11-09, under the owner's delegation). The item stays here so that the
+section numbers do not change. Chapter 21 §9.5 now requires subscription order
+for item, structural, final `Batch` and completion delivery (`AGCH-011`). Swift
+moves to ordered storage, and C# stops relying on `HashSet<T>` order.
+
+No rule fixes the order for the hub or for other streams. Swift's
+`VMxConcurrentSubject` (the per-VM `propertyChanged` subject and the `FormVM`
+channels, ADR-0174) delivers in subscription order, but no rule requires it.
 
 ### 2.7. Initial-current selector input after late adds
 
@@ -168,9 +162,9 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 ## 5. Related records
 
 - Rust parity backlog: [Rust parity status](2026-07-16-rust-capability-parity.md),
-  §12.4.7 and §12.7–§12.12.
-- The remaining Notes Showcase UX policies stay with the owner and are not
-  listed here.
+  §12.4.7, §12.7 and §12.9.
+- ADR-0201 decides the Notes Showcase selection, unsaved-edit, Save and theme
+  policies (#1331).
 
 ## 6. Closed items
 

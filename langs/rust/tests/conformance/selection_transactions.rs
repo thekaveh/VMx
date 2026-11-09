@@ -1046,3 +1046,94 @@ fn replacement_clears_the_old_current_child_before_it_frees_it() {
         "the replacement's clear never resets a selection in another composite"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The clear that a detach commits (#1285, spec/06 §4.3 rules 1 and 2).
+// ---------------------------------------------------------------------------
+
+/// Two constructed roots; `x` is a child of `a` and current there.
+fn clear_fixture() -> (Root, Root, Leaf) {
+    let dispatcher = ManualDispatcher::new();
+    let a = root("a", &dispatcher);
+    let b = root("b", &dispatcher);
+    a.construct().unwrap();
+    b.construct().unwrap();
+    let x = leaf("x");
+    a.add(x.clone()).unwrap();
+    a.set_current(Some(x.clone())).unwrap();
+    assert!(x.is_current());
+    (a, b, x)
+}
+
+/// `clear()` writes no removed child's flag after its gate: a composite that
+/// adopts and selects the child from `on_current_changed` keeps the flag set.
+#[test]
+fn clear_keeps_the_flag_of_a_child_another_composite_selected_in_the_callback() {
+    let (a, b, x) = clear_fixture();
+    let (adopter, adopted) = (b.clone(), x.clone());
+    a.on_current_changed(move |current| {
+        if current.is_none() {
+            adopter.add(adopted.clone()).unwrap();
+            adopter.set_current(Some(adopted.clone())).unwrap();
+        }
+    });
+
+    a.clear();
+
+    assert!(a.is_empty());
+    assert_eq!(b.current(), Some(x.clone()));
+    assert!(x.is_current());
+}
+
+/// `clear()` writes no removed child's flag after its gate: a composite that
+/// adopts and selects the child on another thread, while `clear()` is held in
+/// its `on_current_changed` subscriber, keeps the flag set.
+#[test]
+fn clear_keeps_the_flag_of_a_child_another_thread_selected_meanwhile() {
+    let (a, b, x) = clear_fixture();
+    let entered = Signal::new();
+    let release = Signal::new();
+    let (callback_entered, callback_release) = (entered.clone(), release.clone());
+    a.on_current_changed(move |current| {
+        if current.is_none() {
+            callback_entered.set();
+            callback_release.wait("the test releases clear()");
+        }
+    });
+    let clearing = a.clone();
+    let worker = std::thread::spawn(move || clearing.clear());
+    entered.wait("clear() reaches its on_current_changed subscriber");
+
+    let (adopter, adopted) = (b.clone(), x.clone());
+    within_guard("the adoption on another thread", move || {
+        adopter.add(adopted.clone()).unwrap();
+        adopter.set_current(Some(adopted)).unwrap();
+    });
+    release.set();
+    join_within_guard(worker, "clear()");
+
+    assert!(a.is_empty());
+    assert_eq!(b.current(), Some(x.clone()));
+    assert!(x.is_current());
+}
+
+/// `clear()` resets the removed current child's flag once, through the
+/// detach clear it commits under the gate.
+#[test]
+fn clear_resets_the_removed_current_flag_once() {
+    let (a, _b, x) = clear_fixture();
+    let notifications = Arc::new(Mutex::new(0usize));
+    let sink = Arc::clone(&notifications);
+    let _subscription = x.property_changed().subscribe(move |name| {
+        if name == "is_current" {
+            *sink.lock().unwrap() += 1;
+        }
+    });
+
+    a.clear();
+
+    assert!(a.is_empty());
+    assert_eq!(a.current(), None);
+    assert!(!x.is_current());
+    assert_eq!(*notifications.lock().unwrap(), 1);
+}
