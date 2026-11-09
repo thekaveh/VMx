@@ -4,6 +4,7 @@
 - **Date:** 2026-11-07
 - **Spec version:** 3.30.0 (clarification of chapter 06 §3, §3.1, §3.2, §4.2,
   §4.3 and §5)
+- **Extends:** [ADR-0165](0165-initial-current-uses-committed-membership.md)
 
 ## 1. Context
 
