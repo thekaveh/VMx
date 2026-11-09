@@ -148,12 +148,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   ADR-0178). Clones of the view model share the commands. A command holds
   only the shared notification state, so a kept command makes no reference
   cycle.
-- `TokenPagedComposition` requires `Token: Clone + Send + Sync + 'static` and
-  runs `Token::clone` with no pager lock held (#1278, ADR-0202). Clones of one
-  stored token no longer take turns, and a clone that reads the cursor again
-  on its own thread no longer blocks forever. A `Send`-only token, for
-  example one that holds a `Cell`, no longer compiles. Wrap its state in a
-  `Mutex` or an atomic.
+- Breaking: `TokenPagedComposition` requires
+  `Token: Clone + Send + Sync + 'static` and runs `Token::clone` with no pager
+  lock held (#1278, ADR-0202). Clones of one stored token no longer take
+  turns, and a clone that reads the cursor again on its own thread no longer
+  blocks forever. A `Send`-only token, for example one that holds a `Cell`, no
+  longer compiles. Wrap its state in a `Mutex` or an atomic.
 
 ### Fixed
 
