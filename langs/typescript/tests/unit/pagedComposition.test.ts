@@ -461,3 +461,24 @@ describe("PagedComposition – source shapes", () => {
     sut.dispose();
   });
 });
+
+describe("PagedComposition – paging after dispose (ADR-0214)", () => {
+  it("paging calls after dispose change no state and emit nothing", () => {
+    const sut = new PagedComposition<number>([1, 2, 3, 4], 2);
+    const events: string[] = [];
+    sut.propertyChanged.subscribe((name) => events.push(name));
+    sut.dispose();
+
+    sut.moveToNextPage();
+    sut.pageSize = 1;
+    sut.currentPageIndex = 1;
+    sut.moveToLastPage();
+    sut.moveToPreviousPage();
+    sut.moveToFirstPage();
+
+    expect(sut.currentPageIndex).toBe(0);
+    expect(sut.pageSize).toBe(2);
+    expect(sut.items).toEqual([1, 2]);
+    expect(events).toEqual([]);
+  });
+});

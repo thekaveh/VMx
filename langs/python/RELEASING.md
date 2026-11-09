@@ -35,7 +35,8 @@ documentation updates. This runbook adds only the Python steps.
 ### 1.1 PyPI Trusted Publisher
 
 The PyPI trusted publisher is configured; the pending-publisher bootstrap is
-in git history. It uses the shared trusted-publisher fields with environment
+in git history at [commit `e8f065f6`, §1.1](https://github.com/thekaveh/VMx/blob/e8f065f66f1154774e0e61a0ceb8b728352c1cf5/langs/python/RELEASING.md#L31-L36).
+It uses the shared trusted-publisher fields with environment
 `pypi-python`. The PEP 740 provenance of `vmx` 3.23.0 names `thekaveh/VMx`,
 workflow `release.yml`, and environment `pypi-python`.
 
@@ -113,7 +114,10 @@ PyPI accepted the package.
 ### 2.2 Manual tag release (when release-please is paused)
 
 Use this path when `__about__.py` already holds the target version, so
-release-please proposes no release PR. Push the tag manually:
+release-please proposes no release PR. First, a release-prep PR replaces
+`unreleased source version` in the `## [X.Y.Z]` CHANGELOG heading with the
+release date and reaches `main`, so the heading date equals the tag date
+(`CONTRIBUTING.md` §4.3). Then push the tag manually:
 
 ```bash
 git checkout main

@@ -557,7 +557,8 @@ executes the synchronous launch plus caller-thread cancellation and disposal:
 
 ```bash
 cd langs/python
-PYTHONASYNCIODEBUG=1 uv run pytest \
+uv sync --locked --all-extras
+PYTHONASYNCIODEBUG=1 uv run python -m pytest \
   tests/unit/state/test_async_resource_threading.py::test_no_loop_command_caller_cancels_on_operation_loop \
   -q
 ```

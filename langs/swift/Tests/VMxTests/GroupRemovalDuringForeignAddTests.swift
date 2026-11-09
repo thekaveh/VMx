@@ -12,8 +12,6 @@ import Foundation
 import XCTest
 @testable import VMx
 
-private let removalTimeout: TimeInterval = 5
-
 private final class SharedValue<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: T
@@ -78,7 +76,7 @@ final class GroupRemovalDuringForeignAddTests: XCTestCase {
             _ = group.addResult(c1)
             aDone.signal()
         }
-        XCTAssertEqual(aInSink.wait(timeout: .now() + removalTimeout), .success, file: file, line: line)
+        XCTAssertEqual(aInSink.wait(timeout: .now() + hangGuard), .success, file: file, line: line)
         Thread.detachNewThread {
             removal(group)
             bReturnedEarly.value = !aSinkFinished.value
@@ -86,8 +84,8 @@ final class GroupRemovalDuringForeignAddTests: XCTestCase {
             bDone.signal()
         }
 
-        XCTAssertEqual(aDone.wait(timeout: .now() + removalTimeout), .success, "the add hung", file: file, line: line)
-        XCTAssertEqual(bDone.wait(timeout: .now() + removalTimeout), .success, "the removal hung", file: file, line: line)
+        XCTAssertEqual(aDone.wait(timeout: .now() + hangGuard * 2), .success, "the add hung", file: file, line: line)
+        XCTAssertEqual(bDone.wait(timeout: .now() + hangGuard), .success, "the removal hung", file: file, line: line)
         XCTAssertTrue(bReturnedEarly.value, "the removal waited for the add", file: file, line: line)
         return group
     }
@@ -131,7 +129,7 @@ final class GroupRemovalDuringForeignAddTests: XCTestCase {
                 .build())
             done.signal()
         }
-        XCTAssertEqual(done.wait(timeout: .now() + removalTimeout), .success, "the same-thread removal waited")
+        XCTAssertEqual(done.wait(timeout: .now() + hangGuard), .success, "the same-thread removal waited")
         XCTAssertEqual(result.value, false)
         XCTAssertEqual(names(group), ["existing", "c1"])
     }

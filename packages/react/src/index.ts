@@ -2,7 +2,7 @@ export { createVmxStore, type VmxStore } from "./store.js";
 export { shallowEqual } from "./shallowEqual.js";
 export { useVmx } from "./useVmx.js";
 export { useVm, type HubBackedValue } from "./useVm.js";
-export { useCommand, type UseCommandResult } from "./useCommand.js";
+export { useCommand, type UseCommandOptions, type UseCommandResult } from "./useCommand.js";
 export { useObservableList } from "./useObservableList.js";
 export { useVmCollection } from "./useVmCollection.js";
 export { useDerivedProperty } from "./useDerivedProperty.js";

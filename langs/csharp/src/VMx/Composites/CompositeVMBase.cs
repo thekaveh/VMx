@@ -117,16 +117,20 @@ internal static class ContainerMembership
         where TContainer : ComponentVMBase
         where VM : class, IComponentVM
     {
-        // A throwing local handler must not suppress the hub message for the
-        // committed change (spec/01 §1.4, #723): send it, then rethrow.
-        // The first failure wins, as in NotifyPropertyChanged and Python.
-        ExceptionDispatchInfo? firstFailure = null;
-        try { handler?.Invoke(container, args); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
+        // A throwing local handler stops neither the later handlers nor the
+        // hub message for the committed change (spec/01 §1.4, spec/03 §3.6,
+        // #723, ADR-0191): send it, then rethrow. The first failure wins, as
+        // in NotifyPropertyChanged and Python.
+        ExceptionDispatchInfo? firstFailure =
+            FanOut.Raise(handler, h => h(container, args));
         if (canPublish(container))
         {
-            try { container.Hub.Send(CollectionChangedMessage<VM>.From(container, args)); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+            // The message carries the container's Name (ADR-0194).
+            FirstFailure.Capture(
+                ref firstFailure,
+                (Container: container, Args: args),
+                static state => state.Container.Hub.Send(
+                    CollectionChangedMessage<VM>.From(state.Container, state.Args) with { SenderName = state.Container.Name }));
         }
         firstFailure?.Throw();
     }
@@ -196,42 +200,77 @@ internal static class ContainerMembership
 /// The ref-counted collection-change batch shared by composites and groups
 /// (spec v1.1). A change inside an open batch only marks it dirty; the
 /// outermost close delivers one <c>Reset</c> if any change occurred.
+/// The depth and the dirty flag change under one lock, so batches opened and
+/// closed on several threads keep an exact depth, and a change that marks the
+/// batch dirty is never lost to a concurrent close (#1344). Delivery runs
+/// outside the lock. A close that finds the container's disposal requested or
+/// deferred delivers nothing, so that close raises no local event without its hub
+/// message. The check is best-effort: a disposal that another thread requests
+/// after it and before the hub publish still lets the local <c>Reset</c> go
+/// without a hub message. Every unbatched change has the same window, because
+/// <see cref="ContainerMembership.DeliverCollectionChanged{TContainer, VM}"/>
+/// reads its publish check after the local handlers.
 /// </summary>
 internal sealed class ContainerBatch
 {
     private readonly Action<NotifyCollectionChangedEventArgs> _deliver;
+    private readonly Func<bool> _canDeliverReset;
+    private readonly object _gate = new();
     private int _depth;
     private bool _dirty;
 
     /// <param name="deliver">The container's local-event and hub delivery.</param>
-    internal ContainerBatch(Action<NotifyCollectionChangedEventArgs> deliver) => _deliver = deliver;
+    /// <param name="canDeliverReset">
+    /// False once the container's disposal is requested or deferred (the
+    /// container's hub publish check, ADR-0190); the outermost close
+    /// then drops the pending <c>Reset</c>.
+    /// </param>
+    internal ContainerBatch(
+        Action<NotifyCollectionChangedEventArgs> deliver,
+        Func<bool> canDeliverReset)
+    {
+        _deliver = deliver;
+        _canDeliverReset = canDeliverReset;
+    }
+
+    /// <summary>
+    /// Test-only probe: runs in <see cref="Raise"/> after it sees an open
+    /// batch and before it marks the batch dirty. Null in production.
+    /// </summary>
+    internal Action? RaiseProbe { get; set; }
 
     /// <summary>Opens one batch level; disposing the handle closes it once.</summary>
     internal IDisposable Enter()
     {
-        _depth++;
+        lock (_gate) _depth++;
         return new Handle(this);
     }
 
     /// <summary>Delivers <paramref name="args"/> now, or marks an open batch dirty.</summary>
     internal void Raise(NotifyCollectionChangedEventArgs args)
     {
-        if (_depth > 0)
+        lock (_gate)
         {
-            _dirty = true;
-            return;
+            if (_depth > 0)
+            {
+                RaiseProbe?.Invoke();
+                _dirty = true;
+                return;
+            }
         }
         _deliver(args);
     }
 
     private void Exit()
     {
-        _depth--;
-        if (_depth == 0 && _dirty)
+        lock (_gate)
         {
+            _depth--;
+            if (_depth != 0 || !_dirty) return;
             _dirty = false;
-            _deliver(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
         }
+        if (!_canDeliverReset()) return;
+        _deliver(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
     }
 
     /// <summary>The handle <see cref="Enter"/> returns.</summary>
@@ -679,7 +718,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
-        _batch = new ContainerBatch(DeliverCollectionChanged);
+        _batch = new ContainerBatch(DeliverCollectionChanged, CanPublishCollectionChange);
         _asyncSelection = asyncSelection;
         _autoConstructOnAdd = autoConstructOnAdd;
         _destructOrder = destructOrder;
@@ -792,34 +831,20 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         return new ParentTransferToken(
             commit: () =>
             {
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
+                ExceptionDispatchInfo? firstError = null;
                 lock (_membershipGate) _transactionStaged = false;
-                try
+                if (wasCurrent)
                 {
-                    if (wasCurrent)
-                        ApplyCurrentChange(null, CurrentChange.Clear, onlyReplacing: child);
+                    FirstFailure.Capture(ref firstError, () =>
+                        ApplyCurrentChange(null, CurrentChange.Clear, onlyReplacing: child));
                 }
-                catch (Exception error)
-                {
-                    firstError = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-                }
-                try
-                {
+                FirstFailure.Capture(ref firstError, () =>
                     RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Remove, child, index));
-                }
-                catch (Exception error)
-                {
-                    firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-                }
-                try
-                {
-                    EndMembershipTransaction(propagateDisposeFailure: firstError is null);
-                }
-                catch (Exception error)
-                {
-                    firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-                }
+                        NotifyCollectionChangedAction.Remove, child, index)));
+                // Read after the first two steps ran.
+                var propagateDisposeFailure = firstError is null;
+                FirstFailure.Capture(ref firstError, () =>
+                    EndMembershipTransaction(propagateDisposeFailure));
                 firstError?.Throw();
             },
             rollback: () =>
@@ -854,8 +879,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         SetCurrent(vm, _asyncSelection, requireConstructed: true);
     }
 
+    // A null vm reaches here from code that suppresses the nullable warning
+    // (#1467): it is never a child, so it gets the documented error.
     private static InvalidOperationException CannotSelect(VM vm)
-        => new($"Cannot select '{vm.Name}': can_select_component returned false.");
+        => new($"Cannot select '{vm?.Name ?? "null"}': can_select_component returned false.");
 
     /// <inheritdoc/>
     public void DeselectComponent(VM vm)
@@ -867,7 +894,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             if (CallerOwnsUncommittedTransactionLocked()) throw TransactionInProgress();
             if (!ReferenceEquals(_current, vm))
                 throw new InvalidOperationException(
-                    $"Cannot deselect '{vm.Name}': it is not the current selection.");
+                    $"Cannot deselect '{vm?.Name ?? "null"}': it is not the current selection.");
         }
         Current = null;
     }
@@ -888,7 +915,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <summary>The <see cref="CanSelectComponent"/> checks except the Destructing rule.</summary>
     private bool CanSelectComponentIgnoringDestructing(VM vm)
     {
-        if (vm.Status != ConstructionStatus.Constructed) return false;
+        // A null vm is never a child (spec/06 §3.1, #1467).
+        if (vm is null || vm.Status != ConstructionStatus.Constructed) return false;
         lock (_membershipGate)
             return !CallerOwnsUncommittedTransactionLocked() &&
                 !DisposalPendingLocked() &&
@@ -1208,13 +1236,26 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <see cref="CollectionChangedMessage{T}"/> sent by this composite through the
     /// hub's ordinary <c>Send</c> (spec/01 §1.4, ADR-0142). Callers run outside
     /// the membership gate and the shared coordination lane, so hub subscribers
-    /// hold neither. A disposed composite publishes nothing.
+    /// hold neither. A composite whose disposal is requested or deferred
+    /// publishes nothing (spec/01 §1.4, ADR-0190).
     /// </summary>
     private void DeliverCollectionChanged(NotifyCollectionChangedEventArgs args)
         => ContainerMembership.DeliverCollectionChanged<CompositeVMBase<VM>, VM>(
             this, CollectionChanged, args,
-            static composite => Volatile.Read(ref composite._disposeRequested) == 0
-                && !composite.IsDisposed());
+            static composite => composite.CanPublishCollectionChange());
+
+    /// <summary>
+    /// Read after the local handlers return, so a handler that requests or
+    /// defers this composite's disposal suppresses the hub message (#1351).
+    /// </summary>
+    private bool CanPublishCollectionChange()
+    {
+        lock (_membershipGate)
+        {
+            if (DisposalPendingLocked()) return false;
+        }
+        return !IsDisposed();
+    }
 
     private LateChildStarts.Record? AttachLateStartLocked(VM item)
         => ContainerMembership.AttachLateStartLocked(this, _lateStarts, _autoConstructOnAdd, item);
@@ -1826,6 +1867,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private void ApplySelectorResult(VM value) => ApplyCurrentChange(value, CurrentChange.Delivery);
 
     /// <summary>
+    /// Test-only seam: runs at the entry of <see cref="DetachClearingCurrent"/>,
+    /// before the coordination lane (#1406). Production code never sets it.
+    /// </summary>
+    internal Action<VM>? DetachProbeForTesting { get; set; }
+
+    /// <summary>
     /// Frees <paramref name="detached"/> and clears it as Current in one locked
     /// section (#1219). Under the coordination lane and the membership gate,
     /// the child loses this composite as its parent and, while it is still
@@ -1837,6 +1884,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     private void DetachClearingCurrent(VM detached)
     {
+        DetachProbeForTesting?.Invoke(detached);
         bool previousFlagChanged;
         lock (CompositeCurrentChangeCoordinator.Gate)
         {

@@ -39,6 +39,14 @@ public enum DerivedPropertyError: Error {
     case cannotSet
 }
 
+/// The failure of `DerivedProperty.fromSourcesResult` (ADR-0217). It is a
+/// separate type, so `DerivedPropertyError` gains no case and an exhaustive
+/// consumer `switch` over it keeps compiling.
+public enum DerivedPropertySourcesError: Error, Equatable {
+    /// `fromSourcesResult` received an empty source list.
+    case noSources
+}
+
 public final class DerivedProperty<TValue> {
     private var cachedValue: TValue?
     private var hasValue = false
@@ -245,6 +253,9 @@ public extension DerivedProperty where TValue: Equatable {
     /// each source, in order, whenever any source emits. Sources are erased to
     /// `AnyPublisher<Any, Never>`, so heterogeneously-typed sources combine in
     /// one call (used by the fixture-driven DPROP-012 scenarios).
+    ///
+    /// An empty source list is a programmer error and traps (ADR-0009).
+    /// `fromSourcesResult` is the catchable form (ADR-0217).
     static func fromSources(
         _ sources: [AnyPublisher<Any, Never>],
         _ transform: @escaping ([Any]) -> TValue,
@@ -261,6 +272,19 @@ public extension DerivedProperty where TValue: Equatable {
             canSet: canSet,
             setAction: setAction
         )
+    }
+
+    /// Catchable form of `fromSources` (ADR-0217). An empty source list
+    /// returns `.failure(.noSources)`, where C# throws `ArgumentException`
+    /// and Python and TypeScript raise.
+    static func fromSourcesResult(
+        _ sources: [AnyPublisher<Any, Never>],
+        _ transform: @escaping ([Any]) -> TValue,
+        canSet: ((TValue) -> Bool)? = nil,
+        setAction: ((TValue) -> Void)? = nil
+    ) -> Result<DerivedProperty, DerivedPropertySourcesError> {
+        guard !sources.isEmpty else { return .failure(.noSources) }
+        return .success(fromSources(sources, transform, canSet: canSet, setAction: setAction))
     }
 }
 

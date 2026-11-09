@@ -48,7 +48,22 @@ public class FilteredCompositeVM<VM> : IDisposable
         _predicate = predicate ?? _defaultPredicate;
         _cursorPolicy = cursorPolicy;
         Source.CollectionChanged += OnSourceCollectionChanged;
-        if (!deferInitialRecompute) Recompute();
+        if (!deferInitialRecompute) InitialRecompute();
+    }
+
+    /// <summary>
+    /// Runs the first recompute. When it throws, the projection detaches from
+    /// the source before the failure propagates, so the unreachable filter
+    /// never runs again (#1324).
+    /// </summary>
+    private protected void InitialRecompute()
+    {
+        try { Recompute(); }
+        catch
+        {
+            Dispose();
+            throw;
+        }
     }
 
     /// <summary>The source composite.</summary>

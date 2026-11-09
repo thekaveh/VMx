@@ -102,8 +102,7 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     // ── Batch-update state ──────────────────────────────────────────────
 
-    private var _batchLevel = 0
-    private var _batchDirty = false
+    private let batch = ContainerBatch()
 
     // ── CollectionChanged publisher ─────────────────────────────────────
 
@@ -125,18 +124,13 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// Nested `batchUpdate()` calls are supported via a reference counter; the
     /// reset fires only when the outermost batch ends.
     public func batchUpdate() -> BatchUpdateHandle {
-        _batchLevel += 1
+        batch.enter()
         return BatchUpdateHandle(owner: self)
     }
 
     /// Called by `BatchUpdateHandle.dispose()` — do not call directly.
     func _exitBatch() {
-        guard _batchLevel > 0 else { return }
-        _batchLevel -= 1
-        if _batchLevel == 0 && _batchDirty {
-            _batchDirty = false
-            deliverCollectionChanged(.reset())
-        }
+        batch.exit(deliver: deliverCollectionChanged)
     }
 
     public init(
@@ -517,11 +511,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         let index = membershipGate.withLock {
             children.firstIndex(where: { $0 === child }) ?? Swift.max(children.count - 1, 0)
         }
-        if _batchLevel > 0 {
-            _batchDirty = true
-        } else {
-            deliverCollectionChanged(.added(child, at: index))
-        }
+        emit(.added(child, at: index))
         return .success(())
     }
 
@@ -640,9 +630,29 @@ open class CompositeVM<Child: ComponentVMBase>:
         return true
     }
 
+    /// Removes the child at `index`. An index outside `[0, count)` or a
+    /// refused membership transaction changes nothing; `removeAtResult(_:)`
+    /// reports it (ADR-0217).
     public func removeAt(_ index: Int) {
-        guard (try? beginMembershipTransaction()) != nil else { return }
+        _ = removeAtResult(index)
+    }
+
+    /// Catchable form of `removeAt(_:)` (ADR-0217), in the `Result` pattern
+    /// of `insertResult` and `replaceResult` (ADR-0107). An index outside
+    /// `[0, count)` returns `.attachmentFailed(VMCollectionIndexError)`,
+    /// changes nothing and emits nothing.
+    @discardableResult
+    public func removeAtResult(_ index: Int) -> Result<Void, ContainerOwnershipError> {
+        do { _ = try beginMembershipTransaction() } catch let error as ContainerOwnershipError {
+            return .failure(error)
+        } catch {
+            return .failure(.attachmentFailed(error))
+        }
         defer { endMembershipTransaction() }
+        let childCount = membershipGate.withLock { children.count }
+        guard index >= 0 && index < childCount else {
+            return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: childCount)))
+        }
         let removal = _detachClearingCurrent { () -> (Child, Child?)? in
             let removed = children.remove(at: index)
             if removed._ownershipParent === self {
@@ -651,10 +661,11 @@ open class CompositeVM<Child: ComponentVMBase>:
             }
             return (removed, removed)
         }
-        guard let (item, clear) = removal else { return }
+        guard let (item, clear) = removal else { return .success(()) }
         _publishSelection(clear, to: nil)
         // Emit AFTER the child has been removed and parent cleared.
         emit(.removed(item, at: index))
+        return .success(())
     }
 
     public func replace(at index: Int, with child: Child) {
@@ -812,11 +823,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     private func emit(_ event: CollectionChangedEvent) {
-        if _batchLevel > 0 {
-            _batchDirty = true
-        } else {
-            deliverCollectionChanged(event)
-        }
+        batch.emit(event, deliver: deliverCollectionChanged)
     }
 
     /// Delivers `event` locally, then publishes it on `hub` (see
@@ -828,7 +835,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             from: self,
             subject: collectionChangedSubject,
             gate: membershipGate,
-            disposeRequested: { disposeRequested }
+            disposalPending: { disposeRequested || disposeDeferred }
         )
     }
 
@@ -1386,6 +1393,10 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// disposed composite's own notifications are no-ops.
     ///
     /// A Disposed child is not a member for selection (rule 2, ADR-0189).
+    /// Rule 3 applies before rule 2 for a non-`nil` value (ADR-0217): while
+    /// disposal is requested or deferred, a non-member or a Disposed child
+    /// gets `.disposing`. After Disposed, a non-member gets `.disposing` too,
+    /// and a member selection stays `.inert`.
     /// While the composite is Destructing, a non-`nil` value that the other
     /// rules admit is `.ignored` (rule 8, ADR-0188). The composite's status
     /// is read under the gate, as `registerLateStartLocked` and the
@@ -1403,7 +1414,13 @@ open class CompositeVM<Child: ComponentVMBase>:
         if selectionCall && ownsUncommittedTransactionLocked(caller) {
             return .refused(.transactionInProgress)
         }
-        if let value, !isAdmittedMemberLocked(value) { return .refused(.nonMember) }
+        // Rule 3 before rule 2 (ADR-0217): while disposal of the composite is
+        // requested or deferred, and after Disposed, a non-member gets the
+        // disposal refusal, as in the other flavors.
+        if let value, !isAdmittedMemberLocked(value) {
+            let disposal = disposeRequested || disposeDeferred || disposed || disposeCompleted
+            return .refused(disposal ? .disposing : .nonMember)
+        }
         // The child's lifecycle lock nests under the gate, as in
         // `_commitIsCurrent`.
         if requireConstructed, let value, value.status != .constructed {
@@ -1411,11 +1428,11 @@ open class CompositeVM<Child: ComponentVMBase>:
         }
         if let expectedCurrent, _current !== expectedCurrent { return .refused(.notCurrent) }
         if selectionCall && (disposed || disposeCompleted) { return .inert }
-        // The child's lifecycle lock nests under the gate, as above.
-        if let value, value.status == .disposed { return .refused(.nonMember) }
         if value != nil && (disposeRequested || disposeDeferred) {
             return .refused(.disposing)
         }
+        // The child's lifecycle lock nests under the gate, as above.
+        if let value, value.status == .disposed { return .refused(.nonMember) }
         if value != nil && status == .destructing { return .ignored }
         if validateOnly || _current === value { return .unchanged }
         let previous = _current
@@ -1542,6 +1559,9 @@ enum CompositeSelectionRefusal {
     case disposing
     /// Inside the caller's own uncommitted membership transaction (rule 4).
     case transactionInProgress
+    /// `FilteredCompositeVM.setCurrentResult(_:)` on an item that is not
+    /// visible in the projection (ADR-0217).
+    case notVisible
 }
 
 /// The result of one validation or commit of a selection path.
@@ -1598,6 +1618,7 @@ public struct CompositeMembershipError: Error, CustomStringConvertible {
         case .disposing: return "disposal of the composite is in progress."
         case .transactionInProgress:
             return "a membership transaction is in progress on this thread."
+        case .notVisible: return "not a visible item of the filtered projection."
         }
     }
 }

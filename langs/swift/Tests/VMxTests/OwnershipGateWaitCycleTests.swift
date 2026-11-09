@@ -15,8 +15,6 @@ import Foundation
 import XCTest
 @testable import VMx
 
-private let gateTimeout: TimeInterval = 5
-
 private final class SharedValue<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: T
@@ -132,14 +130,14 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
             guard firstRun.value else { return }
             firstRun.value = false
             hookEntered.signal()
-            _ = t1Finished.wait(timeout: .now() + gateTimeout)
+            _ = t1Finished.wait(timeout: .now() + hangGuard)
             hookResult.value = g3.addResult(b)
         }
 
         let t2 = SharedValue<UInt64>(0)
         let t2Result = SharedValue<AddResult?>(nil)
         let t2Done = spawn(t2) { t2Result.value = g2.addResult(y) }
-        XCTAssertEqual(hookEntered.wait(timeout: .now() + gateTimeout), .success)
+        XCTAssertEqual(hookEntered.wait(timeout: .now() + hangGuard), .success)
         let t1Result = SharedValue<AddResult?>(nil)
         let t1Done = spawn(t1) {
             t1Result.value = g1.addResult(b)
@@ -147,7 +145,7 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         }
 
         XCTAssertEqual(t1Done.wait(timeout: .now() + 1), .success, "T1 waited for g2's transaction")
-        XCTAssertEqual(t2Done.wait(timeout: .now() + gateTimeout), .success, "T2 hung")
+        XCTAssertEqual(t2Done.wait(timeout: .now() + hangGuard), .success, "T2 hung")
         guard case .failure(.attachmentFailed(let inner))? = t1Result.value,
               inner is ContainerMembershipTransactionError else {
             return XCTFail("T1: \(String(describing: t1Result.value))")
@@ -184,16 +182,16 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
             guard aaFirstRun.value else { return }
             aaFirstRun.value = false
             aaStarted.signal()
-            _ = bbStarted.wait(timeout: .now() + gateTimeout)
+            _ = bbStarted.wait(timeout: .now() + hangGuard)
             aaHookResult.value = g3.addResult(bbRef.value!)
         }
         let bb = try child("bb") {
             guard bbFirstRun.value else { return }
             bbFirstRun.value = false
             bbStarted.signal()
-            _ = aaStarted.wait(timeout: .now() + gateTimeout)
+            _ = aaStarted.wait(timeout: .now() + hangGuard)
             // Wait for T1's recorded gate wait instead of a fixed delay.
-            _ = t1Waiting.wait(timeout: .now() + gateTimeout)
+            _ = t1Waiting.wait(timeout: .now() + hangGuard)
             bbHookResult.value = g4.addResult(aaRef.value!)
         }
         aaRef.value = aa
@@ -205,8 +203,8 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         let t1Done = spawn(t1) { t1Result.value = g1.addResult(aa) }
         let t2Done = spawn(t2) { t2Result.value = g2.addResult(bb) }
 
-        XCTAssertEqual(t1Done.wait(timeout: .now() + gateTimeout), .success, "T1 hung")
-        XCTAssertEqual(t2Done.wait(timeout: .now() + gateTimeout), .success, "T2 hung")
+        XCTAssertEqual(t1Done.wait(timeout: .now() + hangGuard), .success, "T1 hung")
+        XCTAssertEqual(t2Done.wait(timeout: .now() + hangGuard), .success, "T2 hung")
         assertOnlyAttachmentFailures([t1Result.value, t2Result.value, aaHookResult.value, bbHookResult.value])
         assertSingleMembership(aa, in: [g1, g2, g3, g4])
         assertSingleMembership(bb, in: [g1, g2, g3, g4])
@@ -227,21 +225,21 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
             guard firstRun.value else { return }
             firstRun.value = false
             hookEntered.signal()
-            _ = releaseHook.wait(timeout: .now() + gateTimeout)
+            _ = releaseHook.wait(timeout: .now() + hangGuard * 2)
         }
 
         let t1 = SharedValue<UInt64>(0)
         let t1Result = SharedValue<AddResult?>(nil)
         let t1Done = spawn(t1) { t1Result.value = g1.addResult(c) }
-        XCTAssertEqual(hookEntered.wait(timeout: .now() + gateTimeout), .success)
+        XCTAssertEqual(hookEntered.wait(timeout: .now() + hangGuard), .success)
         let t2Result = SharedValue<AddResult?>(nil)
         let t2Done = spawn(t2) { t2Result.value = g2.addResult(c) }
 
-        XCTAssertEqual(t2Waiting.wait(timeout: .now() + gateTimeout), .success, "T2 never waited for the gate")
+        XCTAssertEqual(t2Waiting.wait(timeout: .now() + hangGuard), .success, "T2 never waited for the gate")
         XCTAssertEqual(t2Done.wait(timeout: .now() + 0.2), .timedOut, "T2 returned while the hook held the gate")
         releaseHook.signal()
-        XCTAssertEqual(t1Done.wait(timeout: .now() + gateTimeout), .success, "T1 hung")
-        XCTAssertEqual(t2Done.wait(timeout: .now() + gateTimeout), .success, "T2 hung")
+        XCTAssertEqual(t1Done.wait(timeout: .now() + hangGuard), .success, "T1 hung")
+        XCTAssertEqual(t2Done.wait(timeout: .now() + hangGuard), .success, "T2 hung")
         guard case .success? = t1Result.value else { return XCTFail("T1: \(String(describing: t1Result.value))") }
         guard case .success? = t2Result.value else { return XCTFail("T2: \(String(describing: t2Result.value))") }
         XCTAssertEqual(holders(of: c, in: [g1, g2]).map(\.name), ["g2"])
@@ -290,7 +288,7 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
                 firstRun.value = false
                 hookEntered.signal()
                 // T_b now waits for the gate of `inner`, which T_a holds.
-                _ = tbWaiting.wait(timeout: .now() + gateTimeout)
+                _ = tbWaiting.wait(timeout: .now() + hangGuard)
                 // Open and end inner's own transaction while T_c waits for it.
                 innerAddResult.value = innerRef.value!.addResult(w)
                 // T_b owns outer3's transaction and waits for T_a: refused.
@@ -302,21 +300,21 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
             guard firstSink.value else { return }
             firstSink.value = false
             sinkEntered.signal()
-            _ = tcWaiting.wait(timeout: .now() + gateTimeout)
+            _ = tcWaiting.wait(timeout: .now() + hangGuard)
         }.store(in: &cancellables)
         try outer1.addResult(inner).get()
 
         let taResult = SharedValue<AddResult?>(nil)
         let taDone = spawn(ta) { taResult.value = outer2.addResult(inner) }
-        XCTAssertEqual(hookEntered.wait(timeout: .now() + gateTimeout), .success)
+        XCTAssertEqual(hookEntered.wait(timeout: .now() + hangGuard), .success)
         let tbResult = SharedValue<AddResult?>(nil)
         let tbDone = spawn(tb) { tbResult.value = outer3.addResult(inner) }
-        XCTAssertEqual(sinkEntered.wait(timeout: .now() + gateTimeout), .success)
+        XCTAssertEqual(sinkEntered.wait(timeout: .now() + hangGuard), .success)
         let tcDone = spawn(tc) { inner.dispose() }
 
-        XCTAssertEqual(taDone.wait(timeout: .now() + gateTimeout), .success, "T_a hung")
-        XCTAssertEqual(tbDone.wait(timeout: .now() + gateTimeout), .success, "T_b hung")
-        XCTAssertEqual(tcDone.wait(timeout: .now() + gateTimeout), .success, "T_c hung")
+        XCTAssertEqual(taDone.wait(timeout: .now() + hangGuard), .success, "T_a hung")
+        XCTAssertEqual(tbDone.wait(timeout: .now() + hangGuard), .success, "T_b hung")
+        XCTAssertEqual(tcDone.wait(timeout: .now() + hangGuard), .success, "T_c hung")
         guard case .success? = innerAddResult.value else {
             return XCTFail("inner.addResult(w): \(String(describing: innerAddResult.value))")
         }

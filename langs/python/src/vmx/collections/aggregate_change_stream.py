@@ -115,15 +115,27 @@ class AggregateChangeStream(Generic[T]):
         self._batch_dirty = False
         self._batch_recipients: dict[int, _Registration[T]] = {}
 
-        with self._gate:
-            try:
-                self._membership_subscription = source.subscribe_membership(
-                    self._on_membership_changed
-                )
-                self._initialize_locked()
-            except BaseException:
-                self._fail_construction_locked()
-                raise
+        # No gate is held while VMx calls the source, the selector, a selected
+        # stream or a subscription's disposal (spec/21 §9.4, ADR-0214). A source
+        # may raise its structural callback under its own lock.
+        try:
+            membership = source.subscribe_membership(self._on_membership_changed)
+            with self._gate:
+                # A dispose() on another thread may already have run. It could
+                # not see this subscription, so this thread releases it.
+                closed = self._completed or self._terminal_error is not None
+                if not closed:
+                    self._membership_subscription = membership
+            if closed:
+                self._safe_dispose(membership)
+            else:
+                self._initialize()
+        except BaseException:
+            released: list[DisposableBase] = []
+            with self._gate:
+                self._fail_construction_locked(released)
+            self._dispose_all(released)
+            raise
 
     def observe(self, emit_initial: bool = False) -> Observable[AggregateChange[T]]:
         """Return the hot output with an optional atomic subscriber-local seed."""
@@ -159,17 +171,20 @@ class AggregateChangeStream(Generic[T]):
     def dispose(self) -> None:
         """Detach owned subscriptions and complete output, idempotently."""
         start = False
+        released: list[DisposableBase] = []
         with self._gate:
             if self._completed or self._terminal_error is not None:
                 return
             self._completed = True
-            self._cleanup_subscriptions_locked()
+            self._cleanup_subscriptions_locked(released)
             self._work.clear()
             recipients = self._current_registrations_locked()
             self._registrations.clear()
             if recipients:
                 self._work.append(_Work("completion", recipients=recipients))
             start = self._start_processing_locked()
+        # The subscriptions are disposed outside the gate (ADR-0214).
+        self._dispose_all(released)
         if start:
             self._process_work()
 
@@ -180,29 +195,34 @@ class AggregateChangeStream(Generic[T]):
         """Observe the standard component ``property_changed`` stream."""
         return AggregateChangeStream(source, lambda item: item.property_changed)
 
-    def _initialize_locked(self) -> None:
+    def _initialize(self) -> None:
         while True:
             version = self._read_structural_version()
             snapshot = self._validated_snapshot()
             if version != self._read_structural_version():
                 continue
-            plan = self._build_plan(snapshot)
-            try:
-                self._stage_new_entries_locked(plan)
-            except BaseException:
-                self._dispose_staged_locked(plan)
-                raise
-            if version != self._read_structural_version():
-                self._dispose_staged_locked(plan)
-                continue
-            self._commit_plan_locked(plan)
-            if version != self._read_structural_version():
-                continue
-            self._discard_buffered_items_locked()
-            with self._version_gate:
-                if version != self._structural_version:
-                    continue
-                self._setting_up = False
+            plan = self._stage_plan(snapshot)
+            if plan is None:
+                return
+            released: list[DisposableBase] = []
+            settled = False
+            with self._gate:
+                if self._completed or self._terminal_error is not None:
+                    # A concurrent dispose() closed the aggregate after staging.
+                    self._release_staged_locked(plan, released)
+                    settled = True
+                elif version != self._read_structural_version():
+                    self._release_staged_locked(plan, released)
+                else:
+                    self._commit_plan_locked(plan, released)
+                    if version == self._read_structural_version():
+                        self._discard_buffered_items_locked()
+                        with self._version_gate:
+                            if version == self._structural_version:
+                                self._setting_up = False
+                                settled = True
+            self._dispose_all(released)
+            if settled:
                 return
 
     def _on_membership_changed(self) -> None:
@@ -267,8 +287,9 @@ class AggregateChangeStream(Generic[T]):
                 return
             entry.terminal = True
             entry.buffered_items = 0
-            self._safe_dispose(entry.subscription)
+            released = entry.subscription
             entry.subscription = None
+        self._safe_dispose(released)
 
     def _process_work(self) -> None:
         first_delivery_error: BaseException | None = None
@@ -279,13 +300,16 @@ class AggregateChangeStream(Generic[T]):
                     self._processing = False
                     break
                 current = self._work.popleft()
-                if current.kind == "structural":
-                    self._process_structural_locked(current)
-                    continue
                 if current.kind == "item":
                     self._process_item_locked(current)
                     continue
 
+            if current.kind == "structural":
+                # This thread is the only drainer (_processing), so it alone
+                # reconciles. It releases the gate around every call into the
+                # source, the selector and a subscription (ADR-0214).
+                self._process_structural(current)
+                continue
             if not self._admit_guarded_delivery(current):
                 continue
             try:
@@ -296,35 +320,44 @@ class AggregateChangeStream(Generic[T]):
         if first_delivery_error is not None:
             raise first_delivery_error
 
-    def _process_structural_locked(self, work: _Work[T]) -> None:
-        if self._completed or self._terminal_error is not None:
-            return
+    def _process_structural(self, work: _Work[T]) -> None:
         try:
             while True:
+                with self._gate:
+                    if self._completed or self._terminal_error is not None:
+                        return
                 version = self._read_structural_version()
                 snapshot = self._validated_snapshot()
                 if version != self._read_structural_version():
                     continue
-                plan = self._build_plan(snapshot)
-                try:
-                    self._stage_new_entries_locked(plan)
-                except BaseException:
-                    self._dispose_staged_locked(plan)
-                    raise
-                if version != self._read_structural_version():
-                    self._dispose_staged_locked(plan)
-                    continue
-                self._commit_plan_locked(plan)
-                if version != self._read_structural_version():
-                    continue
-                changes: list[_PendingChange[T]] = [
-                    _PendingChange(AggregateChange(AggregateChangeReason.MEMBERSHIP))
-                ]
-                self._append_buffered_items_locked(changes)
-                self._prepend_changes_locked(changes, work.coalesced, work.recipients)
-                return
+                plan = self._stage_plan(snapshot)
+                if plan is None:
+                    return
+                released: list[DisposableBase] = []
+                settled = False
+                with self._gate:
+                    if self._completed or self._terminal_error is not None:
+                        self._release_staged_locked(plan, released)
+                        settled = True
+                    elif version != self._read_structural_version():
+                        self._release_staged_locked(plan, released)
+                    else:
+                        self._commit_plan_locked(plan, released)
+                        if version == self._read_structural_version():
+                            changes: list[_PendingChange[T]] = [
+                                _PendingChange(AggregateChange(AggregateChangeReason.MEMBERSHIP))
+                            ]
+                            self._append_buffered_items_locked(changes)
+                            self._prepend_changes_locked(changes, work.coalesced, work.recipients)
+                            settled = True
+                self._dispose_all(released)
+                if settled:
+                    return
         except Exception as error:
-            self._fail_existing_locked(error)
+            failed: list[DisposableBase] = []
+            with self._gate:
+                self._fail_existing_locked(error, failed)
+            self._dispose_all(failed)
 
     def _process_item_locked(self, work: _Work[T]) -> None:
         entry = cast(_Entry[T], work.entry)
@@ -367,39 +400,62 @@ class AggregateChangeStream(Generic[T]):
             counts[identity] = (item, 1 if previous is None else previous[1] + 1)
         return _SnapshotPlan(counts, [])
 
-    def _stage_new_entries_locked(self, plan: _SnapshotPlan[T]) -> None:
-        for identity, (item, count) in plan.counts.items():
-            if identity in self._entries:
-                continue
-            self._next_epoch += 1
-            entry = _Entry(item, self._next_epoch, count)
-            selected = self._observe_item(item)
-            if selected is None:
-                raise ValueError("observe_item returned None")
+    def _stage_plan(self, snapshot: tuple[T, ...]) -> _SnapshotPlan[T] | None:
+        """Stage a subscription for each new identity with no gate held.
 
-            def on_next(_value: object, current: _Entry[T] = entry) -> None:
-                self._on_item(current)
+        The entries are created under the gate. The selector and the selected
+        stream's subscribe run outside it. Returns ``None`` when the aggregate
+        closed first. A failure releases every staged subscription.
+        """
+        plan = self._build_plan(snapshot)
+        with self._gate:
+            if self._completed or self._terminal_error is not None:
+                return None
+            for identity, (item, count) in plan.counts.items():
+                if identity in self._entries:
+                    continue
+                self._next_epoch += 1
+                plan.staged.append(_Entry(item, self._next_epoch, count))
+        try:
+            for entry in plan.staged:
+                self._subscribe_entry(entry)
+        except BaseException:
+            released: list[DisposableBase] = []
+            with self._gate:
+                self._release_staged_locked(plan, released)
+            self._dispose_all(released)
+            raise
+        return plan
 
-            def on_error(_error: Exception, current: _Entry[T] = entry) -> None:
-                self._on_item_terminal(current)
+    def _subscribe_entry(self, entry: _Entry[T]) -> None:
+        selected = self._observe_item(entry.item)
+        if selected is None:
+            raise ValueError("observe_item returned None")
 
-            def on_completed(current: _Entry[T] = entry) -> None:
-                self._on_item_terminal(current)
+        def on_next(_value: object, current: _Entry[T] = entry) -> None:
+            self._on_item(current)
 
-            subscription = selected.subscribe(
-                on_next=on_next,
-                on_error=on_error,
-                on_completed=on_completed,
-            )
-            if subscription is None:
-                raise ValueError("selected stream returned no subscription")
-            entry.subscription = subscription
-            if entry.terminal:
-                self._safe_dispose(entry.subscription)
-                entry.subscription = None
-            plan.staged.append(entry)
+        def on_error(_error: Exception, current: _Entry[T] = entry) -> None:
+            self._on_item_terminal(current)
 
-    def _commit_plan_locked(self, plan: _SnapshotPlan[T]) -> None:
+        def on_completed(current: _Entry[T] = entry) -> None:
+            self._on_item_terminal(current)
+
+        subscription = selected.subscribe(
+            on_next=on_next,
+            on_error=on_error,
+            on_completed=on_completed,
+        )
+        if subscription is None:
+            raise ValueError("selected stream returned no subscription")
+        with self._gate:
+            terminal = entry.terminal
+            if not terminal:
+                entry.subscription = subscription
+        if terminal:
+            self._safe_dispose(subscription)
+
+    def _commit_plan_locked(self, plan: _SnapshotPlan[T], released: list[DisposableBase]) -> None:
         for identity, existing in tuple(self._entries.items()):
             membership = plan.counts.get(identity)
             if membership is not None and membership[0] is existing.item:
@@ -408,8 +464,7 @@ class AggregateChangeStream(Generic[T]):
             existing.admitted = False
             existing.refcount = 0
             existing.buffered_items = 0
-            self._safe_dispose(existing.subscription)
-            existing.subscription = None
+            self._release(existing, released)
             del self._entries[identity]
         for staged in plan.staged:
             staged.admitted = True
@@ -432,12 +487,21 @@ class AggregateChangeStream(Generic[T]):
         for entry in self._entries.values():
             entry.buffered_items = 0
 
-    def _dispose_staged_locked(self, plan: _SnapshotPlan[T]) -> None:
+    def _release_staged_locked(
+        self, plan: _SnapshotPlan[T], released: list[DisposableBase]
+    ) -> None:
         for staged in plan.staged:
             staged.admitted = False
             staged.buffered_items = 0
-            self._safe_dispose(staged.subscription)
-            staged.subscription = None
+            # A late subscription of this entry sees ``terminal`` and disposes itself.
+            staged.terminal = True
+            self._release(staged, released)
+
+    @staticmethod
+    def _release(entry: _Entry[T], released: list[DisposableBase]) -> None:
+        if entry.subscription is not None:
+            released.append(entry.subscription)
+        entry.subscription = None
 
     def _prepend_changes_locked(
         self,
@@ -525,31 +589,35 @@ class AggregateChangeStream(Generic[T]):
             if registration in self._registrations:
                 self._registrations.remove(registration)
 
-    def _fail_construction_locked(self) -> None:
-        self._cleanup_subscriptions_locked()
+    def _fail_construction_locked(self, released: list[DisposableBase]) -> None:
+        self._cleanup_subscriptions_locked(released)
         self._completed = True
         self._work.clear()
 
-    def _fail_existing_locked(self, error: Exception) -> None:
+    def _fail_existing_locked(self, error: Exception, released: list[DisposableBase]) -> None:
         if self._completed or self._terminal_error is not None:
             return
         self._terminal_error = error
-        self._cleanup_subscriptions_locked()
+        self._cleanup_subscriptions_locked(released)
         self._work.clear()
         recipients = self._current_registrations_locked()
         self._registrations.clear()
         if recipients:
             self._work.appendleft(_Work("error", recipients=recipients, error=error))
 
-    def _cleanup_subscriptions_locked(self) -> None:
-        self._safe_dispose(self._membership_subscription)
+    def _cleanup_subscriptions_locked(self, released: list[DisposableBase]) -> None:
+        """Detach every owned subscription into *released*.
+
+        The caller disposes them after it leaves the gate (ADR-0214).
+        """
+        if self._membership_subscription is not None:
+            released.append(self._membership_subscription)
         self._membership_subscription = None
         for entry in self._entries.values():
             entry.admitted = False
             entry.refcount = 0
             entry.buffered_items = 0
-            self._safe_dispose(entry.subscription)
-            entry.subscription = None
+            self._release(entry, released)
         self._entries.clear()
         self._batch_dirty = False
         self._batch_recipients.clear()
@@ -602,6 +670,11 @@ class AggregateChangeStream(Generic[T]):
     def _read_structural_version(self) -> int:
         with self._version_gate:
             return self._structural_version
+
+    @classmethod
+    def _dispose_all(cls, released: list[DisposableBase]) -> None:
+        for disposable in released:
+            cls._safe_dispose(disposable)
 
     @staticmethod
     def _safe_dispose(disposable: DisposableBase | None) -> None:

@@ -32,9 +32,6 @@ private final class Shared<T>: @unchecked Sendable {
 }
 
 final class CompositeSelectionWithoutTransactionTests: XCTestCase {
-    /// The hang guard for every wait. Tests resume as soon as the awaited
-    /// event happens; only a regression waits this long.
-    private let hangGuard: TimeInterval = 5
     private var cancellables = Set<AnyCancellable>()
 
     override func tearDown() {
@@ -95,13 +92,12 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         let addResult = Shared<Result<Void, ContainerOwnershipError>?>(nil)
         let compositeRef = Shared<CompositeVM<ComponentVM>?>(nil)
         let late = try leaf("late")
-        let guardWait = hangGuard
         let first = try leaf("first", onConstruct: {
             Thread.detachNewThread {
                 addResult.value = compositeRef.value?.addResult(late)
                 addDone.signal()
             }
-            hookWait.value = handlerStarted.wait(timeout: .now() + guardWait)
+            hookWait.value = handlerStarted.wait(timeout: .now() + hangGuard)
         })
         // `first` is added before construct(), so its hook runs outside any
         // membership transaction (a population would hold one).
@@ -113,7 +109,7 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
             // The population of `children` publishes too; react to `late` only.
             guard event.newItems.contains(where: { $0 === late }) else { return }
             handlerStarted.signal()
-            handlerWait.value = constructReturned.wait(timeout: .now() + guardWait)
+            handlerWait.value = constructReturned.wait(timeout: .now() + hangGuard)
         }.store(in: &cancellables)
 
         try composite.construct()
@@ -140,7 +136,6 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         let statusAfterDispose = Shared<ConstructionStatus?>(nil)
         let compositeRef = Shared<CompositeVM<ComponentVM>?>(nil)
         let started = Shared(false)
-        let guardWait = hangGuard
         let late = try leaf("late")
         let first = try leaf("first")
         let composite = try CompositeVM<ComponentVM>.builder().name("composite")
@@ -152,7 +147,7 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
                     _ = composite.addResult(late)
                     addDone.signal()
                 }
-                _ = handlerStarted.wait(timeout: .now() + guardWait)
+                _ = handlerStarted.wait(timeout: .now() + hangGuard)
                 composite.dispose()
                 statusAfterDispose.value = composite.status
                 disposeReturned.signal()
@@ -162,7 +157,7 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
             // The population of `children` publishes too; react to `late` only.
             guard event.newItems.contains(where: { $0 === late }) else { return }
             handlerStarted.signal()
-            handlerWait.value = disposeReturned.wait(timeout: .now() + guardWait)
+            handlerWait.value = disposeReturned.wait(timeout: .now() + hangGuard)
         }.store(in: &cancellables)
 
         _ = try? composite.construct()
@@ -184,9 +179,8 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         let compositeRef = Shared<CompositeVM<ComponentVM>?>(nil)
         let callbacks = Shared<[String]>([])
         let addResult = Shared<Result<Void, ContainerOwnershipError>?>(nil)
-        let guardWait = hangGuard
         let late = try leaf("late", hub: hub, dispatcher: dispatcher, onConstruct: {
-            _ = releaseLate.wait(timeout: .now() + guardWait)
+            _ = releaseLate.wait(timeout: .now() + hangGuard * 2)
             compositeRef.value?.dispose()
         })
         let picked = try leaf("picked", hub: hub, dispatcher: dispatcher)
@@ -231,7 +225,6 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         let walkDone = DispatchSemaphore(value: 0)
         let addFinished = DispatchSemaphore(value: 0)
         let sinkWait = Shared<DispatchTimeoutResult?>(nil)
-        let guardWait = hangGuard
         let picked = try leaf("picked", hub: hub, dispatcher: dispatcher)
         let background = try leaf("background", hub: hub, dispatcher: dispatcher, background: true)
         let late = try leaf("late", hub: hub, dispatcher: dispatcher)
@@ -246,7 +239,7 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
             guard event.newItems.contains(where: { $0 === late }) else { return }
             composite.dispose()
             inSink.signal()
-            sinkWait.value = walkDone.wait(timeout: .now() + guardWait)
+            sinkWait.value = walkDone.wait(timeout: .now() + hangGuard)
         }.store(in: &cancellables)
 
         try composite.construct()
@@ -324,7 +317,6 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         let probed = Shared(false)
         let selection = Shared<DispatchTimeoutResult?>(nil)
         let selectionError = Shared<Error?>(nil)
-        let guardWait = hangGuard
         b.lateChildProbeForTesting = { child, stage in
             guard child === x, stage == .attached, !probed.value else { return }
             probed.value = true
@@ -333,7 +325,7 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
                 do { try a.setCurrent(y) } catch { selectionError.value = error }
                 done.signal()
             }
-            selection.value = done.wait(timeout: .now() + guardWait)
+            selection.value = done.wait(timeout: .now() + hangGuard)
         }
         defer { b.lateChildProbeForTesting = nil }
 
@@ -387,10 +379,9 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
         let added = DispatchSemaphore(value: 0)
-        let guardWait = hangGuard
         let parked = try leaf(name, onConstruct: {
             entered.signal()
-            _ = release.wait(timeout: .now() + guardWait)
+            _ = release.wait(timeout: .now() + hangGuard * 2)
         })
         Thread.detachNewThread {
             composite.add(parked)
@@ -447,7 +438,6 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         let compositeRef = Shared<CompositeVM<ComponentVM>?>(nil)
         let foreignResult = Shared<Bool?>(nil)
         let staged = Shared<ComponentVM?>(nil)
-        let guardWait = hangGuard
         let first = try leaf("first", onConstruct: {
             guard let composite = compositeRef.value, let second = staged.value else { return }
             let done = DispatchSemaphore(value: 0)
@@ -456,7 +446,7 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
                     || (try? composite.setCurrent(second)) != nil
                 done.signal()
             }
-            _ = done.wait(timeout: .now() + guardWait)
+            _ = done.wait(timeout: .now() + hangGuard)
         })
         let second = try leaf("second")
         staged.value = second
@@ -559,11 +549,10 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
         let added = DispatchSemaphore(value: 0)
-        let guardWait = hangGuard
         let late = try leaf("late", onConstruct: {
             composite.dispose()
             entered.signal()
-            _ = release.wait(timeout: .now() + guardWait)
+            _ = release.wait(timeout: .now() + hangGuard * 2)
         })
         Thread.detachNewThread {
             _ = composite.addResult(late)
@@ -594,19 +583,75 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         XCTAssertTrue(waitUntil { composite.status == .disposed })
     }
 
+    /// Rule 3 applies before rule 2 (ADR-0217, #1423): while disposal is
+    /// deferred, a child that was never added, and a disposed member, get the
+    /// disposal refusal, not the non-member refusal, as in C#, Python,
+    /// TypeScript and Rust.
+    func testDeferredDisposalReportsTheDisposalRefusalForANonMember() throws {
+        let a = try leaf("a")
+        let b = try leaf("b")
+        let stranger = try leaf("stranger")
+        let composite = try CompositeVM<ComponentVM>.builder().name("composite")
+            .withNullServices().autoConstructOnAdd().children { [a, b] }.build()
+        try composite.construct()
+        try composite.setCurrent(a)
+        // A disposed member gets the non-member refusal while no disposal of
+        // the composite is pending.
+        b.dispose()
+        XCTAssertThrowsError(try composite.setCurrent(b)) { error in
+            XCTAssertEqual((error as? CompositeMembershipError)?.reason, .nonMember, "\(error)")
+        }
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let added = DispatchSemaphore(value: 0)
+        let guardWait = hangGuard
+        let late = try leaf("late", onConstruct: {
+            composite.dispose()
+            entered.signal()
+            _ = release.wait(timeout: .now() + guardWait)
+        })
+        Thread.detachNewThread {
+            _ = composite.addResult(late)
+            added.signal()
+        }
+        XCTAssertEqual(entered.wait(timeout: deadline()), .success)
+
+        XCTAssertFalse(composite.canSetCurrent(stranger))
+        XCTAssertThrowsError(try composite.setCurrent(stranger)) { error in
+            XCTAssertEqual((error as? CompositeMembershipError)?.reason, .disposing, "\(error)")
+        }
+        // A disposed member gets the disposal refusal too.
+        XCTAssertFalse(composite.canSetCurrent(b))
+        XCTAssertThrowsError(try composite.setCurrent(b)) { error in
+            XCTAssertEqual((error as? CompositeMembershipError)?.reason, .disposing, "\(error)")
+        }
+        // The late child is attached but not admitted: a non-member too.
+        XCTAssertThrowsError(try composite.setCurrent(late)) { error in
+            XCTAssertEqual((error as? CompositeMembershipError)?.reason, .disposing, "\(error)")
+        }
+        XCTAssertTrue(composite.current === a)
+
+        release.signal()
+        XCTAssertEqual(added.wait(timeout: deadline()), .success)
+        XCTAssertTrue(waitUntil { composite.status == .disposed })
+        // After Disposed, a non-member keeps the disposal refusal (ADR-0217).
+        XCTAssertThrowsError(try composite.setCurrent(stranger)) { error in
+            XCTAssertEqual((error as? CompositeMembershipError)?.reason, .disposing, "\(error)")
+        }
+    }
+
     /// Rule 5: a disposal requested on another thread while a selection
     /// publishes is deferred, and runs once the publication ends.
     func testForeignDisposeDuringAPublicationIsDeferredToItsEnd() throws {
         let a = try leaf("a")
         let inCallback = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
-        let guardWait = hangGuard
         let composite = try CompositeVM<ComponentVM>.builder().name("composite")
             .withNullServices().children { [a] }
             .onCurrentChanged { value in
                 guard value != nil else { return }
                 inCallback.signal()
-                _ = release.wait(timeout: .now() + guardWait)
+                _ = release.wait(timeout: .now() + hangGuard * 2)
             }.build()
         try composite.construct()
         let selected = DispatchSemaphore(value: 0)
@@ -661,10 +706,9 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
         let destructReturned = DispatchSemaphore(value: 0)
         let added = DispatchSemaphore(value: 0)
         let sinkWait = Shared<DispatchTimeoutResult?>(nil)
-        let guardWait = hangGuard
         composite.collectionChanged.sink { _ in
             inSink.signal()
-            sinkWait.value = destructReturned.wait(timeout: .now() + guardWait)
+            sinkWait.value = destructReturned.wait(timeout: .now() + hangGuard)
         }.store(in: &cancellables)
         Thread.detachNewThread {
             _ = composite.addResult(late)
@@ -760,7 +804,6 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
     func testForeignSelectionInTheDestinationOfATransferKeepsIsCurrent() throws {
         var selectedInDestination = 0
         var desynchronized = 0
-        let guardWait = hangGuard
         for iteration in 0..<300 {
             let x = try leaf("x\(iteration)")
             let a = try CompositeVM<ComponentVM>.builder().name("A").withNullServices()
@@ -775,7 +818,7 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
             let stop = Shared(false)
             Thread.detachNewThread {
                 started.signal()
-                let end = Date().addingTimeInterval(guardWait)
+                let end = Date().addingTimeInterval(hangGuard)
                 while !stop.value && Date() < end {
                     if (try? b.setCurrent(x)) != nil, b.current === x { break }
                 }

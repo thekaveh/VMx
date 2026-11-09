@@ -13,6 +13,7 @@ namespace VMx.Properties;
 public sealed class DerivedProperty<TValue> : IDisposable
 {
     private readonly Subject<TValue> _changes = new();
+    private readonly IsolatedObservable<TValue> _valueChanged;
     private readonly IDisposable _subscription;
     private readonly Func<TValue, bool>? _canSet;
     private readonly Action<TValue>? _setAction;
@@ -33,6 +34,7 @@ public sealed class DerivedProperty<TValue> : IDisposable
     {
         _canSet = canSet;
         _setAction = setAction;
+        _valueChanged = new IsolatedObservable<TValue>(_changes, captureCompletionFailures: true);
         _subscription = derivedStream.Subscribe(OnNext);
     }
 
@@ -46,6 +48,9 @@ public sealed class DerivedProperty<TValue> : IDisposable
         }
         // _value is non-null here: _hasValue is true so OnNext has stored a prior emission.
         if (EqualityComparer<TValue>.Default.Equals(v, _value!)) return;
+        // Commit first, then deliver. The subscribers are isolated, so a
+        // failing one never reaches the source or detaches this subscription
+        // (spec/03 §3.6, ADR-0191).
         _value = v;
         _changes.OnNext(v);
     }
@@ -61,8 +66,10 @@ public sealed class DerivedProperty<TValue> : IDisposable
         }
     }
 
-    /// <summary>Emits on every distinct recompute. Does not replay the initial value.</summary>
-    public IObservable<TValue> ValueChanged => _changes.AsObservable();
+    /// <summary>Emits on every distinct recompute. Does not replay the initial value.
+    /// A subscriber that throws stays attached, and its failure is discarded
+    /// (spec/03 §3.6, ADR-0191).</summary>
+    public IObservable<TValue> ValueChanged => _valueChanged;
 
     /// <summary>Returns true when <see cref="SetValue"/> may be called with <paramref name="value"/>.
     /// Always false after disposal, so a disposed property rejects writes (spec/15 §4).</summary>
@@ -83,10 +90,12 @@ public sealed class DerivedProperty<TValue> : IDisposable
         if (_disposed) return;
         _disposed = true;
         // Best-effort teardown: a throwing completion observer must not skip
-        // disposing the subject. Run every step, then rethrow the first failure.
+        // the later completion observers or disposing the subject. Run every
+        // step, then rethrow the first failure.
         ExceptionDispatchInfo? firstError = null;
         FirstFailure.Capture(ref firstError, _subscription.Dispose);
         FirstFailure.Capture(ref firstError, _changes.OnCompleted);
+        firstError ??= _valueChanged.TakeCompletionFailure();
         FirstFailure.Capture(ref firstError, _changes.Dispose);
         firstError?.Throw();
     }

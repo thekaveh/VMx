@@ -58,6 +58,17 @@ export class FakeScheduler implements SchedulerLike {
     this.advanceTo(this.#currentTime + deltaMs);
   }
 
+  /**
+   * Fires the next pending action while `now()` is `earlyMs` before its due
+   * time, as a real timer can (ADR-0197).
+   */
+  fireNextEarly(earlyMs: number): void {
+    const action = this.#queue.shift();
+    if (action === undefined || action.cancelled) return;
+    this.#currentTime = action.dueTime - earlyMs;
+    action.work();
+  }
+
   /** Advance virtual time to exactly `targetMs`, firing all due callbacks in order. */
   advanceTo(targetMs: number): void {
     while (this.#queue.length > 0 && (this.#queue[0]?.dueTime ?? Infinity) <= targetMs) {

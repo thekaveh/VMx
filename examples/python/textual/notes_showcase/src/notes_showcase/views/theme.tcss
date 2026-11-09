@@ -109,6 +109,18 @@ TextArea:focus {
     padding: 0 1;
 }
 
+#theme_controls {
+    height: 1;
+    background: #141B2D;
+    padding: 0 1;
+}
+
+#theme_controls Button {
+    width: auto;
+    min-width: 2;
+    margin: 0 1 0 0;
+}
+
 #capability_actions {
     height: 3;
     background: #141B2D;

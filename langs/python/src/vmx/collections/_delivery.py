@@ -13,7 +13,13 @@ def deliver_then_publish(deliver: Callable[[], None], publish: Callable[[], None
 
     A failing local subscriber does not suppress the hub message: *publish*
     still runs, and the first failure is re-raised afterwards. This mirrors
+    the failure rule of
     ``vmx.components._container_helpers.deliver_collection_changed``.
+
+    Unlike that helper, this one has no disposal check: *publish* always runs.
+    A collection that a local subscriber can dispose during delivery makes
+    *publish* skip the hub send once it is disposed, as
+    ``ObservableDictionary`` does (#1431).
     """
     first_error: BaseException | None = None
     try:

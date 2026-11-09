@@ -44,6 +44,9 @@ class ChildContainer(Protocol[VM]):
     _late_starts: _LateChildStarts
 
     @property
+    def name(self) -> str: ...
+
+    @property
     def _membership_gate(self) -> AbstractContextManager[object]: ...
 
     def snapshot(self) -> tuple[VM, ...]: ...
@@ -53,6 +56,8 @@ class ChildContainer(Protocol[VM]):
     def _exit_batch(self) -> None: ...
 
     def _maybe_auto_construct(self, child: VM) -> None: ...
+
+    def _disposal_pending_locked(self) -> bool: ...
 
 
 def emit_collection_changed(container: ChildContainer[VM], event: CollectionChangedEvent) -> None:
@@ -79,7 +84,8 @@ def deliver_collection_changed(
     so a hub transaction defers it. A failing local subscriber does not
     suppress the hub message for the committed change; the first failure
     is re-raised afterwards. A container disposed before or during local
-    delivery publishes nothing.
+    delivery publishes nothing. So does one whose disposal a local
+    subscriber requested, also when that disposal is deferred (ADR-0190).
     """
     subject = container._collection_changed_subject
     first_error: BaseException | None = None
@@ -87,9 +93,11 @@ def deliver_collection_changed(
         subject.on_next(event)
     except BaseException as error:
         first_error = error
-    if not (subject.is_disposed or subject.is_stopped):
+    with container._membership_gate:
+        disposal_pending = container._disposal_pending_locked()
+    if not (subject.is_disposed or subject.is_stopped or disposal_pending):
         try:
-            container._hub.send(collection_changed_message_for(container, event))
+            container._hub.send(collection_changed_message_for(container, container.name, event))
         except BaseException as error:
             if first_error is None:
                 first_error = error

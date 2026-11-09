@@ -1,6 +1,6 @@
 name: ADR proposal
 description: Propose an Architecture Decision Record.
-labels: [adr]
+labels: [documentation]
 body:
   - type: input
     id: title

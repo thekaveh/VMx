@@ -2,7 +2,7 @@
 // ContainerOwnershipTransferTests.swift — exclusive ownership conformance.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import Combine
 import XCTest
@@ -74,7 +74,7 @@ private final class AggregateFactoryBarrier: @unchecked Sendable {
             ready.signal()
             ready.signal()
         }
-        _ = ready.wait(timeout: .now() + 2)
+        _ = ready.wait(timeout: .now() + hangGuard)
     }
 }
 
@@ -96,7 +96,7 @@ private final class BlockingAggregateSlot: ComponentVMBase {
 
     override func _onDispose() {
         entered.signal()
-        _ = release.wait(timeout: .now() + 2)
+        _ = release.wait(timeout: .now() + hangGuard * 2)
     }
 }
 
@@ -350,10 +350,10 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(disposalEntered.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(disposalEntered.wait(timeout: .now() + hangGuard), .success)
         releaseDisposal.signal()
         releaseDisposal.signal()
-        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(group.wait(timeout: .now() + hangGuard * 2), .success)
         XCTAssertEqual(results.successes, 1)
         XCTAssertEqual(results.errors.count, 1)
         XCTAssertEqual(
@@ -393,20 +393,28 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             reconstruction.run()
             group.leave()
         }
-        XCTAssertEqual(disposalEntered.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(disposalEntered.wait(timeout: .now() + hangGuard), .success)
         group.enter()
         DispatchQueue.global().async {
             disposal.run()
             group.leave()
         }
+        // Release the previous slot only once the foreign disposal request has
+        // landed, so it lands after the first check and before the final one.
+        let requestDeadline = Date().addingTimeInterval(hangGuard)
+        while !aggregate._isDisposalRequested() && Date() < requestDeadline {
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        XCTAssertTrue(aggregate._isDisposalRequested(), "the foreign disposal was never requested")
         XCTAssertEqual(disposalCompleted.wait(timeout: .now() + 0.05), .timedOut)
         releaseDisposal.signal()
 
-        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(group.wait(timeout: .now() + hangGuard * 2), .success)
         XCTAssertEqual(results.successes, 1)
         XCTAssertTrue(results.errors.isEmpty)
         XCTAssertEqual(aggregate.status, .disposed)
         XCTAssertEqual(candidate.status, .disposed)
+        XCTAssertFalse(aggregate.component1 === candidate, "the candidate was committed to the slot")
     }
 
     /// COMP-038 — Adding an owned child transfers it between composite/group parents.
@@ -1048,7 +1056,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
                     _ = unrelatedDestination.addResult(unrelated)
                     workerDone.signal()
                 }
-                callbackObservedProgress = workerDone.wait(timeout: .now() + 1) == .success
+                callbackObservedProgress = workerDone.wait(timeout: .now() + hangGuard) == .success
             }
             .store(in: &cancellables)
 
@@ -1100,7 +1108,8 @@ final class ContainerOwnershipTransferTests: XCTestCase {
                     // back to Destructed and re-admission is legal, so retry
                     // briefly before recording the error as real.
                     var lastError: Error?
-                    for _ in 0..<50 {
+                    let retryDeadline = Date().addingTimeInterval(hangGuard)
+                    repeat {
                         do {
                             try bulkDestination.construct()
                             lastError = nil
@@ -1109,23 +1118,23 @@ final class ContainerOwnershipTransferTests: XCTestCase {
                             lastError = error
                             Thread.sleep(forTimeInterval: 0.002)
                         }
-                    }
+                    } while Date() < retryDeadline
                     if let lastError { errors.append(lastError) }
                     bulkDone.signal()
                 }
-                _ = bulkFactoryEntered.wait(timeout: .now() + 2)
+                _ = bulkFactoryEntered.wait(timeout: .now() + hangGuard)
                 Thread.sleep(forTimeInterval: 0.02)
                 DispatchQueue.global().async {
                     _ = unrelatedDestination.addResult(unrelated)
                     unrelatedDone.signal()
                 }
-                callbackObservedProgress = unrelatedDone.wait(timeout: .now() + 1) == .success
+                callbackObservedProgress = unrelatedDone.wait(timeout: .now() + hangGuard) == .success
             }
             .store(in: &cancellables)
 
         try firstDestination.addResult(child).get()
 
-        XCTAssertEqual(bulkDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(bulkDone.wait(timeout: .now() + hangGuard * 2), .success)
         XCTAssertTrue(callbackObservedProgress)
         XCTAssertTrue(errors.errors.isEmpty)
         XCTAssertEqual(bulkDestination.count, 1)
@@ -1201,7 +1210,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             }
             guard first else { return }
             addedEntered.signal()
-            _ = releaseAdded.wait(timeout: .now() + 10)
+            _ = releaseAdded.wait(timeout: .now() + hangGuard * 2)
         }
         defer { subscription.cancel() }
         let destination = CompositeVM<ComponentVM>(
@@ -1218,7 +1227,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             do { try oldParent.construct() } catch { errors.append(error) }
             oldParentDone.signal()
         }
-        XCTAssertEqual(addedEntered.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(addedEntered.wait(timeout: .now() + hangGuard), .success)
         DispatchQueue.global().async {
             do { try destination.construct() } catch { errors.append(error) }
             destinationDone.signal()
@@ -1231,8 +1240,8 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertEqual(destination.status, .destructed)
         XCTAssertEqual(destination.count, 0)
         releaseAdded.signal()
-        XCTAssertEqual(oldParentDone.wait(timeout: .now() + 10), .success)
-        if destinationFinished != .success { _ = destinationDone.wait(timeout: .now() + 10) }
+        XCTAssertEqual(oldParentDone.wait(timeout: .now() + hangGuard), .success)
+        if destinationFinished != .success { _ = destinationDone.wait(timeout: .now() + hangGuard) }
         XCTAssertEqual(oldParent.count, 1)
         XCTAssertTrue(child._parent != nil && child._parent !== destination)
 
@@ -1291,7 +1300,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             dispatcher: NullDispatcher.INSTANCE,
             childrenFactory: {
                 factoryAEntered.signal()
-                _ = factoryBEntered.wait(timeout: .now() + 2)
+                _ = factoryBEntered.wait(timeout: .now() + hangGuard)
                 return [first, second]
             }
         )
@@ -1301,7 +1310,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             dispatcher: NullDispatcher.INSTANCE,
             childrenFactory: {
                 factoryBEntered.signal()
-                _ = factoryAEntered.wait(timeout: .now() + 2)
+                _ = factoryAEntered.wait(timeout: .now() + hangGuard)
                 return [second, first]
             }
         )
@@ -1319,7 +1328,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             do { try destinationB.construct() } catch { errors.append(error) }
         }
 
-        XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(done.wait(timeout: .now() + hangGuard * 2), .success)
         // The second population either finds the first one's transaction
         // ended and moves both children, or fails at once (ADR-0187).
         XCTAssertLessThanOrEqual(errors.errors.count, 1, "\(errors.errors)")

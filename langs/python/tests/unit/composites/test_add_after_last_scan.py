@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread
 from vmx.components._late_child_starts import _LateChildStage
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -138,7 +138,7 @@ def _add_late(harness: _Harness, *, other_thread: bool) -> ConstructionStatus:
     if other_thread:
         adder = threading.Thread(target=add, daemon=True)
         adder.start()
-        adder.join(HANG_GUARD)
+        join_thread(adder)
         assert not adder.is_alive(), "the add completes"
     else:
         add()

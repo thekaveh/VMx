@@ -11,7 +11,7 @@
 // bounded, so a regression fails instead of hanging.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -20,9 +20,6 @@ import Foundation
 
 final class LateChildStartTests: XCTestCase {
     private struct Boom: Error {}
-
-    /// The bound on every wait in these tests, in seconds.
-    private let bound: TimeInterval = 5
 
     /// A thread-safe log of `sender:status` entries and a hook-run counter.
     private final class Recorder {
@@ -120,7 +117,7 @@ final class LateChildStartTests: XCTestCase {
 
     /// Spins until `condition` holds or the bound elapses; returns whether it held.
     private func waitUntil(_ condition: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(bound)
+        let deadline = Date().addingTimeInterval(hangGuard)
         while !condition() {
             if Date() >= deadline { return false }
             usleep(1_000)
@@ -151,7 +148,6 @@ final class LateChildStartTests: XCTestCase {
     ) -> Bool? {
         let paused = DispatchSemaphore(value: 0)
         let finished = DispatchSemaphore(value: 0)
-        let bound = self.bound
         let root = harness.root
         var pausedStatuses: (root: ConstructionStatus, late: ConstructionStatus)?
         var added: Bool?
@@ -160,7 +156,7 @@ final class LateChildStartTests: XCTestCase {
             guard child === late, stage == pauseAt else { return }
             pausedStatuses = (root.status, late.status)
             paused.signal()
-            let deadline = Date().addingTimeInterval(bound)
+            let deadline = Date().addingTimeInterval(hangGuard * 2)
             while !resume() && root.status == .constructing && Date() < deadline {
                 usleep(1_000)
             }
@@ -171,12 +167,12 @@ final class LateChildStartTests: XCTestCase {
             finished.signal()
         }
         adder.start()
-        XCTAssertEqual(paused.wait(timeout: .now() + bound), .success, "\(kind): add paused")
+        XCTAssertEqual(paused.wait(timeout: .now() + hangGuard), .success, "\(kind): add paused")
         XCTAssertEqual(pausedStatuses?.root, .constructing, kind)
         XCTAssertEqual(pausedStatuses?.late, .destructed, kind)
 
         pump(harness) // the original child settles; the walk pulls `late`
-        guard finished.wait(timeout: .now() + bound) == .success else {
+        guard finished.wait(timeout: .now() + hangGuard) == .success else {
             XCTFail("\(kind): the paused add did not finish")
             return nil
         }
@@ -243,10 +239,9 @@ final class LateChildStartTests: XCTestCase {
             let runs = Recorder()
             let inHook = DispatchSemaphore(value: 0)
             let releaseHook = DispatchSemaphore(value: 0)
-            let bound = self.bound
             let late = try lateChild(harness, runs: runs, during: {
                 inHook.signal()
-                _ = releaseHook.wait(timeout: .now() + bound)
+                _ = releaseHook.wait(timeout: .now() + hangGuard * 2)
             })
             let walkWaiting = Flag()
             harness.setProbe { child, stage in
@@ -260,14 +255,14 @@ final class LateChildStartTests: XCTestCase {
                 finished.signal()
             }
             adder.start()
-            XCTAssertEqual(inHook.wait(timeout: .now() + bound), .success, kind)
+            XCTAssertEqual(inHook.wait(timeout: .now() + hangGuard), .success, kind)
             XCTAssertEqual(late.status, .constructing, kind)
 
             pump(harness) // the original child settles; the walk pulls `late`
             _ = waitUntil { walkWaiting.isSet }
             XCTAssertEqual(harness.root.status, .constructing, kind)
             releaseHook.signal()
-            XCTAssertEqual(finished.wait(timeout: .now() + bound), .success, kind)
+            XCTAssertEqual(finished.wait(timeout: .now() + hangGuard), .success, kind)
             pump(harness)
 
             XCTAssertEqual(added, true, kind)

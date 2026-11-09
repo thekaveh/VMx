@@ -8,6 +8,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Generic, TypeVar
 
+import reactivex as rx
+
 from vmx._disposal import _run_disposal_steps
 from vmx.commands.confirmation_decorator_command import ConfirmationDecoratorCommand
 from vmx.commands.protocols import Command
@@ -18,7 +20,15 @@ M = TypeVar("M")
 
 
 class ModeledCrudCommands(Generic[M, VM]):
-    """Three CRUD commands wired against a current-VM provider."""
+    """Three CRUD commands wired against a current-VM provider.
+
+    ``current_changed`` is an optional trigger that fires when the value of
+    ``current`` changes, typically the owning composite's current-child stream.
+    When supplied, it is wired as a trigger on the Update and Delete commands,
+    so their ``can_execute_changed`` fires on a selection change and a bound
+    control does not keep a stale enabled state (spec/06 §7, ADR-0049). Use it
+    when the commands are bound to UI.
+    """
 
     create_new_command: Command
     update_current_command: Command
@@ -32,6 +42,7 @@ class ModeledCrudCommands(Generic[M, VM]):
         delete_current: Callable[[VM], None],
         confirm_update: Callable[[], Awaitable[bool]] | None = None,
         confirm_delete: Callable[[], Awaitable[bool]] | None = None,
+        current_changed: rx.Observable[object] | None = None,
     ) -> None:
         def _do_update() -> None:
             c = current()
@@ -44,17 +55,21 @@ class ModeledCrudCommands(Generic[M, VM]):
                 delete_current(c)
 
         create = RelayCommand.builder().task(create_new).build()
-        update = (
-            RelayCommand.builder().task(_do_update).predicate(lambda: current() is not None).build()
+        update_builder = (
+            RelayCommand.builder().task(_do_update).predicate(lambda: current() is not None)
         )
-        delete = (
-            RelayCommand.builder().task(_do_delete).predicate(lambda: current() is not None).build()
+        delete_builder = (
+            RelayCommand.builder().task(_do_delete).predicate(lambda: current() is not None)
         )
+        if current_changed is not None:
+            update_builder = update_builder.triggers(current_changed)
+            delete_builder = delete_builder.triggers(current_changed)
+        update = update_builder.build()
+        delete = delete_builder.build()
 
         # Track the inner RelayCommands so dispose() can complete their
-        # can_execute_changed subjects (parity with C# ModeledCrudCommands.
-        # Dispose). No triggers are wired here, so there are no trigger
-        # subscriptions to release.
+        # can_execute_changed subjects and release their current_changed
+        # trigger subscriptions (parity with C# ModeledCrudCommands.Dispose).
         self._inner_relays = (create, update, delete)
         self._disposed = False
 

@@ -10,9 +10,10 @@ use super::{
     MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
     MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
     ParentTransfer, PropertyChangedStream, PublicationLease, RelayCommand, StartAttempt, TreeNode,
-    ViewModelType, VmNode, VmxError, VmxResult,
+    TreeNodeRef, ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
+use crate::{Message, Subscription, ValueStream};
 use std::thread::{self, ThreadId};
 
 type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
@@ -825,7 +826,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     /// Returns the immutable presentation hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.core.hint()
     }
 
@@ -1442,12 +1443,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         };
         // `is_current` is published after the membership gate is released: a
         // subscriber may dispose this composite, which takes the gate (#749).
-        // Clearing the selection first means it sees no current, as in the
-        // other flavors; the loop then only covers a stale flag.
+        // The detach clear committed the previous current child's flag under
+        // the gate, as in the other flavors. No removed child's flag is
+        // written after the gate: another composite may already have adopted
+        // and selected it (spec/06 §4.3 rule 2).
         let published = self.publish_current(cleared);
-        for item in &removed {
-            item.set_current_flag(false);
-        }
         // Removed children are dropped after the membership gate is released.
         let changed = !removed.is_empty();
         drop(removed);
@@ -1593,8 +1593,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Attaches the children factory's result once (spec/06 §1, ADR-0204).
     /// It runs inside the admitted construct transition, so a concurrent or
-    /// re-entrant construct fails with [`VmxError::ConcurrentOperation`]
-    /// instead of running it again. The factory leaves its slot only when
+    /// re-entrant construct fails with
+    /// [`VmxError::InvalidLifecycleTransition`] from `Constructing` instead
+    /// of running it again. The factory leaves its slot only when
     /// the population commits.
     fn populate(&self) -> VmxResult<()> {
         if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -1654,6 +1655,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     let deferred = self.clone();
                     self.membership_transaction_control
                         .defer_dispose(move || deferred.dispose());
+                    // A disposing container sends no hub message (ADR-0190).
+                    self.items.close_hub_publication();
                     return Ok(());
                 }
                 MembershipDisposeDisposition::Foreign => {
@@ -1664,6 +1667,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                         .wait_until_inactive_or_defer(move || deferred.dispose())
                         .is_none()
                     {
+                        self.items.close_hub_publication();
                         return Ok(());
                     }
                     continue;
@@ -1677,6 +1681,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                         .defer_while_publishing(move || deferred.dispose())
                         .is_none()
                     {
+                        self.items.close_hub_publication();
                         return Ok(());
                     }
                     break if self.dispose_requested.swap(true, Ordering::AcqRel) {
@@ -1706,9 +1711,19 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         )
     }
 
-    /// Local collection-change stream of the children (see
-    /// `ObservableList::local_changes`).
-    pub(crate) fn membership_changes(&self) -> MessageHub {
+    /// Returns a reader of the current children that does not keep the
+    /// composite alive (ADR-0208).
+    pub(crate) fn children_reader(&self) -> impl Fn() -> Vec<T> + Send + Sync + 'static {
+        self.items.reader()
+    }
+
+    /// Returns the local collection-change stream of the children.
+    ///
+    /// Each effective mutation sends one `CollectionChangedMessage` here
+    /// first, then the equivalent message to [`hub`](Self::hub) (spec/06 §4,
+    /// ADR-0208). A hub batch never defers this stream. A list batch sends one
+    /// `Reset` when it completes. After disposal the composite sends nothing.
+    pub fn collection_changed(&self) -> MessageHub {
         self.items.local_changes()
     }
 
@@ -1953,8 +1968,9 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
 }
 
 impl<T: TreeNode, D: Dispatcher> TreeNode for CompositeVm<T, D> {
-    fn children_nodes(&self) -> Vec<Self> {
-        Vec::new()
+    /// Returns the children in order (spec/13 §2).
+    fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        Ok(self.items().into_iter().map(TreeNodeRef::new).collect())
     }
 }
 
@@ -1964,7 +1980,10 @@ impl<T: TreeNode, D: Dispatcher> CompositeVm<T, D> {
         self.items()
     }
 
-    /// Reports whether traversal should enter this composite.
+    /// Reports the composite's own expansion flag.
+    ///
+    /// [`walk_expanded`](crate::walk_expanded) does not read this flag. It
+    /// reads [`TreeNode::expandable`], which a composite leaves at `None`.
     pub fn is_expanded_for_walk(&self) -> bool {
         self.core.is_expanded()
     }
@@ -1997,75 +2016,194 @@ pub enum FilteredCursorPolicy {
 ///
 /// Predicate projections preserve source order. Scored projections order by
 /// descending score with stable source-order ties. Disposal freezes a snapshot.
+///
+/// The projection subscribes to the source's membership changes. Each source
+/// mutation, predicate change, [`refresh`](Self::refresh) and
+/// [`refresh_scores`](Self::refresh_scores) reconciles the current item under
+/// the cursor policy and then sends one [`changed`](Self::changed)
+/// notification. A [`set_current`](Self::set_current) or move that changes
+/// the current item also sends one (spec/06 §9, ADR-0207).
+///
+/// ```
+/// use std::sync::{Arc, Mutex};
+/// use vmx::{
+///     ComponentVm, CompositeVm, FilteredCompositeVm, FilteredCursorPolicy, MessageHub,
+///     NullDispatcher,
+/// };
+///
+/// let item = |value: i32| ComponentVm::with_model("item", value, MessageHub::new(), NullDispatcher::new());
+/// let source = CompositeVm::new("source");
+/// for value in [1, 2, 3] {
+///     source.add(item(value)).unwrap();
+/// }
+/// let view = FilteredCompositeVm::with_cursor_policy(
+///     source.clone(),
+///     |item: &ComponentVm<i32>| item.model() % 2 == 1,
+///     FilteredCursorPolicy::Clear,
+/// );
+/// assert!(view.current().is_none());
+///
+/// let changes = Arc::new(Mutex::new(0));
+/// let sink = Arc::clone(&changes);
+/// let _subscription = view.changed().subscribe(move |()| *sink.lock().unwrap() += 1);
+/// source.add(item(5)).unwrap();
+/// assert_eq!(*changes.lock().unwrap(), 1);
+/// assert_eq!(view.visible_count(), 3);
+/// ```
 pub struct FilteredCompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
+    inner: Arc<FilteredInner<T, D>>,
+}
+
+struct FilteredInner<T: VmNode, D: Dispatcher> {
     source: CompositeVm<T, D>,
-    predicate: Arc<Mutex<FilterPredicate<T>>>,
-    scorer: Arc<Mutex<Option<ScorePredicate<T>>>>,
-    current: Arc<Mutex<Option<T>>>,
-    cursor_policy: Arc<Mutex<FilteredCursorPolicy>>,
-    disposed: Arc<Mutex<bool>>,
-    frozen: Arc<Mutex<Vec<T>>>,
+    predicate: Mutex<FilterPredicate<T>>,
+    scorer: Mutex<Option<ScorePredicate<T>>>,
+    current: Mutex<Option<T>>,
+    cursor_policy: Mutex<FilteredCursorPolicy>,
+    disposed: Mutex<bool>,
+    frozen: Mutex<Vec<T>>,
     /// Source membership seen at the last reconciliation.
-    source_ids: Arc<Mutex<Vec<usize>>>,
+    source_ids: Mutex<Vec<usize>>,
+    changed: ValueStream<()>,
+    /// The source membership subscription. Its handler holds only a weak
+    /// reference to this state, so the source never keeps the view alive.
+    source_subscription: Mutex<Option<Subscription>>,
 }
 
 impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     /// Returns the source composite's family discriminator.
     pub fn view_model_type(&self) -> ViewModelType {
-        self.source.view_model_type()
+        self.inner.source.view_model_type()
     }
 
-    /// Creates a predicate-filtered projection.
+    /// Creates a predicate-filtered projection with the
+    /// [`SnapToFirst`](FilteredCursorPolicy::SnapToFirst) cursor policy.
     pub fn new<F>(source: CompositeVm<T, D>, predicate: F) -> Self
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
     {
-        let filtered = Self {
-            source,
-            predicate: Arc::new(Mutex::new(Arc::new(predicate))),
-            scorer: Arc::new(Mutex::new(None)),
-            current: Arc::new(Mutex::new(None)),
-            cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::SnapToFirst)),
-            disposed: Arc::new(Mutex::new(false)),
-            frozen: Arc::new(Mutex::new(Vec::new())),
-            source_ids: Arc::new(Mutex::new(Vec::new())),
-        };
-        filtered.reconcile_current();
-        filtered
+        Self::with_cursor_policy(source, predicate, FilteredCursorPolicy::SnapToFirst)
+    }
+
+    /// Creates a predicate-filtered projection with `cursor_policy`.
+    ///
+    /// The policy also sets the start state: under
+    /// [`SnapToFirst`](FilteredCursorPolicy::SnapToFirst) the view starts on
+    /// the first visible item, and under the other policies it starts with no
+    /// current item.
+    pub fn with_cursor_policy<F>(
+        source: CompositeVm<T, D>,
+        predicate: F,
+        cursor_policy: FilteredCursorPolicy,
+    ) -> Self
+    where
+        F: Fn(&T) -> bool + Send + Sync + 'static,
+    {
+        Self::create(source, Arc::new(predicate), None, cursor_policy)
     }
 
     /// Returns the source composite's message hub.
     pub fn hub(&self) -> MessageHub {
-        self.source.hub()
+        self.inner.source.hub()
     }
 
-    /// Creates a projection that includes scored items in descending order.
+    /// Creates a projection that includes scored items in descending order,
+    /// with the [`SnapToFirst`](FilteredCursorPolicy::SnapToFirst) cursor
+    /// policy.
     pub fn scored<F>(source: CompositeVm<T, D>, scorer: F) -> Self
     where
         F: Fn(&T) -> Option<i32> + Send + Sync + 'static,
     {
-        let filtered = Self {
+        Self::scored_with_cursor_policy(source, scorer, FilteredCursorPolicy::SnapToFirst)
+    }
+
+    /// Creates a scored projection with `cursor_policy`, which also sets the
+    /// start state as in [`with_cursor_policy`](Self::with_cursor_policy).
+    pub fn scored_with_cursor_policy<F>(
+        source: CompositeVm<T, D>,
+        scorer: F,
+        cursor_policy: FilteredCursorPolicy,
+    ) -> Self
+    where
+        F: Fn(&T) -> Option<i32> + Send + Sync + 'static,
+    {
+        Self::create(
             source,
-            predicate: Arc::new(Mutex::new(Arc::new(|_| true))),
-            scorer: Arc::new(Mutex::new(Some(Arc::new(scorer)))),
-            current: Arc::new(Mutex::new(None)),
-            cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::SnapToFirst)),
-            disposed: Arc::new(Mutex::new(false)),
-            frozen: Arc::new(Mutex::new(Vec::new())),
-            source_ids: Arc::new(Mutex::new(Vec::new())),
+            Arc::new(|_| true),
+            Some(Arc::new(scorer)),
+            cursor_policy,
+        )
+    }
+
+    fn create(
+        source: CompositeVm<T, D>,
+        predicate: FilterPredicate<T>,
+        scorer: Option<ScorePredicate<T>>,
+        cursor_policy: FilteredCursorPolicy,
+    ) -> Self {
+        let filtered = Self {
+            inner: Arc::new(FilteredInner {
+                source,
+                predicate: Mutex::new(predicate),
+                scorer: Mutex::new(scorer),
+                current: Mutex::new(None),
+                cursor_policy: Mutex::new(cursor_policy),
+                disposed: Mutex::new(false),
+                frozen: Mutex::new(Vec::new()),
+                source_ids: Mutex::new(Vec::new()),
+                changed: ValueStream::hot(()),
+                source_subscription: Mutex::new(None),
+            }),
         };
         filtered.reconcile_current();
+        let state = Arc::downgrade(&filtered.inner);
+        let owner_id = filtered.inner.source.id();
+        let subscription = filtered
+            .inner
+            .source
+            .collection_changed()
+            .subscribe(move |message| {
+                let membership = matches!(message, Message::CollectionChanged(change)
+                    if change.sender_id == owner_id && change.property_name == "items");
+                if !membership {
+                    return;
+                }
+                if let Some(inner) = state.upgrade() {
+                    Self { inner }.recompute();
+                }
+            });
+        replace_locked(&filtered.inner.source_subscription, Some(subscription));
         filtered
+    }
+
+    /// Returns the hot change stream.
+    ///
+    /// It sends `()` once after each source membership change, predicate
+    /// change, [`refresh`](Self::refresh) and
+    /// [`refresh_scores`](Self::refresh_scores), and once for each
+    /// [`set_current`](Self::set_current), [`move_next_visible`](Self::move_next_visible)
+    /// or [`move_previous_visible`](Self::move_previous_visible) call that
+    /// changes the current item. A subscriber reads the new state from
+    /// [`visible`](Self::visible) and [`current`](Self::current).
+    /// [`dispose`](Self::dispose) completes the stream.
+    ///
+    /// A notification caused by a source mutation runs inside that mutation,
+    /// before the source hub's `CollectionChanged`. A subscriber that mutates
+    /// the source membership there gets
+    /// [`VmxError::OwnershipTransactionInProgress`].
+    pub fn changed(&self) -> ValueStream<()> {
+        self.inner.changed.clone()
     }
 
     /// Returns the current visible projection or the frozen disposed snapshot.
     pub fn visible(&self) -> Vec<T> {
-        if *lock(&self.disposed) {
-            return lock(&self.frozen).clone();
+        if *lock(&self.inner.disposed) {
+            return lock(&self.inner.frozen).clone();
         }
-        let predicate = lock(&self.predicate).clone();
-        let scorer = lock(&self.scorer).clone();
+        let predicate = lock(&self.inner.predicate).clone();
+        let scorer = lock(&self.inner.scorer).clone();
         let mut indexed = self
+            .inner
             .source
             .items()
             .into_iter()
@@ -2095,32 +2233,37 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
 
     /// Returns the current visible item.
     ///
-    /// The projection does not subscribe to its source, so a read first
-    /// reconciles the selection when the source's membership changed since the
-    /// last reconciliation: a current item that the source removed follows the
-    /// cursor policy (COMP-032, COMP-033). An explicit clear stays cleared
-    /// until the next source change, predicate change, or refresh.
+    /// A source membership change reconciles the selection under the cursor
+    /// policy when the source publishes it (COMP-032, COMP-033). A read also
+    /// reconciles a membership change that published nothing, such as one
+    /// after the source's disposal closed its publication. An explicit clear
+    /// stays cleared until the next source change, predicate change, or
+    /// refresh.
     pub fn current(&self) -> Option<T> {
         self.reconcile_if_source_changed();
-        lock(&self.current).clone()
+        lock(&self.inner.current).clone()
     }
 
-    /// Applies a source membership change that no read has reconciled yet,
-    /// so a later explicit assignment is not undone by it.
+    /// Applies a source membership change that no reconciliation has seen
+    /// yet, so a later explicit assignment is not undone by it.
     fn reconcile_if_source_changed(&self) {
-        if !*lock(&self.disposed) && *lock(&self.source_ids) != self.source_member_ids() {
+        if !*lock(&self.inner.disposed) && *lock(&self.inner.source_ids) != self.source_member_ids()
+        {
             self.reconcile_current();
         }
     }
 
     fn source_member_ids(&self) -> Vec<usize> {
-        self.source.items().iter().map(VmNode::id).collect()
+        self.inner.source.items().iter().map(VmNode::id).collect()
     }
 
     /// Assigns a visible current item or clears it.
+    ///
+    /// A change of the current item sends one [`changed`](Self::changed)
+    /// notification; assigning the current item again sends none.
     pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
         // A disposed projection stays frozen (disposal contract, DISP-006).
-        if *lock(&self.disposed) {
+        if *lock(&self.inner.disposed) {
             return Ok(());
         }
         self.reconcile_if_source_changed();
@@ -2133,52 +2276,52 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
                 return Err(VmxError::NonChild);
             }
         }
-        replace_locked(&self.current, item);
+        self.assign_current(item);
         Ok(())
     }
 
-    /// Replaces the predicate and reconciles current selection.
+    /// Replaces the predicate, reconciles current selection, and sends one
+    /// [`changed`](Self::changed) notification.
     pub fn set_predicate<F>(&self, predicate: F)
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
     {
-        if *lock(&self.disposed) {
+        if *lock(&self.inner.disposed) {
             return;
         }
-        replace_locked(&self.predicate, Arc::new(predicate));
-        self.reconcile_current();
+        replace_locked(&self.inner.predicate, Arc::new(predicate));
+        self.recompute();
     }
 
-    /// Sets the policy for a current item hidden by filtering.
+    /// Sets the policy for a current item hidden by filtering. The next
+    /// reconciliation applies it.
     pub fn set_cursor_policy(&self, policy: FilteredCursorPolicy) {
-        if *lock(&self.disposed) {
+        if *lock(&self.inner.disposed) {
             return;
         }
-        *lock(&self.cursor_policy) = policy;
+        *lock(&self.inner.cursor_policy) = policy;
     }
 
-    /// Re-evaluates visibility and reconciles current selection.
+    /// Re-evaluates visibility, reconciles current selection, and sends one
+    /// [`changed`](Self::changed) notification.
     pub fn refresh(&self) {
-        if !*lock(&self.disposed) {
-            self.reconcile_current();
-        }
+        self.recompute();
     }
 
-    /// Re-evaluates scores and reconciles current selection.
+    /// Re-evaluates scores, reconciles current selection, and sends one
+    /// [`changed`](Self::changed) notification.
     pub fn refresh_scores(&self) {
-        if !*lock(&self.disposed) {
-            self.reconcile_current();
-        }
+        self.recompute();
     }
 
     /// Advances current within the visible projection, clamped at the end.
     pub fn move_next_visible(&self) {
-        if *lock(&self.disposed) {
+        if *lock(&self.inner.disposed) {
             return;
         }
         let visible = self.visible();
         if visible.is_empty() {
-            replace_locked(&self.current, None);
+            self.assign_current(None);
             return;
         }
         let next_index = self
@@ -2186,17 +2329,17 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             .and_then(|current| visible.iter().position(|item| same_node(item, &current)))
             .map(|index| (index + 1).min(visible.len() - 1))
             .unwrap_or(0);
-        replace_locked(&self.current, Some(visible[next_index].clone()));
+        self.assign_current(Some(visible[next_index].clone()));
     }
 
     /// Moves current backward within the visible projection.
     pub fn move_previous_visible(&self) {
-        if *lock(&self.disposed) {
+        if *lock(&self.inner.disposed) {
             return;
         }
         let visible = self.visible();
         if visible.is_empty() {
-            replace_locked(&self.current, None);
+            self.assign_current(None);
             return;
         }
         let previous_index = self
@@ -2204,20 +2347,20 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             .and_then(|current| visible.iter().position(|item| same_node(item, &current)))
             .map(|index| index.saturating_sub(1))
             .unwrap_or(0);
-        replace_locked(&self.current, Some(visible[previous_index].clone()));
+        self.assign_current(Some(visible[previous_index].clone()));
     }
 
-    /// Freezes the current visible projection for subsequent reads.
+    /// Freezes the current visible projection for subsequent reads, releases
+    /// the source subscription, and completes [`changed`](Self::changed).
     pub fn dispose(&self) {
-        if *lock(&self.disposed) {
+        if *lock(&self.inner.disposed) {
             return;
         }
-        // Apply a source change no read has reconciled yet, so the frozen
-        // `current` is a member of the frozen `visible`, as in the flavors
-        // that subscribe to their source.
+        // Apply a source change no reconciliation has seen yet, so the frozen
+        // `current` is a member of the frozen `visible`.
         self.reconcile_if_source_changed();
         let visible = self.visible();
-        let current_is_visible = lock(&self.current)
+        let current_is_visible = lock(&self.inner.current)
             .as_ref()
             .is_none_or(|current| visible.iter().any(|item| same_node(item, current)));
         if !current_is_visible {
@@ -2225,24 +2368,50 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             // cursor policy so the frozen current item is still visible.
             self.reconcile_current();
         }
-        replace_locked(&self.frozen, self.visible());
-        *lock(&self.disposed) = true;
+        replace_locked(&self.inner.frozen, self.visible());
+        *lock(&self.inner.disposed) = true;
+        let subscription = lock(&self.inner.source_subscription).take();
+        drop(subscription);
+        self.inner.changed.dispose();
+    }
+
+    /// Reconciles the current item and sends one change notification.
+    fn recompute(&self) {
+        if *lock(&self.inner.disposed) {
+            return;
+        }
+        self.reconcile_current();
+        self.inner.changed.send(());
+    }
+
+    /// Replaces the current item and sends one change notification when the
+    /// item changes. The replaced item is dropped after the lock is released.
+    fn assign_current(&self, next: Option<T>) {
+        let previous = {
+            let mut current = lock(&self.inner.current);
+            if same_optional_node(current.as_ref(), next.as_ref()) {
+                return;
+            }
+            std::mem::replace(&mut *current, next)
+        };
+        drop(previous);
+        self.inner.changed.send(());
     }
 
     fn reconcile_current(&self) {
-        *lock(&self.source_ids) = self.source_member_ids();
+        replace_locked(&self.inner.source_ids, self.source_member_ids());
         let visible = self.visible();
-        let current_is_visible = lock(&self.current)
+        let current_is_visible = lock(&self.inner.current)
             .clone()
             .is_some_and(|current| visible.iter().any(|item| same_node(item, &current)));
         if current_is_visible {
             return;
         }
-        let next = match *lock(&self.cursor_policy) {
+        let next = match *lock(&self.inner.cursor_policy) {
             FilteredCursorPolicy::Clear | FilteredCursorPolicy::PreserveIfVisible => None,
             FilteredCursorPolicy::SnapToFirst => visible.first().cloned(),
         };
-        replace_locked(&self.current, next);
+        replace_locked(&self.inner.current, next);
     }
 }
 
@@ -2356,7 +2525,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
         let vm = CompositeVm::with_destruct_order(name, hub, dispatcher, self.destruct_order);
         if let Some(hint) = self.hint {
-            vm.core.set_hint(Some(hint));
+            vm.core.set_hint(hint);
         }
         vm.set_auto_construct_on_add(self.auto_construct_on_add);
         vm.set_async_selection(self.async_selection);
@@ -2437,6 +2606,21 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         self.inner.view_model_type()
     }
 
+    /// Returns the stable composite identity.
+    pub fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    /// Returns the immutable composite name.
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    /// Returns the immutable presentation hint.
+    pub fn hint(&self) -> String {
+        self.inner.hint()
+    }
+
     /// Creates a modeled composite from model and mapping factories.
     pub fn new<F, G>(
         name: impl Into<String>,
@@ -2477,6 +2661,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         self.inner.hub()
     }
 
+    /// Returns the local collection-change stream of the children (see
+    /// [`CompositeVm::collection_changed`]).
+    pub fn collection_changed(&self) -> MessageHub {
+        self.inner.collection_changed()
+    }
+
     /// Returns the hot error stream for this container's deferred lifecycle
     /// failures. It carries every child failure that rolls the container back
     /// once its walk waits on a child still in flight (a background child, or
@@ -2494,6 +2684,36 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         F: FnOnce() + Send + 'static,
     {
         self.inner.own(cleanup);
+    }
+
+    /// Replaces the hook invoked during construction, including the construct
+    /// phase of `reconstruct` (spec/02 §2.2, ADR-0203). It runs as
+    /// [`CompositeVm::on_construct`] does, after the children are
+    /// materialized. The hook must not capture this composite (#750).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_construct(hook);
+    }
+
+    /// Replaces the hook invoked during destruction, including the destruct
+    /// phase of `reconstruct` (spec/02 §2.2, ADR-0203). The hook must not
+    /// capture this composite (#750).
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_destruct(hook);
+    }
+
+    /// Replaces the hook invoked during disposal (spec/02 §2.2, ADR-0203).
+    /// The hook must not capture this composite (#750).
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_dispose(hook);
     }
 
     /// Registers `member` for depth-first disposal, as
@@ -2575,6 +2795,15 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
     /// Returns the current parent identity, when attached.
     pub fn parent_id(&self) -> Option<usize> {
         self.inner.parent_id()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static, T: TreeNode, D: Dispatcher> TreeNode
+    for ModeledCompositeVm<M, T, D>
+{
+    /// Returns the children in order (spec/13 §2).
+    fn try_children_nodes(&self) -> VmxResult<Vec<TreeNodeRef>> {
+        Ok(self.items().into_iter().map(TreeNodeRef::new).collect())
     }
 }
 
@@ -2663,6 +2892,7 @@ pub struct ModeledCompositeVmBuilder<
     D: Dispatcher = NullDispatcher,
 > {
     name: Option<String>,
+    hint: Option<String>,
     hub: Option<MessageHub>,
     dispatcher: Option<D>,
     children_models: Option<ModelFactory<M>>,
@@ -2678,6 +2908,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> Def
     fn default() -> Self {
         Self {
             name: None,
+            hint: Some(String::new()),
             hub: None,
             dispatcher: None,
             children_models: None,
@@ -2695,6 +2926,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
     /// Sets the required composite name.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// Sets the optional presentation hint.
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
         self
     }
 
@@ -2771,6 +3008,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
             child_model_to_child_view_model,
             loaded: Arc::new(Mutex::new(false)),
         };
+        if let Some(hint) = self.hint {
+            vm.inner.core.set_hint(hint);
+        }
         vm.inner.set_async_selection(self.async_selection);
         if let Some(selector) = self.current_selector {
             vm.inner.set_current_selector(move |items| selector(items));

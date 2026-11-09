@@ -82,10 +82,7 @@ class NotebookApp:
         notes = [build_note(model, self.hub, dispatcher) for model in seed]
         builder: CompositeVMBuilder[NoteVM] = CompositeVM.builder()
         self.notebook: CompositeVM[NoteVM] = (
-            builder.name("notebook")
-            .services(self.hub, dispatcher)
-            .children(lambda: notes)
-            .build()
+            builder.name("notebook").services(self.hub, dispatcher).children(lambda: notes).build()
         )
         self._store = store
         # Re-evaluate `can_execute` whenever any message arrives on this hub.

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Subject } from "rxjs";
+import { config, map, Subject, type Observable } from "rxjs";
 import {
   AsyncRelayCommand,
   RelayCommand,
@@ -199,8 +199,10 @@ describe("CMD-016", () => {
     const relay = RelayCommand.builder().build();
     const parameterized = RelayCommandOf.builder<number>().build();
     const asyncCommand = AsyncRelayCommand.builder().build();
-    // Subscribe before disposal: a subscription made afterwards could never
-    // observe a stray emission, so the assertion below could not fail.
+    // Disposal completes each change subject, and a completed subject drops
+    // later values. So the closed channel alone keeps a later raise from
+    // reaching these subscribers, with or without the disposed check. The
+    // next case observes the check itself.
     let fired = 0;
     relay.canExecuteChanged.subscribe(() => fired++);
     parameterized.canExecuteChanged.subscribe(() => fired++);
@@ -215,6 +217,25 @@ describe("CMD-016", () => {
     asyncCommand.raiseCanExecuteChanged();
 
     expect(fired).toBe(0);
+  });
+
+  it("a raise from the final disposal notification publishes nothing more", () => {
+    // RelayCommand and RelayCommandOf set the disposed flag, publish one final
+    // notification, then complete the subject. A raise from that notification
+    // reaches the open subject, so only the disposed check drops it (#1341).
+    // AsyncRelayCommand publishes no final notification.
+    const commands = [RelayCommand.builder().build(), RelayCommandOf.builder<number>().build()];
+    for (const command of commands) {
+      let fired = 0;
+      command.canExecuteChanged.subscribe(() => {
+        fired++;
+        if (fired === 1) command.raiseCanExecuteChanged();
+      });
+
+      command.dispose();
+
+      expect(fired).toBe(1);
+    }
   });
 });
 
@@ -671,4 +692,119 @@ describe("CMD-012", () => {
     expect(cmd.isExecuting).toBe(false);
     cmd.dispose();
   });
+});
+
+// ---------------------------------------------------------------------------
+// CMD-020 — fire-and-forget fault order (spec/04-commands.md §10.4, ADR-0195)
+// ---------------------------------------------------------------------------
+
+describe("CMD-020", () => {
+  it.each([
+    ["rejects at once", (e: Error) => () => Promise.reject(e)],
+    [
+      "throws after an await",
+      (e: Error) => async () => {
+        await Promise.resolve();
+        throw e;
+      },
+    ],
+  ])(
+    "a fire-and-forget fault reaches errors after the completion notification (%s)",
+    async (_, makeTask) => {
+      const e = new Error("boom");
+      const cmd = AsyncRelayCommand.builder().task(makeTask(e)).build();
+      const log: unknown[] = [];
+      cmd.canExecuteChanged.subscribe(() => log.push("change"));
+      let reported!: () => void;
+      const errorSeen = new Promise<void>((resolve) => {
+        reported = resolve;
+      });
+      cmd.errors.subscribe((err) => {
+        log.push(["error", err, cmd.isExecuting]);
+        reported();
+      });
+
+      cmd.execute();
+      await Promise.race([
+        errorSeen,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("no fault reported")), 1_000),
+        ),
+      ]);
+
+      expect(log).toEqual(["change", "change", ["error", e, false]]);
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// CMD-021 — ADR-0191
+// ---------------------------------------------------------------------------
+
+/** Runs `act` with rxjs unhandled-error reports recorded, then drains them. */
+async function withUnhandledErrors(act: () => void): Promise<unknown[]> {
+  const unhandled: unknown[] = [];
+  const previous = config.onUnhandledError;
+  config.onUnhandledError = (error) => unhandled.push(error);
+  try {
+    act();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    config.onUnhandledError = previous;
+  }
+  return unhandled;
+}
+
+interface RaisableCommand {
+  readonly canExecuteChanged: Observable<void>;
+  raiseCanExecuteChanged(): void;
+  dispose(): void;
+}
+
+const cmd021Factories: ReadonlyArray<
+  readonly [string, (trigger: Observable<unknown>) => RaisableCommand]
+> = [
+  ["RelayCommand", (trigger) => RelayCommand.builder().triggers(trigger).build()],
+  [
+    "RelayCommandOf",
+    (trigger) => RelayCommandOf.builder<number>().triggers(trigger).build(),
+  ],
+  [
+    "AsyncRelayCommand",
+    (trigger) => AsyncRelayCommand.builder().triggers(trigger).build(),
+  ],
+];
+
+describe("CMD-021", () => {
+  for (const [name, create] of cmd021Factories) {
+    it(`${name}: a failing handler stops neither other handlers nor a mapped trigger`, async () => {
+      const subject = new Subject<number>();
+      const cmd = create(subject.pipe(map(() => undefined)));
+      let a = 0;
+      let b = 0;
+      cmd.canExecuteChanged.subscribe(() => {
+        a++;
+        throw new Error("handler A failed");
+      });
+      cmd.canExecuteChanged.subscribe(() => b++);
+
+      const unhandled = await withUnhandledErrors(() => {
+        expect(() => subject.next(1)).not.toThrow();
+        expect(() => subject.next(2)).not.toThrow();
+        expect(a).toBe(2);
+        expect(b).toBe(2);
+
+        expect(() => cmd.raiseCanExecuteChanged()).not.toThrow();
+        expect(a).toBe(3);
+        expect(b).toBe(3);
+
+        // A sync relay's dispose sends a final notification, so A may fail
+        // once more inside this window.
+        cmd.dispose();
+      });
+
+      // rxjs reports each of A's failures once.
+      expect(unhandled).toHaveLength(a);
+    });
+  }
 });

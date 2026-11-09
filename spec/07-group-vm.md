@@ -41,7 +41,9 @@ emits one `Move` event with the same child and both indices, and preserves
 identity, parent, lifecycle, subscriptions, and auto-construction state.
 Like a composite, a group publishes each effective collection change to its
 hub as a `CollectionChangedMessage` sent by the group, after the local event
-(chapter 01 §1.4, ADR-0142, `GRP-012`).
+(chapter 01 §1.4, ADR-0142, `GRP-012`). Once its disposal is requested or
+deferred, it publishes nothing, also for a change whose local event it has
+delivered (ADR-0190, `COMP-049`).
 
 ### 1.1 Atomic child ownership transfer (spec v3.21)
 
@@ -151,6 +153,8 @@ in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
   walk does not roll the group back (`GRP-015`)
 - (v3.30) a membership change during another thread's membership transaction
   fails at once and changes nothing (`GRP-016`)
+- (v3.30) a group whose local subscriber requests its disposal sends no hub
+  message for that change (`COMP-049`)
 - atomic cross-parent transfer, duplicate/cycle rejection, isolated rollback
   with explicit compensation failure, and old-removal-before-new-add
   observation order (`COMP-038` through `COMP-041`)

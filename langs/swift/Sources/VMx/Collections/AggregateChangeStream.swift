@@ -110,8 +110,15 @@ public final class AggregateChangeStream<Item: AnyObject> {
             current?.cancel()
         }
 
-        func terminate() {
-            finishEpoch()
+        /// Ends the epoch and hands back the subscription for the caller to
+        /// cancel after it leaves the aggregate gate (ADR-0214).
+        func detach() -> AnyCancellable? {
+            lock.lock()
+            defer { lock.unlock() }
+            phase = .terminal
+            let current = subscription
+            subscription = nil
+            return current
         }
 
         var isActive: Bool {
@@ -160,6 +167,9 @@ public final class AggregateChangeStream<Item: AnyObject> {
     private var membershipSubscription: AnyCancellable?
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var observers: [UUID: AggregateOutputEndpoint<Item>] = [:]
+    /// Observer identities in subscription order (ADR-0192). Every delivery
+    /// reads its recipients from this list, never from hashed storage.
+    private var registrationOrder: [UUID] = []
     private var work: [Work] = []
     private var stagedEmissions: [(Entry, EmissionClassification)] = []
     private var structuralVersion: UInt64 = 0
@@ -182,12 +192,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
         self.beforeStageRecord = nil
         self.beforeAdmittedGate = nil
 
-        gate.lock()
-        membershipSubscription = source.subscribeMembership { [weak self] in
-            self?.membershipChanged()
-        }
-        initializeLocked()
-        gate.unlock()
+        start(source)
     }
 
     /// Internal deterministic race seam used only by the conformance suite.
@@ -202,12 +207,28 @@ public final class AggregateChangeStream<Item: AnyObject> {
         self.beforeStageRecord = _beforeStageRecord
         self.beforeAdmittedGate = _beforeAdmittedGate
 
-        gate.lock()
-        membershipSubscription = source.subscribeMembership { [weak self] in
+        start(source)
+    }
+
+    /// No gate is held while VMx calls the source, the selector, a selected
+    /// publisher's subscribe or a cancellation (spec/21 §9.4, ADR-0214). A
+    /// source may raise its structural callback under its own lock.
+    private func start<Source: ObservableMembershipSource>(_ source: Source)
+    where Source.Item == Item {
+        let subscription = source.subscribeMembership { [weak self] in
             self?.membershipChanged()
         }
-        initializeLocked()
+        gate.lock()
+        // A dispose() on another thread may already have run. It could not
+        // see this subscription, so this thread cancels it.
+        let closed = completed
+        if !closed { membershipSubscription = subscription }
         gate.unlock()
+        if closed {
+            subscription.cancel()
+            return
+        }
+        initialize()
     }
 
     /// Returns the hot output. The optional seed is private to this subscriber
@@ -231,19 +252,21 @@ public final class AggregateChangeStream<Item: AnyObject> {
     /// Detaches aggregate-owned subscriptions and completes output once.
     public func dispose() {
         var shouldProcess = false
-        // Released after `gate` so a deinit cannot re-enter the aggregate
-        // while dispose holds it.
+        // Released and cancelled after `gate`, so neither a deinit nor a
+        // cancellation runs while dispose holds it (ADR-0214).
         var releasedMembership: AnyCancellable?
         var releasedEntries: [Entry] = []
+        var releasedSubscriptions: [AnyCancellable] = []
         var releasedStaged: [(Entry, EmissionClassification)] = []
         var releasedWork: [Work] = []
         gate.lock()
         if !completed {
             completed = true
-            membershipSubscription?.cancel()
             releasedMembership = membershipSubscription
             membershipSubscription = nil
-            for entry in entries.values { entry.terminate() }
+            for entry in entries.values {
+                if let subscription = entry.detach() { releasedSubscriptions.append(subscription) }
+            }
             releasedEntries = Array(entries.values)
             entries.removeAll()
             stagingLock.lock()
@@ -252,12 +275,15 @@ public final class AggregateChangeStream<Item: AnyObject> {
             stagingLock.unlock()
             releasedWork = work
             work.removeAll()
-            let recipients = Array(observers.values)
+            let recipients = registrationOrder.compactMap { observers[$0] }
             observers.removeAll()
+            registrationOrder.removeAll()
             if !recipients.isEmpty { work.append(.completion(recipients)) }
             shouldProcess = startProcessingLocked()
         }
         gate.unlock()
+        releasedMembership?.cancel()
+        for subscription in releasedSubscriptions { subscription.cancel() }
         withExtendedLifetime(
             (releasedMembership, releasedEntries, releasedStaged, releasedWork)
         ) {}
@@ -276,7 +302,9 @@ public final class AggregateChangeStream<Item: AnyObject> {
             return
         }
         let identifier = observer.identifier
-        observers[identifier] = observer
+        if observers.updateValue(observer, forKey: identifier) == nil {
+            registrationOrder.append(identifier)
+        }
         if emitInitial {
             work.append(.notification(
                 PendingChange(AggregateChange(reason: .initial)),
@@ -290,35 +318,44 @@ public final class AggregateChangeStream<Item: AnyObject> {
 
     fileprivate func unregister(_ identifier: UUID) {
         gate.lock()
-        observers.removeValue(forKey: identifier)
+        if observers.removeValue(forKey: identifier) != nil {
+            registrationOrder.removeAll { $0 == identifier }
+        }
         gate.unlock()
     }
 
-    private func initializeLocked() {
+    private func initialize() {
         while true {
             let version = currentStructuralVersion()
             let snapshot = snapshotSource()
             guard version == currentStructuralVersion() else { continue }
 
-            var plan = makePlan(snapshot, setup: true)
-            stageNewEntries(&plan, setup: true)
-            guard version == currentStructuralVersion() else {
-                disposeStaged(plan)
-                continue
+            guard let plan = stagePlan(snapshot, setup: true) else { return }
+            var released: [AnyCancellable] = []
+            var settled = false
+            gate.lock()
+            if completed {
+                // A concurrent dispose() closed the aggregate after staging.
+                released = releaseStagedLocked(plan)
+                settled = true
+            } else if version != currentStructuralVersion() {
+                released = releaseStagedLocked(plan)
+            } else {
+                released = commitLocked(plan)
+                if version == currentStructuralVersion() {
+                    discardBufferedItems()
+                    versionLock.lock()
+                    if structuralVersion == version {
+                        setupBoundaryVersion = version
+                        setupComplete = true
+                        settled = true
+                    }
+                    versionLock.unlock()
+                }
             }
-
-            commit(plan)
-            guard version == currentStructuralVersion() else { continue }
-            discardBufferedItems()
-
-            versionLock.lock()
-            if structuralVersion == version {
-                setupBoundaryVersion = version
-                setupComplete = true
-                versionLock.unlock()
-                return
-            }
-            versionLock.unlock()
+            gate.unlock()
+            for subscription in released { subscription.cancel() }
+            if settled { return }
         }
     }
 
@@ -332,7 +369,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
         gate.lock()
         if !completed, setupComplete, version > setupBoundaryVersion {
             let coalesced = batchDepth > 0
-            let recipients = Array(observers.keys)
+            let recipients = registrationOrder
             if coalesced { markBatchDirtyLocked(recipients) }
             work.append(.structural(
                 coalesced: coalesced,
@@ -362,7 +399,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
            entry.refcount > 0,
            entry.isActive {
             let coalesced = batchDepth > 0
-            let recipients = Array(observers.keys)
+            let recipients = registrationOrder
             if coalesced { markBatchDirtyLocked(recipients) }
             work.append(.item(
                 entry: entry,
@@ -393,7 +430,12 @@ public final class AggregateChangeStream<Item: AnyObject> {
             let current = work.removeFirst()
             switch current {
             case .structural(let coalesced, let recipients):
-                processStructuralLocked(coalesced: coalesced, recipients: recipients)
+                // This thread is the only drainer (`processing`), so it alone
+                // reconciles. It releases the gate around every call into the
+                // source, the selector and a subscription (ADR-0214).
+                gate.unlock()
+                processStructural(coalesced: coalesced, recipients: recipients)
+                continue
             case .item(let entry, let epoch, let coalesced, let recipients):
                 processItemLocked(
                     entry: entry,
@@ -411,27 +453,38 @@ public final class AggregateChangeStream<Item: AnyObject> {
         }
     }
 
-    private func processStructuralLocked(coalesced: Bool, recipients: [UUID]) {
-        guard !completed else { return }
+    private func processStructural(coalesced: Bool, recipients: [UUID]) {
         while true {
+            gate.lock()
+            let closed = completed
+            gate.unlock()
+            if closed { return }
+
             let version = currentStructuralVersion()
             let snapshot = snapshotSource()
             guard version == currentStructuralVersion() else { continue }
 
-            var plan = makePlan(snapshot, setup: false)
-            stageNewEntries(&plan, setup: false)
-            guard version == currentStructuralVersion() else {
-                disposeStaged(plan)
-                continue
+            guard let plan = stagePlan(snapshot, setup: false) else { return }
+            var released: [AnyCancellable] = []
+            var settled = false
+            gate.lock()
+            if completed {
+                released = releaseStagedLocked(plan)
+                settled = true
+            } else if version != currentStructuralVersion() {
+                released = releaseStagedLocked(plan)
+            } else {
+                released = commitLocked(plan)
+                if version == currentStructuralVersion() {
+                    var changes = [PendingChange(AggregateChange(reason: .membership))]
+                    appendBufferedItems(to: &changes)
+                    prepend(changes, coalesced: coalesced, recipients: recipients)
+                    settled = true
+                }
             }
-
-            commit(plan)
-            guard version == currentStructuralVersion() else { continue }
-
-            var changes = [PendingChange(AggregateChange(reason: .membership))]
-            appendBufferedItems(to: &changes)
-            prepend(changes, coalesced: coalesced, recipients: recipients)
-            return
+            gate.unlock()
+            for subscription in released { subscription.cancel() }
+            if settled { return }
         }
     }
 
@@ -492,16 +545,29 @@ public final class AggregateChangeStream<Item: AnyObject> {
         return SnapshotPlan(counts: counts, orderedItems: ordered)
     }
 
-    private func stageNewEntries(_ plan: inout SnapshotPlan, setup: Bool) {
+    /// Creates an entry for each new identity under the gate, then calls the
+    /// selector and subscribes with no gate held. Returns `nil` when the
+    /// aggregate completed first.
+    private func stagePlan(_ snapshot: [Item], setup: Bool) -> SnapshotPlan? {
+        gate.lock()
+        guard !completed else {
+            gate.unlock()
+            return nil
+        }
+        var plan = makePlan(snapshot, setup: setup)
         for (identity, item) in plan.orderedItems where entries[identity] == nil {
             nextEpoch &+= 1
-            let entry = Entry(
+            plan.staged.append(Entry(
                 item: item,
                 epoch: nextEpoch,
                 refcount: plan.counts[identity] ?? 1,
                 setup: setup
-            )
-            let publisher = observeItem(item)
+            ))
+        }
+        gate.unlock()
+
+        for entry in plan.staged {
+            let publisher = observeItem(entry.item)
             let cancellable = publisher.sink(
                 receiveCompletion: { [weak self, weak entry] _ in
                     guard let entry else { return }
@@ -513,17 +579,20 @@ public final class AggregateChangeStream<Item: AnyObject> {
                 }
             )
             entry.install(cancellable)
-            plan.staged.append(entry)
         }
+        return plan
     }
 
-    private func commit(_ plan: SnapshotPlan) {
+    /// Commits the plan and returns the subscriptions of the removed entries.
+    /// The caller cancels them after it leaves the gate.
+    private func commitLocked(_ plan: SnapshotPlan) -> [AnyCancellable] {
+        var released: [AnyCancellable] = []
         for (identity, existing) in entries {
             if let count = plan.counts[identity] {
                 existing.refcount = count
             } else {
                 existing.refcount = 0
-                existing.terminate()
+                if let subscription = existing.detach() { released.append(subscription) }
                 purgeStagedEmissions(for: existing)
                 entries.removeValue(forKey: identity)
             }
@@ -532,13 +601,18 @@ public final class AggregateChangeStream<Item: AnyObject> {
             staged.activate()
             entries[staged.identity] = staged
         }
+        return released
     }
 
-    private func disposeStaged(_ plan: SnapshotPlan) {
+    /// Ends every staged epoch and returns the staged subscriptions. The
+    /// caller cancels them after it leaves the gate.
+    private func releaseStagedLocked(_ plan: SnapshotPlan) -> [AnyCancellable] {
+        var released: [AnyCancellable] = []
         for staged in plan.staged {
-            staged.terminate()
+            if let subscription = staged.detach() { released.append(subscription) }
             purgeStagedEmissions(for: staged)
         }
+        return released
     }
 
     private func appendBufferedItems(to changes: inout [PendingChange]) {
@@ -592,7 +666,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
         if batchDepth > 0 { batchDepth -= 1 }
         if batchDepth == 0, batchDirty, !completed {
             batchDirty = false
-            let recipients = Array(batchRecipients)
+            let recipients = registrationOrder.filter(batchRecipients.contains)
             batchRecipients.removeAll()
             if !recipients.isEmpty {
                 work.append(.notification(

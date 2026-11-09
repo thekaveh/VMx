@@ -1493,12 +1493,12 @@ fn serviced_collection_concurrent_pushes_publish_in_committed_position_order() {
     assert_eq!(positions, (0..32).collect::<Vec<_>>());
 }
 
-/// COL-005 — ObservableList<T> ItemAdded payload shape
+/// COL-005 — ObservableList<T> with a hub publishes an Add message (payloads: `observable_list_events`)
 #[test]
 fn observable_list_add_emits_add() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
 
     list.push("a");
 
@@ -1509,18 +1509,18 @@ fn observable_list_add_emits_add() {
     );
 }
 
-/// COL-006 — ObservableList<T> ItemRemoved payload shape
+/// COL-006 — ObservableList<T> with a hub publishes a Remove message at the old index
 #[test]
 fn observable_list_remove_emits_remove() {
     let hub = MessageHub::new();
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
     list.push("a");
     list.push("b");
     list.push("c");
     let recorder = hub.record(1024);
 
-    // Rust has no typed ItemRemoved stream: the removed item is the return
-    // value and the position is the Remove message's `old_index`.
+    // The hub message carries the position as `old_index`; the typed
+    // `item_removed` payload is covered in `observable_list_events`.
     assert_eq!(list.remove_at(1).unwrap(), "b");
 
     let removals = recorder
@@ -1539,7 +1539,7 @@ fn observable_list_remove_emits_remove() {
 fn observable_list_remove_at_rejects_an_out_of_range_index() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let list = ObservableList::<&str>::new(1, hub.clone());
+    let list = ObservableList::<&str>::with_hub(1, hub.clone());
 
     assert_eq!(
         list.remove_at(0),
@@ -1548,12 +1548,12 @@ fn observable_list_remove_at_rejects_an_out_of_range_index() {
     assert!(recorder.messages().is_empty());
 }
 
-/// COL-007 — ObservableList<T> ItemReplaced payload shape
+/// COL-007 — ObservableList<T> with a hub publishes Replace without a Count change
 #[test]
 fn observable_list_replace_emits_replace_without_count_change() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
     list.push("a");
 
     let old = list.replace(0, "b").unwrap();
@@ -1568,7 +1568,7 @@ fn observable_list_replace_emits_replace_without_count_change() {
 fn observable_list_add_emits_count_notification_after_collection_change() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
 
     list.push("a");
 
@@ -1582,7 +1582,7 @@ fn observable_list_add_emits_count_notification_after_collection_change() {
 fn observable_list_batch_emits_single_reset() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
 
     list.batch_update(|| {
         list.push("a");
@@ -1599,7 +1599,7 @@ fn observable_list_batch_emits_single_reset() {
 /// COL-010 — ObservableDictionary insert and retrieve
 #[test]
 fn observable_dictionary_insert_and_get() {
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
 
     dictionary.add("a", 1, "x").unwrap();
 
@@ -1616,7 +1616,7 @@ fn observable_dictionary_insert_and_get() {
 /// COL-011 — ObservableDictionary remove
 #[test]
 fn observable_dictionary_remove() {
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
     dictionary.add("a", 1, "x").unwrap();
 
     assert_eq!(dictionary.remove(&"a", &1), Some("x"));
@@ -1629,7 +1629,7 @@ fn observable_dictionary_remove() {
 #[test]
 fn observable_dictionary_replace_existing_key() {
     let hub = MessageHub::new();
-    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
+    let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
     dictionary.add("a", 1, "x").unwrap();
     let recorder = hub.record(1024);
 
@@ -1646,21 +1646,21 @@ fn observable_dictionary_replace_existing_key() {
 /// COL-013 — ObservableDictionary distinct-key observable views stay in sync
 #[test]
 fn observable_multi_dictionary_distinct_key_views_stay_in_sync() {
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
 
     dictionary.insert("a", 1, "x");
     dictionary.insert("a", 2, "y");
     dictionary.remove(&"a", &1);
 
-    assert_eq!(dictionary.keys1(), vec!["a"]);
-    assert_eq!(dictionary.keys2(), vec![2]);
+    assert_eq!(dictionary.keys1().to_vec(), vec!["a"]);
+    assert_eq!(dictionary.keys2().to_vec(), vec![2]);
     assert_eq!(dictionary.count(), 1);
 }
 
 /// COL-014 — ObservableDictionary enumeration order is insertion order
 #[test]
 fn observable_dictionary_keys_are_in_insertion_order() {
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
     dictionary.add("b", 2, "first").unwrap();
     dictionary.add("a", 1, "second").unwrap();
     dictionary.add("b", 3, "third").unwrap();
@@ -1674,7 +1674,7 @@ fn observable_dictionary_keys_are_in_insertion_order() {
 /// COL-015 — ObservableDictionary clear empties keys views
 #[test]
 fn observable_dictionary_clear_empties_keys() {
-    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::with_hub(1, MessageHub::new());
     dictionary.add("a", 1, "x").unwrap();
     dictionary.add("b", 2, "y").unwrap();
 
@@ -1811,7 +1811,7 @@ fn paged_composition_composes_with_searchable_state() {
 fn observable_dictionary_publishes_to_hub() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
+    let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
 
     dictionary.add("a", 1, "x").unwrap();
     dictionary.insert("a", 1, "y");
@@ -1838,7 +1838,7 @@ fn observable_dictionary_publishes_to_hub() {
 fn observable_list_batch_end_count_notification() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
 
     list.batch_update(|| list.push("a"));
 
@@ -1866,7 +1866,7 @@ fn reset_and_count_events(recorder: &vmx::MessageRecorder) -> Vec<&'static str> 
 #[test]
 fn observable_list_batch_emits_reset_before_count() {
     let hub = MessageHub::new();
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
     list.push(10);
     let recorder = hub.record(1024);
 
@@ -1883,7 +1883,7 @@ fn observable_list_batch_emits_reset_before_count() {
 #[test]
 fn observable_list_empty_batch_emits_nothing() {
     let hub = MessageHub::new();
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
     list.push(1);
     let recorder = hub.record(1024);
 
@@ -1896,7 +1896,7 @@ fn observable_list_empty_batch_emits_nothing() {
 #[test]
 fn observable_list_replace_only_batch_emits_reset_without_count() {
     let hub = MessageHub::new();
-    let list = ObservableList::new(1, hub.clone());
+    let list = ObservableList::with_hub(1, hub.clone());
     list.push(1);
     list.push(2);
     let recorder = hub.record(1024);
@@ -2259,11 +2259,30 @@ fn token_paging_dispose_prevents_late_auto_construction_and_commit() {
 /// COL-031 — PagedComposition<TVM> observes composite collection changes
 #[test]
 fn paged_composition_can_recompute_after_source_collection_changes() {
-    let pages = PagedComposition::new(vec![1, 2], 2);
-    pages.push(3);
+    let hub = MessageHub::new();
+    let source: vmx::CompositeVm<ComponentVm<&str>> =
+        vmx::CompositeVm::with_services("source", hub.clone(), vmx::NullDispatcher::new());
+    let child = |name| ComponentVm::with_model(name, name, hub.clone(), vmx::NullDispatcher::new());
+    source.add(child("a")).unwrap();
+    source.add(child("b")).unwrap();
+    let pages = PagedComposition::from_composite(&source, 2);
+    let recorder = pages.hub().record(64);
+
+    source.add(child("c")).unwrap();
 
     assert_eq!(pages.page_count(), 2);
-    assert_eq!(pages.current_page(), vec![1, 2]);
+    assert_eq!(pages.current_page().len(), 2);
+    pages.move_to_next_page();
+    assert_eq!(pages.current_page(), vec![source.items()[2].clone()]);
+    let names: Vec<_> = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::PropertyChanged(change) => Some(change.property_name),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(&names[..2], ["page_count", "items"]);
 }
 
 /// COL-010 — ObservableDictionary Add carries its insertion position
@@ -2285,14 +2304,15 @@ fn observable_dictionary_add_publishes_its_insertion_index() {
             _ => None,
         })
         .collect();
-    assert_eq!(indices, vec![Some(0), Some(1), None]);
+    // A Replace carries the entry's position (spec/21 §4.7, ADR-0193).
+    assert_eq!(indices, vec![Some(0), Some(1), Some(0)]);
 }
 
 /// COL-010 — ObservableMultiDictionary Add carries its insertion position
 #[test]
 fn observable_multi_dictionary_add_publishes_its_insertion_index() {
     let hub = MessageHub::new();
-    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
+    let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
     let recorder = hub.record(1024);
 
     dictionary.add("a", 1, "x").unwrap();

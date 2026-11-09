@@ -1,6 +1,6 @@
 # ADR 0031 — Notification rendering VMs (`NotificationVM`, `ConfirmationVM`)
 
-**Status:** Accepted (2026-05-28)
+**Status:** Accepted (2026-05-28; amended by ADR-0197)
 **Spec version:** introduced in 2.1.0
 
 ## 1. Context

@@ -158,7 +158,7 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         var cancellables = Set<AnyCancellable>()
         command.approveErrors.sink { _ in errors += 1; observed.fulfill() }.store(in: &cancellables)
         command.approveCommand.execute()
-        await fulfillment(of: [observed], timeout: 2)
+        await fulfillment(of: [observed], timeout: hangGuard)
         XCTAssertEqual(errors, 1)
     }
 
@@ -192,7 +192,7 @@ final class FormVMResetOnApprovedTests: XCTestCase {
             .resetOnApproved { model in resets += 1; return model }.build()
         form.setModel("saved")
         let approval = Task { try await form.approveAsync() }
-        await fulfillment(of: [started], timeout: 2)
+        await fulfillment(of: [started], timeout: hangGuard)
         form.dispose()
         gate.release()
         try await approval.value
@@ -215,7 +215,7 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         form.onApproved.sink { approvedPayloads.append($0) }.store(in: &cancellables)
         form.setModel("saved")
         let approval = Task { try await form.approveAsync() }
-        await fulfillment(of: [started], timeout: 2)
+        await fulfillment(of: [started], timeout: hangGuard)
         form.setModel("racing-edit")
         gate.release()
         try await approval.value
@@ -242,7 +242,7 @@ final class FormVMResetOnApprovedTests: XCTestCase {
                 form.setModel("racing")
                 setterDone.signal()
             }
-            XCTAssertEqual(setterEntered.wait(timeout: .now() + 1), .success)
+            XCTAssertEqual(setterEntered.wait(timeout: .now() + hangGuard), .success)
             XCTAssertEqual(setterDone.wait(timeout: .now()), .timedOut)
             XCTAssertEqual(form.model, "reset:saved")
             XCTAssertEqual(form.snapshot, "reset:saved")
@@ -251,7 +251,7 @@ final class FormVMResetOnApprovedTests: XCTestCase {
 
         try await form.approveAsync()
 
-        XCTAssertEqual(setterDone.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(setterDone.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(form.model, "racing")
         XCTAssertEqual(form.snapshot, "reset:saved")
         XCTAssertTrue(form.isDirty)
@@ -293,16 +293,20 @@ final class FormVMResetOnApprovedTests: XCTestCase {
             }
         )
         let finished = expectation(description: "setModel returned")
+        let boxedForm = UncheckedSendableBox(form!)
         DispatchQueue.global().async {
-            form.setModel("next")
+            boxedForm.value.setModel("next")
             finished.fulfill()
         }
 
-        await fulfillment(of: [finished], timeout: 1)
+        await fulfillment(of: [finished], timeout: hangGuard)
         XCTAssertEqual(form.model, "next")
     }
 
-    func testAdmittedSetterCompletesBeforeQueuedDisposal() async throws {
+    // A disposal from another thread during a preparation marks the form
+    // disposed and returns; the admitted setter then commits nothing (§5.4,
+    // ADR-0215).
+    func testDisposalDuringAnAdmittedSetterReturnsAndTheSetterCommitsNothing() async throws {
         let validatorEntered = DispatchSemaphore(value: 0)
         let releaseValidator = DispatchSemaphore(value: 0)
         let hub = MessageHub()
@@ -329,7 +333,7 @@ final class FormVMResetOnApprovedTests: XCTestCase {
             form.setModel("accepted")
             setterDone.fulfill()
         }
-        XCTAssertEqual(validatorEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(validatorEntered.wait(timeout: .now() + hangGuard), .success)
         let disposeStarted = DispatchSemaphore(value: 0)
         let disposeDone = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
@@ -337,14 +341,13 @@ final class FormVMResetOnApprovedTests: XCTestCase {
             form.dispose()
             disposeDone.signal()
         }
-        XCTAssertEqual(disposeStarted.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(disposeDone.wait(timeout: .now()), .timedOut)
+        XCTAssertEqual(disposeStarted.wait(timeout: .now() + hangGuard), .success)
+        XCTAssertEqual(disposeDone.wait(timeout: .now() + hangGuard), .success)
         releaseValidator.signal()
 
-        await fulfillment(of: [setterDone], timeout: 1)
-        XCTAssertEqual(disposeDone.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(form.model, "accepted")
-        XCTAssertEqual(publishedModels, ["accepted"])
+        await fulfillment(of: [setterDone], timeout: hangGuard)
+        XCTAssertEqual(form.model, "initial")
+        XCTAssertEqual(publishedModels, [])
     }
 
     // Disposal by a callback during preparation makes the result stale (§5.4).

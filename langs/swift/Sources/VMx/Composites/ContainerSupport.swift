@@ -15,17 +15,19 @@ enum ContainerSupport {
     /// equivalent `CollectionChangedMessage` on the container's `hub`, sent
     /// by the container (spec/01 §1.4, spec/06 §4, spec/07, ADR-0142). Like
     /// the local delivery, it runs outside `gate`; publication uses the hub's
-    /// ordinary `send`, so hub transactions defer it. A disposed container
-    /// publishes nothing.
+    /// ordinary `send`, so hub transactions defer it. A container whose
+    /// disposal is requested or deferred publishes nothing. The check runs
+    /// after the local subscribers return, so a subscriber that disposes the
+    /// container suppresses the hub message of that change (ADR-0190).
     static func deliverCollectionChanged(
         _ event: CollectionChangedEvent,
         from container: ComponentVMBase,
         subject: PassthroughSubject<CollectionChangedEvent, Never>,
         gate: NSRecursiveLock,
-        disposeRequested: () -> Bool
+        disposalPending: () -> Bool
     ) {
         subject.send(event)
-        guard !gate.withLock(disposeRequested) else { return }
+        guard !gate.withLock(disposalPending) else { return }
         container.hub.send(event.hubMessage(sentBy: container))
     }
 

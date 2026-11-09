@@ -66,7 +66,18 @@ public sealed class CompositeVMOfM<M, VM> : CompositeVMBase<VM>, ICompositeVM<M,
     protected override void PopulateChildren()
     {
         if (_populated) return;
-        var children = _childrenModels().Select(_childModelToChildViewModel).ToArray();
+        // A projector that throws disposes the children it already built
+        // (#1324); the composite keeps no children.
+        var children = new List<VM>();
+        try
+        {
+            foreach (var model in _childrenModels()) children.Add(_childModelToChildViewModel(model));
+        }
+        catch
+        {
+            UnownedCandidates.Dispose(this, children);
+            throw;
+        }
         AttachPopulation(children, () => _populated = true);
     }
 }

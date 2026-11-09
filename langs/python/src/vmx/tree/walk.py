@@ -1,6 +1,6 @@
 """Depth-first walk / find over a VMx hierarchy.
 
-See spec/13-tree-utilities.md (UTIL-001..003).
+See spec/13-tree-utilities.md (UTIL-001..004).
 """
 
 from __future__ import annotations
@@ -63,17 +63,14 @@ def walk_expanded(root: ComponentVMProto) -> Iterator[ComponentVMProto]:
 
 def _children(node: ComponentVMProto) -> Iterator[ComponentVMProto]:
     if hasattr(node, "__iter__"):
-        try:
-            iterator = iter(cast(Iterable[object], node))
-        except TypeError:
-            # A guarded proxy may advertise __iter__ but reject iterator
-            # acquisition. Fall through to aggregate slot probing below.
-            pass
-        else:
-            for child in iterator:
-                if isinstance(child, _ComponentVMBase):
-                    yield child
-            return
+        # Any error from iter(node), including a TypeError, propagates. For a
+        # HierarchicalVM, iter() reads ``children`` and runs the factory, so a
+        # caught error would turn invalid factory output into a leaf
+        # (spec/13 §6.1, ADR-0170, ADR-0212).
+        for child in cast(Iterable[object], node):
+            if isinstance(child, _ComponentVMBase):
+                yield child
+        return
 
     # Aggregates expose a typed ``components()`` accessor (VMX-137) — no
     # per-arity ``component_{i}`` slot-name reflection, so AggregateVM7+ would be

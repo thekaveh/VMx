@@ -296,7 +296,7 @@ final class CurrentSelectionDisposalConformanceTests: XCTestCase {
                 do { try p.setCurrent(b) } catch { threadError = error }
                 done.signal()
             }
-            XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
+            XCTAssertEqual(done.wait(timeout: .now() + hangGuard), .success)
         })
         b = vm("b", hub: hub)
         p = CompositeVM<ComponentVMBase>(

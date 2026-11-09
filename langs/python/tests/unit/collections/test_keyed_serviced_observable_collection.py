@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 import pytest
@@ -198,3 +199,128 @@ def test_empty_slice_delete_and_assign_emit_nothing() -> None:
 
     assert events == []
     assert [item.key for item in sut] == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# extend and += are atomic (#1321, ADR-0214, spec/21 §2.10)
+# ---------------------------------------------------------------------------
+
+
+class _Hub:
+    def __init__(self) -> None:
+        self.messages: list[CollectionChangedMessage[int]] = []
+
+    def send(self, message: CollectionChangedMessage[int]) -> None:
+        self.messages.append(message)
+
+
+def _int_keyed(
+    key_of: Callable[[int], int] = lambda value: value,
+) -> tuple[KeyedServicedObservableCollection[int, int], list[CollectionChangedMessage[int]], _Hub]:
+    hub = _Hub()
+    sut: KeyedServicedObservableCollection[int, int] = KeyedServicedObservableCollection(
+        key_of, hub=hub
+    )
+    sut.append(1)
+    sut.append(3)
+    hub.messages.clear()
+    local: list[CollectionChangedMessage[int]] = []
+    sut.on_collection_changed.subscribe(local.append)
+    return sut, local, hub
+
+
+def _assert_unchanged(
+    sut: KeyedServicedObservableCollection[int, int],
+    local: list[CollectionChangedMessage[int]],
+    hub: _Hub,
+) -> None:
+    assert list(sut) == [1, 3]
+    assert (sut.get(1), sut.get(3), sut.get(5), sut.get(7)) == (1, 3, None, None)
+    assert (sut.contains_key(1), sut.contains_key(3), sut.contains_key(5)) == (True, True, False)
+    assert local == []
+    assert hub.messages == []
+
+
+def _iadd(sut: KeyedServicedObservableCollection[int, int], values: list[int]) -> None:
+    sut += values
+
+
+@pytest.mark.parametrize(
+    ("operation", "values"),
+    [
+        ("extend", [5, 5]),
+        ("iadd", [5, 5]),
+        ("extend", [5, 3]),
+        ("iadd", [5, 3]),
+    ],
+)
+def test_extend_and_iadd_with_a_duplicate_key_change_nothing(
+    operation: str, values: list[int]
+) -> None:
+    sut, local, hub = _int_keyed()
+
+    with pytest.raises(ValueError):
+        if operation == "extend":
+            sut.extend(values)
+        else:
+            _iadd(sut, values)
+
+    _assert_unchanged(sut, local, hub)
+
+
+class _ProjectorError(Exception):
+    pass
+
+
+class _IterationError(Exception):
+    pass
+
+
+def test_extend_projector_failure_propagates_and_changes_nothing() -> None:
+    def key_of(value: int) -> int:
+        if value == 7:
+            raise _ProjectorError
+        return value
+
+    sut, local, hub = _int_keyed(key_of)
+
+    with pytest.raises(_ProjectorError):
+        sut.extend([5, 7])
+
+    _assert_unchanged(sut, local, hub)
+
+
+def test_extend_iteration_failure_propagates_and_changes_nothing() -> None:
+    def values() -> Iterator[int]:
+        yield 5
+        raise _IterationError
+
+    sut, local, hub = _int_keyed()
+
+    with pytest.raises(_IterationError):
+        sut.extend(values())
+
+    _assert_unchanged(sut, local, hub)
+
+
+@pytest.mark.parametrize("operation", ["extend", "iadd"])
+def test_extend_success_emits_one_reset_on_each_channel(operation: str) -> None:
+    sut, local, hub = _int_keyed()
+
+    if operation == "extend":
+        sut.extend([5, 7])
+    else:
+        _iadd(sut, [5, 7])
+
+    assert list(sut) == [1, 3, 5, 7]
+    assert (sut.get(5), sut.get(7)) == (5, 7)
+    assert [message.action for message in local] == ["reset"]
+    assert [message.action for message in hub.messages] == ["reset"]
+
+
+def test_extend_with_empty_input_emits_nothing() -> None:
+    sut, local, hub = _int_keyed()
+
+    sut.extend([])
+
+    _assert_unchanged(sut, local, hub)

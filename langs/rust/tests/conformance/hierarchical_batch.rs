@@ -324,3 +324,288 @@ fn a_parked_item_whose_selector_fails_stays_parked_for_the_next_batch() {
     assert!(orphan.parent() == Some(parent.clone()));
     assert!(parent.children() == vec![orphan]);
 }
+
+fn lazy_node<F>(key: &str, parent_key: Option<&str>, factory: F) -> HierarchicalVm<Model>
+where
+    F: Fn(&HierarchicalVm<Model>) -> Vec<HierarchicalVm<Model>> + Send + Sync + 'static,
+{
+    HierarchicalVm::with_children_factory(
+        key,
+        Model {
+            key: key.to_string(),
+            parent_key: parent_key.map(str::to_string),
+        },
+        factory,
+        false,
+        vmx::MessageHub::new(),
+    )
+}
+
+/// HIER-042 — an attached candidate's materialized subtree joins the batch index.
+#[test]
+fn candidate_attaches_below_a_node_of_an_attached_subtree() {
+    let root = node("root", None);
+    let p = node("p", None);
+    let c = node("c", None);
+    p.add_child(c.clone()).unwrap();
+    let x = node("x", Some("c"));
+
+    let result = attach(&root, vec![p.clone(), x.clone()], MissingParentPolicy::Park);
+
+    assert!(result.added == vec![p.clone(), x.clone()]);
+    assert!(result.rejections.is_empty());
+    assert!(result.orphans.is_empty());
+    assert!(result.duplicates.is_empty());
+    assert!(root.children() == vec![p.clone()]);
+    assert!(p.children() == vec![c.clone()]);
+    assert!(c.children() == vec![x.clone()]);
+    assert!(x.path() == vec![root.clone(), p, c, x.clone()]);
+    assert_eq!(root.parked_attach_count(), 0);
+}
+
+/// HIER-042 — a parent key that names the candidate's own descendant is a cycle.
+#[test]
+fn parent_key_naming_own_descendant_is_a_cycle() {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = std::sync::Arc::clone(&calls);
+    let root = node("root", None);
+    let q = node("q", Some("d"));
+    let d = lazy_node("d", None, move |_| {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Vec::new()
+    });
+    q.add_child(d).unwrap();
+
+    let result = attach(&root, vec![q.clone()], MissingParentPolicy::Park);
+
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "reading subtree keys must not run a children factory"
+    );
+    assert!(result.added.is_empty());
+    assert!(result.orphans.is_empty());
+    assert_eq!(result.rejections.len(), 1);
+    assert!(result.rejections[0].item == q);
+    assert_eq!(
+        result.rejections[0].reason,
+        BatchAttachRejectionReason::Cycle
+    );
+    assert_eq!(root.parked_attach_count(), 0);
+    assert!(q.parent().is_none());
+}
+
+/// HIER-043 — a descendant key in the index rejects the candidate.
+#[test]
+fn descendant_key_in_the_index_rejects_the_candidate() {
+    let root = node("root", None);
+    let existing = node("c", None);
+    root.add_child(existing.clone()).unwrap();
+    let p = node("p", None);
+    let inner = node("c", None);
+    p.add_child(inner.clone()).unwrap();
+
+    let result = attach(&root, vec![p.clone()], MissingParentPolicy::Park);
+
+    assert!(result.added.is_empty());
+    assert!(result.duplicates == vec![p.clone()]);
+    assert_eq!(result.rejections.len(), 1);
+    assert_eq!(
+        result.rejections[0].reason,
+        BatchAttachRejectionReason::DuplicateExistingKey
+    );
+    assert!(p.parent().is_none());
+    assert!(p.children() == vec![inner]);
+    assert!(root.children() == vec![existing]);
+}
+
+/// HIER-043 — a descendant key claimed first rejects a later candidate.
+#[test]
+fn descendant_key_claimed_first_rejects_a_later_candidate() {
+    let root = node("root", None);
+    let p = node("p", None);
+    let c = node("c", None);
+    p.add_child(c.clone()).unwrap();
+    let c2 = node("c", Some("p"));
+
+    let result = attach(
+        &root,
+        vec![p.clone(), c2.clone()],
+        MissingParentPolicy::Park,
+    );
+
+    assert!(result.added == vec![p.clone()]);
+    assert!(result.duplicates == vec![c2.clone()]);
+    assert_eq!(result.rejections.len(), 1);
+    assert!(result.rejections[0].item == c2);
+    assert_eq!(
+        result.rejections[0].reason,
+        BatchAttachRejectionReason::DuplicateBatchKey
+    );
+    assert!(p.children() == vec![c]);
+    assert!(c2.parent().is_none());
+}
+
+/// HIER-043 — an earlier candidate key rejects a subtree that repeats it.
+#[test]
+fn earlier_candidate_key_rejects_a_subtree_that_repeats_it() {
+    let root = node("root", None);
+    let p = node("p", None);
+    let c = node("c", None);
+    p.add_child(c.clone()).unwrap();
+    let c2 = node("c", Some("p"));
+
+    let result = attach(
+        &root,
+        vec![c2.clone(), p.clone()],
+        MissingParentPolicy::Park,
+    );
+
+    assert!(result.added.is_empty());
+    assert!(result.duplicates == vec![p.clone()]);
+    assert!(result.orphans == vec![c2.clone()]);
+    assert_eq!(result.rejections.len(), 2);
+    assert!(result.rejections.iter().any(|rejection| rejection.item == p
+        && rejection.reason == BatchAttachRejectionReason::DuplicateBatchKey));
+    assert!(result
+        .rejections
+        .iter()
+        .any(|rejection| rejection.item == c2
+            && rejection.reason == BatchAttachRejectionReason::MissingParent));
+    assert!(p.parent().is_none());
+    assert!(c2.parent().is_none());
+    assert!(p.children() == vec![c]);
+}
+
+/// HIER-043 — a node of an earlier candidate's subtree is `AlreadyAttached` in
+/// either batch order and never a duplicate.
+#[test]
+fn node_of_an_earlier_subtree_is_already_attached() {
+    for child_first in [false, true] {
+        let root = node("root", None);
+        let p = node("p", None);
+        let c = node("c", None);
+        p.add_child(c.clone()).unwrap();
+        let items = if child_first {
+            vec![c.clone(), p.clone()]
+        } else {
+            vec![p.clone(), c.clone()]
+        };
+
+        let result = attach(&root, items, MissingParentPolicy::Park);
+
+        assert!(
+            result.added == vec![p.clone()],
+            "child_first: {child_first}"
+        );
+        assert!(result.duplicates.is_empty(), "child_first: {child_first}");
+        assert_eq!(result.rejections.len(), 1);
+        assert!(result.rejections[0].item == c);
+        assert_eq!(
+            result.rejections[0].reason,
+            BatchAttachRejectionReason::AlreadyAttached
+        );
+        assert!(c.parent() == Some(p.clone()));
+        assert!(p.children() == vec![c]);
+    }
+}
+
+/// HIER-043 — a duplicate key inside one candidate's subtree rejects the
+/// candidate as `DuplicateBatchKey`.
+#[test]
+fn duplicate_key_inside_one_subtree_rejects_the_candidate() {
+    let root = node("root", None);
+    let p = node("p", None);
+    let d1 = node("d", None);
+    let d2 = node("d", None);
+    p.add_child(d1.clone()).unwrap();
+    p.add_child(d2.clone()).unwrap();
+
+    let result = attach(&root, vec![p.clone()], MissingParentPolicy::Park);
+
+    assert!(result.added.is_empty());
+    assert!(result.duplicates == vec![p.clone()]);
+    assert_eq!(result.rejections.len(), 1);
+    assert!(result.rejections[0].item == p);
+    assert_eq!(
+        result.rejections[0].reason,
+        BatchAttachRejectionReason::DuplicateBatchKey
+    );
+    assert!(p.parent().is_none());
+    assert!(p.children() == vec![d1, d2]);
+}
+
+/// HIER-043 — a descendant `key_of` failure rejects a parked candidate as
+/// `SelectorFailed` and keeps it parked.
+#[test]
+fn descendant_selector_failure_keeps_a_parked_candidate_parked() {
+    fn attach_failing(
+        root: &HierarchicalVm<Model>,
+        items: Vec<HierarchicalVm<Model>>,
+    ) -> vmx::BatchAttachResult<HierarchicalVm<Model>> {
+        root.attach_many(
+            items,
+            |item| {
+                let key = item.model().key;
+                if key == "bad" {
+                    Err(VmxError::InvalidArgument("key_of failed".to_string()))
+                } else {
+                    Ok(key)
+                }
+            },
+            |item| Ok(item.model().parent_key),
+            MissingParentPolicy::Park,
+        )
+    }
+    let root = node("root", None);
+    let p = node("p", Some("m"));
+    let parked = attach_failing(&root, vec![p.clone()]);
+    assert!(parked.orphans == vec![p.clone()]);
+    assert_eq!(root.parked_attach_count(), 1);
+    p.add_child(node("bad", None)).unwrap();
+
+    let result = attach_failing(&root, Vec::new());
+
+    assert!(result.added.is_empty());
+    assert!(result.duplicates.is_empty());
+    assert_eq!(result.rejections.len(), 1);
+    assert!(result.rejections[0].item == p);
+    assert_eq!(
+        result.rejections[0].reason,
+        BatchAttachRejectionReason::SelectorFailed
+    );
+    assert_eq!(root.parked_attach_count(), 1);
+    assert!(p.parent().is_none());
+}
+
+/// HIER-044 — factory children that `add_child` materializes join the index
+/// only in the next batch.
+#[test]
+fn factory_children_join_the_index_only_in_the_next_batch() {
+    let root = node("root", None);
+    let f = node("f", None);
+    let factory_child = f.clone();
+    let lazy = lazy_node("L", None, move |_| vec![factory_child.clone()]);
+    root.add_child(lazy.clone()).unwrap();
+    let y = node("y", Some("L"));
+    let z = node("z", Some("f"));
+
+    let first = attach(&root, vec![y.clone(), z.clone()], MissingParentPolicy::Park);
+
+    assert!(first.added == vec![y.clone()]);
+    assert!(lazy.children() == vec![f.clone(), y]);
+    assert!(first.orphans == vec![z.clone()]);
+    assert_eq!(first.rejections.len(), 1);
+    assert_eq!(
+        first.rejections[0].reason,
+        BatchAttachRejectionReason::MissingParent
+    );
+    assert_eq!(root.parked_attach_count(), 1);
+
+    let second = attach(&root, Vec::new(), MissingParentPolicy::Park);
+
+    assert!(second.added == vec![z.clone()]);
+    assert!(second.rejections.is_empty());
+    assert!(z.parent() == Some(f));
+    assert_eq!(root.parked_attach_count(), 0);
+}

@@ -272,9 +272,10 @@ function recoverDropped(scheduler: SchedulerLike, run: () => void): void {
 }
 
 /**
- * The lifecycle actions that VMx queued on a scheduler and that have not run
- * yet (#1053). These are the completions on the foreground, and the background
- * actions of `construct()` and `destruct()`.
+ * The actions that VMx queued on a scheduler and that have not run yet
+ * (#1053). These are the lifecycle completions on the foreground, the
+ * background actions of `construct()` and `destruct()`, and the asynchronous
+ * selection deliveries of a composite (#1421).
  */
 interface CountedActions {
   pending: number;
@@ -303,7 +304,8 @@ function countedActionsOf(scheduler: SchedulerLike): CountedActions {
  * the action as dropped and runs `work`, so the VM still settles (#1052).
  * VMx never unsubscribes these actions itself. A custom scheduler that cancels
  * queued work by unsubscribing it calls the public `markSchedulerCancelled`
- * first, as `ManualDispatcher` does; otherwise VMx runs that work (ADR-0200).
+ * first, as `ManualDispatcher` does; otherwise VMx runs that work, including
+ * lifecycle work and asynchronous selection deliveries (ADR-0200).
  * `schedule` returns null when it cannot give the action's subscription, such
  * as for an override of `_scheduleForeground`.
  */
@@ -1557,6 +1559,19 @@ export abstract class ComponentVMBase {
 
   /** Queue `work` on the foreground as a counted completion (#1053). */
   #queueCompletion(work: () => void): void {
+    this._scheduleForegroundCounted(work);
+  }
+
+  /**
+   * @internal Unsupported: not part of the public API; containers only.
+   * Queue `work` through `_scheduleForeground` as a counted foreground
+   * action (#1053). A flush error from other work, also work that
+   * VMx did not queue, does not drop it: its finalizer runs it (#1052). A
+   * composite queues an asynchronous selection delivery here (#1421). A
+   * scheduler that marks itself cancelled, such as a disposed
+   * `ManualDispatcher`, does not run it.
+   */
+  protected _scheduleForegroundCounted(work: () => void): void {
     scheduleCounted(this.#dispatcher.foreground, (w) => this.#scheduleForegroundTracked(w), work);
   }
 

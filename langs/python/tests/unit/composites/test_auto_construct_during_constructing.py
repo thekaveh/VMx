@@ -17,7 +17,7 @@ from typing import Any, Protocol
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import join_thread, wait_event
 from vmx.components._late_child_starts import _LateChildStage, _LateChildStarts
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -207,7 +207,7 @@ class _Pause:
 
     def hold(self) -> None:
         self.paused.set()
-        self.resume.wait(HANG_GUARD)
+        wait_event(self.resume)
 
 
 def _pause_add_after_attach(root: _Container, late: ComponentVM, pause: _Pause) -> None:
@@ -248,12 +248,12 @@ def _add_while_walk_pulls(
     adder = threading.Thread(target=add, daemon=True)
     adder.start()
     try:
-        assert pause.paused.wait(HANG_GUARD), "the add pauses before the late child settles"
+        assert wait_event(pause.paused), "the add pauses before the late child settles"
         bg.run_first()  # the original child settles; the walk pulls ``late``
         while_paused()
     finally:
         pause.resume.set()
-        adder.join(HANG_GUARD)
+        join_thread(adder)
     assert not adder.is_alive(), "the paused add resumes and completes"
     bg.run_all()
     return errors

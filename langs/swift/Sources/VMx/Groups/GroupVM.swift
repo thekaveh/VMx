@@ -105,8 +105,7 @@ open class GroupVM<Child: ComponentVMBase>:
 
     // ── Batch-update state ──────────────────────────────────────────────
 
-    private var _batchLevel = 0
-    private var _batchDirty = false
+    private let batch = ContainerBatch()
 
     // ── CollectionChanged publisher ─────────────────────────────────────
 
@@ -128,18 +127,13 @@ open class GroupVM<Child: ComponentVMBase>:
     /// Nested `batchUpdate()` calls are supported via a reference counter; the
     /// reset fires only when the outermost batch ends.
     public func batchUpdate() -> BatchUpdateHandle {
-        _batchLevel += 1
+        batch.enter()
         return BatchUpdateHandle(owner: self)
     }
 
     /// Called by `BatchUpdateHandle.dispose()` — do not call directly.
     func _exitBatch() {
-        guard _batchLevel > 0 else { return }
-        _batchLevel -= 1
-        if _batchLevel == 0 && _batchDirty {
-            _batchDirty = false
-            deliverCollectionChanged(.reset())
-        }
+        batch.exit(deliver: deliverCollectionChanged)
     }
 
     public init(
@@ -324,11 +318,7 @@ open class GroupVM<Child: ComponentVMBase>:
         let index = membershipGate.withLock {
             children.firstIndex(where: { $0 === child }) ?? Swift.max(children.count - 1, 0)
         }
-        if _batchLevel > 0 {
-            _batchDirty = true
-        } else {
-            deliverCollectionChanged(.added(child, at: index))
-        }
+        emit(.added(child, at: index))
         return .success(())
     }
 
@@ -434,18 +424,34 @@ open class GroupVM<Child: ComponentVMBase>:
         }
         guard let (item, index) = removed else { return false }
         // Emit AFTER the child has been removed and parent cleared.
-        if _batchLevel > 0 {
-            _batchDirty = true
-        } else {
-            deliverCollectionChanged(.removed(item, at: index))
-        }
+        emit(.removed(item, at: index))
         return true
     }
 
+    /// Removes the child at `index`. An index outside `[0, count)` or a
+    /// refused membership transaction changes nothing; `removeAtResult(_:)`
+    /// reports it (ADR-0217).
     public func removeAt(_ index: Int) {
-        guard (try? beginMembershipTransaction()) != nil else { return }
+        _ = removeAtResult(index)
+    }
+
+    /// Catchable form of `removeAt(_:)` (ADR-0217), in the `Result` pattern
+    /// of `insertResult` and `replaceResult` (ADR-0107). An index outside
+    /// `[0, count)` returns `.attachmentFailed(VMCollectionIndexError)`,
+    /// changes nothing and emits nothing.
+    @discardableResult
+    public func removeAtResult(_ index: Int) -> Result<Void, ContainerOwnershipError> {
+        do { _ = try beginMembershipTransaction() } catch let error as ContainerOwnershipError {
+            return .failure(error)
+        } catch {
+            return .failure(.attachmentFailed(error))
+        }
         defer { endMembershipTransaction() }
-        let child: Child? = membershipGate.withLock {
+        let childCount = membershipGate.withLock { children.count }
+        guard index >= 0 && index < childCount else {
+            return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: childCount)))
+        }
+        let child: Child = membershipGate.withLock {
             let removed = children.remove(at: index)
             if removed._ownershipParent === groupParent {
                 removed._parent = nil
@@ -453,8 +459,8 @@ open class GroupVM<Child: ComponentVMBase>:
             }
             return removed
         }
-        guard let child else { return }
         emit(.removed(child, at: index))
+        return .success(())
     }
 
     public func replace(at index: Int, with child: Child) {
@@ -592,11 +598,7 @@ open class GroupVM<Child: ComponentVMBase>:
     }
 
     private func emit(_ event: CollectionChangedEvent) {
-        if _batchLevel > 0 {
-            _batchDirty = true
-        } else {
-            deliverCollectionChanged(event)
-        }
+        batch.emit(event, deliver: deliverCollectionChanged)
     }
 
     /// Delivers `event` locally, then publishes it on `hub` (see
@@ -608,7 +610,7 @@ open class GroupVM<Child: ComponentVMBase>:
             from: self,
             subject: collectionChangedSubject,
             gate: membershipGate,
-            disposeRequested: { disposeRequested }
+            disposalPending: { disposeRequested || disposeDeferred }
         )
     }
 

@@ -577,6 +577,183 @@ public sealed class AggregateChangeStreamConformanceTests
         Assert.Equal(1, completionCount);
     }
 
+    [Fact, Trait("Conformance", "AGCH-011")]
+    public void AGCH_011_SubscribersOfOneEnvelopeReceiveItInSubscriptionOrder()
+    {
+        var source = new TestSource<TestItem>(new TestItem("first"));
+        var aggregate = CreateAggregate(source);
+        var order = new List<string>();
+        var subscriptions = Enumerable.Range(0, 5)
+            .Select(label => aggregate.Observe().Subscribe(
+                change => order.Add($"{change.Reason}:{label}"),
+                () => order.Add($"Completed:{label}")))
+            .ToList();
+
+        source.Add(new TestItem("plain"));
+        Assert.Equal(Enumerable.Range(0, 5).Select(label => $"Membership:{label}"), order);
+
+        order.Clear();
+        aggregate.Batch(() => source.Add(new TestItem("batched")));
+        Assert.Equal(Enumerable.Range(0, 5).Select(label => $"Batch:{label}"), order);
+
+        order.Clear();
+        aggregate.Dispose();
+        Assert.Equal(Enumerable.Range(0, 5).Select(label => $"Completed:{label}"), order);
+        subscriptions.ForEach(subscription => subscription.Dispose());
+    }
+
+    private static readonly int[] ResubscribedOrder = [0, 2, 3, 4, 1];
+
+    [Fact]
+    public void AGCH_011_ResubscriptionReceivesEnvelopesLast()
+    {
+        var source = new TestSource<TestItem>(new TestItem("first"));
+        using var aggregate = CreateAggregate(source);
+        var order = new List<int>();
+        IDisposable Observe(int label) => aggregate.Observe().Subscribe(_ => order.Add(label));
+        var subscriptions = Enumerable.Range(0, 5).Select(Observe).ToList();
+
+        subscriptions[1].Dispose();
+        subscriptions[1] = Observe(1);
+        source.Add(new TestItem("plain"));
+        Assert.Equal(ResubscribedOrder, order);
+
+        order.Clear();
+        aggregate.Batch(() => source.Add(new TestItem("batched")));
+        Assert.Equal(ResubscribedOrder, order);
+        subscriptions.ForEach(subscription => subscription.Dispose());
+    }
+
+    // AGCH-012 (ADR-0214, #1325): the aggregate holds no gate while it calls the
+    // source, the selector, a selected stream's subscribe or a subscription's
+    // disposal. A source that raises its structural callback under its own lock
+    // therefore cannot deadlock with the aggregate.
+    private static readonly TimeSpan JoinBound = TimeSpan.FromSeconds(5);
+
+    [Fact, Trait("Conformance", "AGCH-012")]
+    public void AGCH_012_SetupDoesNotDeadlockWithASourceThatNotifiesUnderItsLock()
+    {
+        var source = new LockingSource();
+        var first = new LockedItem("first");
+        var second = new LockedItem("second");
+        source.AddThenNotify(first);
+        Thread? adder = null;
+        AggregateChangeStream<LockedItem>? aggregate = null;
+        IObservable<Unit> Select(LockedItem item)
+        {
+            if (ReferenceEquals(item, first) && adder is null)
+            {
+                adder = Background(() => source.AddUnderLock(second));
+                Assert.True(source.Holding.Wait(JoinBound));
+                Thread.Sleep(200);
+            }
+
+            return item.Changes;
+        }
+
+        Thread constructor = Background(() => aggregate = new AggregateChangeStream<LockedItem>(source, Select));
+
+        Assert.True(constructor.Join(JoinBound));
+        Assert.True(adder!.Join(JoinBound));
+        var changes = new List<AggregateChange<LockedItem>>();
+        using var subscription = aggregate!.Observe().Subscribe(changes.Add);
+        second.Changes.OnNext(Unit.Default);
+        AggregateChange<LockedItem> change = Assert.Single(changes);
+        Assert.Equal(AggregateChangeReason.Item, change.Reason);
+        Assert.Same(second, change.Item);
+        aggregate.Dispose();
+    }
+
+    [Fact, Trait("Conformance", "AGCH-012")]
+    public void AGCH_012_DrainDoesNotDeadlockWithASourceThatNotifiesUnderItsLock()
+    {
+        var source = new LockingSource();
+        var trigger = new LockedItem("trigger");
+        var second = new LockedItem("second");
+        Thread? adder = null;
+        IObservable<Unit> Select(LockedItem item)
+        {
+            if (ReferenceEquals(item, trigger) && adder is null)
+            {
+                adder = Background(() => source.AddUnderLock(second));
+                Assert.True(source.Holding.Wait(JoinBound));
+                Thread.Sleep(200);
+            }
+
+            return item.Changes;
+        }
+
+        using var aggregate = new AggregateChangeStream<LockedItem>(source, Select);
+        var changes = new List<AggregateChange<LockedItem>>();
+        using var subscription = aggregate.Observe().Subscribe(changes.Add);
+
+        Thread drainer = Background(() => source.AddThenNotify(trigger));
+
+        Assert.True(drainer.Join(JoinBound));
+        Assert.True(adder!.Join(JoinBound));
+        changes.Clear();
+        second.Changes.OnNext(Unit.Default);
+        AggregateChange<LockedItem> change = Assert.Single(changes);
+        Assert.Equal(AggregateChangeReason.Item, change.Reason);
+        Assert.Same(second, change.Item);
+    }
+
+    [Fact, Trait("Conformance", "AGCH-012")]
+    public void AGCH_012_DisposeDoesNotDeadlockWithASourceThatNotifiesUnderItsLock()
+    {
+        var source = new LockingSource();
+        source.AddThenNotify(new LockedItem("first"));
+        var aggregate = new AggregateChangeStream<LockedItem>(source, item => item.Changes);
+        // The adder holds the source lock, waits so that Dispose reaches the
+        // unsubscribe (which takes the same lock), then raises the callback.
+        source.WhileHoldingLock = () => Thread.Sleep(200);
+
+        Thread adder = Background(() => source.AddUnderLock(new LockedItem("second")));
+        Assert.True(source.Holding.Wait(JoinBound));
+        Thread disposer = Background(aggregate.Dispose);
+
+        Assert.True(disposer.Join(JoinBound));
+        Assert.True(adder.Join(JoinBound));
+        Assert.Equal(0, source.HandlerCount);
+    }
+
+    private static Thread Background(Action action)
+    {
+        var thread = new Thread(() => action()) { IsBackground = true };
+        thread.Start();
+        return thread;
+    }
+
+    // ADR-0214, #1325: setup holds no gate, so a Dispose() can run before setup
+    // commits. Setup then releases what it subscribed instead of keeping it.
+    [Fact]
+    public void DisposeDuringSetupReleasesTheStagedAndStructuralSubscriptions()
+    {
+        var staged = new TestItem("staged");
+        var stagedSource = new TestSource<TestItem>(staged);
+        var stagedAggregate = new AggregateChangeStream<TestItem>(stagedSource, item =>
+        {
+            Assert.IsType<AggregateChangeStream<TestItem>>(stagedSource.CallbackTarget).Dispose();
+            return item.Changes;
+        });
+
+        Assert.Equal(1, staged.Changes.SubscribeCount);
+        Assert.Equal(1, staged.Changes.DisposeCount);
+        Assert.Equal(0, stagedSource.StructuralSubscriberCount);
+        stagedAggregate.Dispose();
+
+        var structural = new TestItem("structural");
+        var structuralSource = new TestSource<TestItem>(structural);
+        structuralSource.AfterSubscribe = () =>
+            Assert.IsType<AggregateChangeStream<TestItem>>(structuralSource.CallbackTarget).Dispose();
+        var structuralAggregate = CreateAggregate(structuralSource);
+
+        Assert.Equal(0, structuralSource.StructuralSubscriberCount);
+        Assert.Equal(0, structuralSource.SnapshotCount);
+        Assert.Equal(0, structural.Changes.SubscribeCount);
+        structuralAggregate.Dispose();
+    }
+
     private static AggregateChangeStream<TestItem> CreateAggregate(
         IObservableMembershipSource<TestItem> source) =>
         new(source, item => item.Changes);
@@ -612,6 +789,8 @@ public sealed class AggregateChangeStreamConformanceTests
 
         internal object? CallbackTarget { get; private set; }
 
+        internal Action? AfterSubscribe { get; set; }
+
         public IReadOnlyList<T> Snapshot()
         {
             SnapshotCount++;
@@ -622,7 +801,9 @@ public sealed class AggregateChangeStreamConformanceTests
         {
             CallbackTarget = callback.Target;
             _handlers.Add(callback);
-            return Disposable.Create(() => _handlers.Remove(callback));
+            IDisposable subscription = Disposable.Create(() => _handlers.Remove(callback));
+            AfterSubscribe?.Invoke();
+            return subscription;
         }
 
         internal void Add(T item)
@@ -652,12 +833,17 @@ public sealed class AggregateChangeStreamConformanceTests
             foreach (Action handler in _handlers.ToArray()) handler();
         }
 
+        /// <summary>
+        /// Pulses on a background thread and waits until that thread blocks or
+        /// finishes. Setup holds no gate while it snapshots (ADR-0214), so the
+        /// pulse may finish at once.
+        /// </summary>
         internal Thread PulseOnBackgroundAndWaitUntilBlocked()
         {
             var thread = new Thread(Pulse);
             thread.Start();
             Assert.True(SpinWait.SpinUntil(
-                () => (thread.ThreadState & ThreadState.WaitSleepJoin) != 0,
+                () => (thread.ThreadState & (ThreadState.WaitSleepJoin | ThreadState.Stopped)) != 0,
                 HangGuard));
             return thread;
         }
@@ -707,7 +893,8 @@ public sealed class AggregateChangeStreamConformanceTests
                 BackgroundEmitThread = new Thread(() => observer.OnNext(Unit.Default));
                 BackgroundEmitThread.Start();
                 Assert.True(SpinWait.SpinUntil(
-                    () => (BackgroundEmitThread.ThreadState & ThreadState.WaitSleepJoin) != 0,
+                    () => (BackgroundEmitThread.ThreadState
+                        & (ThreadState.WaitSleepJoin | ThreadState.Stopped)) != 0,
                     HangGuard));
             }
             return Disposable.Create(() =>
@@ -750,6 +937,75 @@ public sealed class AggregateChangeStreamConformanceTests
 
             internal bool Active { get; set; } = true;
         }
+    }
+
+    /// <summary>
+    /// A membership source that adds an item and raises its structural callback
+    /// while it holds its own lock. Its snapshot and unsubscribe take that lock.
+    /// </summary>
+    private sealed class LockingSource : IObservableMembershipSource<LockedItem>
+    {
+        private readonly object _lock = new();
+        private readonly List<LockedItem> _items = new();
+        private readonly List<Action> _handlers = new();
+
+        internal ManualResetEventSlim Holding { get; } = new();
+
+        internal Action? WhileHoldingLock { get; set; }
+
+        internal int HandlerCount
+        {
+            get
+            {
+                lock (_lock) return _handlers.Count;
+            }
+        }
+
+        public IReadOnlyList<LockedItem> Snapshot()
+        {
+            lock (_lock) return _items.ToArray();
+        }
+
+        public IDisposable SubscribeMembership(Action callback)
+        {
+            lock (_lock) _handlers.Add(callback);
+            return Disposable.Create(() =>
+            {
+                lock (_lock) _handlers.Remove(callback);
+            });
+        }
+
+        internal void AddUnderLock(LockedItem item)
+        {
+            lock (_lock)
+            {
+                _items.Add(item);
+                Holding.Set();
+                WhileHoldingLock?.Invoke();
+                foreach (Action handler in _handlers.ToArray()) handler();
+            }
+        }
+
+        internal void AddThenNotify(LockedItem item)
+        {
+            Action[] handlers;
+            lock (_lock)
+            {
+                _items.Add(item);
+                handlers = _handlers.ToArray();
+            }
+
+            foreach (Action handler in handlers) handler();
+        }
+    }
+
+    private sealed class LockedItem
+    {
+        internal LockedItem(string name) => Name = name;
+
+        internal string Name { get; }
+
+        internal System.Reactive.Subjects.Subject<Unit> Changes { get; } = new();
     }
 
     private sealed class BodyException : Exception;
