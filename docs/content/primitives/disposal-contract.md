@@ -151,7 +151,7 @@ flavor-specific difference.
 | `TreeSelection`                                                                | Change stream completes once, without a value                         | `Current` is null; select and clear are inert                               | Hub subscriptions on the watched path; never a node                                                                                                                                                | —                         |
 | `SearchableState`                                                              | Search streams complete once                                          | Setters and search are inert                                                | Search and source subscriptions                                                                                                                                                                    | Search term reads empty   |
 | `FilteredCompositeVM`, `ScoredFilteredCompositeVM`                             | Projection stream completes once                                      | The projection stops changing                                               | Source subscription                                                                                                                                                                                | Frozen visible projection |
-| `PagedComposition`                                                             | Paging streams complete where exposed                                 | Pages are read without source tracking                                      | Source subscription                                                                                                                                                                                | Page reads                |
+| `PagedComposition`                                                             | Paging streams complete where exposed                                 | Paging calls are inert; page reads remain                                   | Source subscription                                                                                                                                                                                | Page reads                |
 | `TokenPagedComposition`                                                        | Command stream completes once                                         | Late fetch results cannot mutate or publish                                 | Load-more and refresh commands                                                                                                                                                                     | Accumulated state         |
 | Batch handles from list, composite, and group operations                       | At most one Reset at outer batch exit                                 | The handle has no other behavior                                            | One batch depth claim                                                                                                                                                                              | —                         |
 | `AggregateChangeStream`                                                        | Output subscriptions complete once                                    | New subscriptions complete at once; membership and item changes are ignored | Structural subscription and selected item subscriptions; never source items                                                                                                                        | —                         |
@@ -189,7 +189,9 @@ flavor unless the exceptions below say otherwise.
 - `NotificationVM` and `ConfirmationVM` stop their property-change surface.
   Later resolution paths are inert.
 - Filtered projections expose no projection stream; the projection stops
-  changing. `PagedComposition<T>` has no completion surface.
+  changing. `PagedComposition<T>` has no completion surface. After disposal,
+  `PageSize` and `CurrentPageIndex` writes and the four move calls change no
+  state and raise no `PropertyChanged` event (ADR-0214).
 - `AsyncResourceVM<T>` releases its cancellation token source and loader
   registration.
 - `AggregateChangeStream<T>.Batch` throws `ObjectDisposedException` after
@@ -211,7 +213,9 @@ flavor unless the exceptions below say otherwise.
   `ModalVM` resolves its awaiting futures once.
 - `PagedComposition` and `TokenPagedComposition` complete paging streams where
   exposed and release source subscriptions and paging commands. Reads remain;
-  late token fetches cannot mutate.
+  late token fetches cannot mutate. After disposal, `PagedComposition`
+  `page_size` and `current_page_index` writes and the four move calls change no
+  state and emit nothing (ADR-0214).
 - `ObservableList` and `ObservableDictionary` are disposable only in Python.
 - `AsyncResourceVM` invalidates the active operation synchronously. Native
   cancellation and late-value cleanup run on the operation loop; see
@@ -266,7 +270,9 @@ flavor unless the exceptions below say otherwise.
   pending subscription, and commands.
 - The modal type is `BasicModalVM`; its continuations resume once.
 - `PagedComposition` finishes its property-change publisher once and releases
-  the source-composite cancellable. Reads and direct paging remain available.
+  the source-composite cancellable. Reads remain available. `pageSize` and
+  `currentPageIndex` writes, the four move calls and `setSource(_:)` change no
+  state and emit nothing (ADR-0214).
 - `TokenPagedComposition` finishes its collection, property, and command
   publishers once.
 - `BatchUpdateHandle` uses `deinit` as a safety net.

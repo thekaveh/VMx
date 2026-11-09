@@ -706,3 +706,15 @@ before a persister starts prevents the persister call (`FORM-041`,
 `FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
 
 See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also settles five collection rules. After `dispose()`,
+`PagedComposition` paging calls change no state and emit nothing. A duplicate
+`ObservableDictionary` `Add` fails with the keyed-collection duplicate-key type
+and changes nothing, so Python raises `ValueError` (`COL-071`). Python keyed
+`extend` and `+=` are atomic slice assignments at the end. The aggregate change
+stream calls the source, the selector, and subscriptions with no gate held, so
+a source may raise its structural callback under its own lock (`AGCH-012`). C#
+serviced collections accept a nested mutation from a `CollectionChanged`
+handler. The catalog now contains 453 library IDs plus 5 scenario IDs.
+
+See ADR-0214 and chapter 21 §2.10, §4.1, and §9.4.

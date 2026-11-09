@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-071` and `AGCH-012` conformance tests (ADR-0214). A duplicate
+  `ObservableDictionary.add` already threw `Error` and changed nothing.
+  TypeScript runs on one thread, so `AGCH-012` needs no code change.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -100,6 +103,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `PagedComposition` paging calls after `dispose()` are inert (#1299,
+  ADR-0214). `pageSize` and `currentPageIndex` writes and the four move calls
+  change no state. Reads keep the last page size and page index.
+- The `at()` helpers of `ObservableList`, `ServicedObservableCollection` and
+  `KeyedServicedObservableCollection` resolve a negative index from the end,
+  as `Array.prototype.at` does (#1322, ADR-0009 §2.23). `at(-1)` returns the
+  last item; an index outside the list returns `undefined`.
 - A `FormVM` call nested in a preparation callback or an `errorsChanged`
   observer of `setModel` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,

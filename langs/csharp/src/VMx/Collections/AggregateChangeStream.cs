@@ -89,19 +89,22 @@ public sealed class AggregateChangeStream<T> : IDisposable
         _source = source;
         _observeItem = observeItem;
 
-        lock (_gate)
+        // No gate is held while VMx calls the source, the selector, a selected
+        // stream or a subscription's disposal (spec/21 §9.4, ADR-0214). A source
+        // may raise its structural callback under its own lock.
+        try
         {
-            try
-            {
-                _membershipSubscription = _source.SubscribeMembership(OnMembershipChanged);
-                InitializeLocked();
-            }
-            catch (Exception error)
-            {
-                FailConstructionLocked();
-                ExceptionDispatchInfo.Capture(error).Throw();
-                throw;
-            }
+            IDisposable membership = _source.SubscribeMembership(OnMembershipChanged);
+            lock (_gate) _membershipSubscription = membership;
+            Initialize();
+        }
+        catch (Exception error)
+        {
+            var released = new List<IDisposable>();
+            lock (_gate) FailConstructionLocked(released);
+            DisposeAll(released);
+            ExceptionDispatchInfo.Capture(error).Throw();
+            throw;
         }
     }
 
@@ -162,11 +165,12 @@ public sealed class AggregateChangeStream<T> : IDisposable
     public void Dispose()
     {
         bool start;
+        var released = new List<IDisposable>();
         lock (_gate)
         {
             if (_completed || _terminalError is not null) return;
             _completed = true;
-            CleanupSubscriptionsLocked();
+            CleanupSubscriptionsLocked(released);
             _work.Clear();
             Registration[] recipients = CurrentRegistrationsLocked();
             _registrations.Clear();
@@ -175,10 +179,12 @@ public sealed class AggregateChangeStream<T> : IDisposable
             start = StartProcessingLocked();
         }
 
+        // The subscriptions are disposed outside the gate (ADR-0214).
+        DisposeAll(released);
         if (start) ProcessWork();
     }
 
-    private void InitializeLocked()
+    private void Initialize()
     {
         while (true)
         {
@@ -186,34 +192,33 @@ public sealed class AggregateChangeStream<T> : IDisposable
             IReadOnlyList<T> snapshot = GetValidatedSnapshot();
             if (version != Volatile.Read(ref _structuralState)) continue;
 
-            SnapshotPlan plan = BuildPlanLocked(snapshot);
-            try
+            SnapshotPlan? plan = StagePlan(snapshot);
+            if (plan is null) return;
+
+            var released = new List<IDisposable>();
+            bool settled = false;
+            lock (_gate)
             {
-                StageNewEntriesLocked(plan);
-            }
-            catch
-            {
-                DisposeStagedLocked(plan);
-                throw;
+                if (version != Volatile.Read(ref _structuralState))
+                {
+                    ReleaseStagedLocked(plan, released);
+                }
+                else
+                {
+                    CommitPlanLocked(plan, released);
+                    if (version == Volatile.Read(ref _structuralState))
+                    {
+                        DiscardBufferedItemsLocked();
+                        settled = Interlocked.CompareExchange(
+                            ref _structuralState,
+                            version & ~SetupFlag,
+                            version) == version;
+                    }
+                }
             }
 
-            if (version != Volatile.Read(ref _structuralState))
-            {
-                DisposeStagedLocked(plan);
-                continue;
-            }
-
-            CommitPlanLocked(plan);
-            if (version != Volatile.Read(ref _structuralState)) continue;
-
-            DiscardBufferedItemsLocked();
-            if (Interlocked.CompareExchange(
-                    ref _structuralState,
-                    version & ~SetupFlag,
-                    version) == version)
-            {
-                return;
-            }
+            DisposeAll(released);
+            if (settled) return;
         }
     }
 
@@ -271,14 +276,17 @@ public sealed class AggregateChangeStream<T> : IDisposable
 
     private void OnItemTerminal(Entry entry)
     {
+        IDisposable? released;
         lock (_gate)
         {
             if (_completed || _terminalError is not null || entry.Terminal) return;
             entry.Terminal = true;
             entry.BufferedItems = 0;
-            SafeDispose(entry.Subscription);
+            released = entry.Subscription;
             entry.Subscription = null;
         }
+
+        SafeDispose(released);
     }
 
     private void ProcessWork()
@@ -300,12 +308,6 @@ public sealed class AggregateChangeStream<T> : IDisposable
                     current = _work.First!.Value;
                     _work.RemoveFirst();
 
-                    if (current.Kind == WorkKind.Structural)
-                    {
-                        ProcessStructuralLocked(current.Coalesced, current.Recipients!);
-                        continue;
-                    }
-
                     if (current.Kind == WorkKind.Item)
                     {
                         ProcessItemLocked(current);
@@ -321,6 +323,15 @@ public sealed class AggregateChangeStream<T> : IDisposable
                 return;
             }
 
+            if (current!.Kind == WorkKind.Structural)
+            {
+                // This thread is the only drainer (_processing), so it alone
+                // reconciles. It releases the gate around every call into the
+                // source, the selector and a subscription (ADR-0214).
+                ProcessStructural(current.Coalesced, current.Recipients!);
+                continue;
+            }
+
             if (!AdmitGuardedDelivery(current!)) continue;
             try
             {
@@ -333,49 +344,62 @@ public sealed class AggregateChangeStream<T> : IDisposable
         }
     }
 
-    private void ProcessStructuralLocked(bool coalesced, Registration[] recipients)
+    private void ProcessStructural(bool coalesced, Registration[] recipients)
     {
-        if (_completed || _terminalError is not null) return;
         try
         {
             while (true)
             {
+                lock (_gate)
+                {
+                    if (_completed || _terminalError is not null) return;
+                }
+
                 long version = Volatile.Read(ref _structuralState);
                 IReadOnlyList<T> snapshot = GetValidatedSnapshot();
                 if (version != Volatile.Read(ref _structuralState)) continue;
 
-                SnapshotPlan plan = BuildPlanLocked(snapshot);
-                try
+                SnapshotPlan? plan = StagePlan(snapshot);
+                if (plan is null) return;
+
+                var released = new List<IDisposable>();
+                bool settled = false;
+                lock (_gate)
                 {
-                    StageNewEntriesLocked(plan);
-                }
-                catch
-                {
-                    DisposeStagedLocked(plan);
-                    throw;
+                    if (_completed || _terminalError is not null)
+                    {
+                        ReleaseStagedLocked(plan, released);
+                        settled = true;
+                    }
+                    else if (version != Volatile.Read(ref _structuralState))
+                    {
+                        ReleaseStagedLocked(plan, released);
+                    }
+                    else
+                    {
+                        CommitPlanLocked(plan, released);
+                        if (version == Volatile.Read(ref _structuralState))
+                        {
+                            var changes = new List<PendingChange>
+                            {
+                                new(new AggregateChange<T>(AggregateChangeReason.Membership)),
+                            };
+                            AppendBufferedItemsLocked(changes);
+                            PrependChangesLocked(changes, coalesced, recipients);
+                            settled = true;
+                        }
+                    }
                 }
 
-                if (version != Volatile.Read(ref _structuralState))
-                {
-                    DisposeStagedLocked(plan);
-                    continue;
-                }
-
-                CommitPlanLocked(plan);
-                if (version != Volatile.Read(ref _structuralState)) continue;
-
-                var changes = new List<PendingChange>
-                {
-                    new(new AggregateChange<T>(AggregateChangeReason.Membership)),
-                };
-                AppendBufferedItemsLocked(changes);
-                PrependChangesLocked(changes, coalesced, recipients);
-                return;
+                DisposeAll(released);
+                if (settled) return;
             }
         }
         catch (Exception error)
         {
-            FailExistingLocked(error);
+            var released = new List<IDisposable>();
+            lock (_gate) FailExistingLocked(error, released);
+            DisposeAll(released);
         }
     }
 
@@ -410,7 +434,7 @@ public sealed class AggregateChangeStream<T> : IDisposable
         return snapshot;
     }
 
-    private static SnapshotPlan BuildPlanLocked(IReadOnlyList<T> snapshot)
+    private static SnapshotPlan BuildPlan(IReadOnlyList<T> snapshot)
     {
         var counts = new Dictionary<T, int>(ReferenceComparer.Instance);
         foreach (T item in snapshot)
@@ -422,32 +446,59 @@ public sealed class AggregateChangeStream<T> : IDisposable
         return new SnapshotPlan(counts);
     }
 
-    private void StageNewEntriesLocked(SnapshotPlan plan)
+    /// <summary>
+    /// Creates an entry for each new identity under the gate, then calls the
+    /// selector and subscribes with no gate held. Returns null when the
+    /// aggregate closed first. A failure releases every staged subscription.
+    /// </summary>
+    private SnapshotPlan? StagePlan(IReadOnlyList<T> snapshot)
     {
-        foreach (KeyValuePair<T, int> membership in plan.Counts)
+        SnapshotPlan plan = BuildPlan(snapshot);
+        lock (_gate)
         {
-            if (_entries.ContainsKey(membership.Key)) continue;
-
-            var entry = new Entry(membership.Key, ++_nextEpoch, membership.Value);
-            IObservable<Unit> selected = _observeItem(entry.Item)
-                ?? throw new InvalidOperationException("The item-change selector returned null.");
-            IDisposable subscription = selected.Subscribe(
-                _ => OnItem(entry),
-                _ => OnItemTerminal(entry),
-                () => OnItemTerminal(entry));
-            entry.Subscription = subscription
-                ?? throw new InvalidOperationException("The selected stream returned a null subscription.");
-            if (entry.Terminal)
+            if (_completed || _terminalError is not null) return null;
+            foreach (KeyValuePair<T, int> membership in plan.Counts)
             {
-                SafeDispose(entry.Subscription);
-                entry.Subscription = null;
+                if (_entries.ContainsKey(membership.Key)) continue;
+                plan.Staged.Add(new Entry(membership.Key, ++_nextEpoch, membership.Value));
             }
-
-            plan.Staged.Add(entry);
         }
+
+        try
+        {
+            foreach (Entry entry in plan.Staged) SubscribeEntry(entry);
+        }
+        catch
+        {
+            var released = new List<IDisposable>();
+            lock (_gate) ReleaseStagedLocked(plan, released);
+            DisposeAll(released);
+            throw;
+        }
+
+        return plan;
     }
 
-    private void CommitPlanLocked(SnapshotPlan plan)
+    private void SubscribeEntry(Entry entry)
+    {
+        IObservable<Unit> selected = _observeItem(entry.Item)
+            ?? throw new InvalidOperationException("The item-change selector returned null.");
+        IDisposable subscription = selected.Subscribe(
+            _ => OnItem(entry),
+            _ => OnItemTerminal(entry),
+            () => OnItemTerminal(entry))
+            ?? throw new InvalidOperationException("The selected stream returned a null subscription.");
+        bool terminal;
+        lock (_gate)
+        {
+            terminal = entry.Terminal;
+            if (!terminal) entry.Subscription = subscription;
+        }
+
+        if (terminal) SafeDispose(subscription);
+    }
+
+    private void CommitPlanLocked(SnapshotPlan plan, List<IDisposable> released)
     {
         foreach (Entry existing in _entries.Values.ToArray())
         {
@@ -460,8 +511,7 @@ public sealed class AggregateChangeStream<T> : IDisposable
             existing.Admitted = false;
             existing.RefCount = 0;
             existing.BufferedItems = 0;
-            SafeDispose(existing.Subscription);
-            existing.Subscription = null;
+            Release(existing, released);
             _entries.Remove(existing.Item);
         }
 
@@ -493,15 +543,22 @@ public sealed class AggregateChangeStream<T> : IDisposable
         foreach (Entry entry in _entries.Values) entry.BufferedItems = 0;
     }
 
-    private static void DisposeStagedLocked(SnapshotPlan plan)
+    private static void ReleaseStagedLocked(SnapshotPlan plan, List<IDisposable> released)
     {
         foreach (Entry staged in plan.Staged)
         {
             staged.Admitted = false;
             staged.BufferedItems = 0;
-            SafeDispose(staged.Subscription);
-            staged.Subscription = null;
+            // A late subscription of this entry sees Terminal and disposes itself.
+            staged.Terminal = true;
+            Release(staged, released);
         }
+    }
+
+    private static void Release(Entry entry, List<IDisposable> released)
+    {
+        if (entry.Subscription is not null) released.Add(entry.Subscription);
+        entry.Subscription = null;
     }
 
     private void PrependChangesLocked(
@@ -621,18 +678,18 @@ public sealed class AggregateChangeStream<T> : IDisposable
         }
     }
 
-    private void FailConstructionLocked()
+    private void FailConstructionLocked(List<IDisposable> released)
     {
-        CleanupSubscriptionsLocked();
+        CleanupSubscriptionsLocked(released);
         _completed = true;
         _work.Clear();
     }
 
-    private void FailExistingLocked(Exception error)
+    private void FailExistingLocked(Exception error, List<IDisposable> released)
     {
         if (_completed || _terminalError is not null) return;
         _terminalError = error;
-        CleanupSubscriptionsLocked();
+        CleanupSubscriptionsLocked(released);
         _work.Clear();
         Registration[] recipients = CurrentRegistrationsLocked();
         _registrations.Clear();
@@ -640,17 +697,21 @@ public sealed class AggregateChangeStream<T> : IDisposable
             _work.AddFirst(Work.ErrorDelivery(error, recipients));
     }
 
-    private void CleanupSubscriptionsLocked()
+    /// <summary>
+    /// Detaches every owned subscription from the state and adds it to
+    /// <paramref name="released"/>. The caller disposes them after it leaves
+    /// the gate (ADR-0214).
+    /// </summary>
+    private void CleanupSubscriptionsLocked(List<IDisposable> released)
     {
-        SafeDispose(_membershipSubscription);
+        if (_membershipSubscription is not null) released.Add(_membershipSubscription);
         _membershipSubscription = null;
         foreach (Entry entry in _entries.Values)
         {
             entry.Admitted = false;
             entry.RefCount = 0;
             entry.BufferedItems = 0;
-            SafeDispose(entry.Subscription);
-            entry.Subscription = null;
+            Release(entry, released);
         }
 
         _entries.Clear();
@@ -712,6 +773,11 @@ public sealed class AggregateChangeStream<T> : IDisposable
                     break;
             }
         }
+    }
+
+    private static void DisposeAll(List<IDisposable> released)
+    {
+        foreach (IDisposable disposable in released) SafeDispose(disposable);
     }
 
     private static void SafeDispose(IDisposable? disposable)

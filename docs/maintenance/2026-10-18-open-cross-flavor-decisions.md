@@ -84,21 +84,6 @@ zero debounce, C#, Python and TypeScript emit it inside the constructor, where
 no subscriber can see it. Every SRCH-007 test uses a zero debounce, so no test
 exposes it. Rust is pull-based and does not emit it.
 
-### 2.3. Duplicate dictionary key error
-
-`spec/21-collections.md` §4 names no error for a duplicate key.
-
-| Flavor     | Error                                    |
-| ---------- | ---------------------------------------- |
-| C#         | `ArgumentException`                      |
-| Python     | `KeyError`                               |
-| TypeScript | `Error`                                  |
-| Swift      | `ObservableDictionaryError.duplicateKey` |
-| Rust       | `VmxError::InvalidArgument`              |
-
-The keyed serviced collection does name exact types (`spec/21-collections.md`
-§2.10), and there Python uses `ValueError`.
-
 ### 2.4. VM-collection `CollectionChanged` sender name
 
 `spec/03-messages.md` says the sender name "typically" equals the VM name. C#,

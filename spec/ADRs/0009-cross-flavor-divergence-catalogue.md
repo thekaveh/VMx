@@ -348,6 +348,12 @@ ADR-0006 and require no further action:
 - **TypeScript / Swift**: both add `at(index) -> T?` and `toArray() -> [T]` on
   `ObservableList` and `ServicedObservableCollection`.
 - **C# / Python**: absent; consumers use the indexer and iteration directly.
+- **Negative indexes**: the TypeScript `at` helpers of `ObservableList`,
+  `ServicedObservableCollection` and `KeyedServicedObservableCollection` follow
+  `Array.prototype.at`. A negative index counts from the end, so `at(-1)` returns
+  the last item. An index outside the list returns `undefined` (#1322). The Swift
+  helpers return `nil` for every negative index, because a Swift `Array` has no
+  negative indexes.
 - **Rationale**: `Array.prototype.at` / Swift `Array` idioms are the natural local
   equivalents. Additive; does not alter spec-observable behavior for callers that
   do not use them.

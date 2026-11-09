@@ -77,6 +77,36 @@ public class ServicedObservableCollectionTests
     }
 
     [Fact]
+    public void NestedAdd_FromAHandler_WithTwoHandlers_Succeeds()
+    {
+        // #1343, ADR-0214: a handler may add an item while a second handler is
+        // attached. Each operation sends one hub message after its local delivery.
+        var hub = new TestHub();
+        var sut = new ServicedObservableCollection<string>(hub);
+        var deliveries = new List<string>();
+        hub.Messages.Subscribe(message =>
+            deliveries.Add($"hub:{((CollectionChangedMessage<string>)message).NewItems.Single()}"));
+        sut.CollectionChanged += (_, args) =>
+        {
+            string item = (string)args.NewItems![0]!;
+            deliveries.Add($"first:{item}");
+            if (item == "outer") sut.Add("nested");
+        };
+        sut.CollectionChanged += (_, args) => deliveries.Add($"second:{(string)args.NewItems![0]!}");
+
+        sut.Add("outer");
+
+        sut.Should().Equal("outer", "nested");
+        deliveries.Should().Equal(
+            "first:outer",
+            "first:nested",
+            "second:nested",
+            "hub:nested",
+            "second:outer",
+            "hub:outer");
+    }
+
+    [Fact]
     public void Hub_Remove_PublishesRemoveMessage()
     {
         var hub = new TestHub();

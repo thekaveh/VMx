@@ -10,6 +10,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-071` and `AGCH-012` conformance tests (ADR-0214). A duplicate
+  `ObservableMultiDictionary::add` already returned
+  `Err(VmxError::InvalidArgument(_))` and changed nothing. The aggregate
+  already called the source and the selector with no state lock held.
 - `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
   `ComponentVm::own_member` contract and rejects the container itself with

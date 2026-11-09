@@ -646,3 +646,174 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         groupSubscription.cancel()
     }
 }
+
+// MARK: - AGCH-012
+
+/// An item whose selected publisher the test drives directly.
+private final class LockedItem {
+    let name: String
+    let changes = PassthroughSubject<Void, Never>()
+
+    init(_ name: String) { self.name = name }
+}
+
+/// A membership source that adds an item and raises its structural callback
+/// while it holds its own lock. Its snapshot and unsubscribe take that lock.
+private final class LockingSource: ObservableMembershipSource {
+    typealias Item = LockedItem
+
+    private let lock = NSRecursiveLock()
+    private var items: [LockedItem] = []
+    private var handlers: [UUID: () -> Void] = [:]
+    let holding = DispatchSemaphore(value: 0)
+    var whileHoldingLock: (() -> Void)?
+
+    var handlerCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return handlers.count
+    }
+
+    func snapshot() -> [LockedItem] {
+        lock.lock()
+        defer { lock.unlock() }
+        return items
+    }
+
+    func subscribeMembership(_ callback: @escaping () -> Void) -> AnyCancellable {
+        let identifier = UUID()
+        lock.lock()
+        handlers[identifier] = callback
+        lock.unlock()
+        return AnyCancellable { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            self.handlers.removeValue(forKey: identifier)
+            self.lock.unlock()
+        }
+    }
+
+    func addUnderLock(_ item: LockedItem) {
+        lock.lock()
+        items.append(item)
+        holding.signal()
+        whileHoldingLock?()
+        for handler in Array(handlers.values) { handler() }
+        lock.unlock()
+    }
+
+    func addThenNotify(_ item: LockedItem) {
+        lock.lock()
+        items.append(item)
+        let current = Array(handlers.values)
+        lock.unlock()
+        for handler in current { handler() }
+    }
+}
+
+/// Runs `action` on a new thread. The returned semaphore is signalled when it ends.
+private func background(_ action: @escaping () -> Void) -> DispatchSemaphore {
+    let finished = DispatchSemaphore(value: 0)
+    Thread {
+        action()
+        finished.signal()
+    }.start()
+    return finished
+}
+
+/// AGCH-012 (ADR-0214, #1325): the aggregate holds no gate while it calls the
+/// source, the selector, a selected publisher's subscribe or a cancellation. A
+/// source that raises its structural callback under its own lock therefore
+/// cannot deadlock with the aggregate.
+extension AggregateChangeStreamConformanceTests {
+    private func waitingSelector(
+        source: LockingSource,
+        trigger: LockedItem,
+        second: LockedItem,
+        adder: AdderBox
+    ) -> (LockedItem) -> AnyPublisher<Void, Never> {
+        { item in
+            if item === trigger, adder.finished == nil {
+                adder.finished = background { source.addUnderLock(second) }
+                XCTAssertEqual(source.holding.wait(timeout: .now() + 5), .success)
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+            return item.changes.eraseToAnyPublisher()
+        }
+    }
+
+    /// AGCH-012 — setup does not deadlock with a source that notifies under its lock.
+    func testAGCH012SetupDoesNotDeadlockWithASourceThatNotifiesUnderItsLock() {
+        let source = LockingSource()
+        let first = LockedItem("first")
+        let second = LockedItem("second")
+        source.addThenNotify(first)
+        let adder = AdderBox()
+        let select = waitingSelector(source: source, trigger: first, second: second, adder: adder)
+        var aggregate: AggregateChangeStream<LockedItem>?
+
+        let constructed = background {
+            aggregate = AggregateChangeStream(source: source, observeItem: select)
+        }
+
+        XCTAssertEqual(constructed.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(adder.finished?.wait(timeout: .now() + 5), .success)
+        guard let aggregate else { return XCTFail("the aggregate was not constructed") }
+        var changes: [AggregateChange<LockedItem>] = []
+        let subscription = aggregate.observe().sink { changes.append($0) }
+        second.changes.send(())
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes.first?.reason, .item)
+        XCTAssertTrue(changes.first?.item === second)
+        subscription.cancel()
+        aggregate.dispose()
+    }
+
+    /// AGCH-012 — a draining reconciliation does not deadlock with a source that notifies under its lock.
+    func testAGCH012DrainDoesNotDeadlockWithASourceThatNotifiesUnderItsLock() {
+        let source = LockingSource()
+        let trigger = LockedItem("trigger")
+        let second = LockedItem("second")
+        let adder = AdderBox()
+        let aggregate = AggregateChangeStream(
+            source: source,
+            observeItem: waitingSelector(source: source, trigger: trigger, second: second, adder: adder))
+        var changes: [AggregateChange<LockedItem>] = []
+        let subscription = aggregate.observe().sink { changes.append($0) }
+
+        let drained = background { source.addThenNotify(trigger) }
+
+        XCTAssertEqual(drained.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(adder.finished?.wait(timeout: .now() + 5), .success)
+        changes.removeAll()
+        second.changes.send(())
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes.first?.reason, .item)
+        XCTAssertTrue(changes.first?.item === second)
+        subscription.cancel()
+        aggregate.dispose()
+    }
+
+    /// AGCH-012 — dispose does not deadlock with a source that notifies under its lock.
+    func testAGCH012DisposeDoesNotDeadlockWithASourceThatNotifiesUnderItsLock() {
+        let source = LockingSource()
+        source.addThenNotify(LockedItem("first"))
+        let aggregate = AggregateChangeStream(source: source) { $0.changes.eraseToAnyPublisher() }
+        // The adder holds the source lock and waits, so that dispose reaches
+        // the unsubscribe (which takes the same lock). Then it raises the callback.
+        source.whileHoldingLock = { Thread.sleep(forTimeInterval: 0.2) }
+
+        let added = background { source.addUnderLock(LockedItem("second")) }
+        XCTAssertEqual(source.holding.wait(timeout: .now() + 5), .success)
+        let disposed = background { aggregate.dispose() }
+
+        XCTAssertEqual(disposed.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(added.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(source.handlerCount, 0)
+    }
+}
+
+/// Holds the adder thread's completion semaphore once the selector starts it.
+private final class AdderBox {
+    var finished: DispatchSemaphore?
+}

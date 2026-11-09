@@ -8,6 +8,32 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `PagedComposition<T>` paging calls after `Dispose()` are inert
+  (#1299, ADR-0214). `PageSize` and `CurrentPageIndex` writes and the four
+  move calls change no state and raise no `PropertyChanged` event. Reads keep
+  the last page size and page index.
+- Fixed: `AggregateChangeStream<T>` holds no gate while it calls the
+  membership source's `SubscribeMembership` and `Snapshot()`, the item
+  selector, a selected stream's `Subscribe` or a subscription's `Dispose()`
+  (#1325, ADR-0214, `AGCH-012`). A source that raises its structural callback
+  under its own lock no longer deadlocks the aggregate during construction, a
+  structural reconciliation or `Dispose()`.
+- Fixed: a `CollectionChanged` handler of a `ServicedObservableCollection<T>`
+  or `KeyedServicedObservableCollection<TKey, TItem>` can mutate the
+  collection while other handlers are attached (#1343, ADR-0214). The
+  collections keep their own handler list, so the `ObservableCollection<T>`
+  reentrancy check no longer throws `InvalidOperationException`. This also
+  applies while an `AggregateChangeStream` observes the collection. The nested
+  mutation delivers its local event and hub message first.
+- Changed: `ICollectionChangedMessage<T>` is covariant (`out T`) (#1356). A hub
+  filter on `ICollectionChangedMessage<IComponentVM>` now also receives the
+  `CollectionChangedMessage<VM>` of every `CompositeVM<VM>` and `GroupVM<VM>`
+  whose child type is a reference type that implements `IComponentVM`, and
+  the messages of collections whose element type derives from the filter's
+  type argument.
+- Added: `COL-071` and `AGCH-012` conformance tests (ADR-0214). A duplicate
+  `ObservableDictionary.Add` already threw `ArgumentException` and changed
+  nothing.
 - Added: `COL-067` conformance tests (#1176, ADR-0177). An
   `ObservableDictionary` mutation changes the entries and `Count` first. Then
   it updates each key view that changes, raises the dictionary events and

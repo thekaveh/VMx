@@ -11,7 +11,7 @@ namespace VMx.Messages;
 /// See spec/21-collections.md §2, spec/01-concepts.md §1.4, ADR-0024, and ADR-0142.
 /// </summary>
 /// <typeparam name="T">Element type of the collection.</typeparam>
-public interface ICollectionChangedMessage<T> : IMessage
+public interface ICollectionChangedMessage<out T> : IMessage
 {
     /// <summary>The action that caused the change (Add / Remove / Replace / Move / Reset).</summary>
     NotifyCollectionChangedAction Action { get; }

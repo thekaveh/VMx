@@ -35,6 +35,16 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The event keeps its own handler list, so the base
+    /// <see cref="ObservableCollection{T}"/> never blocks reentrancy. A
+    /// <see cref="CollectionChanged"/> handler may mutate the collection while
+    /// other handlers are attached; the nested mutation completes its own local
+    /// and hub delivery first (spec/21 §2.13, ADR-0214, #1343).
+    /// </remarks>
+    public override event NotifyCollectionChangedEventHandler? CollectionChanged;
+
+    /// <inheritdoc/>
     public IReadOnlyList<T> Snapshot() => this.ToArray();
 
     /// <inheritdoc/>
@@ -71,7 +81,6 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         T[] snapshot = items.ToArray();
         if (Count == 0 && snapshot.Length == 0) return;
 
-        CheckReentrancy();
         Items.Clear();
         foreach (T item in snapshot) Items.Add(item);
 
@@ -105,8 +114,10 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         // 1. Raise the standard local event first. A throwing local handler
         //    must not suppress the hub message for the committed change:
         //    send it, then rethrow the first failure (spec/01 §1.4, ADR-0171).
+        //    The handlers are invoked here, not through
+        //    base.OnCollectionChanged, so no reentrancy block applies (ADR-0214).
         ExceptionDispatchInfo? firstFailure = null;
-        try { base.OnCollectionChanged(e); }
+        try { CollectionChanged?.Invoke(this, e); }
         catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
 
         // 2. Publish to hub (if present).

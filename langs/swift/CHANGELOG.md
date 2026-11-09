@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-071` conformance tests (ADR-0214). A duplicate
+  `ObservableDictionary.add` already threw
+  `ObservableDictionaryError.duplicateKey` and changed nothing.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -72,6 +75,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `PagedComposition` paging calls after `dispose()` are inert (#1299,
+  ADR-0214). `pageSize` and `currentPageIndex` writes, the four move calls and
+  `setSource(_:)` change no state and emit nothing. Reads keep the last page.
+  This replaces the documented behavior that direct paging stays available.
+- `AggregateChangeStream` holds no gate while it calls the membership source's
+  `subscribeMembership` and `snapshot()`, the item selector, a selected
+  publisher's `sink` or a cancellation (#1325, ADR-0214, `AGCH-012`). A source
+  that raises its structural callback under its own lock no longer deadlocks
+  the aggregate during `init`, a structural reconciliation or `dispose()`.
 - A `FormVM` approval started from a preparation callback or an
   `errorsChanged` sink of `setModel` or deny now starts its persister after
   the outermost update sends all queued notifications (ADR-0180, spec/20

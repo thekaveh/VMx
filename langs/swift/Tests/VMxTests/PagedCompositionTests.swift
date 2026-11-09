@@ -286,4 +286,25 @@ final class PagedCompositionTests: XCTestCase {
         XCTAssertEqual(item.status, status)
         XCTAssertNotEqual(item.status, .disposed)
     }
+
+    /// Paging calls and `setSource(_:)` after `dispose()` change no state and emit nothing (ADR-0214, #1299).
+    func testPagingCallsAfterDisposeAreInert() {
+        let sut = PagedComposition(source: [1, 2, 3, 4], pageSize: 2)
+        var events: [String] = []
+        sut.propertyChanged.sink { events.append($0) }.store(in: &cancellables)
+        sut.dispose()
+
+        sut.moveToNextPage()
+        sut.pageSize = 1
+        sut.currentPageIndex = 1
+        sut.moveToLastPage()
+        sut.moveToPreviousPage()
+        sut.moveToFirstPage()
+        sut.setSource([9])
+
+        XCTAssertEqual(sut.currentPageIndex, 0)
+        XCTAssertEqual(sut.pageSize, 2)
+        XCTAssertEqual(sut.items, [1, 2])
+        XCTAssertEqual(events, [])
+    }
 }

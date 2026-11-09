@@ -255,4 +255,27 @@ public class PagedCompositionTests
         var act = () => sut.Dispose();
         act.Should().NotThrow();
     }
+
+    [Fact]
+    public void PagingCalls_AfterDispose_ChangeNoStateAndRaiseNothing()
+    {
+        // ADR-0214, #1299: paging calls after Dispose are inert.
+        var source = new List<int> { 1, 2, 3, 4 };
+        var sut = new PagedComposition<int>(source, pageSize: 2);
+        var raised = new List<string?>();
+        sut.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        sut.Dispose();
+
+        sut.MoveToNextPage();
+        sut.PageSize = 1;
+        sut.CurrentPageIndex = 1;
+        sut.MoveToLastPage();
+        sut.MoveToPreviousPage();
+        sut.MoveToFirstPage();
+
+        sut.CurrentPageIndex.Should().Be(0);
+        sut.PageSize.Should().Be(2);
+        sut.Items.Should().Equal(1, 2);
+        raised.Should().BeEmpty();
+    }
 }

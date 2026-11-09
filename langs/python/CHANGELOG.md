@@ -67,8 +67,33 @@ below for them.
   changes a node. `dispose()` releases the subscriptions and completes the
   stream without emitting.
 
+### Changed
+
+- `ObservableDictionary.add` raises `ValueError`, not `KeyError`, for a key
+  pair that is already present (#1308, ADR-0214, `COL-071`). This is the
+  duplicate-key type of `KeyedServicedObservableCollection`. The call changes
+  nothing and emits nothing. Code that catches `KeyError` from a duplicate
+  `add` must catch `ValueError`; `get` still raises `KeyError` for an absent
+  key pair.
+
 ### Fixed
 
+- `KeyedServicedObservableCollection.extend` and `+=` are atomic (#1321,
+  ADR-0214). Each behaves as `collection[len(collection):] = values`: a
+  duplicate key, a projector failure or an input iteration failure changes
+  nothing and emits nothing. Before, the values before the failing one stayed
+  committed and announced. Success emits one Reset on the local and hub
+  channels; empty input emits nothing.
+- `AggregateChangeStream` holds no gate while it calls the membership source's
+  `subscribe_membership` and `snapshot()`, the item selector, a selected
+  stream's `subscribe` or a subscription's `dispose()` (#1325, ADR-0214,
+  `AGCH-012`). A source that raises its structural callback under its own lock
+  no longer deadlocks the aggregate during construction, a structural
+  reconciliation or `dispose()`.
+- `ObservableDictionary` sends no hub `CollectionChangedMessage` after a local
+  subscriber disposes it during delivery (#1431). This covers `add`, `remove`,
+  replacement and `clear`. A failing subscriber of a live dictionary still
+  does not suppress the hub message (`COL-066`).
 - A `FormVM` call nested in a preparation callback or an `errors_changed`
   observer of `set_model` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,

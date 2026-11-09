@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 451 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 453 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -3210,6 +3210,20 @@ notifications
 **And** Rust, whose `keys1()` and `keys2()` return snapshots and which has no
 local event, checks the hub subscriber only
 
+### COL-071 — a duplicate dictionary `Add` fails and changes nothing
+
+**Given** an `ObservableDictionary` with a hub and the entries `("a", 1)` and
+`("b", 2)`
+**And** subscribers on the dictionary's own events, both key views, and the hub
+**When** `Add("a", 1, value)` is called with a new value
+**Then** the call fails with C# `ArgumentException`, Python `ValueError`,
+TypeScript `Error`, Swift `ObservableDictionaryError.duplicateKey`, or Rust
+`Err(VmxError::InvalidArgument(_))`
+**And** the stored value at `("a", 1)`, the entries, both key views, and
+`Count` do not change
+**And** no local event and no hub message is sent
+**And** Rust, which has no local event, checks the hub subscriber only
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles
@@ -4737,6 +4751,26 @@ otherwise owned by the aggregate
 **Then** membership bookkeeping and unrelated item subscriptions remain valid
 beyond only the host reactive primitive's documented subscriber behavior
 **And** message-hub subscriber isolation is not implied
+
+### AGCH-012 — the aggregate calls the source, selector, and subscriptions with no gate held
+
+**Given** a membership source that adds an item and raises its structural
+callback while it holds its own lock, and whose snapshot and unsubscribe take
+that lock
+**When** construction calls the selector for the first item, and the selector
+starts a second thread that adds a second item under the source lock and waits
+until that thread holds the lock
+**Then** both threads finish within a bounded time
+**And** a later emission from the second item's selected stream produces one
+`Item` change
+**When** a draining thread calls the selector during a structural
+reconciliation while a second thread adds an item under the source lock
+**Then** both threads finish within a bounded time
+**When** the aggregate is disposed while another thread holds the source lock
+and then raises the structural callback
+**Then** both threads finish within a bounded time
+**And** Rust, whose structural subscription is a hub subscription, does not
+take the source lock in its unsubscribe
 
 ## 32. Async resource viewmodel (`ARES-NNN`) — spec v3.20
 

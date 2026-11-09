@@ -146,6 +146,21 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         key = self._key_of(value)
         self._append_projected(value, key)
 
+    def extend(self, values: Iterable[T]) -> None:
+        """Append every value atomically, as ``self[len(self):] = values`` does.
+
+        The input is materialized and every key is projected and validated
+        before any change. A duplicate key, a projector failure or an input
+        iteration failure changes nothing and emits nothing. On success one
+        Reset is emitted; empty input emits nothing (spec/21 §2.10, ADR-0214).
+        """
+        self[len(self._items) :] = values
+
+    def __iadd__(self, values: Iterable[T]) -> KeyedServicedObservableCollection[TKey, T]:
+        """``+=`` is :meth:`extend`."""
+        self.extend(values)
+        return self
+
     def clear(self) -> None:
         """Remove every membership without managing any item lifecycle."""
         if not self._items:

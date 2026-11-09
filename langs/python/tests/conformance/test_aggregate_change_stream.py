@@ -1,4 +1,4 @@
-"""Conformance tests for the dynamic aggregate change stream (AGCH-001..010)."""
+"""Conformance tests for the dynamic aggregate change stream (AGCH-001..010, AGCH-012)."""
 
 from __future__ import annotations
 
@@ -686,3 +686,159 @@ def test_AGCH_010_failures_disposal_ownership_and_observer_recovery_are_bounded(
     recovery_source.items[-1].changes.emit()  # type: ignore[union-attr]
     assert any(change.reason is AggregateChangeReason.ITEM for change in safe)
     recovery.dispose()
+
+
+# AGCH-012 (ADR-0214, #1325): the aggregate holds no gate while it calls the
+# source, the selector, a selected stream's subscribe or a subscription's
+# disposal. A source that raises its structural callback under its own lock
+# therefore cannot deadlock with the aggregate.
+
+_JOIN_BOUND = 5.0
+
+
+class _LockedItem:
+    def __init__(self, name: str) -> None:
+        from reactivex.subject import Subject
+
+        self.name = name
+        self.changes: Subject[object] = Subject()
+
+
+class _LockingSource:
+    """Adds an item and raises its callback while it holds its own lock.
+
+    Its snapshot and unsubscribe take that lock too.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._items: list[_LockedItem] = []
+        self._handlers: list[Callable[[], None]] = []
+        self.holding = threading.Event()
+        self.while_holding_lock: Callable[[], None] | None = None
+
+    @property
+    def handler_count(self) -> int:
+        with self._lock:
+            return len(self._handlers)
+
+    def snapshot(self) -> tuple[_LockedItem, ...]:
+        with self._lock:
+            return tuple(self._items)
+
+    def subscribe_membership(self, callback: Callable[[], None]) -> DisposableBase:
+        with self._lock:
+            self._handlers.append(callback)
+
+        def detach() -> None:
+            with self._lock:
+                if callback in self._handlers:
+                    self._handlers.remove(callback)
+
+        return Disposable(detach)
+
+    def add_under_lock(self, item: _LockedItem) -> None:
+        with self._lock:
+            self._items.append(item)
+            self.holding.set()
+            if self.while_holding_lock is not None:
+                self.while_holding_lock()
+            for handler in tuple(self._handlers):
+                handler()
+
+    def add_then_notify(self, item: _LockedItem) -> None:
+        with self._lock:
+            self._items.append(item)
+            handlers = tuple(self._handlers)
+        for handler in handlers:
+            handler()
+
+
+def _background(action: Callable[[], object]) -> threading.Thread:
+    thread = threading.Thread(target=action, daemon=True)
+    thread.start()
+    return thread
+
+
+def _joined(thread: threading.Thread | None) -> bool:
+    assert thread is not None
+    thread.join(_JOIN_BOUND)
+    return not thread.is_alive()
+
+
+def _waiting_selector(
+    source: _LockingSource,
+    trigger: _LockedItem,
+    second: _LockedItem,
+    adders: list[threading.Thread],
+) -> Callable[[_LockedItem], Observable[object]]:
+    def select(item: _LockedItem) -> Observable[object]:
+        if item is trigger and not adders:
+            adders.append(_background(lambda: source.add_under_lock(second)))
+            assert source.holding.wait(_JOIN_BOUND)
+            time.sleep(0.2)
+        return item.changes
+
+    return select
+
+
+@pytest.mark.conformance("AGCH-012")
+def test_AGCH_012_setup_does_not_deadlock_with_a_source_that_notifies_under_its_lock() -> None:
+    source = _LockingSource()
+    first, second = _LockedItem("first"), _LockedItem("second")
+    source.add_then_notify(first)
+    adders: list[threading.Thread] = []
+    built: list[AggregateChangeStream[_LockedItem]] = []
+    select = _waiting_selector(source, first, second, adders)
+
+    constructor = _background(lambda: built.append(AggregateChangeStream(source, select)))
+
+    assert _joined(constructor)
+    assert _joined(adders[0])
+    aggregate = built[0]
+    changes: list[AggregateChange[_LockedItem]] = []
+    aggregate.observe().subscribe(changes.append)
+    second.changes.on_next(object())
+    assert [(change.reason, change.item) for change in changes] == [
+        (AggregateChangeReason.ITEM, second)
+    ]
+    aggregate.dispose()
+
+
+@pytest.mark.conformance("AGCH-012")
+def test_AGCH_012_drain_does_not_deadlock_with_a_source_that_notifies_under_its_lock() -> None:
+    source = _LockingSource()
+    trigger, second = _LockedItem("trigger"), _LockedItem("second")
+    adders: list[threading.Thread] = []
+    aggregate = AggregateChangeStream(source, _waiting_selector(source, trigger, second, adders))
+    changes: list[AggregateChange[_LockedItem]] = []
+    aggregate.observe().subscribe(changes.append)
+
+    drainer = _background(lambda: source.add_then_notify(trigger))
+
+    assert _joined(drainer)
+    assert _joined(adders[0])
+    changes.clear()
+    second.changes.on_next(object())
+    assert [(change.reason, change.item) for change in changes] == [
+        (AggregateChangeReason.ITEM, second)
+    ]
+    aggregate.dispose()
+
+
+@pytest.mark.conformance("AGCH-012")
+def test_AGCH_012_dispose_does_not_deadlock_with_a_source_that_notifies_under_its_lock() -> None:
+    source = _LockingSource()
+    source.add_then_notify(_LockedItem("first"))
+    aggregate = AggregateChangeStream(source, lambda item: item.changes)
+    # The adder holds the source lock and waits, so that dispose reaches the
+    # unsubscribe (which takes the same lock). Then it raises the callback.
+    source.while_holding_lock = lambda: time.sleep(0.2)
+
+    adder = _background(lambda: source.add_under_lock(_LockedItem("second")))
+    assert source.holding.wait(_JOIN_BOUND)
+    disposer = _background(aggregate.dispose)
+
+    assert _joined(disposer)
+    assert _joined(adder)
+    assert source.handler_count == 0

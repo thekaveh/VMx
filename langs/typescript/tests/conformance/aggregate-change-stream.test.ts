@@ -651,3 +651,75 @@ describe("AGCH-010", () => {
     expect(owned.changes.unsubscribeCount).toBe(1);
   });
 });
+
+// AGCH-012 (ADR-0214, #1325): the aggregate calls the source, the selector and
+// subscriptions with no gate held. TypeScript runs on one thread, so it has no
+// lock cycle; these tests pin the single-thread analog. The source raises its
+// structural callback from inside a selector call and from inside dispose.
+describe("AGCH-012", () => {
+  it("admits a member that the source adds while the selector runs during setup", () => {
+    const first = new Item("first");
+    const second = new Item("second");
+    const source = new TestSource(first);
+    let added = false;
+    const sut = new AggregateChangeStream<Item>(source, (item) => {
+      if (item === first && !added) {
+        added = true;
+        source.add(second);
+      }
+      return item.changes.observable;
+    });
+    const changes: AggregateChange<Item>[] = [];
+    sut.observe().subscribe((change) => changes.push(change));
+
+    second.changes.emit();
+
+    expect(reasons(changes)).toEqual([AggregateChangeReason.Item]);
+    expect(changes[0]?.item).toBe(second);
+    sut.dispose();
+  });
+
+  it("admits a member that the source adds while the selector runs during a drain", () => {
+    const trigger = new Item("trigger");
+    const second = new Item("second");
+    const source = new TestSource<Item>();
+    let added = false;
+    const sut = new AggregateChangeStream<Item>(source, (item) => {
+      if (item === trigger && !added) {
+        added = true;
+        source.add(second);
+      }
+      return item.changes.observable;
+    });
+    const changes: AggregateChange<Item>[] = [];
+    sut.observe().subscribe((change) => changes.push(change));
+
+    source.add(trigger);
+    changes.length = 0;
+    second.changes.emit();
+
+    expect(reasons(changes)).toEqual([AggregateChangeReason.Item]);
+    expect(changes[0]?.item).toBe(second);
+    sut.dispose();
+  });
+
+  it("ignores a structural callback that the source raises after dispose began", () => {
+    const source = new TestSource(new Item("first"));
+    const sut = aggregate(source);
+    const changes: AggregateChange<Item>[] = [];
+    let completed = false;
+    sut.observe().subscribe({
+      next: (change) => changes.push(change),
+      complete: () => {
+        completed = true;
+      },
+    });
+    source.handlers.unshift(() => sut.dispose());
+
+    expect(() => source.add(new Item("second"))).not.toThrow();
+
+    expect(completed).toBe(true);
+    expect(changes).toEqual([]);
+    expect(source.handlers).toHaveLength(1);
+  });
+});
