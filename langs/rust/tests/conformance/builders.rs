@@ -190,6 +190,12 @@ fn common_options_factories_match_builder_shape() {
         component.view_model_type(),
         builder_component.view_model_type()
     );
+    // The children factory runs on the first construct (spec/06 §1,
+    // spec/07 §3, ADR-0204).
+    assert_eq!(composite.len(), 0);
+    assert_eq!(group.len(), 0);
+    composite.construct().unwrap();
+    group.construct().unwrap();
     assert_eq!(composite.len(), 1);
     assert_eq!(group.len(), 1);
     assert_eq!(composite.name(), "composite");
