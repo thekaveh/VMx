@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import threading
 from threading import Event, Thread
 from typing import Any
 
 import pytest
 
 from tests.liveness import HANG_GUARD, join_thread, wait_event
-from tests.wait_graph_seams import wait_until_waiting
+from tests.wait_graph_seams import WaitRequests, wait_until_waiting
 from vmx.forms import FormVM
 from vmx.messages import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
@@ -370,3 +371,139 @@ def test_no_notification_is_delivered_under_the_state_lock() -> None:
     form.deny_command.execute()
 
     assert reads and all(reads)
+
+
+class _NestedScenario:
+    """A nested call meets another thread's open scope (spec/20 §5.4, #1472).
+
+    Thread Y holds the drain of hub ``H``. Thread X's update sends on ``H``
+    from its ``errors_changed`` sink, inside X's scope, so the send waits for
+    Y. Y's subscriber then calls ``set_model``. Its wait for X's scope closes
+    a cycle and is refused, so the call prepares at once (§5.5). Y's
+    validator then makes a nested call, which never waits for X's scope.
+    """
+
+    OUTER = Model("outer")
+    NESTED = Model("nested")
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, nested: str) -> None:
+        self.nested = nested
+        self.requests = WaitRequests(monkeypatch)
+        self.hub: MessageHub[Any] = MessageHub()
+        self.form = FormVM(Model("initial"), _noop, validators={"value": self._validate})
+        self.failures: list[BaseException] = []
+        self.y_draining = Event()
+        self.y_release = Event()
+        self.x_sink_returned = Event()
+        self.x_ident = 0
+        self.y_ident = 0
+        self.nested_calls = 0
+        self.requests_during_nested_call: list[bool] | None = None
+        self.model_after_nested_call: Model | None = None
+        self.x_scope_open_after_nested_call: bool | None = None
+        self.approved_completions: list[bool] = []
+        self.form.on_approved.subscribe(
+            on_completed=lambda: self.approved_completions.append(self.x_sink_returned.is_set())
+        )
+        armed = [True]
+
+        def x_sink(_: object) -> None:
+            if threading.get_ident() != self.x_ident or not armed[0]:
+                return
+            armed[0] = False
+            self.y_release.set()
+            # Y drains H, so this send waits for Y.
+            self.hub.send(_hub_message("x"))
+            self.x_sink_returned.set()
+
+        self.form.errors_changed.subscribe(x_sink)
+        self.hub.messages.subscribe(self._y_subscriber)
+
+    def _validate(self, model: Model) -> str | None:
+        if model == self.OUTER and threading.get_ident() == self.y_ident:
+            self._nested_call()
+        return _validator(model)
+
+    def _nested_call(self) -> None:
+        self.nested_calls += 1
+        before = len(self.requests.of(self.y_ident))
+        if self.nested == "set_model":
+            self.form.set_model(self.NESTED)
+            self.model_after_nested_call = self.form.model
+        else:
+            self.form.dispose()
+        self.x_scope_open_after_nested_call = not self.x_sink_returned.is_set()
+        self.requests_during_nested_call = self.requests.of(self.y_ident)[before:]
+
+    def _y_subscriber(self, message: object) -> None:
+        if not isinstance(message, PropertyChangedMessage) or message.property_name != "go":
+            return
+        try:
+            self.y_draining.set()
+            assert wait_event(self.y_release)
+            # X's hub send waits for Y before Y calls the form.
+            wait_until_waiting(self.x_ident)
+            self.form.set_model(self.OUTER)
+        except BaseException as error:
+            self.failures.append(error)
+
+    def _run_y(self) -> None:
+        self.y_ident = threading.get_ident()
+        try:
+            self.hub.send(_hub_message("go"))
+        except BaseException as error:
+            self.failures.append(error)
+
+    def _run_x(self) -> None:
+        self.x_ident = threading.get_ident()
+        try:
+            self.form.set_model(Model("bad"))
+        except BaseException as error:
+            self.failures.append(error)
+
+    def run(self) -> None:
+        y = Thread(target=self._run_y, daemon=True)
+        y.start()
+        assert wait_event(self.y_draining)
+        x = Thread(target=self._run_x, daemon=True)
+        x.start()
+        try:
+            join_thread(x, 2 * HANG_GUARD)
+            join_thread(y, 2 * HANG_GUARD)
+        finally:
+            self.y_release.set()
+        assert not x.is_alive(), "thread X did not return: deadlock"
+        assert not y.is_alive(), "thread Y did not return: deadlock"
+        assert self.failures == []
+        # Y's outer wait for X's scope was refused, and the nested call ran.
+        assert False in self.requests.of(self.y_ident)
+        assert self.nested_calls == 1
+        assert self.x_scope_open_after_nested_call is True
+        # The nested call made no wait request, accepted or refused.
+        assert self.requests_during_nested_call == []
+
+
+def test_a_nested_set_model_never_waits_for_another_threads_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The nested call joins X's queue and replays after X's scope ends (§5.4)."""
+    scenario = _NestedScenario(monkeypatch, "set_model")
+
+    scenario.run()
+
+    assert scenario.model_after_nested_call is not None
+    assert scenario.model_after_nested_call != _NestedScenario.NESTED
+    assert scenario.form.model == _NestedScenario.NESTED
+    assert scenario.form.is_valid
+
+
+def test_a_nested_dispose_never_waits_for_another_threads_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A nested dispose returns at once; the channels complete when X's scope ends."""
+    scenario = _NestedScenario(monkeypatch, "dispose")
+
+    scenario.run()
+
+    # on_approved completed once, after X's sink returned inside X's scope.
+    assert scenario.approved_completions == [True]
