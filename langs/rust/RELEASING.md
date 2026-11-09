@@ -94,7 +94,9 @@ Before publication, Rust 1.88 and stable jobs independently verify:
 - the tag commit is reachable from `origin/main` and tag/Cargo versions match;
 - `cargo fmt --check` and all-target/all-feature Clippy with warnings denied;
 - all-feature tests and warning-free documentation;
-- the exact package-content allowlist and Cargo's clean package build; and
+- the package contents (the fixed top-level and generated files plus every
+  Git-tracked file under `src/` and `tests/`) and Cargo's clean package
+  build; and
 - an extracted `.crate` consumer using the `vmx` namespace, exact version,
   lifecycle transitions, and command execution.
 
