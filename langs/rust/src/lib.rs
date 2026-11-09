@@ -54,6 +54,11 @@ macro_rules! test_seam_probes {
         #[doc = "let group = vmx::GroupVm::<vmx::ComponentVm<i32>>::new(\"probe\");"]
         #[doc = "group.set_last_scan_probe_for_testing(|| {});"]
         #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let vm: vmx::ComponentVm = vmx::ComponentVm::new(\"probe\");"]
+        #[doc = "let _ = vm.property_changed().subscriber_count_for_testing();"]
+        #[doc = "```"]
         pub struct TestSeamProbes;
     };
 }
