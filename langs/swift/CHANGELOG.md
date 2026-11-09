@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `HierarchyError.disposed` (ADR-0190, #1318).
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -72,6 +73,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `HierarchicalVM` node now refuses `addChild`, `removeChild`,
+  `reparentChild`, `invalidateChildren`, `invalidateSubtree` and
+  `attachMany`, also where the call would do nothing (ADR-0190, spec/18 §7.1,
+  #1318). A transfer out of a disposed parent refuses too. A refused call
+  changes nothing and publishes nothing. `attachMany` rejects a candidate
+  under a disposed parent, and `invalidateSubtree` skips a disposed
+  descendant. It reports `HierarchyError.disposed`; `attachMany` rejects
+  every item and the invalidation methods return without a change.
+- A `CompositeVM` or `GroupVM` now sends no `CollectionChangedMessage` once
+  its disposal is requested, also when the disposal is deferred (ADR-0190,
+  spec/01 §1.4, #1351). A local subscriber or `onCurrentChanged` callback
+  that disposes the container now suppresses the hub message of that change.
+  In a transfer whose old container disposes itself, the hub receives only
+  the new container's `Add`.
 - A `FormVM` approval started from a preparation callback or an
   `errorsChanged` sink of `setModel` or deny now starts its persister after
   the outermost update sends all queued notifications (ADR-0180, spec/20

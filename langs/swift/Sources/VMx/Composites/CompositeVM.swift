@@ -779,7 +779,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             from: self,
             subject: collectionChangedSubject,
             gate: membershipGate,
-            disposeRequested: { disposeRequested }
+            disposalPending: { disposeRequested || disposeDeferred }
         )
     }
 
