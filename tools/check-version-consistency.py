@@ -589,19 +589,32 @@ def check_unreleased_source_placement(
     CONTRIBUTING.md §4.3 records a change in the section of the package's
     current source version. While that section is headed
     ``unreleased source version``, the package's [Unreleased] notes (its
-    ``### <package>`` subsection in C#) must stay empty (#1337).
+    ``### <package>`` subsection in C#) must stay empty (#1337). The React
+    adapter changelog, versioned by ``packages/react/package.json``, follows
+    the same rule.
     """
-    issues: list[str] = []
+    targets: list[tuple[str, Path, str, str]] = []
     for flavor, info in sorted(manifests.items()):
         version = info.get("version", "")
         if not version:
             continue
         family = flavor.split("/", 1)[0]
-        changelog = repo_root / "langs" / family / "CHANGELOG.md"
-        if not changelog.is_file():
-            continue
         package = info.get("package_id", "") if family == "csharp" else ""
         heading = version if package in ("", "VMx") else f"{package} {version}"
+        targets.append((flavor, repo_root / "langs" / family / "CHANGELOG.md", heading, package))
+    react_package = repo_root / "packages" / "react" / "package.json"
+    if react_package.is_file():
+        react_version = str(
+            json.loads(react_package.read_text(encoding="utf-8")).get("version", "")
+        )
+        if react_version:
+            react_changelog = repo_root / "packages" / "react" / "CHANGELOG.md"
+            targets.append(("react", react_changelog, react_version, ""))
+
+    issues: list[str] = []
+    for label, changelog, heading, package in targets:
+        if not changelog.is_file():
+            continue
         current = [
             line
             for line in changelog.read_text(encoding="utf-8").splitlines()
@@ -611,11 +624,11 @@ def check_unreleased_source_placement(
             continue
         parse_issues, substantive = _unreleased_notes(changelog, package)
         if parse_issues:
-            continue  # check_changelog_sections already reports parse errors.
+            continue  # The changelog section checks already report parse errors.
         if substantive:
             scope = f" {package}" if package else ""
             issues.append(
-                f"  {flavor}: [Unreleased]{scope} has notes, but [{heading}] is an unreleased "
+                f"  {label}: [Unreleased]{scope} has notes, but [{heading}] is an unreleased "
                 "source version; record them in that section"
             )
     return issues

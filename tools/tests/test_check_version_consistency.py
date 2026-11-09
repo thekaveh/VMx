@@ -2147,6 +2147,28 @@ def test_unreleased_placement_scopes_each_csharp_package(tmp_path: Path) -> None
     ]
 
 
+def test_unreleased_placement_covers_the_react_adapter(tmp_path: Path) -> None:
+    react = tmp_path / "packages" / "react"
+    react.mkdir(parents=True)
+    (react / "package.json").write_text('{"version": "0.2.0"}', encoding="utf-8")
+    changelog = react / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n- Pending note.\n\n## [0.2.0] - unreleased source version\n\n- Bump.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_unreleased_source_placement(tmp_path, {}) == [
+        "  react: [Unreleased] has notes, but [0.2.0] is an unreleased source version; "
+        "record them in that section"
+    ]
+
+    changelog.write_text(
+        "## [Unreleased]\n\n- Pending note.\n\n## [0.2.0] - 2026-01-02\n\n- Release.\n",
+        encoding="utf-8",
+    )
+    assert cvc.check_unreleased_source_placement(tmp_path, {}) == []
+
+
 def test_repository_changelogs_follow_the_placement_rule() -> None:
     root = Path(__file__).resolve().parents[2]
     manifests = cvc.collect_manifests(root)

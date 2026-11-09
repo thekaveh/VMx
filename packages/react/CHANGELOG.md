@@ -5,10 +5,11 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.3] - 2026-11-08
+## [0.1.3] - unreleased source version
 
 First npm release since 0.1.1. The `react-v0.1.2` tag never reached npm, so
-this package also contains every change listed below for 0.1.2.
+this package also contains the changes in the 0.1.2 section of
+`packages/react/CHANGELOG.md`.
 
 ### Changed
 
