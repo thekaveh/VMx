@@ -296,6 +296,26 @@ def test_dispose_is_idempotent() -> None:
     sut.dispose()  # second call must not raise
 
 
+def test_paging_calls_after_dispose_change_no_state_and_emit_nothing() -> None:
+    """ADR-0214, #1299: paging calls after ``dispose()`` are inert."""
+    sut: PagedComposition[int] = PagedComposition([1, 2, 3, 4], page_size=2)
+    events: list[str] = []
+    sut.on_property_changed.subscribe(events.append)
+    sut.dispose()
+
+    sut.move_to_next_page()
+    sut.page_size = 1
+    sut.current_page_index = 1
+    sut.move_to_last_page()
+    sut.move_to_previous_page()
+    sut.move_to_first_page()
+
+    assert sut.current_page_index == 0
+    assert sut.page_size == 2
+    assert sut.items == [1, 2]
+    assert events == []
+
+
 def test_replace_on_source_refreshes_items() -> None:
     """replace() mutates page contents, so the composition must re-emit items."""
     source: ObservableList[int] = ObservableList()

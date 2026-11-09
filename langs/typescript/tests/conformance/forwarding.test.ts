@@ -208,6 +208,39 @@ describe("FWD-004", () => {
     expect(() => duplicateComposite.construct()).toThrow(/duplicate canonical child identity/);
     expect(() => duplicateGroup.construct()).toThrow(/duplicate canonical child identity/);
   });
+
+  it("transfers a wrapped composite that another composite owns", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const inner = CompositeVM.builder<ComponentVM>()
+      .name("inner").services(hub, dispatcher).children(() => []).build();
+    const old = CompositeVM.builder<CompositeVM<ComponentVM>>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const group = GroupVM.builder<ForwardingCompositeVM<ComponentVM>>()
+      .name("group").services(hub, dispatcher).children(() => []).build();
+    const destination = CompositeVM.builder<ForwardingCompositeVM<ComponentVM>>()
+      .name("destination").services(hub, dispatcher).children(() => []).build();
+    old.add(inner);
+    const decorator = new ForwardingCompositeVM(inner);
+
+    group.add(decorator);
+
+    expect(old.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([decorator]);
+
+    destination.add(decorator);
+
+    expect(old.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([decorator]);
+
+    destination.construct();
+    decorator.selectCommand.execute();
+
+    expect(destination.current).toBe(decorator);
+    expect(decorator.isCurrent).toBe(true);
+    expect(inner.isCurrent).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -350,6 +383,12 @@ class OwningDecorator extends ForwardingComponentVM<string> {
   }
 }
 
+class OwningCompositeDecorator extends ForwardingCompositeVM<ComponentVM> {
+  register(resource: () => void): void {
+    this.own(resource);
+  }
+}
+
 describe("FWD-005", () => {
   function makeInner() {
     return ComponentVMOf.builder<string>()
@@ -395,5 +434,27 @@ describe("FWD-005", () => {
     expect(released).toEqual(["r2", "r1"]);
     second.dispose();
     expect(released).toEqual(["r2", "r1"]);
+  });
+
+  it("composite decorators register owned resources on the wrapped composite", () => {
+    const inner = CompositeVM.builder<ComponentVM>()
+      .name("inner").services(makeHub(), makeDisp()).children(() => []).build();
+    const decorator = new OwningCompositeDecorator(inner);
+    const released: string[] = [];
+    decorator.register(() => released.push("r1"));
+    decorator.register(() => released.push("r2"));
+    inner.construct();
+
+    decorator.dispose();
+
+    expect(inner.status).toBe(ConstructionStatus.Disposed);
+    expect(released).toEqual(["r2", "r1"]);
+
+    decorator.register(() => released.push("r3"));
+    expect(released).toEqual(["r2", "r1", "r3"]);
+
+    decorator.dispose();
+    inner.dispose();
+    expect(released).toEqual(["r2", "r1", "r3"]);
   });
 });

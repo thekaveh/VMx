@@ -7,12 +7,9 @@ shared [release invariants](../../CONTRIBUTING.md#43-release-invariants) apply:
 annotated immutable tags, fix-forward patches, spec compatibility, and
 documentation updates.
 
-The latest verified release is
-[`3.24.0`](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0).
-Its `v3.24.0` semantic tag and `swift-v3.24.0` operational tag both point to
-`36229cabfcc02734ce8378e9a6eaa64bb258491b`; a clean public consumer resolved
-that version, loaded all four bundled fixtures, and completed a VM lifecycle
-round trip.
+The [compatibility matrix](../../compatibility-matrix.md) records the current
+Swift publication status: the latest verified release and its tag pair. This
+runbook does not repeat that status, so a release does not need to update it.
 
 The repository-root `Package.swift` is the public SwiftPM entry point. It
 references the existing sources, tests, and resources under `langs/swift`; it
@@ -30,12 +27,15 @@ lines cannot compete for the same generic tag.
 
 ## 1. Prerequisites
 
-- Full Xcode is available in CI (`macos-latest`) so root and nested
+- Full Xcode is available in CI (`macos-15`) so root and nested
   `swift test --parallel` runs can load XCTest. Local Command Line Tools are
   enough for `swift build`, but not always for `swift test`.
 - `VMxVersion.current` and `VMxVersion.minSpecVersion` in
   `Sources/VMx/Version.swift` match the intended release.
-- `langs/swift/CHANGELOG.md` has the complete release entry. The README,
+- `langs/swift/CHANGELOG.md` has the complete release entry. A release-prep PR
+  has replaced `unreleased source version` in its `## [X.Y.Z]` heading with
+  the release date, immediately before the tag, so the heading date equals the
+  tag date (`CONTRIBUTING.md` §4.3). The README,
   compatibility matrix, site, and wiki must remain truthful about source-only
   status until the public tag and clean-consumer checks succeed.
 - The intended release version has never been tagged. Never move or reuse an existing

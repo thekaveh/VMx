@@ -35,9 +35,11 @@ public final class ConfirmationVM: NotificationVM {
         weak var weakSelf: ConfirmationVM?
         self.approveCommand = RelayCommand.builder()
             .task { weakSelf?.resolveWith(.approve) }
+            .predicate { !(weakSelf?.disposed ?? false) }
             .build()
         self.rejectCommand = RelayCommand.builder()
             .task { weakSelf?.resolveWith(.reject) }
+            .predicate { !(weakSelf?.disposed ?? false) }
             .build()
         super.init(
             notification: notification,
@@ -61,7 +63,8 @@ public final class ConfirmationVM: NotificationVM {
 
     /// Delegates to the base, then disposes the approve/reject commands. The
     /// base marks the VM disposed first, so an observer that runs while a
-    /// command is disposed cannot resolve the hub (#753).
+    /// command is disposed cannot resolve the hub (#753), and every command
+    /// already reports `canExecute() == false` (spec/16 §6.2, ADR-0196).
     public override func dispose() {
         super.dispose()
         approveCommand.dispose()

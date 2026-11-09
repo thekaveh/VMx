@@ -198,6 +198,13 @@ public final class WorkspaceVM {
             .notificationHub(notificationHub)
             .build()
 
+        let noteForm = try! NoteFormVM.builder()
+            .name("form")
+            .services(hub: hub, dispatcher: dispatcher)
+            .repository(repo)
+            .notificationHub(notificationHub)
+            .build()
+
         let notesView = try! NotesViewVM.builder()
             .name("notes")
             .services(hub: hub, dispatcher: dispatcher)
@@ -205,13 +212,9 @@ public final class WorkspaceVM {
             .pageSize(5)
             .dialogService(dialogService)
             .notificationHub(notificationHub)
-            .build()
-
-        let noteForm = try! NoteFormVM.builder()
-            .name("form")
-            .services(hub: hub, dispatcher: dispatcher)
-            .repository(repo)
-            .notificationHub(notificationHub)
+            .saveNote({ [weak noteForm] vm in
+                try await WorkspaceVM.saveNote(vm, form: noteForm, repo: repo, dispatcher: dispatcher)
+            })
             .build()
 
         let statusBar = try! StatusBarVM.builder()
@@ -419,6 +422,41 @@ public final class WorkspaceVM {
     }
 
     // MARK: - Private async helpers
+
+    /// What a note save does, decided on the foreground (ADR-0201 §2.3).
+    private enum NoteSaveRoute: Sendable {
+        case nothing
+        case editorDraft(noteId: String)
+        case storedModel(NoteModel)
+    }
+
+    /// Saves `note` for the action bar (ADR-0201 §2.3).
+    ///
+    /// When the editor holds the note, this is the editor Save: it persists a
+    /// dirty, valid draft and posts "Saved", and does nothing otherwise. For
+    /// any other note it persists the stored model.
+    private static func saveNote(
+        _ note: NoteVM,
+        form: NoteFormVM?,
+        repo: any NoteRepository,
+        dispatcher: Dispatcher
+    ) async throws {
+        let route = await performOnForeground(using: dispatcher) { [weak note, weak form] () -> NoteSaveRoute in
+            guard let note else { return .nothing }
+            guard let form, form.hasBoundNote, form.snapshot.id == note.model.id else {
+                return .storedModel(note.model)
+            }
+            return form.isDirty && form.isValid ? .editorDraft(noteId: note.model.id) : .nothing
+        }
+        switch route {
+        case .nothing:
+            return
+        case .editorDraft(let noteId):
+            try await form?.approveDraftAsync(ofNote: noteId)
+        case .storedModel(let model):
+            try await repo.saveNote(model)
+        }
+    }
 
     /// Awaits `notesView.bindTo(notebookId:)` and clears `_requestedNotebookId`
     /// if the bind did not take effect (e.g. internal cancellation), so the

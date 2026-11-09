@@ -73,3 +73,20 @@ def test_can_search_false_when_empty() -> None:
     s = SearchableState(items=lambda: [], predicate=lambda i, t: True, debounce_seconds=0)
     assert s.can_search() is False
     s.dispose()
+
+
+def test_zero_debounce_construction_reads_the_supplier_once() -> None:
+    """Construction with no debounce and no signal reads items once (ADR-0198)."""
+    calls: list[int] = []
+
+    def items() -> list[str]:
+        calls.append(1)
+        return ["a"]
+
+    s = SearchableState(items=items, predicate=_ci_substr, debounce_seconds=0)
+    snapshots: list[list[str]] = []
+    s.filtered.subscribe(on_next=snapshots.append)
+
+    assert len(calls) == 1
+    assert snapshots == [["a"]]
+    s.dispose()

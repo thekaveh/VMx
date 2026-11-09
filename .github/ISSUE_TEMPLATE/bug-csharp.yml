@@ -1,12 +1,19 @@
-name: Bug report — C# (VMx NuGet package)
+name: Bug report — C# (VMx NuGet packages)
 description: Something is broken in the C# flavor.
-labels: [bug, csharp]
+labels: [bug, ".NET"]
 body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences that say what is wrong and where.
+    validations:
+      required: true
   - type: dropdown
     id: package
     attributes:
       label: Affected package
-      description: The C# flavor ships three independently-versioned NuGet packages.
+      description: The C# flavor ships three independently versioned NuGet packages.
       options:
         - VMx (core)
         - VMx.Extensions.DependencyInjection
@@ -18,33 +25,54 @@ body:
     id: version
     attributes:
       label: Package version
-      placeholder: e.g., 2.5.0 (VMx core) / 1.2.0 (VMx.Notifications)
+      placeholder: "e.g., 3.30.0 (VMx) / 1.2.0 (VMx.Notifications) / 2.1.1 (VMx.Extensions.DependencyInjection)"
     validations:
       required: true
   - type: input
     id: tfm
     attributes:
       label: Target framework
-      placeholder: e.g., net8.0, netstandard2.0
+      placeholder: "e.g., net8.0, netstandard2.0"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >-
+        How to reproduce the defect, the observed output (error text, wrong
+        value or stack trace) and the behavior that you expected. Put the
+        reproduction code in the next field.
     validations:
       required: true
   - type: textarea
     id: repro
     attributes:
-      label: Minimal reproduction
-      description: Smallest code snippet that reproduces the issue.
+      label: Reproduction
+      description: The smallest program that shows the defect that Context describes.
       render: csharp
     validations:
       required: true
   - type: textarea
-    id: expected
+    id: acceptance
     attributes:
-      label: Expected behavior
+      label: Acceptance criteria
+      description: >-
+        Checkable conditions that show the defect is fixed, one checkbox per
+        condition.
+      placeholder: "- [ ] Calling `Dispose()` twice throws no exception."
     validations:
       required: true
   - type: textarea
-    id: actual
+    id: evidence
     attributes:
-      label: Actual behavior
+      label: Evidence
+      description: >-
+        A `Location | What it shows` table. Each row names a file and line
+        range, a log, a CI run or a link, and says in one sentence what it
+        shows.
+      value: |
+        | Location | What it shows |
+        |---|---|
     validations:
-      required: true
+      required: false

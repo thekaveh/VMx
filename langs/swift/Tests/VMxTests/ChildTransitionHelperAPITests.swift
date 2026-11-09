@@ -8,7 +8,7 @@
 // programming error), so XCTest cannot exercise it.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -404,7 +404,7 @@ final class ChildTransitionHelperAPITests: XCTestCase {
                 probe.otherCallReturned = true
                 returned.signal()
             }
-            XCTAssertEqual(returned.wait(timeout: .now() + 10), .success)
+            XCTAssertEqual(returned.wait(timeout: .now() + hangGuard), .success)
         }
 
         parent.dispose()

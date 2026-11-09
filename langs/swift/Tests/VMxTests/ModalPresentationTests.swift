@@ -71,14 +71,17 @@ final class ModalPresentationTests: XCTestCase {
                 resumed.fulfill()
             }
         }
+        // BasicModalVM keeps its state behind an NSLock but is not Sendable;
+        // the box makes the cross-thread capture explicit.
+        let boxedModal = UncheckedSendableBox(modal)
         DispatchQueue.global().async {
             DispatchQueue.concurrentPerform(iterations: 64) { candidate in
-                modal.dismiss(candidate)
+                boxedModal.value.dismiss(candidate)
             }
             dismissalsReturned.fulfill()
         }
 
-        await fulfillment(of: [dismissalsReturned, resumed], timeout: 2)
+        await fulfillment(of: [dismissalsReturned, resumed], timeout: hangGuard)
         let storedResult = try XCTUnwrap(modal.result)
         XCTAssertTrue(modal.isDismissed)
         XCTAssertEqual(results.snapshot, Array(repeating: storedResult, count: 64))

@@ -25,10 +25,10 @@ def test_add_increments_count() -> None:
     assert sut.count == 2
 
 
-def test_add_duplicate_key_raises_key_error() -> None:
+def test_add_duplicate_key_raises_value_error() -> None:
     sut: ObservableDictionary[str, int, float] = ObservableDictionary()
     sut.add("a", 1, 1.0)
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError):
         sut.add("a", 1, 9.9)
 
 
@@ -393,6 +393,46 @@ def test_hub_injection_publishes_reset_message_on_clear() -> None:
     assert received[0].action == "reset"
 
 
+def _dispose_during_delivery_case(
+    operation: str,
+) -> tuple[ObservableDictionary[str, int, float], list[object], Callable[[], None]]:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    sut: ObservableDictionary[str, int, float] = ObservableDictionary(hub=hub)
+    if operation != "add":
+        sut.add("a", 1, 1.0)
+    received: list[object] = []
+    hub.messages.subscribe(received.append)  # type: ignore[arg-type]
+    stream = {
+        "add": sut.on_item_added,
+        "remove": sut.on_item_removed,
+        "replace": sut.on_item_replaced,
+        "clear": sut.on_reset,
+    }[operation]
+    stream.subscribe(lambda _e: sut.dispose())  # type: ignore[attr-defined]
+
+    def act() -> None:
+        if operation == "add":
+            sut.add("a", 1, 1.0)
+        elif operation == "remove":
+            sut.remove("a", 1)
+        elif operation == "replace":
+            sut["a", 1] = 2.0
+        else:
+            sut.clear()
+
+    return sut, received, act
+
+
+@pytest.mark.parametrize("operation", ["add", "remove", "replace", "clear"])
+def test_no_hub_message_after_a_local_subscriber_disposes_the_dictionary(operation: str) -> None:
+    """#1431: a disposed dictionary publishes nothing (spec/01 §1.4)."""
+    _sut, received, act = _dispose_during_delivery_case(operation)
+
+    act()
+
+    assert [m for m in received if isinstance(m, CollectionChangedMessage)] == []
+
+
 def test_hub_none_does_not_throw_on_any_mutation() -> None:
     sut: ObservableDictionary[str, int, float] = ObservableDictionary()
     sut.add("a", 1, 1.0)
@@ -733,3 +773,39 @@ def test_key_view_contains_a_nan_key_by_identity() -> None:
     sut.add(nan, "b", 1)
 
     assert nan in sut.keys1
+
+
+def test_replace_position_is_the_entry_position_when_the_message_is_sent() -> None:
+    # A local Replace handler that removes an earlier entry moves the entry.
+    # The Replace hub message reports the new position, as an Add does
+    # (spec/21 §4.7, ADR-0193, #733).
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    d: ObservableDictionary[str, int, str] = ObservableDictionary(hub=hub)
+    d.add("a", 1, "one")
+    d.add("b", 2, "two")
+    d.add("c", 3, "three")
+    messages: list[CollectionChangedMessage[object]] = []
+    hub.messages.subscribe(messages.append)  # type: ignore[arg-type]
+    d.on_item_replaced.subscribe(lambda _: d.remove("a", 1) if ("a", 1) in d else None)
+
+    d["c", 3] = "z"
+
+    replace = next(m for m in messages if m.action == "replace")
+    assert (replace.index, replace.old_index, replace.new_index) == (1, 1, 1)
+
+
+def test_replace_position_is_minus_one_when_a_local_handler_removes_the_entry() -> None:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    d: ObservableDictionary[str, int, str] = ObservableDictionary(hub=hub)
+    d.add("a", 1, "one")
+    d.add("b", 2, "two")
+    messages: list[CollectionChangedMessage[object]] = []
+    hub.messages.subscribe(messages.append)  # type: ignore[arg-type]
+    d.on_item_replaced.subscribe(lambda _: d.remove("b", 2))
+
+    d["b", 2] = "z"
+
+    assert [(m.action, m.index, m.old_index, m.new_index) for m in messages] == [
+        ("remove", 1, 1, -1),
+        ("replace", -1, -1, -1),
+    ]

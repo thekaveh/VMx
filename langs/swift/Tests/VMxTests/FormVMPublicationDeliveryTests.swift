@@ -12,7 +12,7 @@
 // notifications while the commit held the form's state lock. It is now queued
 // and replays after `onApproved` (ADR-0174, question 2; spec/20 §5.3).
 //
-// Every wait is bounded by `deliveryTimeout`, so a stall fails the test
+// Every wait is bounded by `hangGuard`, so a stall fails the test
 // instead of hanging the run.
 //
 
@@ -21,8 +21,6 @@ import Foundation
 import XCTest
 @testable import VMx
 
-/// Bound for every wait in these tests; a stall shows up as a timeout.
-private let deliveryTimeout: TimeInterval = 10
 /// How long the stress loops run.
 private let stressDuration: TimeInterval = 3.0
 /// Marks the thread whose `canExecuteChanged` sink acts (thread Y or Z).
@@ -104,7 +102,7 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> Bool {
-        let result = semaphore.wait(timeout: .now() + deliveryTimeout)
+        let result = semaphore.wait(timeout: .now() + hangGuard)
         XCTAssertEqual(result, .success, message, file: file, line: line)
         return result == .success
     }
@@ -144,7 +142,7 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
             .sink { errors in
                 guard errors.isEmpty, errorsOnce.claim() else { return }
                 pInErrorsSink.signal()
-                _ = ySinkStarted.wait(timeout: .now() + deliveryTimeout)
+                _ = ySinkStarted.wait(timeout: .now() + hangGuard)
             }
             .store(in: &cancellables)
         form.approveCommand.canExecuteChanged
@@ -237,7 +235,7 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
                 defer { approvals.signal() }
                 guard approvedOnce.claim() else { return }
                 pInApproved.signal()
-                _ = ySinkStarted.wait(timeout: .now() + deliveryTimeout)
+                _ = ySinkStarted.wait(timeout: .now() + hangGuard)
                 form?.setModel("")
                 log.append("p set")
             }
@@ -307,7 +305,7 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
         }.start()
 
         XCTAssertEqual(
-            done.wait(timeout: .now() + stressDuration + deliveryTimeout), .success,
+            done.wait(timeout: .now() + stressDuration + hangGuard), .success,
             "a thread stalled: publication deadlock"
         )
     }
@@ -331,7 +329,7 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
             validators: ["value": { $0.isEmpty ? "required" : nil }],
             resetOnApproved: { _ in
                 resetEntered.signal()
-                _ = zSinkStarted.wait(timeout: .now() + deliveryTimeout)
+                _ = zSinkStarted.wait(timeout: .now() + hangGuard)
                 weakForm?.setModel("")
                 return "pristine"
             }
@@ -413,7 +411,7 @@ final class FormVMPublicationDeliveryTests: XCTestCase {
         }
         // A stalled approval may hold the state lock, so fail before reading
         // the form; its task is left behind.
-        guard await XCTWaiter().fulfillment(of: [returned], timeout: deliveryTimeout) == .completed else {
+        guard await XCTWaiter().fulfillment(of: [returned], timeout: hangGuard) == .completed else {
             return XCTFail("the approval stalled")
         }
 

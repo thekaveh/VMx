@@ -53,12 +53,14 @@ def test_recipe_fence_is_checked_against_the_executed_fixture(
 
 
 def test_fixture_pins_the_host_versions_the_guides_name() -> None:
+    # The fixture pins the exact version; each guide names its major version, so
+    # a Dependabot patch or minor update needs no guide edit (#1363).
     manifest = (FIXTURE / "package.json").read_text(encoding="utf-8")
     for guide, package in (("vue.md", "vue"), ("solid.md", "solid-js"), ("svelte.md", "svelte")):
-        version = re.search(rf'"{re.escape(package)}": "(\d+\.\d+\.\d+)"', manifest)
+        version = re.search(rf'"{re.escape(package)}": "(\d+)\.\d+\.\d+"', manifest)
         assert version is not None, f"{package} must be pinned to an exact version"
-        text = (INTEGRATION / guide).read_text(encoding="utf-8")
-        assert f"`{package}` {version.group(1)}" in text
+        text = " ".join((INTEGRATION / guide).read_text(encoding="utf-8").split())
+        assert f"`{package}` {version.group(1)}, the major version" in text, guide
 
 
 def test_ci_executes_the_fixture_through_the_packed_package() -> None:

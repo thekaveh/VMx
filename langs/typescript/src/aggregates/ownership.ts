@@ -1,5 +1,6 @@
 import { ComponentVMBase } from "../components/componentVMBase.js";
 import { disposeBestEffort } from "../components/disposal.js";
+import { disposeUnownedCandidates } from "../components/unownedCandidates.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type {
   IOwningParentVM,
@@ -27,6 +28,27 @@ export class AggregateParent implements IOwningParentVM {
   detachForTransfer(vm: ComponentVMBase): ParentTransfer {
     throw new Error(`Cannot transfer '${vm.name}' out of a fixed aggregate slot`);
   }
+}
+
+/**
+ * @internal Runs one slot factory. When it throws, the candidates that earlier
+ * factories of the same population built are disposed, then the failure
+ * propagates (#1324).
+ */
+export function buildAggregateCandidate<T extends ComponentVMBase>(
+  parent: AggregateParent,
+  built: ComponentVMBase[],
+  factory: () => T,
+): T {
+  let candidate: T;
+  try {
+    candidate = factory();
+  } catch (error) {
+    disposeUnownedCandidates(parent, built);
+    throw error;
+  }
+  built.push(candidate);
+  return candidate;
 }
 
 /** @internal Validate all factories before overwriting any fixed slot. */
@@ -76,11 +98,20 @@ export function replaceAggregateSlots(
 ): boolean {
   const identities = [...new Set(next.map((child) => child._ownershipIdentity))];
   if (identities.some((identity) => identity._ownershipInProgress)) {
+    // The preflight refused the population: the old slots stay, and the
+    // candidates nobody else owns are disposed (#1324).
+    disposeUnownedCandidates(parent, next);
     throw new Error("Aggregate ownership transaction is already in progress");
   }
   for (const identity of identities) identity._ownershipInProgress = true;
   try {
-    validateAggregateSlots(parent, next);
+    try {
+      validateAggregateSlots(parent, next);
+    } catch (error) {
+      for (const identity of identities) identity._ownershipInProgress = false;
+      disposeUnownedCandidates(parent, next);
+      throw error;
+    }
     let failed = false;
     let firstError: unknown;
     try {

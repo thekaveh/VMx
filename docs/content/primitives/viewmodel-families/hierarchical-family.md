@@ -28,6 +28,11 @@ or reparent its children; only eager construction cascades (spec 18 §3). The
 consumer owns child lifetimes: dispose a subtree explicitly (§6.2.6.4), or
 register cleanup through the owned-resource helper.
 
+A disposed node keeps its children, but it refuses every structural call:
+add, remove, reparent, batch attach, and cache invalidation. A transfer out of
+a disposed node refuses too. To reuse a child, move it before you dispose its
+parent (spec 18 §7.1).
+
 A consumer `TVM` subclass adds per-node fields and methods. Rust has no
 subclassing, so `HierarchicalVm<M, N = ()>` takes a node-data type `N`.
 `parent()`, `children()` and `path()` return `HierarchicalVm<M, N>`, and
@@ -159,6 +164,14 @@ attachment never expands a lazy subtree just to search for a parent. It scans
 the active nodes to a fixpoint: a parent added later in the input unlocks its
 earlier children on the next pass, while sibling order remains the original
 input order.
+
+A batch item can carry a prebuilt subtree. When the item attaches, its
+materialized descendants join the index too, so a later item can name any of
+them as its parent. If a descendant key is already in the tree or claimed
+earlier in the batch, the whole item is a duplicate and stays detached. A node
+of that subtree submitted in the same batch is `AlreadyAttached`, in either
+order. Children that a lazy parent's factory creates during the batch join the
+index on the next call (ADR-0212).
 
 The result separates `added`, `duplicates`, `orphans`, and typed `rejections`.
 Same-key nodes never replace an existing VM. `park` retains only genuine

@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Verify immutable GitHub Action pins and their maintenance-ledger inventory."""
+"""Verify immutable GitHub Action pins and their maintenance-ledger inventory.
+
+Every remote action must use a 40-character commit SHA, every use of one action
+must share one SHA, and the contract ledger must name every action. The ledger
+names actions without their SHAs: the workflows are the only record of a pin,
+so a Dependabot SHA update needs no ledger edit (#1363).
+"""
 
 from __future__ import annotations
 
@@ -40,20 +46,24 @@ def collect_workflow_actions(repo_root: Path) -> tuple[set[str], list[str]]:
 
 
 def check_ledger(repo_root: Path, ledger_path: Path) -> list[str]:
-    """Report mutable action refs and remote actions absent from the ledger."""
+    """Report mutable refs, split pins, unlisted actions, and SHAs copied into the ledger."""
     actions, issues = collect_workflow_actions(repo_root)
     ledger = ledger_path.read_text(encoding="utf-8")
+    pins_by_name: dict[str, set[str]] = {}
+    for action in actions:
+        name, _, ref = action.rpartition("@")
+        pins_by_name.setdefault(name or action, set()).add(ref)
+    for name, refs in sorted(pins_by_name.items()):
+        if len(refs) > 1:
+            issues.append(
+                f"workflow action uses more than one ref: {name} ({', '.join(sorted(refs))})"
+            )
+        if f"`{name}`" not in ledger:
+            issues.append(f"undocumented workflow action: {name}")
     issues.extend(
-        f"undocumented workflow action: {action}"
-        for action in sorted(actions)
-        if f"`{action}`" not in ledger
+        f"ledger repeats a workflow pin: {match.group(0).strip('`')}; name the action only"
+        for match in _LEDGER_ACTION_RE.finditer(ledger)
     )
-    current_by_name = {action.rsplit("@", 1)[0]: action for action in actions}
-    for match in _LEDGER_ACTION_RE.finditer(ledger):
-        documented = f"{match.group('name')}@{match.group('sha')}"
-        current = current_by_name.get(match.group("name"))
-        if current is not None and documented != current:
-            issues.append(f"stale ledger action pin: {documented} (workflow uses {current})")
     return issues
 
 

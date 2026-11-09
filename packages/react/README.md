@@ -15,11 +15,11 @@ Releases are published to
 [npm](https://www.npmjs.com/package/@thekaveh/vmx-react) from `react-v*` tags
 on `main`, with provenance.
 
-Compatibility for 0.1.x:
+Compatibility for 0.1.3 and later 0.1.x releases:
 
 | Dependency | Supported range |
 | --- | --- |
-| `@thekaveh/vmx` | `^3.24.1` |
+| `@thekaveh/vmx` | `^3.30.0` |
 | React | `^18.3.1` or `^19.0.0` |
 | RxJS | `^7.8.0` |
 | `use-sync-external-store` | `^1.6.0` |
@@ -97,9 +97,18 @@ const resource = useAsyncResource(screen.data);   // discriminated async state
 Collection snapshots retain the same array identity while quiet and preserve
 the identity/order of VM items across add, remove, replace, reset, batch, and
 move events. `useCommand` subscribes to `canExecuteChanged`; consumers do not
-need a global polling render to refresh buttons. `useDerivedProperty` renders
-`undefined` until the property's first value and renders that value as soon as
-it arrives, including from a source that first emits after mount.
+need a global polling render to refresh buttons. An `AsyncRelayCommand` sends a
+rejected task to its `errors` channel, because `execute()` returns before the
+task settles. Pass `useCommand(command, { onError })` to receive each failure
+while the component is mounted; the hook unsubscribes on unmount and binds a
+command without `errors`, such as `RelayCommand`, as before. `useVm` also
+re-renders a component bound to a `ForwardingComponentVM` or
+`ForwardingCompositeVM`: it matches messages from the VM that the decorator's
+`wrappedBase` chain reaches. A `ForwardingCompositeVM` needs an
+`@thekaveh/vmx` release that contains ADR-0213; 3.30.0 does not.
+`useDerivedProperty` renders `undefined` until the property's first value and
+renders that value as soon as it arrives, including from a source that first
+emits after mount.
 
 ## 4. Conditional VMs and the Rules of Hooks
 

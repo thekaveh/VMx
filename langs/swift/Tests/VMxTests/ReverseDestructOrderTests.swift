@@ -5,7 +5,7 @@
 // Claimed IDs: GRP-014, COMP-046.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import Combine
 import XCTest

@@ -15,7 +15,7 @@ from typing import Generic, TypeVar
 
 from vmx.builders import _validation
 from vmx.components.base import _ComponentVMBase
-from vmx.components.child_order import ChildOrder
+from vmx.components.child_order import ChildOrder, _require_child_order
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHubProto
@@ -101,7 +101,7 @@ class GroupVMBuilder(Generic[VM]):
         ``ChildOrder.REVERSE`` destructs and disposes the children from the last
         index to the first. Construct order does not change (ADR-0161).
         """
-        return dataclasses.replace(self, _destruct_order=order)
+        return dataclasses.replace(self, _destruct_order=_require_child_order(order))
 
     # ── Build ────────────────────────────────────────────────────────────────
 

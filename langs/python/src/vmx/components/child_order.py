@@ -24,6 +24,17 @@ class ChildOrder(Enum):
     """Visit children in reverse child order, the last index first."""
 
 
+def _require_child_order(order: object) -> ChildOrder:
+    """Return ``order``, or raise ``TypeError`` when it is not a ``ChildOrder``.
+
+    A plain string such as ``"reverse"`` is rejected: it is not a member, and
+    the destruct walk would otherwise fall back to insertion order silently.
+    """
+    if not isinstance(order, ChildOrder):
+        raise TypeError(f"destruct_order must be a ChildOrder, not {type(order).__name__}")
+    return order
+
+
 def _in_destruct_order(children: Sequence[T], order: ChildOrder) -> list[T]:
     """Return a snapshot of ``children`` in the destruct and dispose order."""
     if order is ChildOrder.REVERSE:

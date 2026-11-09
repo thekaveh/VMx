@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Reactive.Disposables;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 using VMx.Messages;
 using VMx.Services;
 
@@ -25,6 +26,16 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
 {
     private readonly IMessageHub? _hub;
 
+    // Each entry of a local handler is kept here with a wrapper that records
+    // its failure, so a throwing entry does not stop the later ones (spec/03
+    // §3.6, ADR-0191). OnCollectionChanged invokes the wrappers itself, never
+    // through the base event, so ObservableCollection's reentrancy block never
+    // applies and a handler may mutate the collection (spec/21 §2.13,
+    // ADR-0214, #1343). The lock guards the list against a concurrent add and
+    // remove.
+    private readonly List<(Delegate Handler, NotifyCollectionChangedEventHandler Wrapper)> _localHandlers = [];
+    private ExceptionDispatchInfo? _deliveryFailure;
+
     /// <summary>
     /// Initializes a new instance, optionally wiring it to <paramref name="hub"/>.
     /// </summary>
@@ -32,6 +43,61 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
     public ServicedObservableCollection(IMessageHub? hub = null)
     {
         _hub = hub;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Every handler receives each change once, even when an earlier handler
+    /// throws. The mutation then rethrows the first failure after the hub send
+    /// (spec/03 §3.6, ADR-0171, ADR-0191). The event keeps its own handler
+    /// list, so the base <see cref="ObservableCollection{T}"/> never blocks
+    /// reentrancy. A <see cref="CollectionChanged"/> handler may mutate the
+    /// collection while other handlers are attached; the nested mutation
+    /// completes its own local and hub delivery first (spec/21 §2.13,
+    /// ADR-0214, #1343).
+    /// </remarks>
+    public override event NotifyCollectionChangedEventHandler? CollectionChanged
+    {
+        add
+        {
+            if (value is null) return;
+            lock (_localHandlers)
+            {
+                foreach (Delegate entry in value.GetInvocationList())
+                {
+                    var handler = (NotifyCollectionChangedEventHandler)entry;
+                    NotifyCollectionChangedEventHandler wrapper = (sender, args) =>
+                    {
+                        try { handler(sender, args); }
+                        catch (Exception error) { _deliveryFailure ??= ExceptionDispatchInfo.Capture(error); }
+                    };
+                    _localHandlers.Add((entry, wrapper));
+                }
+            }
+        }
+        remove
+        {
+            if (value is null) return;
+            // Standard event semantics: remove the last run of entries that
+            // equals the invocation list of value, if there is one.
+            Delegate[] entries = value.GetInvocationList();
+            lock (_localHandlers)
+            {
+                for (int start = _localHandlers.Count - entries.Length; start >= 0; start--)
+                {
+                    if (!RunMatches(start, entries)) continue;
+                    _localHandlers.RemoveRange(start, entries.Length);
+                    return;
+                }
+            }
+        }
+    }
+
+    private bool RunMatches(int start, Delegate[] entries)
+    {
+        for (int i = 0; i < entries.Length; i++)
+            if (!_localHandlers[start + i].Handler.Equals(entries[i])) return false;
+        return true;
     }
 
     /// <inheritdoc/>
@@ -71,7 +137,6 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         T[] snapshot = items.ToArray();
         if (Count == 0 && snapshot.Length == 0) return;
 
-        CheckReentrancy();
         Items.Clear();
         foreach (T item in snapshot) Items.Add(item);
 
@@ -103,17 +168,31 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
     protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
     {
         // 1. Raise the standard local event first. A throwing local handler
-        //    must not suppress the hub message for the committed change:
-        //    send it, then rethrow the first failure (spec/01 §1.4, ADR-0171).
-        ExceptionDispatchInfo? firstFailure = null;
-        try { base.OnCollectionChanged(e); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
+        //    stops neither the later handlers nor the hub message for the
+        //    committed change: send it, then rethrow the first failure
+        //    (spec/01 §1.4, spec/03 §3.6, ADR-0171, ADR-0191). A nested
+        //    delivery keeps its own first failure. The handlers are invoked
+        //    here, not through base.OnCollectionChanged, so no reentrancy
+        //    block applies (ADR-0214).
+        ExceptionDispatchInfo? outerFailure = _deliveryFailure;
+        _deliveryFailure = null;
+        NotifyCollectionChangedEventHandler[] wrappers;
+        lock (_localHandlers)
+        {
+            wrappers = new NotifyCollectionChangedEventHandler[_localHandlers.Count];
+            for (int i = 0; i < wrappers.Length; i++) wrappers[i] = _localHandlers[i].Wrapper;
+        }
+        foreach (NotifyCollectionChangedEventHandler wrapper in wrappers) wrapper(this, e);
+        ExceptionDispatchInfo? firstFailure = _deliveryFailure;
+        _deliveryFailure = outerFailure;
 
         // 2. Publish to hub (if present).
         if (_hub is not null)
         {
-            try { _hub.Send(CollectionChangedMessage<T>.From(this, e)); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+            FirstFailure.Capture(
+                ref firstFailure,
+                (Owner: this, Hub: _hub, Args: e),
+                static state => state.Hub.Send(CollectionChangedMessage<T>.From(state.Owner, state.Args)));
         }
         firstFailure?.Throw();
     }

@@ -1,6 +1,6 @@
 # ADR 0098 — Add a dynamic aggregate change stream
 
-**Status:** Accepted (2026-07-12)
+**Status:** Accepted (2026-07-12; extended by ADR-0192)
 **Spec version:** introduced in 3.18.0
 
 ## 1. Context

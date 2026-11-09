@@ -7,10 +7,12 @@ See spec/08-aggregate-vm.md and ADR-0007 (arity 6 added per ADR-0034).
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import ExitStack
 from functools import wraps
 from threading import RLock
 from typing import Generic, TypeVar
 
+from vmx.components._unowned_candidates import dispose_unowned_candidates
 from vmx.components.base import (
     _ComponentVMBase,
     _dispose_children_then_self,
@@ -31,6 +33,7 @@ V4 = TypeVar("V4", bound=ComponentVMProto)
 V5 = TypeVar("V5", bound=ComponentVMProto)
 V6 = TypeVar("V6", bound=ComponentVMProto)
 A = TypeVar("A", bound="_AggregateVMBase")
+C = TypeVar("C", bound=ComponentVMProto)
 
 
 class _AggregateParent(_ParentCompositeVM):
@@ -93,6 +96,20 @@ class _AggregateVMBase(_ComponentVMBase):
     def components(self) -> list[ComponentVMProto]:
         raise NotImplementedError
 
+    def _build_candidate(self, built: list[ComponentVMProto], factory: Callable[[], C]) -> C:
+        """Run one slot factory.
+
+        When it raises, the candidates that earlier factories of the same
+        population built are disposed, then the failure propagates (#1324).
+        """
+        try:
+            candidate = factory()
+        except BaseException:
+            dispose_unowned_candidates(self._aggregate_parent, built)
+            raise
+        built.append(candidate)
+        return candidate
+
     def _validate_new_slots(self, slots: tuple[ComponentVMProto, ...]) -> None:
         identities: set[int] = set()
         for child in slots:
@@ -134,9 +151,17 @@ class _AggregateVMBase(_ComponentVMBase):
         new_slots: tuple[ComponentVMProto, ...],
     ) -> bool:
         reservable = tuple(child for child in new_slots if isinstance(child, _ComponentVMBase))
-        with self._aggregate_lock, _exclusive_ownership_reservation_batch(reservable):
-            old_slots = tuple(getattr(self, name) for name in slot_names)
-            self._validate_new_slots(new_slots)
+        with self._aggregate_lock, ExitStack() as reservation:
+            try:
+                reservation.enter_context(_exclusive_ownership_reservation_batch(reservable))
+                old_slots = tuple(getattr(self, name) for name in slot_names)
+                self._validate_new_slots(new_slots)
+            except BaseException:
+                # The preflight refused the population: the old slots stay,
+                # and the candidates nobody else owns are disposed (#1324).
+                reservation.close()
+                dispose_unowned_candidates(self._aggregate_parent, new_slots)
+                raise
             if self._status is ConstructionStatus.DISPOSED:
                 # The dispose cascade owns the current slots (LIFE-015).
                 _dispose_children_then_self(new_slots, lambda: None)
@@ -340,8 +365,10 @@ class AggregateVM2(Generic[V1, V2], _AggregateVMBase):
 
     @_aggregate_transaction
     def _on_construct(self) -> None:
-        next1 = self._factory1()
-        next2 = self._factory2()
+        # A failed factory disposes the candidates built before it (#1324).
+        built: list[ComponentVMProto] = []
+        next1 = self._build_candidate(built, self._factory1)
+        next2 = self._build_candidate(built, self._factory2)
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
         if not self._replace_slots(("_component1", "_component2"), (next1, next2)):
@@ -427,9 +454,11 @@ class AggregateVM3(Generic[V1, V2, V3], _AggregateVMBase):
 
     @_aggregate_transaction
     def _on_construct(self) -> None:
-        next1 = self._factory1()
-        next2 = self._factory2()
-        next3 = self._factory3()
+        # A failed factory disposes the candidates built before it (#1324).
+        built: list[ComponentVMProto] = []
+        next1 = self._build_candidate(built, self._factory1)
+        next2 = self._build_candidate(built, self._factory2)
+        next3 = self._build_candidate(built, self._factory3)
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
         if not self._replace_slots(
@@ -526,10 +555,12 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _AggregateVMBase):
 
     @_aggregate_transaction
     def _on_construct(self) -> None:
-        next1 = self._factory1()
-        next2 = self._factory2()
-        next3 = self._factory3()
-        next4 = self._factory4()
+        # A failed factory disposes the candidates built before it (#1324).
+        built: list[ComponentVMProto] = []
+        next1 = self._build_candidate(built, self._factory1)
+        next2 = self._build_candidate(built, self._factory2)
+        next3 = self._build_candidate(built, self._factory3)
+        next4 = self._build_candidate(built, self._factory4)
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
         if not self._replace_slots(
@@ -636,11 +667,13 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _AggregateVMBase):
 
     @_aggregate_transaction
     def _on_construct(self) -> None:
-        next1 = self._factory1()
-        next2 = self._factory2()
-        next3 = self._factory3()
-        next4 = self._factory4()
-        next5 = self._factory5()
+        # A failed factory disposes the candidates built before it (#1324).
+        built: list[ComponentVMProto] = []
+        next1 = self._build_candidate(built, self._factory1)
+        next2 = self._build_candidate(built, self._factory2)
+        next3 = self._build_candidate(built, self._factory3)
+        next4 = self._build_candidate(built, self._factory4)
+        next5 = self._build_candidate(built, self._factory5)
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
         if not self._replace_slots(
@@ -767,12 +800,14 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _AggregateVMBase):
 
     @_aggregate_transaction
     def _on_construct(self) -> None:
-        next1 = self._factory1()
-        next2 = self._factory2()
-        next3 = self._factory3()
-        next4 = self._factory4()
-        next5 = self._factory5()
-        next6 = self._factory6()
+        # A failed factory disposes the candidates built before it (#1324).
+        built: list[ComponentVMProto] = []
+        next1 = self._build_candidate(built, self._factory1)
+        next2 = self._build_candidate(built, self._factory2)
+        next3 = self._build_candidate(built, self._factory3)
+        next4 = self._build_candidate(built, self._factory4)
+        next5 = self._build_candidate(built, self._factory5)
+        next6 = self._build_candidate(built, self._factory6)
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
         if not self._replace_slots(

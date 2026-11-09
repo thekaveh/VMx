@@ -8,6 +8,7 @@ font-scale clamp. Conformance scenarios live in
 
 from __future__ import annotations
 
+import dataclasses
 from typing import cast
 
 import pytest
@@ -203,12 +204,33 @@ def test_set_accent_color_to_existing_value_is_noop() -> None:
     assert captured == []
 
 
-def test_set_accent_color_empty_or_none_is_noop() -> None:
+@pytest.mark.parametrize("bad", ["not-a-color", "#12345", "", None, "#GGGGGG", "123456"])
+def test_set_accent_color_rejects_a_value_that_is_not_a_hex_color(bad: str | None) -> None:
+    # ADR-0201 §2.5: only #RGB or #RRGGBB; any other value is rejected like an
+    # unknown preset (THEME-002): ValueError, no message, model unchanged.
     vm = _build()
     captured = _capture_theme_messages(vm)
-    vm.set_accent_color.execute("")
-    vm.set_accent_color.execute(None)
+    with pytest.raises(ValueError, match="accent"):
+        vm.set_accent_color.execute(bad)
     assert captured == []
+    assert vm.model == DARK_PRESET
+
+
+@pytest.mark.parametrize("good", ["#abc", "#AABBCC", "#a1B2c3"])
+def test_set_accent_color_accepts_short_and_long_hex_as_given(good: str) -> None:
+    vm = _build()
+    captured = _capture_theme_messages(vm)
+    vm.set_accent_color.execute(good)
+    assert vm.model.accent_color == good
+    assert len(captured) == 1
+
+
+def test_set_accent_color_can_execute_has_no_argument_predicate() -> None:
+    # ADR-0201 §2.5: no argument predicate, so an empty or None accent reaches
+    # the task and is rejected there.
+    vm = _build()
+    assert vm.set_accent_color.can_execute("") is True
+    assert vm.set_accent_color.can_execute(None) is True
 
 
 # ── set_font_scale ─────────────────────────────────────────────────────────
@@ -259,14 +281,43 @@ def test_set_font_scale_none_is_noop() -> None:
 # ── follow_system_command ──────────────────────────────────────────────────
 
 
-def test_follow_system_command_default_adopts_dark_preset_under_flag() -> None:
-    # Start on LIGHT so the host snapshot (DARK by default) is a real change.
-    vm = _build(initial=LIGHT_PRESET)
+def test_follow_system_command_without_provider_keeps_the_theme_and_sets_the_flag() -> None:
+    # ADR-0201 §2.6: with no host provider, keep name, accent, scale and high
+    # contrast; set follows_system; publish once, and not again on a repeat.
+    initial = dataclasses.replace(LIGHT_PRESET, accent_color="#123456", font_scale_factor=1.25)
+    vm = _build(initial=initial)
     captured = _capture_theme_messages(vm)
+
     vm.follow_system_command.execute()
-    assert vm.current_theme.value.follows_system is True
-    assert vm.current_theme.value.name == "dark"  # default provider
+
+    assert vm.model == dataclasses.replace(initial, follows_system=True)
+    assert vm.follows_system.value is True
     assert len(captured) == 1
+    assert captured[0].prev_theme == initial
+
+    vm.follow_system_command.execute()
+
+    assert len(captured) == 1
+
+
+def test_follow_system_command_with_a_provider_that_is_not_a_preset_keeps_the_theme() -> None:
+    # ADR-0201 §2.6: a provider name that is not a preset has the same result
+    # as no provider.
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    vm = (
+        ThemeVM.builder()
+        .name("theme")
+        .initial(LIGHT_PRESET)
+        .services(hub, dispatcher)
+        .host_theme_provider(lambda: dataclasses.replace(DARK_PRESET, name="system"))
+        .build()
+    )
+    vm.construct()
+
+    vm.follow_system_command.execute()
+
+    assert vm.model == dataclasses.replace(LIGHT_PRESET, follows_system=True)
 
 
 def test_follow_system_command_uses_custom_provider() -> None:

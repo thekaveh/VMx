@@ -67,6 +67,11 @@ version or reuse that tag.
 
 1. Land the intended package version and matching core or package-qualified
    `langs/csharp/CHANGELOG.md` section on `main` through develop/main PRs.
+   For each package you release, a release-prep PR replaces
+   `unreleased source version` in that package's heading (`## [X.Y.Z]` for
+   `VMx`, `## [<package> X.Y.Z]` for a companion) with the release date,
+   immediately before its tag, so the heading date equals the tag date
+   (`CONTRIBUTING.md` §4.3).
 2. From a clean current `origin/main`, confirm the tag and NuGet version are
    absent. For example:
 
@@ -105,16 +110,22 @@ files that README refers to. `tools/check-nuget-package.py` rejects a packaged
 README that does not open with the package's heading, any raw HTML (NuGet's
 Markdown renderer does not list HTML support), any link or image that is not an
 absolute `https` URL, and any image that is not a PNG, JPEG, or GIF on
-`raw.githubusercontent.com`. It also rejects a `github.com/thekaveh/VMx`
-`blob`, `tree`, or `raw` URL, or a `raw.githubusercontent.com` URL, on `main`
-whose path is missing from the checked-out tree (`--repo-root`, by default the
-checker's repository). The release job runs on the tagged `main` commit, so the
-check matches what `main` serves; a pull request into `develop` can pass with a
-file that `main` gets only on promotion. Update the package READMEs when a
-package's purpose or documentation links change. A published README cannot
-change, but its links follow `main`: keep a redirect or stub at a moved page,
-or release the package again. The checker cannot show how nuget.org renders a
-README; inspect the upload preview before the first publication.
+`raw.githubusercontent.com`. Code blocks, code spans, and link titles are not
+scanned for raw HTML. The path check maps a `github.com/thekaveh/VMx` or
+`www.github.com/thekaveh/VMx` `blob`, `tree`, or `raw` URL, and a
+`raw.githubusercontent.com/thekaveh/VMx` URL, on `main`, `HEAD`, or
+`refs/heads/main`. It resolves `.` and `..` segments first. It rejects such a
+URL whose path is missing from the checked-out tree (`--repo-root`, by default
+the checker's repository), or not tracked by Git when that root is a Git work
+tree. It also rejects a path above the repository root and a
+`thekaveh/VMx.git/...` path, which GitHub does not serve. The release job runs
+on the tagged `main` commit, so the check matches what `main` serves; a pull
+request into `develop` can pass with a file that `main` gets only on promotion.
+Update the package READMEs when a package's purpose or documentation links
+change. A published README cannot change, but its links follow `main`: keep a
+redirect or stub at a moved page, or release the package again. The checker
+cannot show how nuget.org renders a README; inspect the upload preview before
+the first publication.
 
 The protected job downloads that immutable artifact, validates `NUGET_USER`,
 exchanges OIDC, and pushes without `--skip-duplicate`. An existing version is

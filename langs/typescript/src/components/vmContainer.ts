@@ -1,13 +1,16 @@
 /**
- * Internal: the collection-change delivery, auto-construct-on-add and
- * construct walk shared by CompositeVMBase and GroupVM. Internal; not
- * exported from the package.
+ * Internal: the collection-change delivery, batch, auto-construct-on-add,
+ * construct walk and destruct order shared by CompositeVMBase and GroupVM.
+ * Internal; not exported from the package.
  */
 import type { Subject } from "rxjs";
 import type { ComponentVMBase } from "./componentVMBase.js";
 import type { ChildOrder } from "./types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import { collectionChangedMessageFor } from "../collections/vmCollectionHubMessage.js";
+import { makeCollectionChangedEvent } from "../collections/collectionChangedEvent.js";
+import { BatchUpdateHandle } from "../collections/batchUpdateHandle.js";
+import type { IBatchable } from "../collections/batchUpdateHandle.js";
 import type { CollectionChangedEvent } from "../collections/index.js";
 
 /**
@@ -26,6 +29,48 @@ export function deliverCollectionChanged(
   // closed or by a local subscriber of this very event.
   if (isDisposed()) return;
   container.hub.send(collectionChangedMessageFor(container, event));
+}
+
+/**
+ * The ref-counted collection-change batch shared by CompositeVMBase and
+ * GroupVM (spec v1.1, COMP-013, GRP-006). It owns the batch depth and the
+ * dirty flag; each container member only forwards here. A change inside an
+ * open batch only marks it dirty; the outermost close delivers one `reset`
+ * if any change occurred.
+ */
+export class ContainerBatch {
+  readonly #deliver: (event: CollectionChangedEvent) => void;
+  #depth = 0;
+  #dirty = false;
+
+  /** @param deliver The container's local-event and hub delivery. */
+  constructor(deliver: (event: CollectionChangedEvent) => void) {
+    this.#deliver = deliver;
+  }
+
+  /** Opens one batch level; the handle closes it once through `owner._exitBatch()`. */
+  enter(owner: IBatchable): BatchUpdateHandle {
+    this.#depth++;
+    return new BatchUpdateHandle(owner);
+  }
+
+  /** Closes one batch level; the outermost close delivers the pending `reset`. */
+  exit(): void {
+    this.#depth--;
+    if (this.#depth === 0 && this.#dirty) {
+      this.#dirty = false;
+      this.#deliver(makeCollectionChangedEvent("reset"));
+    }
+  }
+
+  /** Delivers `event` now, or marks an open batch dirty. */
+  emit(event: CollectionChangedEvent): void {
+    if (this.#depth > 0) {
+      this.#dirty = true;
+      return;
+    }
+    this.#deliver(event);
+  }
 }
 
 /** Starts `child` when `container` auto-constructs children on add. */
@@ -68,6 +113,21 @@ export function* constructWalk<VM extends ComponentVMBase>(
     joined.add(late);
     yield late;
   }
+}
+
+/**
+ * Returns `order`, or throws a `TypeError` when it is not a `ChildOrder`
+ * value. `destructWalk` reverses only for `"reverse"`, so an unknown value
+ * from an untyped caller, such as `"Reverse"`, would otherwise give
+ * insertion order with no error (#1397).
+ */
+export function requireChildOrder(order: unknown): ChildOrder {
+  if (order !== "insertion" && order !== "reverse") {
+    throw new TypeError(
+      `destructOrder must be "insertion" or "reverse", got "${String(order)}"`,
+    );
+  }
+  return order;
 }
 
 /**

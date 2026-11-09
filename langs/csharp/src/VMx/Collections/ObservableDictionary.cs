@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 using VMx.Messages;
 using VMx.Services;
 
@@ -91,7 +92,8 @@ public sealed class DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue> : Even
 /// <para>
 /// <see cref="Keys1"/> contains the distinct Key1 values present in the dictionary,
 /// in insertion order of their first appearance. <see cref="Keys2"/> is the symmetric
-/// view for Key2. Both are live <see cref="ObservableList{T}"/> views.
+/// view for Key2. Both are live, read-only <see cref="ReadOnlyObservableList{T}"/>
+/// views. Only the dictionary changes them (ADR-0193).
 /// </para>
 ///
 /// <para>
@@ -115,9 +117,12 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     private readonly List<(TKey1, TKey2)> _keyOrder = [];
     private readonly Dictionary<(TKey1, TKey2), TValue> _data = [];
 
-    // Distinct-key views (live ObservableLists).
+    // Distinct-key views: the backing ObservableLists and their read-only
+    // facades. Only this class changes the backing lists (ADR-0193).
     private readonly ObservableList<TKey1> _keys1 = new();
     private readonly ObservableList<TKey2> _keys2 = new();
+    private readonly ReadOnlyObservableList<TKey1> _keys1View;
+    private readonly ReadOnlyObservableList<TKey2> _keys2View;
 
     // Per-axis reference counts, so distinct-key view membership is maintained
     // in O(1) on each mutation instead of scanning _data / _keys1 / _keys2.
@@ -139,6 +144,8 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     public ObservableDictionary(IMessageHub? hub = null)
     {
         _hub = hub;
+        _keys1View = new ReadOnlyObservableList<TKey1>(_keys1);
+        _keys2View = new ReadOnlyObservableList<TKey2>(_keys2);
     }
 
     // ── Granular events ───────────────────────────────────────────────────────
@@ -161,16 +168,16 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     // ── Key-axis views ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Live observable view of distinct Key1 values present in the dictionary,
-    /// in insertion order of their first appearance.
+    /// Live, read-only observable view of distinct Key1 values present in the
+    /// dictionary, in insertion order of their first appearance (ADR-0193).
     /// </summary>
-    public ObservableList<TKey1> Keys1 => _keys1;
+    public ReadOnlyObservableList<TKey1> Keys1 => _keys1View;
 
     /// <summary>
-    /// Live observable view of distinct Key2 values present in the dictionary,
-    /// in insertion order of their first appearance.
+    /// Live, read-only observable view of distinct Key2 values present in the
+    /// dictionary, in insertion order of their first appearance (ADR-0193).
     /// </summary>
-    public ObservableList<TKey2> Keys2 => _keys2;
+    public ReadOnlyObservableList<TKey2> Keys2 => _keys2View;
 
     // ── Count / indexer ────────────────────────────────────────────────────────
 
@@ -232,7 +239,9 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             return false;
 
         _data.Remove((key1, key2));
-        _keyOrder.Remove((key1, key2));
+        // Capture the pre-removal position at commit (ADR-0193).
+        var index = _keyOrder.IndexOf((key1, key2));
+        _keyOrder.RemoveAt(index);
         _version++;
 
         // Count both axes before either key view notifies: drop a key only
@@ -253,7 +262,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
                 RemoveKey1(key1);
         }
 
-        OnRemoved(key1, key2, value);
+        OnRemoved(key1, key2, value, index);
         return true;
     }
 
@@ -464,7 +473,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
     {
         var entry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value);
         Notify(
-            () => ItemAdded?.Invoke(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value)),
+            () => FanOut.Raise(ItemAdded, handler => handler(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value))),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, entry),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForAdd(
                 this, entry, CurrentIndex(key1, key2, index)));
@@ -479,51 +488,56 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
             : _keyOrder.IndexOf(key);
     }
 
-    private void OnRemoved(TKey1 key1, TKey2 key2, TValue value)
+    private void OnRemoved(TKey1 key1, TKey2 key2, TValue value, int index)
     {
         var entry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value);
         Notify(
-            () => ItemRemoved?.Invoke(this, new DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>(key1, key2, value)),
+            () => FanOut.Raise(ItemRemoved, handler => handler(this, new DictionaryItemRemovedEventArgs<TKey1, TKey2, TValue>(key1, key2, value))),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, entry),
-            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(this, entry, -1));
+            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForRemove(this, entry, index));
     }
 
+    // The hub message reads the entry's position when it is sent, as OnAdded
+    // does: a local handler may have moved or removed the entry (ADR-0193).
     private void OnReplaced(TKey1 key1, TKey2 key2, TValue newValue, TValue oldValue)
     {
         var newEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), newValue);
         var oldEntry = new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), oldValue);
         Notify(
-            () => ItemReplaced?.Invoke(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue)),
+            () => FanOut.Raise(ItemReplaced, handler => handler(this, new DictionaryItemReplacedEventArgs<TKey1, TKey2, TValue>(key1, key2, newValue, oldValue))),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, newEntry, oldEntry),
-            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(this, newEntry, oldEntry, -1));
+            () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReplace(
+                this, newEntry, oldEntry, _keyOrder.IndexOf((key1, key2))));
     }
 
     private void OnReset()
     {
         Notify(
-            () => Reset?.Invoke(this, EventArgs.Empty),
+            () => FanOut.Raise(Reset, handler => handler(this, EventArgs.Empty)),
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset),
             () => CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForReset(this));
     }
 
     // Raises the granular event, then CollectionChanged, then sends the hub
     // message (if a hub is present). A throwing local handler skips neither the
-    // later local event nor the hub message for the committed change; the
-    // first failure is rethrown after publication (spec/01 §1.4, ADR-0171).
+    // later handlers, the later local event nor the hub message for the
+    // committed change; the first failure is rethrown after publication
+    // (spec/01 §1.4, spec/03 §3.6, ADR-0171, ADR-0191).
     private void Notify(
-        Action granular,
+        Func<ExceptionDispatchInfo?> granular,
         NotifyCollectionChangedEventArgs args,
         Func<CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>> message)
     {
-        ExceptionDispatchInfo? firstFailure = null;
-        try { granular(); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
-        try { CollectionChanged?.Invoke(this, args); }
-        catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+        ExceptionDispatchInfo? firstFailure = granular();
+        ExceptionDispatchInfo? collectionFailure =
+            FanOut.Raise(CollectionChanged, handler => handler(this, args));
+        firstFailure ??= collectionFailure;
         if (_hub is not null)
         {
-            try { _hub.Send(message()); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+            FirstFailure.Capture(
+                ref firstFailure,
+                (Hub: _hub, Message: message),
+                static state => state.Hub.Send(state.Message()));
         }
         firstFailure?.Throw();
     }

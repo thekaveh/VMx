@@ -290,7 +290,8 @@ class TestAggregateVM2:
             agg.construct()
         assert agg.status is ConstructionStatus.DESTRUCTED
         assert agg.component_1 is None
-        assert child.status is ConstructionStatus.DESTRUCTED
+        # The refused population disposes the candidate nobody owns (#1324).
+        assert child.status is ConstructionStatus.DISPOSED
 
     def test_component_1_and_2_populated_after_construct(self) -> None:
         hub = _make_hub()

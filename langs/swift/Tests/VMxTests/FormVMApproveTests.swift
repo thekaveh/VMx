@@ -259,7 +259,7 @@ final class FormVMApproveTests: XCTestCase {
 
         sut.approveCommand.execute()
 
-        wait(for: [errorExpectation], timeout: 2.0)
+        wait(for: [errorExpectation], timeout: hangGuard)
 
         XCTAssertEqual(errors.count, 1, "approveErrors should surface the persister failure exactly once")
         XCTAssertEqual(approved.count, 0, "onApproved must not fire when persist fails via command path")

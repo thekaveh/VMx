@@ -466,7 +466,10 @@ public class HIER_001_to_014_HierarchicalVM_Tests
         // match "an" if it were materialized.
         var lazyFactoryCalls = 0;
         var bandana = new SearchNode("bandana", _ => [], hub, dispatcher);
-        var apple = new SearchNode("apple", _ => [], hub, dispatcher);
+        // "pecan" matches below the expanded "apple", so the search must cover
+        // deeper materialized nodes, not only the root's children (#1399).
+        var pecan = new SearchNode("pecan", _ => [], hub, dispatcher);
+        var apple = new SearchNode("apple", _ => [pecan], hub, dispatcher);
         var banana = new SearchNode("banana", _ => [], hub, dispatcher);
         var mango = new SearchNode("mango", _ => [], hub, dispatcher);
         var cherry = new SearchNode(
@@ -482,7 +485,8 @@ public class HIER_001_to_014_HierarchicalVM_Tests
         var root = new SearchNode("root", _ => [apple, banana, mango, cherry], hub, dispatcher);
 
         // The materialized portion comes from the library's expand-aware walk,
-        // which stops at the collapsed "cherry" without touching its children.
+        // which descends into the expanded "apple" and stops at the collapsed
+        // "cherry" without touching its children.
         IEnumerable<SearchNode> Materialized() =>
             TreeHelper.WalkExpanded(root).Where(node => !ReferenceEquals(node, root)).Cast<SearchNode>();
         var search = new SearchableState<SearchNode>(
@@ -496,7 +500,7 @@ public class HIER_001_to_014_HierarchicalVM_Tests
         search.SearchTerm = "an";
         search.Search(); // force immediate apply
 
-        result.Should().Equal([banana, mango], "exactly the matching materialized nodes, in walk order");
+        result.Should().Equal([pecan, banana, mango], "exactly the matching materialized nodes, in walk order");
         result.Should().NotContain(bandana, "un-materialized lazy children are not included in results");
         lazyFactoryCalls.Should().Be(0, "searching does not materialize lazy children");
 
@@ -507,7 +511,7 @@ public class HIER_001_to_014_HierarchicalVM_Tests
         TreeHelper.Walk(root).Should().Contain((IComponentVM)bandana);
         lazyFactoryCalls.Should().Be(1);
         search.Search();
-        result.Should().Equal([banana, mango], "a collapsed boundary still hides the lazy child");
+        result.Should().Equal([pecan, banana, mango], "a collapsed boundary still hides the lazy child");
     }
 
     // ── HIER-014 ──────────────────────────────────────────────────────────────
