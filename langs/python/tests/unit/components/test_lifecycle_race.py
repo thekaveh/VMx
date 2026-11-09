@@ -36,10 +36,14 @@ from reactivex.scheduler import ImmediateScheduler
 from tests.liveness import HANG_GUARD, future_result, join_thread, wait_event
 from vmx.components import base as component_base
 from vmx.components.builders import ComponentVMOfBuilder
+from vmx.components.component_vm import ComponentVM
+from vmx.composites.composite_vm import CompositeVM
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
+from vmx.services.null_dispatcher import NULL_DISPATCHER
+from vmx.services.null_message_hub import NULL_MESSAGE_HUB
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -475,6 +479,84 @@ def test_cycle_broken_deferred_cleanup_does_not_replace_first_failure() -> None:
     assert len(failures) == 1
     assert str(failures[0]) == f"dispose failure {cleanup_order[0]}"
     assert all(vm.status is ConstructionStatus.DISPOSED for vm in vms)
+
+
+class _FailingDisposeChild(ComponentVM):
+    """Leaf whose disposal hook records each run and then fails."""
+
+    def __init__(self, name: str, runs: list[str]) -> None:
+        super().__init__(name=name, hub=NULL_MESSAGE_HUB, dispatcher=NULL_DISPATCHER)
+        self._runs = runs
+
+    def _on_dispose(self) -> None:
+        self._runs.append(self.name)
+        raise RuntimeError(f"child failure {self.name}")
+
+
+def test_cycle_deferred_disposal_failure_is_raised_from_hook_thread_construct() -> None:
+    """A cycle-deferred cleanup reports its failure from the hook's call (ADR-0200 §2.2).
+
+    Each container hook disposes the other container and catches the failure.
+    The cycle-broken dispose() returns normally, so its container's child
+    failure must surface from that container's construct(). Each child failure
+    is reported exactly once, whichever container defers.
+    """
+    barrier = threading.Barrier(2)
+    containers: list[CompositeVM[ComponentVM]] = []
+    child_runs: list[str] = []
+    caught: dict[str, list[BaseException]] = {"a": [], "b": []}
+    construct_failures: dict[str, list[BaseException]] = {"a": [], "b": []}
+    children: dict[str, _FailingDisposeChild] = {}
+
+    def hook(name: str, other: int) -> None:
+        barrier.wait(timeout=HANG_GUARD)
+        try:
+            containers[other].dispose()
+        except BaseException as error:
+            caught[name].append(error)
+
+    for index, name in enumerate(("a", "b")):
+        child = _FailingDisposeChild(f"child-{name}", child_runs)
+        children[name] = child
+        # No factory: the child is attached before construct, so it exists when
+        # the hook runs and no population starts while the container disposes.
+        container = CompositeVM[ComponentVM](
+            name=name,
+            hub=NULL_MESSAGE_HUB,
+            dispatcher=NULL_DISPATCHER,
+            on_construct=lambda name=name, other=1 - index: hook(name, other),
+        )
+        container.append(child)
+        containers.append(container)
+
+    def construct(name: str, container: CompositeVM[ComponentVM]) -> None:
+        try:
+            container.construct()
+        except BaseException as error:
+            construct_failures[name].append(error)
+
+    threads = [
+        threading.Thread(target=construct, args=(name, container))
+        for name, container in zip(("a", "b"), containers, strict=True)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2 * HANG_GUARD)
+
+    assert all(not thread.is_alive() for thread in threads)
+    reported = [str(error) for name in ("a", "b") for error in caught[name]]
+    reported += [str(error) for name in ("a", "b") for error in construct_failures[name]]
+    assert sorted(reported) == ["child failure child-a", "child failure child-b"]
+    failed = [name for name in ("a", "b") if construct_failures[name]]
+    assert len(failed) == 1
+    # The construct failure belongs to the container whose disposal deferred.
+    assert [str(error) for error in construct_failures[failed[0]]] == [
+        f"child failure child-{failed[0]}"
+    ]
+    assert sorted(child_runs) == ["child-a", "child-b"]
+    assert all(child.status is ConstructionStatus.DISPOSED for child in children.values())
+    assert all(container.status is ConstructionStatus.DISPOSED for container in containers)
 
 
 # ---------------------------------------------------------------------------
