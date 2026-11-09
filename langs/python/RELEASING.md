@@ -124,7 +124,7 @@ git tag -a "python-v${version}" -m "vmx ${version}"
 git push origin "python-v${version}"
 ```
 
-The same five publish jobs run.
+The same six publish-pipeline jobs run.
 
 The `release-please` workflow pauses while the source version and
 `.release-please-manifest.json` disagree. The manifest records the last version

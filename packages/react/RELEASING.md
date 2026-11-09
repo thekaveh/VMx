@@ -25,9 +25,7 @@ under 0.1.2.
 
 The `react-build` job of `release.yml` checks these items without
 `id-token: write` or the publishing environment, then packs and uploads the
-release tarball. The `react-publish` job in `npm-react` installs only the
-pinned npm CLI, checks the tarball's name and version against the tag, and
-publishes that tarball:
+release tarball:
 
 - The tag commit is on `main`, and the tag version equals `package.json`.
 - A published `@thekaveh/vmx` satisfies the adapter's `@thekaveh/vmx` peer
@@ -37,6 +35,9 @@ publishes that tarball:
   `typescript.yml` and every week by `security-audit.yml`.
 - Type-check, lint, tests, build, the package check, and packed React 18.3.1
   and 19.2.8 consumers pass.
+
+The `react-publish` job in `npm-react` installs only the pinned npm CLI, checks
+the tarball's name and version against the tag, and publishes that tarball.
 
 ## 3. Release procedure
 

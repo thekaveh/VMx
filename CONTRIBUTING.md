@@ -249,6 +249,16 @@ Configure each environment as follows:
 **Trusted publisher.** Registry channels authenticate through GitHub OIDC; the
 publish job has `id-token: write`. A registry that requires an existing package
 needs a one-time bootstrap credential first; the flavor runbook describes it.
+Register the trusted publisher with these exact fields:
+
+| Field             | Value                              |
+| ----------------- | ---------------------------------- |
+| Owner             | `thekaveh`                         |
+| Repository        | `VMx`                              |
+| Workflow filename | `release.yml` (filename only)      |
+| Environment       | the flavor's protected environment |
+
+Do not add a long-lived registry token or bypass the environment.
 
 **Publish job isolation.** In a job with `id-token: write`, every step can
 request an OIDC token that the trusted publisher accepts. So only the publish
@@ -262,16 +272,6 @@ verification build still compiles the crate's dependencies in the publish job.
 The `rust-test` job runs the packaged-consumer check without `id-token: write`.
 `tools/tests/test_ci_workflow_contracts.py` enforces this split. It does not
 protect against a build step that changes the artifact before the upload.
-Register the trusted publisher with these exact fields:
-
-| Field             | Value                              |
-| ----------------- | ---------------------------------- |
-| Owner             | `thekaveh`                         |
-| Repository        | `VMx`                              |
-| Workflow filename | `release.yml` (filename only)      |
-| Environment       | the flavor's protected environment |
-
-Do not add a long-lived registry token or bypass the environment.
 
 **Tags.** Create every manual release tag as an annotated tag on the verified
 `origin/main` commit, then push it:
