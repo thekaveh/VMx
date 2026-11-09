@@ -297,6 +297,41 @@ impl NotesViewVm {
         self.pager.previous_page();
     }
 
+    /// Selects the next note on the visible page. Returns the note when the
+    /// selection changed.
+    pub fn select_next_visible(&self) -> Option<NoteModel> {
+        self.step_visible(true)
+    }
+
+    /// Selects the previous note on the visible page. Returns the note when
+    /// the selection changed.
+    pub fn select_previous_visible(&self) -> Option<NoteModel> {
+        self.step_visible(false)
+    }
+
+    /// Moves the selection one row on the visible page. When the current note
+    /// is not on the page, the first visible note becomes current. At the
+    /// first or last row, the selection stays.
+    fn step_visible(&self, forward: bool) -> Option<NoteModel> {
+        self.refresh_page();
+        let page = self.pager.current_page();
+        let current = self.source.current().map(|note| note.id());
+        let index = current
+            .as_deref()
+            .and_then(|id| page.iter().position(|note| note.id() == id));
+        let target = match index {
+            None => 0,
+            Some(index) if forward => index + 1,
+            Some(index) => index.checked_sub(1)?,
+        };
+        let note = page.get(target).cloned()?;
+        if index == Some(target) {
+            return None;
+        }
+        let _ = self.source.set_current(Some(note.clone()));
+        Some(note.model())
+    }
+
     pub fn current_note(&self) -> Option<NoteModel> {
         self.source.current().map(|note| note.model())
     }
@@ -977,39 +1012,41 @@ impl WorkspaceVm {
         Ok(())
     }
 
-    // Paging, searching, and switching notebooks cancel a pending delete:
-    // its note may leave the screen, and `y` must never delete a note the
-    // user no longer sees.
+    // Paging, searching, and switching notebooks cancel a pending delete, so
+    // `y` confirms only a prompt that the user saw on the current screen.
+    // Paging and searching never change the selection or reload the editor,
+    // so a hidden note keeps its draft (ADR-0201 §2.1). `d` deletes the
+    // current note even while its row is hidden. The editor shows that note,
+    // and the prompt names it.
 
     pub fn next_page(&self) {
         self.reject_delete_current();
         self.notes.next_page();
-        self.sync_form_to_page();
     }
 
     pub fn previous_page(&self) {
         self.reject_delete_current();
         self.notes.previous_page();
-        self.sync_form_to_page();
     }
 
     pub fn set_search_term(&self, term: &str) {
         self.reject_delete_current();
         self.notes.set_search_term(term);
-        self.sync_form_to_page();
     }
 
-    /// The selection follows the visible page, and the editor follows the
-    /// selection, so delete never targets a note that is not on screen.
-    fn sync_form_to_page(&self) {
-        let selected = self.notes.current_note().map(|note| note.id);
-        match self.notes.sync_selection_to_page() {
-            Some(note) => {
-                if selected.as_deref() != Some(note.id.as_str()) || !self.form.has_note() {
-                    self.form.load_note(note);
-                }
-            }
-            None => self.form.clear(),
+    /// Selects the next note on the visible page and loads it into the
+    /// editor when the selection changed.
+    pub fn select_next_note(&self) {
+        if let Some(note) = self.notes.select_next_visible() {
+            self.form.load_note(note);
+        }
+    }
+
+    /// Selects the previous note on the visible page and loads it into the
+    /// editor when the selection changed.
+    pub fn select_previous_note(&self) {
+        if let Some(note) = self.notes.select_previous_visible() {
+            self.form.load_note(note);
         }
     }
 

@@ -66,7 +66,7 @@ final class NotificationHubDisposeTests: XCTestCase {
         }.store(in: &cancellables)
 
         let inFlightTask = Task { await hub.post(n) }
-        await fulfillment(of: [appeared], timeout: 2.0)
+        await fulfillment(of: [appeared], timeout: hangGuard)
 
         // Dispose: drains in-flight waiters with .pending.
         hub.dispose()
@@ -77,7 +77,7 @@ final class NotificationHubDisposeTests: XCTestCase {
                        "NOTIF-017: in-flight post must resolve with .pending after dispose")
 
         // `pending` must complete.
-        await fulfillment(of: [completedExpectation], timeout: 2.0)
+        await fulfillment(of: [completedExpectation], timeout: hangGuard)
         XCTAssertTrue(completionFlag.completed,
                       "NOTIF-017: pending must complete (.finished) on dispose")
 

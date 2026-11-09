@@ -1,6 +1,6 @@
 # ADR 0123 — Preserve container causality and forwarding ownership
 
-**Status:** Accepted (2026-07-18)
+**Status:** Accepted (2026-07-18; extended by ADR-0124)
 **Spec version:** clarified in 3.22.0
 **Extends:** [ADR-0118](0118-isolate-container-membership-transactions.md), [ADR-0122](0122-defer-container-disposal-through-membership-transactions.md)
 

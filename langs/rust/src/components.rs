@@ -8,9 +8,16 @@ use super::{
     ParentHandle, PropertyChangedStream, RelayCommand, Subscription, TreeNode, VmNode, VmxError,
     VmxResult,
 };
+use std::any::Any;
 use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+/// A callback that receives the new model after an accepted model change.
+///
+/// [`ComponentVmBuilder::on_model_changed`] and
+/// [`ComponentVmOptions::on_model_changed`] install it (spec/05 §3.2).
+pub type ModelChangedCallback<M> = Arc<dyn Fn(&M) + Send + Sync>;
 
 /// Identifies the role a view model plays in the VM hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -342,7 +349,7 @@ where
 /// use vmx::ComponentVm;
 ///
 /// let vm = ComponentVm::new("component");
-/// vm.set_hint(Some("changed".to_string()));
+/// vm.set_hint("changed".to_string());
 /// ```
 ///
 /// Core components expose baseline selection operations but do not opt in to
@@ -361,6 +368,7 @@ pub struct ComponentVm<M = (), D: Dispatcher = NullDispatcher> {
     /// Counts model replacements; only changed while the model lock is held.
     model_generation: Arc<AtomicU64>,
     model_hint: ModelHint<M>,
+    on_model_changed: Option<ModelChangedCallback<M>>,
     view_model_type: ViewModelType,
     commands: ComponentCommands,
 }
@@ -391,7 +399,8 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
             core,
             model: Arc::new(Mutex::new(model)),
             model_generation: Arc::new(AtomicU64::new(0)),
-            model_hint: Arc::new(|_| None),
+            model_hint: Arc::new(|_| String::new()),
+            on_model_changed: None,
             view_model_type: ViewModelType::Component,
             commands,
         }
@@ -400,7 +409,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// Returns this component with a model-derived presentation hint.
     pub fn with_model_hint<F>(self, hint: F) -> Self
     where
-        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+        F: Fn(&M) -> String + Send + Sync + 'static,
     {
         Self {
             model_hint: Arc::new(hint),
@@ -424,12 +433,12 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     }
 
     /// Returns the immutable static presentation hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.core.hint()
     }
 
     /// Computes the current model-derived presentation hint.
-    pub fn modeled_hint(&self) -> Option<String> {
+    pub fn modeled_hint(&self) -> String {
         let model = lock(&self.model).clone();
         (self.model_hint)(&model)
     }
@@ -474,17 +483,23 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     /// Replaces the model and publishes effective model and modeled-hint changes.
     ///
+    /// After the `model` notification and any `modeled_hint` notification, the
+    /// builder's `on_model_changed` callback receives the new model.
     /// Equal assignments and assignments after disposal are inert.
     pub fn set_model(&self, model: M) {
         if self.status() == ConstructionStatus::Disposed {
             return;
         }
         let old_hint = self.modeled_hint();
+        let accepted = self.on_model_changed.as_ref().map(|_| model.clone());
         let changed = self.replace_model(model);
         if changed {
             self.core.notify_property_changed("model");
             if self.modeled_hint() != old_hint {
                 self.core.notify_property_changed("modeled_hint");
+            }
+            if let (Some(callback), Some(accepted)) = (&self.on_model_changed, accepted) {
+                callback(&accepted);
             }
         }
     }
@@ -971,7 +986,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
     /// Returns this component with a model-derived presentation hint.
     pub fn with_model_hint<F>(mut self, hint: F) -> Self
     where
-        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+        F: Fn(&M) -> String + Send + Sync + 'static,
     {
         self.inner = self.inner.with_model_hint(hint);
         self
@@ -993,12 +1008,12 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
     }
 
     /// Returns the immutable static presentation hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.inner.hint()
     }
 
     /// Computes the current model-derived presentation hint.
-    pub fn modeled_hint(&self) -> Option<String> {
+    pub fn modeled_hint(&self) -> String {
         self.inner.modeled_hint()
     }
 
@@ -1269,6 +1284,7 @@ pub struct ComponentVmBuilder<M: Clone + PartialEq + Send + 'static, D: Dispatch
     on_construct: Option<BuilderLifecycleHook>,
     on_destruct: Option<BuilderLifecycleHook>,
     model_hint: Option<ModelHint<M>>,
+    on_model_changed: Option<ModelChangedCallback<M>>,
     view_model_type: ViewModelType,
 }
 
@@ -1284,6 +1300,7 @@ impl<M: Clone + PartialEq + Send + 'static> Default for ComponentVmBuilder<M, Nu
             on_construct: None,
             on_destruct: None,
             model_hint: None,
+            on_model_changed: None,
             view_model_type: ViewModelType::Component,
         }
     }
@@ -1302,7 +1319,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
         self
     }
 
-    /// Sets the required initial model.
+    /// Sets the initial model. It is required unless `M` is `()`.
     pub fn model(mut self, model: M) -> Self {
         self.model = Some(model);
         self
@@ -1330,6 +1347,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
             on_construct: self.on_construct,
             on_destruct: self.on_destruct,
             model_hint: self.model_hint,
+            on_model_changed: self.on_model_changed,
             view_model_type: self.view_model_type,
         }
     }
@@ -1361,9 +1379,23 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
     /// Supplies an optional model-derived presentation hint.
     pub fn model_hint<F>(mut self, hint: F) -> Self
     where
-        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+        F: Fn(&M) -> String + Send + Sync + 'static,
     {
         self.model_hint = Some(Arc::new(hint));
+        self
+    }
+
+    /// Sets the optional callback that receives the new model after an
+    /// accepted model change (spec/05 §3.2).
+    ///
+    /// The callback runs after the `model` notification and any
+    /// `modeled_hint` notification. Equal assignments, assignments after
+    /// disposal, and `republish_model()` do not run it.
+    pub fn on_model_changed<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(&M) + Send + Sync + 'static,
+    {
+        self.on_model_changed = Some(Arc::new(callback));
         self
     }
 
@@ -1374,6 +1406,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
             .ok_or_else(|| VmxError::BuilderValidation("name is required".to_string()))?;
         let model = self
             .model
+            .or_else(unit_model::<M>)
             .ok_or_else(|| VmxError::BuilderValidation("model is required".to_string()))?;
         let hub = self
             .hub
@@ -1390,8 +1423,9 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
             vm.core.set_hook(LifecycleOperation::Destruct, hook);
         }
         vm.view_model_type = self.view_model_type;
+        vm.on_model_changed = self.on_model_changed;
         if let Some(hint) = self.hint {
-            vm.core.set_hint(Some(hint));
+            vm.core.set_hint(hint);
         }
         if let Some(model_hint) = self.model_hint {
             Ok(vm.with_model_hint(move |model| model_hint(model)))
@@ -1418,6 +1452,9 @@ impl<M: Clone + PartialEq + Send + 'static> ComponentVm<M, NullDispatcher> {
         }
         if let Some(model) = options.model {
             builder = builder.model(model);
+        }
+        if let Some(callback) = options.on_model_changed {
+            builder.on_model_changed = Some(callback);
         }
         builder
             .view_model_type(options.view_model_type)
@@ -1461,7 +1498,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVmBu
         }
     }
 
-    /// Sets the required immutable model.
+    /// Sets the immutable model. It is required unless `M` is `()`.
     pub fn model(self, model: M) -> Self {
         Self {
             inner: self.inner.model(model),
@@ -1498,7 +1535,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVmBu
     /// Supplies an optional model-derived presentation hint.
     pub fn model_hint<F>(self, hint: F) -> Self
     where
-        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+        F: Fn(&M) -> String + Send + Sync + 'static,
     {
         Self {
             inner: self.inner.model_hint(hint),
@@ -1537,7 +1574,7 @@ pub struct ComponentVmOptions<M: Clone + PartialEq + Send + 'static> {
     pub name: Option<String>,
     /// Optional static presentation hint.
     pub hint: Option<String>,
-    /// Optional initial model; validation fails when omitted.
+    /// Optional initial model; validation fails when omitted unless `M` is `()`.
     pub model: Option<M>,
     /// Immutable role discriminator returned by the created component.
     pub view_model_type: ViewModelType,
@@ -1547,4 +1584,14 @@ pub struct ComponentVmOptions<M: Clone + PartialEq + Send + 'static> {
     pub hub: MessageHub,
     /// Dispatcher used for foreground scheduling.
     pub dispatcher: NullDispatcher,
+    /// Optional callback that receives the new model after an accepted model
+    /// change; see [`ComponentVmBuilder::on_model_changed`].
+    pub on_model_changed: Option<ModelChangedCallback<M>>,
+}
+
+/// Returns `Some(())` as an `M` when `M` is `()`, so an unmodeled builder
+/// needs no `model` call (spec/10 §3).
+fn unit_model<M: 'static>() -> Option<M> {
+    let unit: Box<dyn Any> = Box::new(());
+    unit.downcast::<M>().ok().map(|model| *model)
 }

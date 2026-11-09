@@ -184,9 +184,14 @@ examples/
 1. **Notes display.** `NotesViewVM` filters by selected notebook, applies the
    `SearchableState` debounced 150 ms title-search predicate, applies the
    `showStarredOnly` `IFilterable` predicate, and paginates 5 per page via
-   `PagedComposition`.
+   `PagedComposition`. A search, the starred filter or a page change never
+   changes `current` (ADR-0201 §2.1). While the current note is not on the
+   visible page, the editor keeps that note and its draft. When the note is
+   visible again, the list marks it as selected again.
 1. **Note selection.** Notes-list `current` change drives `NoteFormVM` to
-   re-snapshot from `current.model`; `draft` becomes the editable copy.
+   re-snapshot from `current.model`; `draft` becomes the editable copy. The
+   switch discards the unsaved draft of the earlier note with no prompt
+   (ADR-0201 §2.2).
 1. **Editing.** Mutating `draft.{title,body,starred,tags}` raises
    `PropertyChangedMessage`; `isDirty` (a `DerivedProperty`) flips true.
 1. **Save.** `approveCommand.canExecute` = `isDirty && strict-valid`. Approve
@@ -206,7 +211,10 @@ examples/
 1. **Capability action bar.** Reflects `workspace.focusedVM`'s implemented
    capabilities (§14.4 of the spec) — buttons for `ISelectable`, `IClosable`,
    `IDeletable`, `IPageable` (when focus is the notes view), etc. The
-   capability set is observed via a `DerivedProperty`; the view binds.
+   capability set is observed via a `DerivedProperty`; the view binds. The
+   action-bar Save on the note that the editor holds is the editor Save: it
+   persists the draft, or nothing when the draft is clean or not valid
+   (ADR-0201 §2.3).
 1. **Notifications.** All toasts flow through the optional `INotificationHub`
    sub-package; `NotificationsVM` materializes auto-dismissing `NotificationVM`
    instances (spec §16.6-7), cap 5 visible.
