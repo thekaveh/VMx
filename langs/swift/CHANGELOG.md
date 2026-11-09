@@ -17,6 +17,11 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Added
 
+- `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
+  and `find` report invalid children-factory output as a recoverable error,
+  assign no parent and retry the factory on the next walk; `find` returns a
+  match that it reaches before the failing node. A new test puts the failing
+  node below the root.
 - `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
   tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
   #1311). A failing subscriber does not stop the delivery to the other
@@ -118,6 +123,19 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `try` at each call site, and handle or propagate the error.
 
 ### Fixed
+
+- `attachMany` now indexes the materialized subtree of each attached item
+  (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
+  can name any node of that subtree as its parent; before, it became a
+  `.missingParent` orphan. A descendant key that is already in the tree, or
+  that an earlier item in the batch claimed, rejects the item as
+  `.duplicateExistingKey` or `.duplicateBatchKey`, so a batch no longer adds a
+  second node for a key. An item that is a node of an earlier item's subtree
+  is rejected as `.alreadyAttached` in either batch order, never as a
+  duplicate, so `duplicates` never holds a live node. A parent key that names
+  the item's own descendant is now a `.cycle` rejection instead of a parked
+  orphan. Children that `addChild` materializes from a lazy factory join the
+  index in the next batch.
 
 - `AggregateChangeStream` now delivers each envelope to its subscribers in
   subscription order, for item, structural, final `Batch` and completion

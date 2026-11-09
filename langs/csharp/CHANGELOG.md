@@ -14,6 +14,25 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [3.30.0] — unreleased source version
 
+- Added: `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
+  and `find` report invalid children-factory output as a recoverable error,
+  assign no parent and retry the factory on the next walk; `find` returns a
+  match that it reaches before the failing node. C# already behaved this
+  way.
+
+- Fixed: `AttachMany` now indexes the materialized subtree of each attached
+  item (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same
+  batch can name any node of that subtree as its parent; before, it became a
+  `MissingParent` orphan. A descendant key that is already in the tree, or
+  that an earlier item in the batch claimed, rejects the item as
+  `DuplicateExistingKey` or `DuplicateBatchKey`, so a batch no longer adds a
+  second node for a key. An item that is a node of an earlier item's subtree
+  is rejected as `AlreadyAttached` in either batch order, never as a
+  duplicate, so `Duplicates` never holds a live node. A parent key that names
+  the item's own descendant is now a `Cycle` rejection instead of a parked
+  orphan. Children that `AddChild` materializes from a lazy factory join the
+  index in the next batch.
+
 - Fixed: a failing subscriber no longer stops the delivery to the other
   subscribers or detaches a subscription (ADR-0191, spec/03 §3.6, #1304,
   #1311). This covers the hub helpers, `DerivedProperty` value changes,

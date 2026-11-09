@@ -75,6 +75,11 @@ interface BatchAttachCandidate<TVM, TKey> {
   key: TKey;
   parentKey: TKey | null;
   retainIfMissing: boolean;
+  /**
+   * Keys and nodes of the candidate's materialized descendants, in pre-order
+   * (spec/18 §6, ADR-0212). They join the index when the candidate attaches.
+   */
+  subtree: Array<readonly [TKey, TVM]>;
 }
 
 /**
@@ -391,6 +396,8 @@ export abstract class HierarchicalVM<
 
     const candidates: BatchAttachCandidate<TVM, TKey>[] = [];
     const candidateKeys = new Set<TKey>();
+    // The descendant claims of accepted candidates, by key (ADR-0212).
+    const descendantClaims = new Map<TKey, TVM>();
     const activeItems: Array<readonly [TVM, boolean]> = [
       ...parked.map((item) => [item, true] as const),
       ...incoming.map((item) => [item, false] as const),
@@ -418,6 +425,12 @@ export abstract class HierarchicalVM<
         rejections.push({ item, reason: BatchAttachRejectionReason.DuplicateExistingKey });
         continue;
       }
+      if (descendantClaims.get(key) === item) {
+        // The item is a descendant of an earlier candidate, so it is attached
+        // outside the indexed tree (spec/18 §6, ADR-0212).
+        rejections.push({ item, reason: BatchAttachRejectionReason.AlreadyAttached });
+        continue;
+      }
       if (candidateKeys.has(key)) {
         duplicates.push(item);
         rejections.push({ item, reason: BatchAttachRejectionReason.DuplicateBatchKey });
@@ -428,12 +441,52 @@ export abstract class HierarchicalVM<
         continue;
       }
 
-      candidateKeys.add(key);
+      // The candidate also claims every key of its materialized subtree
+      // (spec/18 §6, ADR-0212); the first claim of a key stays authoritative.
+      const subtree: Array<readonly [TKey, TVM]> = [];
+      const claimed = new Set<TKey>([key]);
+      let subtreeRejection: BatchAttachRejectionReason | null = null;
+      let subtreeError: unknown = undefined;
+      for (const descendant of item.#materializedSubtree().slice(1)) {
+        let descendantKey: TKey;
+        try {
+          descendantKey = options.keyOf(descendant);
+          this.#validateBatchKey(descendantKey);
+        } catch (error) {
+          subtreeRejection = BatchAttachRejectionReason.SelectorFailed;
+          subtreeError = error;
+          break;
+        }
+        if (existing.has(descendantKey)) {
+          subtreeRejection = BatchAttachRejectionReason.DuplicateExistingKey;
+          break;
+        }
+        if (candidateKeys.has(descendantKey) || claimed.has(descendantKey)) {
+          subtreeRejection = BatchAttachRejectionReason.DuplicateBatchKey;
+          break;
+        }
+        claimed.add(descendantKey);
+        subtree.push([descendantKey, descendant]);
+      }
+      if (subtreeRejection === BatchAttachRejectionReason.SelectorFailed) {
+        if (wasParked) root.#parkedAttachItems.push(item);
+        rejections.push(this.#rejection(item, subtreeRejection, subtreeError));
+        continue;
+      }
+      if (subtreeRejection !== null) {
+        duplicates.push(item);
+        rejections.push({ item, reason: subtreeRejection });
+        continue;
+      }
+
+      for (const claim of claimed) candidateKeys.add(claim);
+      for (const [subtreeKey, node] of subtree) descendantClaims.set(subtreeKey, node);
       candidates.push({
         item,
         key,
         parentKey,
         retainIfMissing: wasParked || policy === MissingParentPolicy.Park,
+        subtree,
       });
     }
 
@@ -461,6 +514,7 @@ export abstract class HierarchicalVM<
           continue;
         }
         existing.set(candidate.key, candidate.item);
+        for (const [subtreeKey, node] of candidate.subtree) existing.set(subtreeKey, node);
         added.push(candidate.item);
         progressed = true;
       }
@@ -468,7 +522,13 @@ export abstract class HierarchicalVM<
       if (!progressed) break;
     }
 
-    const unresolvedByKey = new Map(unresolved.map((candidate) => [candidate.key, candidate]));
+    // A subtree key maps to the candidate that claims it, so a parent key
+    // that names the candidate's own descendant is a cycle (ADR-0212).
+    const unresolvedByKey = new Map<TKey, BatchAttachCandidate<TVM, TKey>>();
+    for (const candidate of unresolved) {
+      unresolvedByKey.set(candidate.key, candidate);
+      for (const [subtreeKey] of candidate.subtree) unresolvedByKey.set(subtreeKey, candidate);
+    }
     for (const candidate of unresolved) {
       const isCycle = this.#batchParentChainCycles(candidate, unresolvedByKey);
       const reason = isCycle

@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from itertools import islice
 from typing import Any, Generic, TypeVar, overload
 
 from vmx.components.base import _ComponentVMBase
@@ -67,6 +68,9 @@ class _BatchAttachCandidate(Generic[TVM]):
     key: Hashable
     parent_key: Hashable | None
     retain_if_missing: bool
+    # Keys and nodes of the candidate's materialized descendants, pre-order
+    # (spec/18 §6, ADR-0212). They join the index when the candidate attaches.
+    subtree: tuple[tuple[Hashable, TVM], ...] = ()
 
 
 class _ReadOnlyList(Sequence[_T]):
@@ -451,6 +455,8 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
 
         candidates: list[_BatchAttachCandidate[TVM]] = []
         candidate_keys: set[Hashable] = set()
+        # The descendant claims of accepted candidates, by key (ADR-0212).
+        descendant_claims: dict[Hashable, TVM] = {}
         for item, was_parked in [
             *((item, True) for item in parked),
             *((item, False) for item in incoming),
@@ -482,6 +488,17 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                     )
                 )
                 continue
+            # An item that is a descendant of an earlier candidate is attached
+            # outside the indexed tree (spec/18 §6, ADR-0212).
+            claimed_descendant = descendant_claims.get(key) is item
+            if claimed_descendant:
+                rejections.append(
+                    BatchAttachRejection(
+                        item,
+                        BatchAttachRejectionReason.ALREADY_ATTACHED,
+                    )
+                )
+                continue
             if key in candidate_keys:
                 duplicates.append(item)
                 rejections.append(
@@ -500,13 +517,48 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                 )
                 continue
 
-            candidate_keys.add(key)
+            # The candidate also claims every key of its materialized subtree
+            # (spec/18 §6, ADR-0212); the first claim of a key stays
+            # authoritative.
+            subtree: list[tuple[Hashable, TVM]] = []
+            claimed: set[Hashable] = {key}
+            subtree_rejection: BatchAttachRejectionReason | None = None
+            subtree_detail: str | None = None
+            for descendant in islice(item._materialized_subtree(), 1, None):
+                try:
+                    descendant_key = key_of(descendant)
+                    self._validate_batch_key(descendant_key)
+                except Exception as exc:
+                    subtree_rejection = BatchAttachRejectionReason.SELECTOR_FAILED
+                    subtree_detail = str(exc)
+                    break
+                if descendant_key in existing:
+                    subtree_rejection = BatchAttachRejectionReason.DUPLICATE_EXISTING_KEY
+                    break
+                if descendant_key in candidate_keys or descendant_key in claimed:
+                    subtree_rejection = BatchAttachRejectionReason.DUPLICATE_BATCH_KEY
+                    break
+                claimed.add(descendant_key)
+                subtree.append((descendant_key, descendant))
+            if subtree_rejection is BatchAttachRejectionReason.SELECTOR_FAILED:
+                if was_parked:
+                    root._parked_attach_items.append(item)
+                rejections.append(BatchAttachRejection(item, subtree_rejection, subtree_detail))
+                continue
+            if subtree_rejection is not None:
+                duplicates.append(item)
+                rejections.append(BatchAttachRejection(item, subtree_rejection))
+                continue
+
+            candidate_keys.update(claimed)
+            descendant_claims.update(subtree)
             candidates.append(
                 _BatchAttachCandidate(
                     item,
                     key,
                     parent_key,
                     was_parked or on_missing_parent is MissingParentPolicy.PARK,
+                    tuple(subtree),
                 )
             )
 
@@ -538,13 +590,20 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
                     continue
 
                 existing[candidate.key] = candidate.item
+                existing.update(candidate.subtree)
                 added.append(candidate.item)
                 progressed = True
             unresolved = next_unresolved
             if not progressed:
                 break
 
-        unresolved_by_key = {candidate.key: candidate for candidate in unresolved}
+        # A subtree key maps to the candidate that claims it, so a parent key
+        # that names the candidate's own descendant is a cycle (ADR-0212).
+        unresolved_by_key: dict[Hashable, _BatchAttachCandidate[TVM]] = {}
+        for candidate in unresolved:
+            unresolved_by_key[candidate.key] = candidate
+            for subtree_key, _ in candidate.subtree:
+                unresolved_by_key[subtree_key] = candidate
         for candidate in unresolved:
             is_cycle = self._batch_parent_chain_cycles(candidate, unresolved_by_key)
             reason = (
