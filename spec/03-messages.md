@@ -241,6 +241,7 @@ column instead of blocking.
 | A cross-thread container disposal waits for a membership transaction                    | The transaction owner                        | Deferred terminal intent that the owner finishes (chapter 06 §4.2, ADR-0153)                                                                                                                                     |
 | A structural operation waits for a child's ownership gate or lock                       | The thread whose transaction holds it        | The operation fails before mutation: `InvalidOperationException` in C#, `RuntimeError` in Python, and the container's attachment failure in Swift. Rust claims ownership without waiting, so it has no such wait |
 | A `FormVM` call, settlement, or `Dispose()` waits for a form publication scope          | A thread that holds a scope on that form     | `SetModel` and deny are queued for the publisher, an approve call is admitted, a settlement opens its own scope, and `Dispose()` leaves the teardown to the publisher (chapter 20 §5.5, ADR-0176)                |
+| A Rust `ObservableMultiDictionary` mutation waits for another thread's delivery         | The thread that delivers the changes         | The mutation commits and queues its change for that thread, which delivers it in commit order (chapter 21 §4.2, ADR-0208)                                                                                        |
 
 1. **One graph.** A wait that would close a cycle across any mix of these
    waits is refused. A wait that closes no cycle blocks as before. No flavor
@@ -249,8 +250,8 @@ column instead of blocking.
 1. **Edges per resource instance.** An edge names the waiting thread, the
    resource instance it waits for, and the thread that owns that resource. The
    resource instance is one hub, one lifecycle delivery, one hook lease, one
-   container's membership transaction, one ownership gate or lock object, or
-   one form's publication scope.
+   container's membership transaction, one ownership gate or lock object, one
+   form's publication scope, or one Rust dictionary's delivery.
    An edge is never keyed by VM identity: a container that is also a child has
    a membership transaction and an ownership gate, and they are two resources.
    A waiting thread has at most one edge. A wait with several possible owners
@@ -265,7 +266,7 @@ column instead of blocking.
    wakes the waiters. This applies when a thread finishes a hook, delivers a
    publication, ends a membership transaction, releases an ownership gate,
    ends a batch, releases a drain, closes its outermost form publication
-   scope, and when a borrower ends or partially exits its borrowed scopes. A
+   scope, ends a dictionary delivery, and when a borrower ends or partially exits its borrowed scopes. A
    woken waiter that must still wait records its wait
    again. A stale edge never makes an operation take its refused-wait result,
    and a released owner never keeps a waiter blocked.

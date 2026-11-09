@@ -1451,7 +1451,7 @@ fn aggregate_reconstruct_waiting_on_an_unsettled_component_frees_its_tree() {
 ///
 /// #1280 — the dropped composite publishes no terminal status: the hub
 /// carries only its `Constructing`. This is the deliberate Rust divergence
-/// that ADR-0009 §2.34 records.
+/// that ADR-0009 §2.33 records.
 #[test]
 fn dropped_waiting_composite_lets_its_child_settle_alone() {
     let hub = MessageHub::new();

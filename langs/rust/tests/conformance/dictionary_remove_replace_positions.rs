@@ -1,9 +1,12 @@
 //! COL-068 — dictionary Remove and Replace hub messages carry the entry
 //! position (spec/21-collections.md §2.4 and §4.7, ADR-0193, #1316).
 //!
-//! The position is the entry's index in enumeration order. Rust has no local
-//! dictionary event, so it is the commit position. Remove sends `old_index: Some(pre-removal)` and `new_index: None`.
-//! Replace sends `Some(position)` in both fields.
+//! The position is the entry's index in enumeration order. Remove sends
+//! `old_index: Some(pre-removal)` and `new_index: None`. Replace sends
+//! `Some(position)` in both fields. `ObservableMultiDictionary` sends the
+//! position that the entry has when each message is sent (ADR-0208). The
+//! single-key `ObservableDictionary` has no local event, so it sends the commit
+//! position.
 
 use std::sync::{Arc, Mutex};
 
@@ -32,7 +35,7 @@ fn record(hub: &MessageHub) -> (Arc<Mutex<Vec<Change>>>, Subscription) {
 #[test]
 fn col_068_multi_dictionary_remove_and_replace_carry_the_entry_position() {
     let hub = MessageHub::new();
-    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
+    let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
     dictionary.add("a", 1, "one").unwrap();
     dictionary.add("b", 2, "two").unwrap();
     dictionary.add("c", 3, "three").unwrap();
@@ -51,6 +54,52 @@ fn col_068_multi_dictionary_remove_and_replace_carry_the_entry_position() {
     assert_eq!(
         dictionary.entries(),
         vec![("a", 1, "one"), ("c", 3, "THREE")]
+    );
+}
+
+/// COL-068 — a Replace reports the position when each message is sent
+#[test]
+fn col_068_multi_dictionary_replace_reports_the_position_at_send_time() {
+    let hub = MessageHub::new();
+    let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
+    dictionary.add("a", 1, "one").unwrap();
+    dictionary.add("b", 2, "two").unwrap();
+    dictionary.add("c", 3, "three").unwrap();
+    let (local, _local_subscription) = record(&dictionary.collection_changed());
+    let (seen, _subscription) = record(&hub);
+    // The first local Replace removes an earlier entry before the hub message.
+    let _mover = {
+        let dictionary = dictionary.clone();
+        dictionary.collection_changed().subscribe(move |message| {
+            if matches!(
+                message,
+                Message::CollectionChanged(change)
+                    if change.action == CollectionChangeAction::Replace
+            ) {
+                assert_eq!(dictionary.remove(&"a", &1), Some("one"));
+            }
+        })
+    };
+
+    dictionary.insert("c", 3, "THREE");
+
+    assert_eq!(
+        *local.lock().unwrap(),
+        vec![
+            (CollectionChangeAction::Replace, Some(2), Some(2)),
+            (CollectionChangeAction::Remove, Some(0), None),
+        ]
+    );
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![
+            (CollectionChangeAction::Replace, Some(1), Some(1)),
+            (CollectionChangeAction::Remove, Some(0), None),
+        ]
+    );
+    assert_eq!(
+        dictionary.entries(),
+        vec![("b", 2, "two"), ("c", 3, "THREE")]
     );
 }
 

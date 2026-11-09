@@ -10,7 +10,7 @@ library conformance ID. Rust has no UI scenario suite for the THEME IDs.
 The public surface and some behaviors are not fully aligned with the other
 flavors. See the
 [Rust parity ledger](https://github.com/thekaveh/VMx/blob/main/docs/maintenance/2026-07-16-rust-capability-parity.md)
-(original scope closed; open items and recorded differences in §12.4.7, §12.7 and §12.9–§12.11).
+(original scope closed; open items and recorded differences in §12.4.7, §12.7 and §12.9).
 
 ## 2. Install
 
@@ -133,7 +133,14 @@ The crate uses idiomatic Rust naming and error handling:
 - `TreeSelection<M, N = ()>` keeps one current node for the tree under a root
   `HierarchicalVm` and clears it when the node leaves that tree.
 - `ObservableList::replace_all(...)` emits one reset with a
-  cardinality-correct `Count` notification.
+  cardinality-correct `Count` notification. `ObservableList::new(owner_id)`
+  has no hub and sends typed `item_added`, `item_removed`, `item_replaced` and
+  `reset` events; `with_hub(owner_id, hub)` also publishes to a hub.
+- `ObservableMultiDictionary` has a local `collection_changed()` event, live
+  read-only `keys1()` and `keys2()` views, and a hash index. Containers expose
+  their children's local stream as `collection_changed()`.
+- `PagedComposition` publishes its paging properties on its hub and can follow
+  a `CompositeVm` through `from_composite`.
 - `VmCollection<T>` unifies groups and composites. `SelectableVmCollection<T>`
   adds composite-only selection, and `move_item` preserves child identity.
 - `AggregateChangeStream<T>` follows dynamic membership with typed provenance.

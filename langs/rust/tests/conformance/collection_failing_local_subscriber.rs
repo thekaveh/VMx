@@ -1,5 +1,8 @@
 //! COL-066 — a failing local subscriber does not suppress the hub message.
 //!
+//! The cases cover the serviced and keyed collections and the multi-key
+//! dictionary.
+//!
 //! The change is committed and exactly one hub `CollectionChangedMessage` is
 //! sent. Rust local delivery catches a panicking subscriber, so the mutation
 //! returns normally (spec/01-concepts.md §1.4, spec/21-collections.md §2.5,
@@ -9,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use vmx::{
     CollectionChangeAction, KeyedServicedObservableCollection, Message, MessageHub,
-    ServicedObservableCollection,
+    ObservableMultiDictionary, ServicedObservableCollection,
 };
 
 type Order = Arc<Mutex<Vec<&'static str>>>;
@@ -101,6 +104,54 @@ fn keyed_collection_publishes_once_despite_failing_local_subscriber() {
         for item in expected {
             assert_eq!(list.get_by_key(item), Some(*item), "{mutation}");
         }
+        assert_eq!(*actions.lock().unwrap(), vec![action], "{mutation}");
+        assert_eq!(*order.lock().unwrap(), vec!["local", "hub"], "{mutation}");
+    }
+}
+
+/// COL-066 — the multi-key dictionary sends one hub message despite a failing local subscriber
+#[test]
+fn dictionary_publishes_once_despite_failing_local_subscriber() {
+    type Mutation = fn(&ObservableMultiDictionary<&'static str, i32, &'static str>);
+    let cases: [(&str, Mutation, CollectionChangeAction, usize); 5] = [
+        (
+            "add",
+            |d| d.add("c", 3, "three").unwrap(),
+            CollectionChangeAction::Add,
+            3,
+        ),
+        (
+            "insert",
+            |d| d.insert("c", 3, "three"),
+            CollectionChangeAction::Add,
+            3,
+        ),
+        (
+            "replace",
+            |d| d.insert("a", 1, "uno"),
+            CollectionChangeAction::Replace,
+            2,
+        ),
+        (
+            "remove",
+            |d| assert_eq!(d.remove(&"a", &1), Some("one")),
+            CollectionChangeAction::Remove,
+            1,
+        ),
+        ("clear", |d| d.clear(), CollectionChangeAction::Reset, 0),
+    ];
+    for (mutation, act, action, count) in cases {
+        let hub = MessageHub::new();
+        let dictionary = ObservableMultiDictionary::with_hub(1, hub.clone());
+        dictionary.add("a", 1, "one").unwrap();
+        dictionary.add("b", 2, "two").unwrap();
+        let order: Order = Arc::new(Mutex::new(Vec::new()));
+        let (actions, _hub) = observe_hub(&hub, &order);
+        let _local = fail_locally(&dictionary.collection_changed(), &order);
+
+        act(&dictionary);
+
+        assert_eq!(dictionary.count(), count, "{mutation}");
         assert_eq!(*actions.lock().unwrap(), vec![action], "{mutation}");
         assert_eq!(*order.lock().unwrap(), vec!["local", "hub"], "{mutation}");
     }

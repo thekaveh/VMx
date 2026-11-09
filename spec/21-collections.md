@@ -575,10 +575,14 @@ Each mutation raises exactly one granular event:
 described by a single-item event (e.g., range insertion if a flavor provides
 one).
 
-Open Rust gap: Rust `ObservableList<T>` has no public `ItemAdded`,
-`ItemRemoved`, `ItemReplaced`, or `Reset` stream and no value `remove(item)`.
-Its constructor requires a `MessageHub`, and it publishes each mutation only as
-a hub `CollectionChangedMessage` and the `Count` property change.
+Rust names the streams `item_added()`, `item_removed()`, `item_replaced()`,
+and `reset()`. Each returns a typed `EventStream` whose payloads are
+`ItemAddedEvent { item, index }`, `ItemRemovedEvent { item, index }`, and
+`ItemReplacedEvent { new_item, old_item, index }`, and `()` for `Reset`. The
+local `Count` notification is on `property_changed()`. `ObservableList::new`
+takes no hub. `ObservableList::with_hub` also publishes each change to the hub
+as a `CollectionChangedMessage` and a `PropertyChangedMessage` for `Count`
+(ADR-0208).
 
 ### 3.3 `PropertyChanged("Count")`
 
@@ -678,8 +682,8 @@ two-key form). Each flavor implements it as a standalone class over a
 compound-key backing store — `ValueTuple` keys in C#, `tuple` keys in Python,
 an internal `CompositeKey` value in Swift, nested native `Map` instances in
 TypeScript (the entry type exposed to consumers remains `DictionaryEntry`), and
-an insertion-ordered `Vec` of `(K1, K2, V)` entries in Rust, where the two-key
-type is `ObservableMultiDictionary<K1, K2, V>`. Each
+an insertion-ordered `Vec` of `(K1, K2, V)` entries with a hash index in Rust,
+where the two-key type is `ObservableMultiDictionary<K1, K2, V>`. Each
 axis uses the host language's standard dictionary-key equality; in TypeScript
 that is `Map`'s SameValueZero primitive equality and reference identity for
 objects. There is no single-key base type. (Corrected in v2.5.0 via ADR-0038
@@ -743,12 +747,16 @@ global order of nested and outer events is required. During a nested mutation,
 a view can still lack the change of the outer mutation. The outer change shows
 in that view when the outer mutation completes.
 
-Open Rust gap: Rust `ObservableMultiDictionary` requires a `MessageHub` at
-construction. `keys1()` and `keys2()` return `Vec` snapshots, not live
-read-only views. The type has no local collection-changed event, no
-indexer, and no `TryGetValue`; `get` returns `Option<V>`, and mutations are
-observable only through the hub. Each snapshot reads the current entries, so a
-hub subscriber reads both key snapshots in their updated state.
+Rust `ObservableMultiDictionary::new` takes no hub, and `with_hub` takes one.
+`keys1()` and `keys2()` return live `ReadOnlyObservableList` views. A view has
+the read and subscribe members of `ObservableList` and no mutator (ADR-0208).
+The local collection-changed event is `collection_changed()`. Rust has no
+indexer and no `TryGetValue`; `get` returns `Option<V>` (ADR-0009). One Rust
+thread at a time delivers a dictionary's changes. A mutation on another thread
+waits for that delivery and records the wait in the wait-for graph (chapter 03
+§4.1). When the wait would close a cycle, the mutation commits and queues its
+change for the delivering thread, which delivers the changes in commit order
+(ADR-0208).
 
 ### 4.3 No cascading insertion
 
@@ -780,8 +788,7 @@ If a hub is provided at construction time (following the same pattern as
 `ServicedObservableCollection<T>` §2.2), mutations publish a
 `CollectionChangedMessage` to the hub after the local `CollectionChanged` event.
 A failing local handler does not suppress the hub message (§2.5). Null-hub
-fallback applies. Open Rust gap: the Rust dictionary has no local
-event and requires a hub (§4.2).
+fallback applies.
 
 ### 4.7 Hub message element shape
 
@@ -818,9 +825,9 @@ and Replace report the entry's position when the hub message is sent. A local
 subscriber can change the dictionary before the hub message. If it moves the
 entry, Add and Replace report the new position. If it removes the entry, they
 report -1. A value replacement does not move the entry, so its old and new
-positions are equal. Rust has no local event, so its positions are the commit
-positions. The Rust single-key `ObservableDictionary<K, V>` follows the same
-table.
+positions are equal. The Rust single-key `ObservableDictionary<K, V>` follows
+the same table. It has no local event, so its positions are the commit
+positions.
 
 ### 4.8 Conformance
 
@@ -839,7 +846,8 @@ PagedComposition<TVM>:
                                             # idiom: IEnumerable<TVM> (C#),
                                             # Iterable[TVM] or factory callable (Python),
                                             # PagedCompositionSource<TVM> (TS),
-                                            # [TVM] (Swift), Vec<T> (Rust)
+                                            # [TVM] (Swift), Vec<T> (Rust);
+                                            # Swift and Rust also take a CompositeVM
     implements IPageable                     # per 14-capabilities.md §2.10
 
     PageSize         : int     # mutable; 0 = all items on one page
@@ -876,9 +884,10 @@ stored copy.
 
 To change the Swift copy, call `setSource(_:)` (ADR-0060 §2.5). To change the
 Rust copy, call `set_source`, `push` or `remove_at`. These Rust calls change
-only the stored copy. Swift `init(sourceComposite:)` follows the composite
-through `collectionChanged`. Each emission replaces the stored copy with the
-current children of the composite.
+only the stored copy. Swift `init(sourceComposite:)` and Rust
+`PagedComposition::from_composite` follow the composite through its local
+collection-change stream. Each emission replaces the stored copy with the
+current children of the composite (ADR-0208).
 
 `PageCount` and `Items` always read the current source: the live source in C#,
 Python and TypeScript, and the stored copy in Swift and Rust. An observed source
@@ -955,9 +964,13 @@ Swift observes only a `CompositeVM` source, through `init(sourceComposite:)`.
 It does not observe `ObservableList` split streams. A caller updates a Swift
 array source through the call that §5.2 names.
 
-Open Rust gap: Rust `PagedComposition` takes the `Vec` by value and does not
-observe it. `COL-031` (observing a composite source) does not apply to Rust. A
-caller updates the stored copy through the calls that §5.2 names.
+Rust observes only a `CompositeVm` source, through
+`PagedComposition::from_composite`. A `Vec` source is a stored copy that a
+caller updates through the calls that §5.2 names. Rust publishes each paging
+change as a `PropertyChangedMessage` on the pager's hub, with the snake_case
+names `page_size`, `is_paging_enabled`, `page_count`, `current_page_index`,
+and `items`, in the Swift order. A call that changes nothing publishes nothing.
+`dispose` stops the source observation and the publication (ADR-0208).
 
 ### 5.6 Conformance
 

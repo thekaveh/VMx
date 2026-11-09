@@ -325,7 +325,9 @@ mutable backing `ObservableList<TKey>` from `Keys1`/`Keys2`, and Python
 returned a `ReadOnlyObservableList` facade (VMX-014). A caller edit in the
 mutable flavors desynced the view from the entries. Now C#, Python, TypeScript
 and Swift all return a `ReadOnlyObservableList<TKey>` facade with no mutator
-and no batch member (spec/21 §4.2). Rust keeps its `Vec` snapshots.
+and no batch member (spec/21 §4.2). Rust `keys1()`/`keys2()` on
+`ObservableMultiDictionary` return the same `ReadOnlyObservableList` facade over
+the live key axis (ADR-0208, §2.32).
 
 One 3.x exception to the major-version deferral: the C#, TypeScript and Swift
 change breaks source in a minor version. Only code that edits a view, or that
@@ -370,6 +372,8 @@ major, the change rides in it.
   (`event PropertyChangedEventHandler?`)
 - **Python**: `on_property_changed: Observable[str]` (emits the changed property name)
 - **TypeScript**: `propertyChanged: Observable<string>` (emits the changed property name)
+- **Rust**: a `PropertyChangedMessage` on the pager's `MessageHub` (`hub()`),
+  with snake_case names, as Rust `TokenPagedComposition` does (ADR-0208)
 - **Rationale**: C# implements the .NET-standard `INotifyPropertyChanged` contract
   required by XAML binding. Python/TS expose an Rx observable — same pattern as the
   `CollectionChanged` and `ServicedObservableCollection` observable divergences.
@@ -532,44 +536,33 @@ here so audits don't reopen them prematurely:
   syntax; the options-bag is the standard JS pattern for constructors with
   many optional parameters.
 
-### 2.32 Historical: divergences resolved in v1.2.0 (pre-v2 era)
+### 2.32 Rust `ObservableList` and `ObservableMultiDictionary` surface (ADR-0208)
 
-- C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
-- TypeScript `ConstructionStatusChangedMessage.sender` getter (additive). In
-  v3.0.0 `sender` became the message's sole stored field and the untyped
-  `senderObject` alias was removed (ADR-0054) — see the `IMessage` sender
-  field-name section above.
-- C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
-  on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
+These Rust differences remain after ADR-0208 and are idiomatic (ADR-0006):
 
-### 2.33 Historical: divergences resolved in v3.x
+- **Streams.** The list streams are methods, `item_added()`, `item_removed()`,
+  `item_replaced()` and `reset()`, that return a typed `EventStream`. The
+  payloads are the structs `ItemAddedEvent`, `ItemRemovedEvent` and
+  `ItemReplacedEvent`, with `new_item`, `old_item` and `index` fields, and
+  `()` for `Reset`. The local `Count` notification is on `property_changed()`.
+- **Hub.** A list made with `with_hub` also publishes to the hub. The other
+  flavors' list has no hub. The dictionary and container local streams return
+  a `MessageHub` of `CollectionChangedMessage`, as
+  `ServicedObservableCollection::collection_changed()` does. That message has
+  no item or entry payload (§2.15); a subscriber reads `to_vec()` or
+  `entries()`.
+- **Indexers.** Rust has no list or dictionary indexer. The standard `Index`
+  trait returns a reference, and the items are held behind a lock. The list
+  reads with `get(index) -> Option<T>`. The dictionary reads with
+  `get(key1, key2) -> Option<V>`, which is the `TryGetValue` shape, and
+  upserts with `insert`.
+- **Key views.** `keys1()` and `keys2()` return a `ReadOnlyObservableList`,
+  the live, read-only view that Python returns (§2.21).
+- **Single-key dictionary.** Rust also exports `ObservableDictionary<K, V>`,
+  which takes a hub and has no local event or key view. Spec/21 §4.1 defines
+  no single-key type.
 
-- Python removed the deprecated `RelayCommandOfT` / `RelayCommandOfTBuilder`
-  and `AggregateVMBuilderN` aliases in favor of `RelayCommandOf` and
-  `AggregateVMNBuilder` (ADR-0052).
-
-- Swift `CompositeVM` and `GroupVM` now expose the canonical insert, replace,
-  clear, and native `Sequence` surfaces through `VMCollection`.
-
-- Modeled assignment after disposal is inert in all five flavors (ADR-0091,
-  `DISP-014`).
-
-- A refused child `select()` or `deselect()` changes nothing and raises
-  nothing in all five flavors (ADR-0188, `COMP-052`). C# used to throw
-  `InvalidOperationException`, and Python and TypeScript raised for some
-  refusals.
-
-- **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
-  captured model snapshot while Python and TypeScript emitted the live model
-  after the persister await. ADR-0048 §2.4 (VMX-047) converged all three flavors
-  on the **pre-await captured** snapshot, so `OnApproved` fires with the value
-  that was actually persisted even under a concurrent `SetModel` during the
-  await. No longer a divergence — the three flavors match (C#
-  `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
-  `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
-  `this.#onApproved.next(current)`).
-
-### 2.34 Dropped container that waits for a background child (Rust and Swift)
+### 2.33 Dropped container that waits for a background child (Rust and Swift)
 
 Chapter 02 §6 says that a container completes `construct()` only when every
 child reaches `Constructed`. It does not say what happens when no reference to
@@ -612,6 +605,43 @@ the waiting container remains (#1280).
   a container that nothing references cannot complete. The garbage-collected
   flavors keep the container reachable through the child. A host that needs
   the terminal status keeps a handle until the transition completes.
+
+### 2.34 Historical: divergences resolved in v1.2.0 (pre-v2 era)
+
+- C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
+- TypeScript `ConstructionStatusChangedMessage.sender` getter (additive). In
+  v3.0.0 `sender` became the message's sole stored field and the untyped
+  `senderObject` alias was removed (ADR-0054) — see the `IMessage` sender
+  field-name section above.
+- C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
+  on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
+
+### 2.35 Historical: divergences resolved in v3.x
+
+- Python removed the deprecated `RelayCommandOfT` / `RelayCommandOfTBuilder`
+  and `AggregateVMBuilderN` aliases in favor of `RelayCommandOf` and
+  `AggregateVMNBuilder` (ADR-0052).
+
+- Swift `CompositeVM` and `GroupVM` now expose the canonical insert, replace,
+  clear, and native `Sequence` surfaces through `VMCollection`.
+
+- Modeled assignment after disposal is inert in all five flavors (ADR-0091,
+  `DISP-014`).
+
+- A refused child `select()` or `deselect()` changes nothing and raises
+  nothing in all five flavors (ADR-0188, `COMP-052`). C# used to throw
+  `InvalidOperationException`, and Python and TypeScript raised for some
+  refusals.
+
+- **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
+  captured model snapshot while Python and TypeScript emitted the live model
+  after the persister await. ADR-0048 §2.4 (VMX-047) converged all three flavors
+  on the **pre-await captured** snapshot, so `OnApproved` fires with the value
+  that was actually persisted even under a concurrent `SetModel` during the
+  await. No longer a divergence — the three flavors match (C#
+  `FormVM.cs` `_onApproved.OnNext(current)`, Python `form_vm.py`
+  `self._on_approved.on_next(current)`, TypeScript `formVm.ts`
+  `this.#onApproved.next(current)`).
 
 ## 3. Rationale
 
