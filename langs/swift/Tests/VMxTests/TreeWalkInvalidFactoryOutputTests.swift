@@ -1,5 +1,5 @@
 //
-// Tree walks over invalid HierarchicalVM factory output (spec/13 §6,
+// Tree walks over invalid HierarchicalVM factory output (spec/13 §6.1,
 // ADR-0170, #1060). `walk`, `walkExpanded` and `find` throw
 // `HierarchyError.invalidFactoryOutput` instead of trapping, and the failing
 // node stays unmaterialized so a later walk retries the factory (HIER-031).
