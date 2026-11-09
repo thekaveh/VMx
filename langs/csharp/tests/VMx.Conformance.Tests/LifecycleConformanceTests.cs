@@ -159,7 +159,7 @@ public class LifecycleConformanceTests
         return table.Transitions;
     }
 
-    // LIFE-001..004, LIFE-007..010, LIFE-012, LIFE-013 — each below drives a
+    // LIFE-001..021, LIFE-007..010, LIFE-012, LIFE-013 — each below drives a
     // real VM instance and asserts that id's own normative behavior directly.
 
     // LIFE-001 — construct from Destructed observes exactly Constructing then
