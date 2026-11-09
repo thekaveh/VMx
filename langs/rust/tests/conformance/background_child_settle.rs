@@ -691,7 +691,9 @@ fn dispose_awaited_child_with_hook<C: VmNode>(
 }
 
 /// #738 — a panicking `on_dispose` hook on an awaited background child still
-/// releases the container's settle waiters, as a failing hook does.
+/// releases the container's settle waiters, as a failing hook does. The
+/// disposed child ends the wait as a success, so the container reaches
+/// Constructed (ADR-0189).
 #[test]
 fn panicking_dispose_hook_on_an_awaited_child_settles_the_composite() {
     for panics in [false, true] {
@@ -705,7 +707,7 @@ fn panicking_dispose_hook_on_an_awaited_child_settles_the_composite() {
 
         assert_eq!(
             composite.status(),
-            ConstructionStatus::Destructed,
+            ConstructionStatus::Constructed,
             "panics: {panics}"
         );
         // A later construct and destruct run normally, with no
@@ -734,7 +736,7 @@ fn panicking_dispose_hook_on_an_awaited_child_settles_the_group() {
 
         assert_eq!(
             group.status(),
-            ConstructionStatus::Destructed,
+            ConstructionStatus::Constructed,
             "panics: {panics}"
         );
         // A later construct and destruct run normally, with no

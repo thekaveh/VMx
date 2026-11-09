@@ -176,13 +176,27 @@ impl<T: VmNode> CompositeSelection<T> {
         lock(&self.uncommitted).owned_by_current_thread()
     }
 
-    /// Committed membership (spec/06 §4.3 rule 2). Call under the gate.
+    /// Committed membership (spec/06 §4.3 rule 2). A `Disposed` child is
+    /// not a member for selection (ADR-0189). Call under the gate.
     fn is_selectable_member_locked(&self, item: &T) -> bool {
         self.items
             .to_vec()
             .iter()
             .any(|candidate| same_node(candidate, item))
             && !lock(&self.uncommitted).staged.contains(&item.id())
+            && item.status() != ConstructionStatus::Disposed
+    }
+
+    /// Reports whether a selection that rules 2, 3 and 4 admit changes
+    /// nothing because the composite is `Destructing` (spec/06 §4.3 rule 8,
+    /// ADR-0188). The composite publishes `Destructing` before its destruct
+    /// clear takes the gate, so a read under the gate is sound. A null
+    /// clear is never refused. Call under the gate.
+    fn destructing_refuses_locked<D: Dispatcher>(
+        core: &ComponentCore<D>,
+        next: Option<&T>,
+    ) -> bool {
+        next.is_some() && core.status() == ConstructionStatus::Destructing
     }
 
     /// Reports whether `select_component(item)` would succeed now.
@@ -255,14 +269,40 @@ impl<T: VmNode> CompositeSelection<T> {
     /// The detach clear (spec/06 §4.3 rule 6): clears `current` only while
     /// `removed` is still current. Call under the gate.
     fn clear_if_current_locked(&self, removed: &T) -> Option<CurrentCommit<T>> {
+        self.clear_if_current_id_locked(removed.id())
+    }
+
+    fn clear_if_current_id_locked(&self, id: usize) -> Option<CurrentCommit<T>> {
         let is_current = lock(&self.current)
             .as_ref()
-            .is_some_and(|current| same_node(current, removed));
+            .is_some_and(|current| current.id() == id);
         if is_current {
             self.commit_locked(None)
         } else {
             None
         }
+    }
+
+    /// The dispose clear (spec/06 §4.3 rule 9, ADR-0189): after the child
+    /// `child_id` published `Disposed` from its own `dispose()`, clears
+    /// `current` while that child is still current. It is not a selection
+    /// call, so rules 3, 4 and 8 never refuse it. It does not run while
+    /// disposal of the composite is pending or after it is `Disposed`, so
+    /// the composite's own dispose cascade does not clear `current`.
+    fn clear_for_disposed_child<D: Dispatcher>(
+        &self,
+        core: &ComponentCore<D>,
+        child_id: usize,
+    ) -> VmxResult<()> {
+        let commit = {
+            let _gate = lock(&self.gate);
+            if self.disposal_pending() || core.status() == ConstructionStatus::Disposed {
+                None
+            } else {
+                self.clear_if_current_id_locked(child_id)
+            }
+        };
+        commit.map_or(Ok(()), |commit| self.publish(core, commit))
     }
 
     /// Publishes a committed change under its lease: the current flags, then
@@ -337,6 +377,9 @@ impl<T: VmNode> CompositeSelection<T> {
     /// `deselect_component`, and the child `select` and `deselect` paths
     /// (spec/06 §4.3). With async selection it validates now, and the
     /// delivery validates again and drops silently when no longer valid.
+    /// While the composite is `Destructing`, a non-null selection that
+    /// passes validation returns `Ok(())` and changes nothing; an async call
+    /// schedules nothing (rule 8, ADR-0188).
     fn request<D: Dispatcher>(
         &self,
         core: &ComponentCore<D>,
@@ -351,6 +394,9 @@ impl<T: VmNode> CompositeSelection<T> {
             {
                 let _gate = lock(&self.gate);
                 self.validate_locked(next.as_ref(), require_constructed, expected_current_id)?;
+                if Self::destructing_refuses_locked(core, next.as_ref()) {
+                    return Ok(());
+                }
             }
             let selection = self.clone();
             let delivery_core = core.clone();
@@ -365,6 +411,9 @@ impl<T: VmNode> CompositeSelection<T> {
                     selection
                         .validate_locked(next.as_ref(), require_constructed, expected_current_id)
                         .ok()
+                        .filter(|()| {
+                            !Self::destructing_refuses_locked(&delivery_core, next.as_ref())
+                        })
                         .and_then(|()| selection.commit_locked(next.clone()))
                 };
                 if let Some(commit) = commit {
@@ -376,6 +425,9 @@ impl<T: VmNode> CompositeSelection<T> {
         let commit = {
             let _gate = lock(&self.gate);
             self.validate_locked(next.as_ref(), require_constructed, expected_current_id)?;
+            if Self::destructing_refuses_locked(core, next.as_ref()) {
+                return Ok(());
+            }
             self.commit_locked(next)
         };
         commit.map_or(Ok(()), |commit| self.publish(core, commit))
@@ -668,6 +720,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 let core = core.clone();
                 let selection = selection.clone();
                 move |child_id| selection.request(&core, None, false, Some(child_id))
+            },
+            {
+                let core = core.clone();
+                let selection = selection.clone();
+                move |child_id| selection.clear_for_disposed_child(&core, child_id)
             },
         );
         let auto_construct_on_add = Arc::new(Mutex::new(false));
@@ -1406,11 +1463,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     ///
     /// The call opens no membership transaction, so another thread's add or
     /// removal never fails or delays it (spec/06 §4.3). It returns
-    /// [`VmxError::NonChild`] for a value this composite has not admitted,
-    /// [`VmxError::Disposed`] for a value while disposal is pending or after
-    /// disposal, and [`VmxError::OwnershipTransactionInProgress`] on the thread
-    /// whose own add, population or transfer of this composite has not
-    /// committed yet. Clearing with `None` is legal while disposal is pending.
+    /// [`VmxError::NonChild`] for a value this composite has not admitted or
+    /// that is `Disposed`, [`VmxError::Disposed`] for a value while disposal
+    /// is pending or after disposal, and
+    /// [`VmxError::OwnershipTransactionInProgress`] on the thread whose own
+    /// add, population or transfer of this composite has not committed yet.
+    /// Clearing with `None` is legal while disposal is pending. While the
+    /// composite is `Destructing`, a value that passes these checks returns
+    /// `Ok(())` and changes nothing (spec/06 §4.3 rule 8, ADR-0188).
     pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
         self.selection.request(&self.core, item, false, None)
     }
@@ -1429,11 +1489,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     /// Reports whether [`Self::select_component`] would succeed now: `item` is
-    /// an admitted, constructed child, no disposal is pending, and this thread
-    /// is not inside its own uncommitted membership transaction of the
-    /// composite (spec/06 §3.1).
+    /// an admitted, constructed child, no disposal is pending, the composite
+    /// is not `Destructing`, and this thread is not inside its own
+    /// uncommitted membership transaction of the composite (spec/06 §3.1).
     pub fn can_select_component(&self, item: &T) -> bool {
-        self.status() != ConstructionStatus::Disposed && self.selection.can_select(item)
+        !matches!(
+            self.status(),
+            ConstructionStatus::Disposed | ConstructionStatus::Destructing
+        ) && self.selection.can_select(item)
     }
 
     /// Registers this add's start record for `item` in the current construct

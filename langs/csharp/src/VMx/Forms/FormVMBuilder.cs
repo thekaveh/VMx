@@ -12,7 +12,12 @@ namespace VMx.Forms;
 /// See ADR-0035 §2 FV1 / FV2 and spec/10-builders.md §3.
 /// Use <c>FormVM&lt;TM&gt;.Builder()</c> to start.
 /// </summary>
-/// <typeparam name="TM">Domain model type. Record types are recommended for structural equality.</typeparam>
+/// <typeparam name="TM">
+/// Domain model type. Record types are recommended for structural equality, but a
+/// record's synthesized equality compares a collection field by reference. Under the
+/// default snapshotter such a form is dirty at once, so override <c>Equals</c> and
+/// <c>GetHashCode</c> to compare the collection element by element.
+/// </typeparam>
 public sealed class FormVMBuilder<TM>
     where TM : notnull
 {
