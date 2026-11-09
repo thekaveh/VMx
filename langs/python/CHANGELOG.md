@@ -66,9 +66,31 @@ below for them.
   selection. The helper publishes nothing to a hub and never materializes or
   changes a node. `dispose()` releases the subscriptions and completes the
   stream without emitting.
+- `FORM-044` conformance tests (#1415, ADR-0216). A failed send of an
+  update's queue stops the later sends and releases a nested approval without
+  calling its persister. Python already behaved this way.
+
+### Changed
+
+- A `set_model` or deny made in the caller's own approval pre-publication
+  window no longer waits for another thread's publication scope. It is queued
+  at once (ADR-0215, spec/20 §5.5, #1426).
+- A non-strict `FormVM` update no longer compares the model with the snapshot
+  (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict `set_model` runs
+  the equality once, and a non-strict deny not at all.
 
 ### Fixed
 
+- `FormVM` no longer holds a lock while its equality, validators, snapshotter
+  or `reset_on_approved` run (ADR-0215, spec/20 §5.4, #1427). A callback that
+  waited for another thread that called the same form deadlocked. Another
+  thread's reads now return the committed state at once, and its calls no
+  longer wait for the callback. An update that another thread's commit
+  overtakes runs again as a new call. A `dispose()` from another thread
+  returns at once, and the update commits nothing.
+- A `dispose()` whose wait for a publication scope is refused now wakes the
+  waiting calls at once, and they find the form disposed (ADR-0215, spec/20
+  §5.5, #1426). Before, they woke when the publisher's scope closed.
 - A `FormVM` call nested in a preparation callback or an `errors_changed`
   observer of `set_model` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,
