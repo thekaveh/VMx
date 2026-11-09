@@ -465,12 +465,146 @@ fn rejected_factory_handoff_cannot_clear_the_successor_state() {
     assert!(child.parent().as_ref() == Some(&root));
 }
 
+/// Consumer node data: the Rust form of a `TVM` subclass (ADR-0202).
+struct FolderData {
+    size: u64,
+}
+
+type Folder = HierarchicalVm<String, FolderData>;
+
+/// Adds a method to every folder node, as a `TVM` subclass would.
+trait FolderExt {
+    fn size(&self) -> u64;
+}
+
+impl FolderExt for Folder {
+    fn size(&self) -> u64 {
+        self.node_data().size
+    }
+}
+
+/// A folder whose children factory returns `children` once.
+fn folder(name: &str, size: u64, children: Vec<Folder>) -> Folder {
+    let children = Mutex::new(Some(children));
+    HierarchicalVm::with_node_data(
+        name,
+        name.to_string(),
+        FolderData { size },
+        move |_| children.lock().unwrap().take().unwrap_or_default(),
+        false,
+        MessageHub::new(),
+    )
+}
+
 /// HIER-001 — Recursive generic constraint compiles
 #[test]
 fn recursive_generic_shape_compiles() {
     let root = leaf("root");
 
     assert_eq!(root.model(), "root");
+
+    // root (1) -> a (2) -> aa (3), each node of type `Folder`.
+    let aa = folder("aa", 3, Vec::new());
+    let a = folder("a", 2, vec![aa.clone()]);
+    let root: Folder = folder("root", 1, vec![a.clone()]);
+
+    assert_eq!(root.children()[0].node_data().size, 2);
+    assert_eq!(a.children()[0].size(), 3);
+    assert_eq!(aa.parent().unwrap().node_data().size, 2);
+    assert_eq!(
+        aa.path()
+            .iter()
+            .map(|node| node.node_data().size)
+            .collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    assert_eq!(root.size(), 1);
+}
+
+#[test]
+fn node_data_builder_builds_a_root_with_data() {
+    let root = vmx::HierarchicalVmBuilder::with_node_data(FolderData { size: 7 })
+        .model("root".to_string())
+        .children_factory(|_: &Folder| vec![folder("child", 8, Vec::new())])
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+
+    assert_eq!(root.node_data().size, 7);
+    assert_eq!(root.children()[0].size(), 8);
+
+    let missing_services = vmx::HierarchicalVmBuilder::with_node_data(FolderData { size: 7 })
+        .model("root".to_string())
+        .children_factory(|_: &Folder| Vec::new())
+        .build();
+    assert!(matches!(
+        missing_services,
+        Err(VmxError::BuilderValidation(message)) if message.contains("services")
+    ));
+}
+
+#[test]
+fn node_data_survives_attach_many_and_reparent() {
+    let root = folder("root", 1, Vec::new());
+    let a = folder("a", 2, Vec::new());
+    let b = folder("b", 3, Vec::new());
+    let result: vmx::BatchAttachResult<Folder> = root.attach_many(
+        vec![b.clone(), a.clone()],
+        |item| Ok(item.model()),
+        |item| Ok((item.model() == "b").then(|| "a".to_string())),
+        vmx::MissingParentPolicy::Reject,
+    );
+
+    assert_eq!(
+        result
+            .added
+            .iter()
+            .map(|node| node.node_data().size)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert_eq!(b.parent().unwrap().size(), 2);
+
+    root.reparent_child(&b).unwrap();
+
+    assert_eq!(b.parent().unwrap().size(), 1);
+    assert_eq!(
+        root.children()
+            .iter()
+            .map(FolderExt::size)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+}
+
+#[test]
+fn clones_share_node_data() {
+    let child = HierarchicalVm::with_node_data(
+        "child",
+        "child".to_string(),
+        AtomicUsize::new(0),
+        |_| Vec::new(),
+        false,
+        MessageHub::new(),
+    );
+    let root = HierarchicalVm::with_node_data(
+        "root",
+        "root".to_string(),
+        AtomicUsize::new(0),
+        |_| Vec::new(),
+        false,
+        MessageHub::new(),
+    );
+    root.add_child(child.clone()).unwrap();
+
+    child.clone().node_data().store(5, Ordering::SeqCst);
+
+    assert_eq!(child.node_data().load(Ordering::SeqCst), 5);
+    assert_eq!(root.children()[0].node_data().load(Ordering::SeqCst), 5);
+    assert_eq!(
+        child.parent().unwrap().node_data().load(Ordering::SeqCst),
+        0
+    );
 }
 
 /// HIER-002 — Parent is null for root, non-null for non-root

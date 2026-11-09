@@ -17,6 +17,8 @@ type HubSubscriptions = HashMap<usize, Subscription>;
 /// needs one current node per tree composes this helper on a tree node, its
 /// *root* (spec/18 §10, ADR-0164). The helper adds no member to
 /// [`HierarchicalVm`] and implements no capability on the nodes.
+/// `TreeSelection<M, N>` follows the node type `HierarchicalVm<M, N>`, so the
+/// current node keeps its node data `N` (ADR-0202). `N` defaults to `()`.
 ///
 /// - [`can_select`](Self::can_select) is true when walking parent links from a
 ///   node reaches the root and no node on that path is
@@ -67,27 +69,30 @@ type HubSubscriptions = HashMap<usize, Subscription>;
 /// assert_eq!(*seen.lock().unwrap(), vec![Some("child".to_string()), None]);
 /// ```
 #[derive(Clone)]
-pub struct TreeSelection<M: Clone + PartialEq + Send + Sync + 'static> {
-    shared: Arc<SelectionShared<M>>,
+pub struct TreeSelection<
+    M: Clone + PartialEq + Send + Sync + 'static,
+    N: Send + Sync + 'static = (),
+> {
+    shared: Arc<SelectionShared<M, N>>,
 }
 
-struct SelectionShared<M: Clone + PartialEq + Send + Sync + 'static> {
-    root: HierarchicalVm<M>,
-    state: Mutex<SelectionState<M>>,
+struct SelectionShared<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> {
+    root: HierarchicalVm<M, N>,
+    state: Mutex<SelectionState<M, N>>,
     /// Mirrors `SelectionState::revision` for the emission predicate, which
     /// runs under the stream lock and so must not take the state lock.
     revision: AtomicU64,
     /// Identity of the last emitted node, or 0 for `None`. Node identities
     /// start at 1.
     last_emitted: AtomicUsize,
-    changed: ValueStream<Option<HierarchicalVm<M>>>,
+    changed: ValueStream<Option<HierarchicalVm<M, N>>>,
     #[cfg(test)]
     hub_deliveries: AtomicUsize,
 }
 
-struct SelectionState<M: Clone + PartialEq + Send + Sync + 'static> {
+struct SelectionState<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> {
     disposed: bool,
-    current: Option<HierarchicalVm<M>>,
+    current: Option<HierarchicalVm<M, N>>,
     current_id: Option<usize>,
     /// Bumped on every change of `current`, including disposal.
     revision: u64,
@@ -104,7 +109,7 @@ struct MemberPath {
     hubs: Vec<(usize, MessageHub)>,
 }
 
-impl<M: Clone + PartialEq + Send + Sync + 'static> TreeSelection<M> {
+impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> TreeSelection<M, N> {
     /// Creates an empty selection over the tree under `root`.
     ///
     /// `root` is normally a structural root, but any node qualifies. The
@@ -119,7 +124,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeSelection<M> {
     /// assert!(selection.current().is_none());
     /// assert!(selection.can_select(&root));
     /// ```
-    pub fn new(root: &HierarchicalVm<M>) -> Self {
+    pub fn new(root: &HierarchicalVm<M, N>) -> Self {
         Self {
             shared: Arc::new(SelectionShared {
                 root: root.clone(),
@@ -151,7 +156,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeSelection<M> {
     /// selection.select(&root).unwrap();
     /// assert!(selection.current() == Some(root.clone()));
     /// ```
-    pub fn current(&self) -> Option<HierarchicalVm<M>> {
+    pub fn current(&self) -> Option<HierarchicalVm<M, N>> {
         lock(&self.shared.state).current.clone()
     }
 
@@ -174,7 +179,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeSelection<M> {
     /// assert!(selection.can_select(&child));
     /// assert!(!selection.can_select(&detached));
     /// ```
-    pub fn can_select(&self, node: &HierarchicalVm<M>) -> bool {
+    pub fn can_select(&self, node: &HierarchicalVm<M, N>) -> bool {
         if lock(&self.shared.state).disposed {
             return false;
         }
@@ -208,7 +213,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeSelection<M> {
     /// ));
     /// assert!(selection.current() == Some(child.clone()));
     /// ```
-    pub fn select(&self, node: &HierarchicalVm<M>) -> VmxResult<()> {
+    pub fn select(&self, node: &HierarchicalVm<M, N>) -> VmxResult<()> {
         let shared = &self.shared;
         let id = node.id();
         if lock(&shared.state).disposed {
@@ -304,7 +309,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeSelection<M> {
     /// selection.select(&root).unwrap();
     /// assert_eq!(*names.lock().unwrap(), vec!["selected_node".to_string()]);
     /// ```
-    pub fn current_changed(&self) -> ValueStream<Option<HierarchicalVm<M>>> {
+    pub fn current_changed(&self) -> ValueStream<Option<HierarchicalVm<M, N>>> {
         self.shared.changed.clone()
     }
 
@@ -378,12 +383,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeSelection<M> {
     }
 }
 
-impl<M: Clone + PartialEq + Send + Sync + 'static> SelectionShared<M> {
+impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> SelectionShared<M, N> {
     /// Walks parent links from `node` to the root. Returns `None` when the
     /// walk ends before the root or meets a disposed node. It never reads
     /// children, and it takes the topology gate once per step without holding
     /// the state lock.
-    fn member_path(&self, node: &HierarchicalVm<M>) -> Option<MemberPath> {
+    fn member_path(&self, node: &HierarchicalVm<M, N>) -> Option<MemberPath> {
         let mut ids = HashSet::new();
         let mut hubs = Vec::new();
         let mut seen_hubs = HashSet::new();
@@ -434,7 +439,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> SelectionShared<M> {
         lock(&self.state).watched.contains(&sender_id)
     }
 
-    fn bump_revision(&self, state: &mut SelectionState<M>) -> u64 {
+    fn bump_revision(&self, state: &mut SelectionState<M, N>) -> u64 {
         state.revision += 1;
         self.revision.store(state.revision, Ordering::SeqCst);
         state.revision
@@ -531,7 +536,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> SelectionShared<M> {
 
     /// Emits `value` unless a newer change superseded `revision` or the value
     /// repeats the last emission.
-    fn emit(&self, value: Option<HierarchicalVm<M>>, revision: u64) {
+    fn emit(&self, value: Option<HierarchicalVm<M, N>>, revision: u64) {
         let identity = value.as_ref().map_or(0, HierarchicalVm::id);
         self.changed.send_if(value, || {
             self.revision.load(Ordering::SeqCst) == revision

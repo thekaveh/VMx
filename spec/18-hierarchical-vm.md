@@ -30,9 +30,14 @@ subclass; the recursive constraint is enforced per flavor (ADR-0028 §3 item 2).
 Swift's compiler rejects the self-referential bound, so Swift binds only
 `TVM: AnyObject`.
 
-Open Rust gap: Rust `HierarchicalVm<M>` has no `TVM` parameter. Children and
-parent are the same `HierarchicalVm<M>` type, so a consumer cannot specialize
-the node type.
+Rust has no subclassing, so Rust `HierarchicalVm<M, N = ()>` takes a node-data
+type `N` in place of `TVM` (ADR-0202). The concrete node type is
+`HierarchicalVm<M, N>`. `parent()`, `children()`, `path()`, the children
+factory and `attach_many` use that type, and `node_data()` returns the node's
+own `N`. A consumer keeps per-node state in `N`, with interior mutability for
+state that changes, and adds node methods through an extension trait. `N` is
+`Send + Sync + 'static`. It must not hold a strong handle to its own node or an
+ancestor, because that handle forms a reference cycle.
 
 ```
 HierarchicalVM<TModel, TVM>:
@@ -304,13 +309,13 @@ TreeSelection<TVM>:                     # constructed on a root node
     Dispose()      -> void
 ```
 
-| Flavor     | Type                         | Change stream                                                 | Rejection                      |
-| ---------- | ---------------------------- | ------------------------------------------------------------- | ------------------------------ |
-| C#         | `TreeSelection<TModel, TVM>` | `IObservable<TVM?> CurrentChanged`                            | `InvalidOperationException`    |
-| Python     | `TreeSelection[TVM]`         | `current_changed: Observable[TVM \| None]`                    | `ValueError`                   |
-| TypeScript | `TreeSelection<TVM>`         | `currentChanged: Observable<TVM \| null>`                     | `Error`                        |
-| Swift      | `TreeSelection<TModel, TVM>` | `currentChanged: AnyPublisher<TVM?, Never>`                   | `TreeSelectionError.notInTree` |
-| Rust       | `TreeSelection<M>`           | `current_changed() -> ValueStream<Option<HierarchicalVm<M>>>` | `VmxError::InvalidArgument`    |
+| Flavor     | Type                         | Change stream                                                    | Rejection                      |
+| ---------- | ---------------------------- | ---------------------------------------------------------------- | ------------------------------ |
+| C#         | `TreeSelection<TModel, TVM>` | `IObservable<TVM?> CurrentChanged`                               | `InvalidOperationException`    |
+| Python     | `TreeSelection[TVM]`         | `current_changed: Observable[TVM \| None]`                       | `ValueError`                   |
+| TypeScript | `TreeSelection<TVM>`         | `currentChanged: Observable<TVM \| null>`                        | `Error`                        |
+| Swift      | `TreeSelection<TModel, TVM>` | `currentChanged: AnyPublisher<TVM?, Never>`                      | `TreeSelectionError.notInTree` |
+| Rust       | `TreeSelection<M, N = ()>`   | `current_changed() -> ValueStream<Option<HierarchicalVm<M, N>>>` | `VmxError::InvalidArgument`    |
 
 Swift's `select(_:)` throws (ADR-0053), and Rust's `select` returns a
 `VmxResult<()>`.
@@ -387,7 +392,7 @@ After disposal the helper is inert, and a second `Dispose()` does nothing.
 Disposing the helper never disposes or detaches a node.
 
 The helper follows the threading model of its tree. The Rust helper is
-`Send + Sync`, like `HierarchicalVm<M>`. In the other flavors the helper, like
+`Send + Sync`, like `HierarchicalVm<M, N>`. In the other flavors the helper, like
 the tree, is used from one thread.
 
 ### 10.4 Selection does not navigate
@@ -399,7 +404,8 @@ hub message. A host maps `Current` to a route or a detail view.
 ## 11. Conformance
 
 - `HIER-001` — Recursive generic constraint compiles per flavor with the bound
-  type parameter.
+  type parameter. Rust builds a three-level tree of a consumer node-data type
+  and reads it from `children()`, `parent()` and `path()` (ADR-0202).
 - `HIER-002` — `Parent` is null for the root and a `TVM` reference for every
   non-root node.
 - `HIER-003` — `Depth` derivation: root is 0; child is parent + 1.

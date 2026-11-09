@@ -165,9 +165,45 @@ struct FixedAggregateOwnership {
     dispose_requested: Arc<AtomicBool>,
 }
 
+/// A [`FixedAggregateOwnership`] that holds the parent registration weakly,
+/// so a stored command does not keep a dropped aggregate registered as its
+/// children's parent (#1483).
+struct WeakFixedAggregateOwnership {
+    handle: ParentHandle,
+    child_ids: Arc<Mutex<HashSet<usize>>>,
+    transaction_active: Arc<AtomicBool>,
+    transaction_control: Arc<MembershipTransactionControl>,
+    transaction_gate: Arc<Mutex<()>>,
+    dispose_requested: Arc<AtomicBool>,
+}
+
+impl WeakFixedAggregateOwnership {
+    fn upgrade(&self) -> Option<FixedAggregateOwnership> {
+        Some(FixedAggregateOwnership {
+            registration: self.handle.registration()?,
+            child_ids: Arc::clone(&self.child_ids),
+            transaction_active: Arc::clone(&self.transaction_active),
+            transaction_control: Arc::clone(&self.transaction_control),
+            transaction_gate: Arc::clone(&self.transaction_gate),
+            dispose_requested: Arc::clone(&self.dispose_requested),
+        })
+    }
+}
+
 impl FixedAggregateOwnership {
     fn handle(&self) -> ParentHandle {
         self.registration.handle()
+    }
+
+    fn downgrade(&self) -> WeakFixedAggregateOwnership {
+        WeakFixedAggregateOwnership {
+            handle: self.handle(),
+            child_ids: Arc::clone(&self.child_ids),
+            transaction_active: Arc::clone(&self.transaction_active),
+            transaction_control: Arc::clone(&self.transaction_control),
+            transaction_gate: Arc::clone(&self.transaction_gate),
+            dispose_requested: Arc::clone(&self.dispose_requested),
+        }
     }
 
     fn replace_ids(&self, ids: HashSet<usize>) {
@@ -283,7 +319,7 @@ fn dispose_fixed_aggregate<D: Dispatcher>(
     let children: Vec<_> = children.into_iter().flatten().collect();
     let child_ids = Arc::clone(&ownership.child_ids);
     let commands = Arc::clone(commands);
-    core.dispose_with_cascade_then(
+    core.dispose_container_then(
         Box::new(move || {
             let mut first_failure = None;
             for dispose in children {
@@ -2684,27 +2720,65 @@ macro_rules! impl_fixed_aggregate_baseline {
                     .get_or_init(|| {
                         // The command runs the full `reconstruct()` (spec/05
                         // §5, spec/08 §4): factories re-run and replaced
-                        // children are disposed. The command table is held
-                        // weakly so the stored command cannot keep its own
-                        // aggregate alive.
+                        // children are disposed. The command table and the
+                        // ownership registration are held weakly, so the
+                        // stored command can keep neither its aggregate alive
+                        // nor that aggregate registered as its children's
+                        // parent. Its predicate checks the same handles, so a
+                        // command that outlives its aggregate is disabled
+                        // (#1483).
                         let core = self.core.clone();
                         let commands = Arc::downgrade(&self.commands);
-                        let ownership = self.ownership.clone();
+                        let ownership = self.ownership.downgrade();
+                        let alive = {
+                            let commands = commands.clone();
+                            let parent = ownership.handle.clone();
+                            move || commands.strong_count() > 0 && parent.is_alive()
+                        };
                         $(let $slot = self.$slot.clone();)+
-                        ComponentCommands::new(&self.core, move || {
-                            let Some(commands) = commands.upgrade() else {
+                        ComponentCommands::with_liveness(&self.core, alive, move || {
+                            let (Some(commands), Some(ownership)) =
+                                (commands.upgrade(), ownership.upgrade())
+                            else {
                                 return;
                             };
                             let aggregate = $name {
                                 core: core.clone(),
                                 commands,
-                                ownership: ownership.clone(),
+                                ownership,
                                 $($slot: $slot.clone(),)+
                             };
                             let _ = aggregate.reconstruct();
                         })
                     })
                     .clone()
+            }
+
+            /// Registers `member` for depth-first disposal (spec/02 §7.1, ADR-0162).
+            ///
+            /// `dispose()` disposes this aggregate's children first and then the
+            /// registered members in registration order, all before the aggregate
+            /// publishes `Disposed` (ADR-0179). When a construct or destruct hook of
+            /// the aggregate runs on another thread, the aggregate publishes `Disposed`
+            /// first and disposes its children and then its members after that hook
+            /// returns (spec/02 §2.4, LIFE-015). A member is not a child: registration
+            /// sets no parent link, adds no selection state, and does not construct
+            /// it. Clones of the aggregate share the registrations, and the aggregate
+            /// keeps a clone of `member` until it is disposed, so a member must not
+            /// hold the aggregate (#750).
+            ///
+            /// A member registered once the aggregate's disposal began is disposed now,
+            /// and its disposal result is returned. Registering a member twice keeps
+            /// one registration.
+            ///
+            /// # Errors
+            ///
+            /// [`VmxError::OwnershipCycle`] when `member` is this aggregate (the same
+            /// identity); the error of disposing a late member.
+            pub fn own_member<N: VmNode>(&self, member: &N) -> VmxResult<()> {
+                let member = member.clone();
+                self.core
+                    .own_member(member.id(), Box::new(move || member.dispose()))
             }
 
             /// Returns the aggregate name.

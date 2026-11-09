@@ -6,6 +6,10 @@
 # release-please writes it. check_react_changelog_section in
 # tools/check-version-consistency.py rejects, for React, the heading forms this
 # script cannot read: indented headings, links with spaces, non-ASCII spacing.
+# This script keeps no fence or HTML-block state, so every raw column-0 "##"
+# line is a boundary. _parse_changelog_sections rejects, in every CHANGELOG
+# this script reads, a column-0 "##" line that CommonMark does not read as a
+# heading (#1381).
 /^##([[:space:]]|$)/ {
     if (capture) exit
     key = "[" v "]"

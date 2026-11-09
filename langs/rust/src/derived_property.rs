@@ -543,8 +543,9 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     /// read [`value`](Self::value), which returns the stored value, including
     /// such an update. Subscribers of a publication made outside a transform
     /// run with no lock held. When commits race, only the newest publishes,
-    /// so the last value that `value_changes` publishes is the stored value;
-    /// a subscriber may then see a value equal to the one it last saw.
+    /// so the last value that [`value_changes`](Self::value_changes)
+    /// publishes is the stored value. A subscriber may then receive a value
+    /// equal to the last value it received.
     pub fn recompute<F>(&self, transform: F)
     where
         F: FnOnce(&T) -> T,
@@ -656,7 +657,16 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         self.value_changed.clone()
     }
 
-    /// Returns typed distinct recomputations without replaying the initial value.
+    /// Returns a typed stream of the committed values, without replaying the
+    /// initial value.
+    ///
+    /// A value commits only when it differs (`PartialEq`) from the stored
+    /// value that it replaces (spec/15 §6). When commits race, only the
+    /// newest publishes, so the last value that this stream publishes is the
+    /// stored value. A subscriber may then receive a value equal to the last
+    /// value it received: for example, when a commit of `1` is overtaken by a
+    /// commit back to `0` before it publishes, a subscriber that last
+    /// received `0` receives `0` again. See [`recompute`](Self::recompute).
     pub fn value_changes(&self) -> ValueStream<T> {
         self.value_changes.clone()
     }
