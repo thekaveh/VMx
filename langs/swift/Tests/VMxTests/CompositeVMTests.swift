@@ -12,7 +12,7 @@
 // throw.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
-// module); this target is CI-verified only (`swift.yml` on macos-latest).
+// module); this target is CI-verified only (`swift.yml` on macos-15).
 //
 import XCTest
 import Combine
@@ -52,6 +52,33 @@ private final class Rendezvous: @unchecked Sendable {
 }
 
 final class CompositeVMTests: XCTestCase {
+
+    /// Waits for the workers in `group`. On a timeout, fails the test and ends
+    /// the test process (#1461). A worker stuck in a COMP-026 deadlock keeps
+    /// the process-wide selection coordinator or a composite's membership
+    /// gate, so reading `current` here, or any later selection in this
+    /// process, would wait with no bound. `swift test --parallel` runs each
+    /// case in its own process; a single-process run would otherwise hang
+    /// after the failure.
+    private func waitForWorkersOrEndTheProcess(
+        _ group: DispatchGroup,
+        seconds: Int,
+        _ message: String,
+        test: String = #function,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard group.wait(timeout: .now() + .seconds(seconds)) != .success else { return }
+        XCTFail(message, file: file, line: line)
+        fputs(
+            "error: CompositeVMTests.\(test) failed: \(message). A deadlocked worker "
+                + "keeps a selection lock, so the test process ends here (#1461).\n",
+            stderr
+        )
+        fflush(stdout)
+        fflush(stderr)
+        _exit(EXIT_FAILURE)
+    }
 
     private func leaf(_ name: String) -> ComponentVM {
         try! ComponentVM.builder()
@@ -544,11 +571,7 @@ final class CompositeVMTests: XCTestCase {
         start.signal()
         start.signal()
 
-        // A deadlocked worker keeps holding a gate that `current` needs, so
-        // stop here instead of hanging.
-        guard done.wait(timeout: .now() + 20) == .success else {
-            return XCTFail("opposing current callbacks must not deadlock")
-        }
+        waitForWorkersOrEndTheProcess(done, seconds: 20, "opposing current callbacks must not deadlock")
         XCTAssertEqual(leftMet.value, true, "the left callback met the right one")
         XCTAssertEqual(rightMet.value, true, "the right callback met the left one")
         XCTAssertTrue(left.current === leftChild)
@@ -611,8 +634,9 @@ final class CompositeVMTests: XCTestCase {
         start.signal()
         start.signal()
 
-        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
-                       "crossing collection/current callbacks must not deadlock")
+        waitForWorkersOrEndTheProcess(
+            done, seconds: 10, "crossing collection/current callbacks must not deadlock"
+        )
         XCTAssertNotNil(left.current)
         XCTAssertEqual(right.count, 2)
         bag.removeAll()
@@ -674,8 +698,9 @@ final class CompositeVMTests: XCTestCase {
             done.leave()
         }
 
-        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
-                       "crossing collection/current callbacks must not deadlock")
+        waitForWorkersOrEndTheProcess(
+            done, seconds: 10, "crossing collection/current callbacks must not deadlock"
+        )
         let added = lock.withLock { currentCallbackAdd }
         guard case .success? = added else {
             return XCTFail("the current callback's add must succeed, got \(String(describing: added))")
@@ -778,11 +803,9 @@ final class CompositeVMTests: XCTestCase {
             done.leave()
         }
 
-        // A deadlocked worker keeps holding the shared selection coordinator,
-        // so stop here instead of reading `current`.
-        guard done.wait(timeout: .now() + 20) == .success else {
-            return XCTFail("a selection must not block selection in another composite")
-        }
+        waitForWorkersOrEndTheProcess(
+            done, seconds: 20, "a selection must not block selection in another composite"
+        )
         XCTAssertEqual(released.value, .success, "the selection returned while the add was open")
         XCTAssertTrue(other.current === o)
         XCTAssertTrue(composite.current === a)

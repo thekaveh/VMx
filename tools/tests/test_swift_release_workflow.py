@@ -1,5 +1,6 @@
 """Contract tests for Swift package and release GitHub Actions."""
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -114,3 +115,58 @@ def test_release_contract_suite_triggers_on_swift_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
     assert workflow.count('- ".github/workflows/**"') == 1
+
+
+def _job(workflow: str, name: str) -> str:
+    """One job of a workflow, up to the next job key."""
+    body = workflow.split(f"\n  {name}:\n", 1)[1]
+    return re.split(r"(?m)^  [A-Za-z0-9_-]+:\n", body, maxsplit=1)[0]
+
+
+def test_swift_release_gate_tests_on_an_image_of_the_ci_build_matrix() -> None:
+    # #1470: a failure on an image that CI never tested first showed up after
+    # the release tags were pushed.
+    verify = _job(_workflow("release.yml"), "swift-verify")
+    build = _job(_workflow("swift.yml"), "build")
+    image = re.search(r"(?m)^    runs-on: (\S+)$", verify)
+    assert image is not None
+    assert f"- os: {image.group(1)}\n" in build
+    steps = verify.split("\n      - ")
+    version = next(i for i, step in enumerate(steps) if "run: swift --version" in step)
+    first_build = next(i for i, step in enumerate(steps) if "swift build" in step)
+    assert version < first_build
+    assert '--configuration "${{ matrix.os }} ${{ matrix.label }}"' in build
+
+
+def test_swift_ci_runs_the_library_tests_under_thread_sanitizer() -> None:
+    # #1407: TSan runs on every pull request, and a report fails the job.
+    workflow = _workflow("swift.yml")
+    job = _job(workflow, "thread-sanitizer")
+    command = " ".join(job.split())
+    assert "runs-on: macos-15" in job
+    assert "TSAN_OPTIONS: halt_on_error=1" in job
+    assert (
+        "python3 tools/swift-test-watchdog.py --per-test-timeout 240"
+        " -- swift test --package-path langs/swift --sanitize=thread"
+    ) in command
+    assert "needs: [build, platforms, examples, coverage, thread-sanitizer]" in workflow
+
+
+def test_swift_single_process_runs_name_and_stop_a_hung_case() -> None:
+    # #1461: the coverage run is one process, so the watchdog reads XCTest's
+    # output, and the test target ends a hung run by itself.
+    coverage = " ".join(_job(_workflow("swift.yml"), "coverage").split())
+    assert (
+        "python3 tools/swift-test-watchdog.py --per-test-timeout 240"
+        " -- swift test --package-path langs/swift --enable-code-coverage"
+    ) in coverage
+    guard = (REPO_ROOT / "langs/swift/Tests/VMxTests/TestCaseHangGuard.swift").read_text(
+        encoding="utf-8"
+    )
+    assert "override class var defaultTestSuite: XCTestSuite" in guard
+    assert "_exit(EXIT_FAILURE)" in guard
+    tests = (REPO_ROOT / "langs/swift/Tests/VMxTests/CompositeVMTests.swift").read_text(
+        encoding="utf-8"
+    )
+    # The helper's definition and the four COMP-026 deadlock guards.
+    assert tests.count("waitForWorkersOrEndTheProcess(") == 1 + 4

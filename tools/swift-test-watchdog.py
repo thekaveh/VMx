@@ -6,9 +6,16 @@ arguments name the case (`-XCTest Suite/testName`). The watchdog polls the
 process tree under the command it starts. A case that outlives
 `--per-test-timeout` is sampled (where macOS `sample` exists), killed, and
 reported by name, so a hang fails within minutes instead of at the job timeout
-(#533). `--timeout` bounds the whole command as a backstop.
+(#533).
+
+A single-process `swift test` runs every case in one `xctest` process. There
+the watchdog reads the `Test Case '...' started.` and `passed`/`failed` lines
+of the command's output. A case that has started and not finished within
+`--per-test-timeout` is reported by name, and the whole command is sampled and
+killed (#1461). `--timeout` bounds the whole command as a backstop.
 
     python3 tools/swift-test-watchdog.py --per-test-timeout 120 -- swift test --parallel
+    python3 tools/swift-test-watchdog.py --per-test-timeout 300 -- swift test
 """
 
 from __future__ import annotations
@@ -21,11 +28,18 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 _CASE = re.compile(r"(?:^|\s)-XCTest\s+(\S+)")
+# XCTest's own progress lines: `Test Case '-[Module.Suite testName]' started.`
+# on Darwin, `Test Case 'Suite.testName' started at ...` elsewhere.
+_STARTED = re.compile(r"^Test Case '(?P<name>[^']+)' started\b")
+_FINISHED = re.compile(r"^Test Case '(?P<name>[^']+)' (?:passed|failed|skipped)\b")
+_DARWIN_NAME = re.compile(r"^-\[(?P<suite>\S+) (?P<test>\S+)\]$")
 # `-ww`: without it, ps truncates arguments to the terminal width or 80 columns.
 _PS = ["ps", "-A", "-ww", "-o", "pid=,ppid=,etime=,args="]
 
@@ -101,6 +115,48 @@ def running_cases(processes: list[ProcessInfo], root: int) -> list[tuple[Process
     return cases
 
 
+def output_case_name(name: str) -> str:
+    """`-[Module.Suite testName]` as `Module.Suite/testName`, the `-XCTest` form."""
+    match = _DARWIN_NAME.match(name)
+    return f"{match.group('suite')}/{match.group('test')}" if match else name
+
+
+class OutputCases:
+    """Tracks the XCTest case that a single-process run is executing."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._current: tuple[str, float] | None = None
+
+    def feed(self, line: str, now: float) -> None:
+        started = _STARTED.match(line)
+        if started:
+            with self._lock:
+                self._current = (output_case_name(started.group("name")), now)
+            return
+        finished = _FINISHED.match(line)
+        if finished:
+            with self._lock:
+                name = output_case_name(finished.group("name"))
+                if self._current is not None and self._current[0] == name:
+                    self._current = None
+
+    def overdue(self, now: float, timeout: float) -> str | None:
+        """The running case's name when it has run longer than `timeout`."""
+        with self._lock:
+            if self._current is not None and now - self._current[1] >= timeout:
+                return self._current[0]
+        return None
+
+
+def relay(stream: IO[bytes], cases: OutputCases) -> None:
+    """Copy the command's output to ours and record XCTest case progress."""
+    for raw in iter(stream.readline, b""):
+        sys.stdout.buffer.write(raw)
+        sys.stdout.buffer.flush()
+        cases.feed(raw.decode("utf-8", errors="replace").rstrip("\r\n"), time.monotonic())
+
+
 def snapshot() -> list[ProcessInfo]:
     result = subprocess.run(_PS, capture_output=True, text=True, timeout=30, check=False)
     return parse_ps(result.stdout)
@@ -167,7 +223,19 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("a command is required after --")
 
     started = time.monotonic()
-    process = subprocess.Popen(command, start_new_session=True)
+    # XCTest writes its progress lines unbuffered when NSUnbufferedIO is set,
+    # as Xcode sets it, so a case's `started` line is not held in a pipe buffer.
+    process = subprocess.Popen(
+        command,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env={**os.environ, "NSUnbufferedIO": "YES"},
+    )
+    assert process.stdout is not None
+    cases = OutputCases()
+    reader = threading.Thread(target=relay, args=(process.stdout, cases), daemon=True)
+    reader.start()
     hung: dict[int, str] = {}
     try:
         while process.poll() is None:
@@ -194,10 +262,26 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 sample(info.pid)
                 kill(info.pid)
+            name = cases.overdue(time.monotonic(), args.per_test_timeout)
+            if name is not None:
+                print(
+                    f"::error::XCTest case {name} ran longer than "
+                    f"{args.per_test_timeout:g} s; killing {' '.join(command)}",
+                    flush=True,
+                )
+                for info in descendants(processes, process.pid):
+                    if "xctest" in info.args:
+                        sample(info.pid)
+                kill_tree(process.pid)
+                process.wait()
+                reader.join(timeout=10)
+                print(f"::error::Hung XCTest cases: {name}", flush=True)
+                return 1
             time.sleep(args.poll_interval)
     except BaseException:
         kill_tree(process.pid)
         raise
+    reader.join(timeout=10)
 
     if hung:
         print(f"::error::Hung XCTest cases: {', '.join(sorted(set(hung.values())))}", flush=True)
