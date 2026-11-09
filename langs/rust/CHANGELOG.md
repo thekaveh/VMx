@@ -6,12 +6,46 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.37.0] — unreleased source version
+
+0.37.0 is the first `vmx-rs` release on crates.io. Versions 0.1.0 to 0.36.0
+were not published to a registry, so this package also contains the changes in
+the 0.1.0 to 0.36.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
+3.30.0. The version moves past 0.36.0 because 0.37.0 removes public API
+(CONTRIBUTING §2.8).
+
+### Added
+
+- `DelayedTask`: a disposable helper that holds at most one delayed action on
+  an injected scheduler. `schedule` replaces a pending action and restarts its
+  delay, `cancel` stops it, `is_pending()` reports it, and disposal cancels it
+  (ADR-0219, spec/11 §6.3, `DLY-001`..`DLY-005`, #670).
+- The `Scheduler` trait, `ScheduledAction`, `SystemScheduler` and
+  `VirtualTimeScheduler` (ADR-0219, spec/11 §6.1, #670).
+- `SearchableState::with_debounce` and `SearchableState::with_scheduler`
+  (#1261).
+- `NotificationVm::with_scheduler` and `ConfirmationVm::with_scheduler` take an
+  injected scheduler, as in the other flavors (ADR-0219, spec/16 §6, #1265).
+
+### Changed
+
+- `SearchableState` now debounces term changes. A term change sends its
+  `filtered` message after the debounce, 1 second by default, on the
+  scheduler's thread. A zero debounce keeps the immediate message. `search()`
+  and source-change messages stay immediate (ADR-0219, spec/06 §8, #1261).
+- `NotificationVm::new`/`with_hub` and `ConfirmationVm::new`/`with_hub` use
+  `SystemScheduler`, so a notification built with them now expires in real
+  time (#1265). A notification VM stops its clock when it observes a hub
+  resolution, not at the next read (ADR-0197).
+
+### Removed
+
+- `NotificationVm::advance_by_ms` and `ConfirmationVm::advance_by_ms`. Advance
+  a `VirtualTimeScheduler` instead (ADR-0219, #1265).
+
 ## [0.36.0] — unreleased source version
 
-0.36.0 is the first `vmx-rs` release on crates.io. Versions 0.1.0 to 0.35.0
-were not published to a registry, so this package also contains the changes in
-the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
-3.30.0.
+0.36.0 implements spec 3.30.0.
 
 ### Added
 

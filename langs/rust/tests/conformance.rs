@@ -26,6 +26,7 @@ mod conformance {
     mod container_hook_disposal;
     mod container_members;
     mod cross_thread_membership;
+    mod delayed_task;
     mod derived_properties;
     mod dialogs;
     mod dictionary_duplicate_add;
