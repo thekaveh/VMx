@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `DPROP-013`, `SRCH-009`, `CMD-021`, `COL-069` and `AGCH-011` conformance
+  tests, and a stronger `HUB-007` test (ADR-0191, ADR-0192, #1304, #1310,
+  #1311). A failing subscriber does not stop the delivery to the other
+  subscribers or detach a subscription, and the subscribers of one
+  `AggregateChangeStream` envelope receive it in subscription order. Swift
+  subscribers cannot fail, so these tests assert the structure.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -72,6 +78,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `AggregateChangeStream` now delivers each envelope to its subscribers in
+  subscription order, for item, structural, final `Batch` and completion
+  delivery (ADR-0192, spec/21 §9.5, #1310, `AGCH-011`).
 - A `FormVM` approval started from a preparation callback or an
   `errorsChanged` sink of `setModel` or deny now starts its persister after
   the outermost update sends all queued notifications (ADR-0180, spec/20

@@ -40,6 +40,8 @@ final class MessageHubTests: XCTestCase {
     /// path (the catchable-error half). The raw `messages` path for trapping
     /// handlers remains a documented divergence — see the file header and
     /// ADR-0062 §2.4.
+    /// The throwing subscriber also stays attached: its handler runs for
+    /// both messages (spec v3.30, ADR-0191).
     func testThrowingSubscriberIsIsolated() {
         struct SubError: Error {}
         let hub = MessageHub()
