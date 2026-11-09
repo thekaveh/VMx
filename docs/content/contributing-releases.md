@@ -303,7 +303,10 @@ versions cannot collide. The spec uses `spec-vX.Y.Z`; Swift also pairs its
 operational tag with the semantic `vX.Y.Z` tag required by SwiftPM.
 Registry-backed channels are protected by environment approval, OIDC,
 pre-publish checks of the exact locally built artifact, public-artifact checks,
-and fresh-consumer verification. The Python channel pins its isolated PEP 517
+and fresh-consumer verification. Only the publish job holds `id-token: write`:
+earlier jobs without it install, build, test, and upload the exact artifact,
+and the publish job publishes that artifact (Rust's `cargo publish` still runs
+its verification build there). The Python channel pins its isolated PEP 517
 backend and installs/smokes the wheel from `dist/` before the irreversible PyPI
 action, then repeats the consumer check from the public registry.
 
@@ -357,7 +360,7 @@ Use this sequence for every flavor:
 Run `gh workflow run release.yml --ref develop` to validate only the
 five-version Ubuntu Python test matrix. Dispatch has no publication inputs.
 All other release jobs require a tag push, including when dispatch targets an
-existing release tag. This does not exercise the protected build/publish job;
+existing release tag. This does not exercise the build or protected publish jobs;
 normal Python CI separately checks wheel and extracted-sdist packaging. Real
 tag pushes retain their main-ancestry and publication gates.
 

@@ -249,6 +249,19 @@ Configure each environment as follows:
 **Trusted publisher.** Registry channels authenticate through GitHub OIDC; the
 publish job has `id-token: write`. A registry that requires an existing package
 needs a one-time bootstrap credential first; the flavor runbook describes it.
+
+**Publish job isolation.** In a job with `id-token: write`, every step can
+request an OIDC token that the trusted publisher accepts. So only the publish
+job has that permission and the protected environment. Earlier jobs without it
+install dependencies, build, lint, test, audit, run the consumer smoke checks,
+and upload the exact artifact: the NuGet packages, the Python `dist/` files, or
+the npm tarball. The publish job downloads that artifact and publishes it. Apart
+from the pinned npm CLI, it installs, builds, and tests nothing. Rust is the one
+exception: `cargo publish` cannot publish a prepared `.crate`, so its
+verification build still compiles the crate's dependencies in the publish job.
+The `rust-test` job runs the packaged-consumer check without `id-token: write`.
+`tools/tests/test_ci_workflow_contracts.py` enforces this split. It does not
+protect against a build step that changes the artifact before the upload.
 Register the trusted publisher with these exact fields:
 
 | Field             | Value                              |
@@ -307,7 +320,7 @@ gh workflow run release.yml --ref develop
 This no-input dispatch runs only the five-version Ubuntu `python-test` matrix.
 Every other release job requires a tag push, even when a dispatch targets an
 existing release tag. Validation cannot publish packages or create releases,
-and it does not exercise the protected Python build/publish job. Normal Python
+and it does not exercise the Python build or protected publish jobs. Normal Python
 CI separately checks the wheel and extracted sdist. Real tag pushes retain
 their `origin/main` ancestry check and all publication protections.
 
