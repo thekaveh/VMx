@@ -188,8 +188,7 @@ the container now reaches `Constructed`.
 - `COMP-047` covers the four cases of §2.2 for `CompositeVM`.
 - `GRP-015` covers the same four cases for `GroupVM`.
 
-The catalog grows from 451 to 453 library IDs (458 in total) with this ADR.
-ADR-0187 adds two more.
+This ADR adds these two library IDs. ADR-0187 adds two more.
 
 ## 5. Consequences
 

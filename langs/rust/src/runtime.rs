@@ -4407,9 +4407,10 @@ impl<D: Dispatcher> ComponentCore<D> {
     /// by an auto-construct add before this walk began) is joined, not
     /// restarted; a Constructed one passes and a Destructed one is
     /// constructed (spec/02 §6). A construct failure of a child that is no
-    /// longer a member does not fail the walk.
+    /// longer a member does not fail the walk. A `Disposed` child is skipped
+    /// with no lifecycle call (spec/02 §6, ADR-0189).
     fn construct_member<N: VmNode>(&self, child: &N, member: &MemberCheck) -> VmxResult<()> {
-        if !member(child.id()) {
+        if !member(child.id()) || child.status() == ConstructionStatus::Disposed {
             return Ok(());
         }
         if child.status() != ConstructionStatus::Constructing {

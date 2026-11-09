@@ -145,7 +145,7 @@ ownership.
 - `COMP-048` covers the rule for `CompositeVM`.
 - `GRP-016` covers the rule for `GroupVM`.
 
-With ADR-0186, the catalog grows from 451 to 455 library IDs (460 in total).
+This ADR adds these two library IDs, after the two of ADR-0186.
 
 ## 5. Consequences
 

@@ -1167,8 +1167,9 @@ export abstract class ComponentVMBase {
         if (cancelled) return;
         // Read the status now, not at the settle: a joined reconstructing
         // child is Constructed again by its release (spec/02 §6). A child
-        // that reached Disposed meanwhile counts as settled (ADR-0189).
-        if (!reachedTargetOrDisposed(child)) {
+        // that reached Disposed meanwhile counts as settled (ADR-0189), and
+        // one that is no longer a member does not change this VM (ADR-0186).
+        if (!reachedTargetOrDisposed(child) && !removed(child)) {
           // The child rolled back and surfaced its own failure.
           settle({
             failed: true,
