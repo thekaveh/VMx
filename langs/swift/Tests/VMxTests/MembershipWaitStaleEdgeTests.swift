@@ -2,10 +2,12 @@
 // MembershipWaitStaleEdgeTests.swift — #736 regression tests.
 //
 // A membership waiter's edge must not outlive the transaction it waited for.
-// Thread A, inside X's transaction, waits for Y's transaction, which thread B
-// holds. When B ends Y's transaction, A wakes; the test then holds A between
-// its wake and its own `endWait` while B starts an operation on X. B must wait
-// for A's transaction and then succeed, not see a cycle that no longer exists.
+// Only a disposal waits for another thread's membership transaction
+// (ADR-0187), so both waits here are disposals. Thread A, inside X's
+// transaction, disposes Y, whose transaction thread B holds. When B ends Y's
+// transaction, A wakes; the test then holds A between its wake and its own
+// `endWait` while B disposes X. B must wait for A's transaction and then
+// dispose X, not see a cycle that no longer exists.
 //
 
 import Combine
@@ -47,31 +49,36 @@ final class MembershipWaitStaleEdgeTests: XCTestCase {
             name: name, hub: NullMessageHub.INSTANCE, dispatcher: ImmediateDispatcher.INSTANCE)
     }
 
+    /// The operations the tests need from a composite or a group.
+    private struct Container {
+        let vm: ComponentVMBase
+        let add: (ComponentVM) -> Result<Void, ContainerOwnershipError>
+        let dispose: () -> Void
+        let changes: AnyPublisher<CollectionChangedEvent, Never>
+    }
+
+    private func container(_ name: String, group: Bool) -> Container {
+        if group {
+            let g = GroupVM<ComponentVM>(
+                name: name, hub: NullMessageHub.INSTANCE, dispatcher: ImmediateDispatcher.INSTANCE)
+            return Container(vm: g, add: g.addResult, dispose: g.dispose, changes: g.collectionChanged)
+        }
+        let c = composite(name)
+        return Container(vm: c, add: c.addResult, dispose: c.dispose, changes: c.collectionChanged)
+    }
+
     /// Runs the #736 reproduction and returns once both threads finish.
-    /// `operation` runs on thread B against X right after B's add to Y.
-    private func runAfterAReleasedTransaction(
-        x xAdd: @escaping (ComponentVM) -> Result<Void, ContainerOwnershipError>,
+    /// Thread B disposes X right after its add to Y.
+    private func runDisposalAfterAReleasedTransaction(
+        xIsGroup: Bool = false,
         yIsGroup: Bool = false,
-        operation: @escaping () -> Void,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
         // Y is the container whose transaction A waits for, so Y's
         // `endMembershipTransaction` is the release under test.
-        let yAdd: (ComponentVM) -> Result<Void, ContainerOwnershipError>
-        let yChanged: AnyPublisher<CollectionChangedEvent, Never>
-        if yIsGroup {
-            let group = GroupVM<ComponentVM>(
-                name: "y", hub: NullMessageHub.INSTANCE, dispatcher: ImmediateDispatcher.INSTANCE)
-            yAdd = group.addResult
-            yChanged = group.collectionChanged
-        } else {
-            let y = composite("y")
-            yAdd = y.addResult
-            yChanged = y.collectionChanged
-        }
-        let c = try child("c")
-        try yAdd(c).get()
+        let x = container("x", group: xIsGroup)
+        let y = container("y", group: yIsGroup)
 
         let threadA = SharedValue<UInt64>(0)
         let threadB = SharedValue<UInt64>(0)
@@ -82,6 +89,7 @@ final class MembershipWaitStaleEdgeTests: XCTestCase {
         let bDone = DispatchSemaphore(value: 0)
         let holdA = SharedValue(true)
         let blockOnce = SharedValue(true)
+        let disposeYOnce = SharedValue(true)
         let bAccepted = SharedValue<Bool?>(nil)
         let heldUntilBDecided = SharedValue<DispatchTimeoutResult?>(nil)
         ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
@@ -96,26 +104,32 @@ final class MembershipWaitStaleEdgeTests: XCTestCase {
             holdA.value = false
             heldUntilBDecided.value = bDecided.wait(timeout: .now() + staleEdgeTimeout)
         }
-        yChanged.sink { _ in
+        y.changes.sink { _ in
             guard blockOnce.value else { return }
             blockOnce.value = false
             bInSink.signal()
             _ = aWaiting.wait(timeout: .now() + staleEdgeTimeout)
         }.store(in: &cancellables)
+        x.changes.sink { _ in
+            guard disposeYOnce.value else { return }
+            disposeYOnce.value = false
+            y.dispose()
+        }.store(in: &cancellables)
 
         Thread.detachNewThread {
             threadB.value = ThreadWaitGraph.currentThread
-            _ = yAdd(try! ComponentVM.builder()
+            _ = y.add(try! ComponentVM.builder()
                 .name("e")
                 .services(hub: NullMessageHub.INSTANCE, dispatcher: ImmediateDispatcher.INSTANCE)
                 .build())
-            operation()
+            x.dispose()
             bDone.signal()
         }
         XCTAssertEqual(bInSink.wait(timeout: .now() + staleEdgeTimeout), .success, file: file, line: line)
+        let c = try child("c")
         Thread.detachNewThread {
             threadA.value = ThreadWaitGraph.currentThread
-            _ = xAdd(c)
+            _ = x.add(c)
             aDone.signal()
         }
 
@@ -126,49 +140,24 @@ final class MembershipWaitStaleEdgeTests: XCTestCase {
                        file: file, line: line)
         XCTAssertEqual(bAccepted.value, true, "B waited for A's transaction instead of seeing a stale cycle",
                        file: file, line: line)
+        XCTAssertEqual(y.vm.status, .disposed, file: file, line: line)
+        XCTAssertEqual(x.vm.status, .disposed, file: file, line: line)
+        XCTAssertEqual(c.status, .disposed, "B's disposal waited for A's add", file: file, line: line)
     }
 
-    private func constructedComposite(holding k: ComponentVM) throws -> CompositeVM<ComponentVM> {
-        let x = composite("x")
-        try x.addResult(k).get()
-        try x.construct()
-        return x
-    }
-
-    func testCompositeAddAfterAReleasedTransactionWaitsAndSucceeds() throws {
-        let x = try constructedComposite(holding: try child("k"))
-        let f = try child("f")
-        let result = SharedValue<Result<Void, ContainerOwnershipError>?>(nil)
-        try runAfterAReleasedTransaction(x: x.addResult) { result.value = x.addResult(f) }
-        guard case .success = result.value else { return XCTFail("addResult: \(String(describing: result.value))") }
-    }
-
-    func testCompositeRemoveAfterAReleasedTransactionWaitsAndSucceeds() throws {
-        let k = try child("k")
-        let x = try constructedComposite(holding: k)
-        let removed = SharedValue<Bool?>(nil)
-        try runAfterAReleasedTransaction(x: x.addResult) { removed.value = x.remove(k) }
-        XCTAssertEqual(removed.value, true)
+    func testCompositeDisposalAfterAReleasedTransactionWaitsAndSucceeds() throws {
+        try runDisposalAfterAReleasedTransaction()
     }
 
     // A selection registers no membership wait (spec/06 §4.3 rule 1,
-    // ADR-0173), so it has no stale-edge case.
+    // ADR-0173), and a membership change fails at once (ADR-0187), so
+    // neither has a stale-edge case.
 
-    func testGroupAddAfterAReleasedTransactionWaitsAndSucceeds() throws {
-        let x = GroupVM<ComponentVM>(
-            name: "x", hub: NullMessageHub.INSTANCE, dispatcher: ImmediateDispatcher.INSTANCE)
-        try x.addResult(try child("k")).get()
-        let f = try child("f")
-        let result = SharedValue<Result<Void, ContainerOwnershipError>?>(nil)
-        try runAfterAReleasedTransaction(x: x.addResult) { result.value = x.addResult(f) }
-        guard case .success = result.value else { return XCTFail("addResult: \(String(describing: result.value))") }
+    func testGroupDisposalAfterAReleasedTransactionWaitsAndSucceeds() throws {
+        try runDisposalAfterAReleasedTransaction(xIsGroup: true)
     }
 
     func testAGroupReleasesItsWaitersBeforeWakingThem() throws {
-        let x = try constructedComposite(holding: try child("k"))
-        let f = try child("f")
-        let result = SharedValue<Result<Void, ContainerOwnershipError>?>(nil)
-        try runAfterAReleasedTransaction(x: x.addResult, yIsGroup: true) { result.value = x.addResult(f) }
-        guard case .success = result.value else { return XCTFail("addResult: \(String(describing: result.value))") }
+        try runDisposalAfterAReleasedTransaction(yIsGroup: true)
     }
 }

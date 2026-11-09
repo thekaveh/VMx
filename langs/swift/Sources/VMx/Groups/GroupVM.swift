@@ -290,6 +290,9 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
+            // Mark the attempt done only after the undo, so a walk that
+            // waits on it sees a non-member (ADR-0186).
+            lateStart?.finish()
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
@@ -382,6 +385,9 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
+            // Mark the attempt done only after the undo, so a walk that
+            // waits on it sees a non-member (ADR-0186).
+            lateStart?.finish()
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
@@ -413,9 +419,8 @@ open class GroupVM<Child: ComponentVMBase>:
     }
 
     public func remove(_ child: Child) -> Bool {
-        // Waits for another thread's transaction, as `CompositeVM` does (#728).
-        // A transaction on this thread, a wait that would close a cycle, or a
-        // disposed group leaves the group unchanged.
+        // An open transaction on any thread (ADR-0187) or a disposed group
+        // leaves the group unchanged.
         guard (try? beginMembershipTransaction()) != nil else { return false }
         defer { endMembershipTransaction() }
         let removed: (Child, Int)? = membershipGate.withLock {
@@ -510,6 +515,9 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
+            // Mark the attempt done only after the undo, so a walk that
+            // waits on it sees a non-member (ADR-0186).
+            lateStart?.finish()
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
@@ -680,8 +688,15 @@ open class GroupVM<Child: ComponentVMBase>:
             snapshot,
             construct: true,
             joined: joined,
-            lateChild: lateChildSource(after: snapshot, scope: scope)
+            lateChild: lateChildSource(after: snapshot, scope: scope),
+            membership: ChildMembership { [weak self] child in self?.isMember(child) ?? false }
         )
+    }
+
+    /// Whether `child` is in `children` now; the construct walk counts
+    /// members only (spec/06 §5.1, ADR-0186).
+    private func isMember(_ child: ComponentVMBase) -> Bool {
+        membershipGate.withLock { children.contains { $0 === child } }
     }
 
     private func attachPopulation(
@@ -893,40 +908,17 @@ open class GroupVM<Child: ComponentVMBase>:
         try enterMembershipTransaction(transaction, allowJoin: true)
     }
 
-    /// Opens or joins a membership transaction. While another thread's
-    /// transaction is open, waits for it to end, as C# does, instead of
-    /// failing. A second transaction on the same thread is still rejected
-    /// (ADR-0118), and so is a wait that would close a cycle (#551, #703).
+    /// Opens or joins a membership transaction. While any thread holds this
+    /// container's transaction, a change that does not join it fails at once
+    /// with `ContainerMembershipTransactionError`, on the owner thread
+    /// (ADR-0118) and on any other thread (ADR-0187). It never waits: only
+    /// disposal waits for the transaction boundary.
     private func enterMembershipTransaction(
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool
     ) throws {
-        try ContainerSupport.enterMembershipTransaction {
-            try tryEnterMembershipTransaction(transaction, allowJoin: allowJoin)
-        }
-    }
-
-    /// Opens or joins the transaction, or records a wait for another thread's
-    /// open transaction and returns its completion. Throws on a same-thread
-    /// conflict (ADR-0118) and on a wait that would close a cycle in the
-    /// shared wait graph (#551, #703).
-    private func tryEnterMembershipTransaction(
-        _ transaction: ContainerOwnershipTransaction,
-        allowJoin: Bool
-    ) throws -> DispatchGroup? {
-        let caller = ThreadWaitGraph.currentThread
-        return try membershipGate.withLock { () -> DispatchGroup? in
-            if membershipTransactionActive,
-               !(allowJoin && membershipTransactionToken === transaction),
-               let owner = membershipTransactionOwner, owner != caller,
-               let completion = membershipTransactionCompletion {
-                guard registerMembershipWaitLocked(owner: owner) else {
-                    throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
-                }
-                return completion
-            }
+        try membershipGate.withLock {
             try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
-            return nil
         }
     }
 
@@ -936,8 +928,9 @@ open class GroupVM<Child: ComponentVMBase>:
         }
     }
 
-    /// Records, under `membershipGate`, a wait for another thread's open
-    /// transaction. Returns `false` when the wait would close a cycle.
+    /// Records, under `membershipGate`, a disposal's wait for another
+    /// thread's open transaction. Returns `false` when the wait would close a
+    /// cycle.
     private func registerMembershipWaitLocked(owner: UInt64) -> Bool {
         guard beginMembershipWait(owner: owner, container: self) else { return false }
         membershipWaits += 1

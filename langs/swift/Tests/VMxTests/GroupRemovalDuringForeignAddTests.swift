@@ -1,10 +1,10 @@
 //
-// GroupRemovalDuringForeignAddTests.swift — #728 regression tests.
+// GroupRemovalDuringForeignAddTests.swift — #728 and ADR-0187 tests.
 //
-// `GroupVM.remove`, `removeAt` and `clear` wait for another thread's open
-// membership transaction, as `CompositeVM` does, and then apply. A call made
-// on the thread that holds the transaction is still refused without a wait.
-// Every wait is bounded.
+// `GroupVM.remove`, `removeAt` and `clear` never wait for an open membership
+// transaction (ADR-0187). On another thread and on the thread that holds the
+// transaction, they return at once and leave the group unchanged. Every wait
+// is bounded.
 //
 
 import Combine
@@ -45,7 +45,8 @@ final class GroupRemovalDuringForeignAddTests: XCTestCase {
     }
 
     /// Thread A adds `c1` and blocks in a `collectionChanged` sink, inside the
-    /// group's transaction. Thread B runs `removal` and must wait for A's add.
+    /// group's transaction. Thread B runs `removal`, which must return before
+    /// A's add ends.
     private func runRemovalDuringForeignAdd(
         _ removal: @escaping (GroupVM<ComponentVM>) -> Void,
         file: StaticString = #filePath,
@@ -56,23 +57,19 @@ final class GroupRemovalDuringForeignAddTests: XCTestCase {
         try group.addResult(child("existing")).get()
         try group.addResult(child("other")).get()
 
-        let threadB = SharedValue<UInt64>(0)
         let aInSink = DispatchSemaphore(value: 0)
-        let bWaiting = DispatchSemaphore(value: 0)
+        let bReturned = DispatchSemaphore(value: 0)
         let aDone = DispatchSemaphore(value: 0)
         let bDone = DispatchSemaphore(value: 0)
         let blockOnce = SharedValue(true)
         let aSinkFinished = SharedValue(false)
         let bReturnedEarly = SharedValue(false)
-        ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
-            if accepted, caller == threadB.value { bWaiting.signal() }
-        }
         group.collectionChanged.sink { _ in
             guard blockOnce.value else { return }
             blockOnce.value = false
             aInSink.signal()
-            // B either registers its wait or (before the fix) returns at once.
-            _ = bWaiting.wait(timeout: .now() + 1)
+            // B returns at once, or (before ADR-0187) waits for this add.
+            _ = bReturned.wait(timeout: .now() + 1)
             aSinkFinished.value = true
         }.store(in: &cancellables)
 
@@ -83,36 +80,36 @@ final class GroupRemovalDuringForeignAddTests: XCTestCase {
         }
         XCTAssertEqual(aInSink.wait(timeout: .now() + removalTimeout), .success, file: file, line: line)
         Thread.detachNewThread {
-            threadB.value = ThreadWaitGraph.currentThread
             removal(group)
             bReturnedEarly.value = !aSinkFinished.value
+            bReturned.signal()
             bDone.signal()
         }
 
         XCTAssertEqual(aDone.wait(timeout: .now() + removalTimeout), .success, "the add hung", file: file, line: line)
         XCTAssertEqual(bDone.wait(timeout: .now() + removalTimeout), .success, "the removal hung", file: file, line: line)
-        XCTAssertFalse(bReturnedEarly.value, "the removal returned before the add ended", file: file, line: line)
+        XCTAssertTrue(bReturnedEarly.value, "the removal waited for the add", file: file, line: line)
         return group
     }
 
-    func testRemoveWaitsForAnotherThreadsAddAndApplies() throws {
+    func testRemoveFailsAtOnceDuringAnotherThreadsAdd() throws {
         let removed = SharedValue<Bool?>(nil)
         let group = try runRemovalDuringForeignAdd { group in
             let existing = (0..<group.count).map { group.at($0) }.first { $0.name == "existing" }!
             removed.value = group.remove(existing)
         }
-        XCTAssertEqual(removed.value, true)
-        XCTAssertEqual(names(group), ["other", "c1"])
+        XCTAssertEqual(removed.value, false)
+        XCTAssertEqual(names(group), ["existing", "other", "c1"])
     }
 
-    func testRemoveAtWaitsForAnotherThreadsAddAndApplies() throws {
+    func testRemoveAtFailsAtOnceDuringAnotherThreadsAdd() throws {
         let group = try runRemovalDuringForeignAdd { $0.removeAt(0) }
-        XCTAssertEqual(names(group), ["other", "c1"])
+        XCTAssertEqual(names(group), ["existing", "other", "c1"])
     }
 
-    func testClearWaitsForAnotherThreadsAddAndApplies() throws {
+    func testClearFailsAtOnceDuringAnotherThreadsAdd() throws {
         let group = try runRemovalDuringForeignAdd { $0.clear() }
-        XCTAssertEqual(names(group), [])
+        XCTAssertEqual(names(group), ["existing", "other", "c1"])
     }
 
     func testRemoveDuringAnAddOnTheSameThreadIsRefusedWithoutAWait() throws {

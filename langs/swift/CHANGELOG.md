@@ -70,8 +70,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   change, and every child is still disposed before the container publishes
   `.disposed` (LIFE-013). The default, `.insertion`, keeps today's order.
 
+### Changed
+
+- The construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back, and
+  the walk does not construct a snapshot child removed before it reaches it.
+  `COMP-047` and `GRP-015` cover the four removal cases.
+- A container membership change never waits for another thread's membership
+  transaction (ADR-0187, spec/06 §4.2, #1314). While any thread holds the
+  transaction, add, insert, index replacement, population, transfer detach,
+  remove, `removeAt` and `clear` fail at once with the "membership
+  transaction in progress" error and change nothing. Disposal still waits.
+  `COMP-048` and `GRP-016` cover the rule. Before, `CompositeVM` and
+  `GroupVM` waited. The result forms return
+  `ContainerOwnershipError.attachmentFailed`, `remove(_:)` returns `false`,
+  and `removeAt(_:)` and `clear()` return with no change.
+
 ### Fixed
 
+- A construct hook that raises after it started the container walk no longer
+  lets the walk's commit step set `status` to `.constructed` (ADR-0186,
+  spec/06 §5.1, #1374). The commit step checks for an abandoned or stopped
+  walk under the lock that writes the status. An abandoned walk now commits
+  nothing.
 - A `FormVM` approval started from a preparation callback or an
   `errorsChanged` sink of `setModel` or deny now starts its persister after
   the outermost update sends all queued notifications (ADR-0180, spec/20

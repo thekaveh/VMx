@@ -570,6 +570,7 @@ final class CompositeVMTests: XCTestCase {
         let lock = NSLock()
         var currentCallbackAdded = false
         var collectionCallbackSelected = false
+        var addResults: [Result<Void, ContainerOwnershipError>] = []
         var bag = Set<AnyCancellable>()
         var left: CompositeVM<ComponentVM>!
         let right = try CompositeVM<ComponentVM>.builder().name("right")
@@ -582,7 +583,10 @@ final class CompositeVMTests: XCTestCase {
                 let go = !currentCallbackAdded
                 currentCallbackAdded = true
                 lock.unlock()
-                if go { right.add(self.leaf("from-current-callback")) }
+                if go {
+                    let result = right.addResult(self.leaf("from-current-callback"))
+                    lock.withLock { addResults.append(result) }
+                }
             }.build()
         try left.construct()
         try right.construct()
@@ -605,7 +609,8 @@ final class CompositeVMTests: XCTestCase {
         done.enter()
         DispatchQueue.global().async {
             start.wait()
-            right.add(self.leaf("from-thread"))
+            let result = right.addResult(self.leaf("from-thread"))
+            lock.withLock { addResults.append(result) }
             done.leave()
         }
         start.signal()
@@ -614,7 +619,16 @@ final class CompositeVMTests: XCTestCase {
         XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
                        "crossing collection/current callbacks must not deadlock")
         XCTAssertNotNil(left.current)
-        XCTAssertEqual(right.count, 2)
+        // The adds may overlap: the second then fails at once (ADR-0187).
+        let results = lock.withLock { addResults }
+        let added = results.filter { if case .success = $0 { return true } else { return false } }.count
+        for case .failure(let error) in results {
+            guard case .attachmentFailed(let inner) = error, inner is ContainerMembershipTransactionError else {
+                return XCTFail("unexpected add failure \(error)")
+            }
+        }
+        XCTAssertGreaterThanOrEqual(added, 1)
+        XCTAssertEqual(right.count, added)
         bag.removeAll()
     }
 
@@ -623,13 +637,14 @@ final class CompositeVMTests: XCTestCase {
     /// selected on `left`, so that selection must complete while A is still
     /// inside `left`'s callback (callbacks retain neither the shared coordinator
     /// nor `left`'s membership transaction). A's add starts only after B's add
-    /// is delivering its change, so it waits for B's transaction if that is
-    /// still open and always lands second.
+    /// returned, because a membership change does not wait for another
+    /// thread's transaction (ADR-0187), so it always lands second.
     func testCOMP026CollectionAndCurrentCallbacksCrossingDeterministically() throws {
         let l1 = leaf("l1")
         let l2 = leaf("l2")
         let inCurrentCallback = DispatchSemaphore(value: 0)
         let collectionCallbackSelected = DispatchSemaphore(value: 0)
+        let threadAddReturned = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var collectionCallbackRan = false
         var currentCallbackAdd: Result<Void, ContainerOwnershipError>?
@@ -642,7 +657,8 @@ final class CompositeVMTests: XCTestCase {
             .onCurrentChanged { selected in
                 guard selected === l1 else { return }
                 inCurrentCallback.signal()
-                guard collectionCallbackSelected.wait(timeout: .now() + 10) == .success else {
+                guard collectionCallbackSelected.wait(timeout: .now() + 10) == .success,
+                      threadAddReturned.wait(timeout: .now() + 10) == .success else {
                     return
                 }
                 let result = right.addResult(self.leaf("from-current-callback"))
@@ -671,6 +687,7 @@ final class CompositeVMTests: XCTestCase {
         done.enter()
         DispatchQueue.global().async {
             right.add(self.leaf("from-thread"))
+            threadAddReturned.signal()
             done.leave()
         }
 

@@ -110,10 +110,12 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(failures, 1, "no call refused the cyclic wait", file: file, line: line)
     }
 
-    /// #1154 reproduction 1. T1 holds the gate of `b` and waits for g2's
-    /// membership transaction, which T2 owns. T2's hook then waits for the
-    /// gate of `b`. That wait closes the cycle and is refused.
-    func testGateWaitThatClosesACycleWithAMembershipTransactionIsRefused() throws {
+    /// #1154 reproduction 1, after ADR-0187. T1 holds the gate of `b` and
+    /// tries to detach `b` from g2, whose membership transaction T2 owns. The
+    /// detach fails at once, so T1 never waits for g2 and no cycle forms.
+    /// T2's hook then moves `b` inside g2's transaction, which ADR-0118
+    /// refuses.
+    func testDetachDuringAnotherThreadsMembershipTransactionFailsAtOnce() throws {
         let g1: GroupVM<ComponentVM> = try group("g1")
         let g2: GroupVM<ComponentVM> = try group("g2", construct: false)
         let g3: GroupVM<ComponentVM> = try group("g3")
@@ -122,16 +124,15 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         try g2.construct()
 
         let t1 = SharedValue<UInt64>(0)
-        let t1Waiting = DispatchSemaphore(value: 0)
+        let t1Finished = DispatchSemaphore(value: 0)
         let hookEntered = DispatchSemaphore(value: 0)
         let hookResult = SharedValue<AddResult?>(nil)
         let firstRun = SharedValue(true)
-        signalAcceptedWaits(t1, t1Waiting)
         let y = try child("y") {
             guard firstRun.value else { return }
             firstRun.value = false
             hookEntered.signal()
-            _ = t1Waiting.wait(timeout: .now() + gateTimeout)
+            _ = t1Finished.wait(timeout: .now() + gateTimeout)
             hookResult.value = g3.addResult(b)
         }
 
@@ -140,13 +141,23 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         let t2Done = spawn(t2) { t2Result.value = g2.addResult(y) }
         XCTAssertEqual(hookEntered.wait(timeout: .now() + gateTimeout), .success)
         let t1Result = SharedValue<AddResult?>(nil)
-        let t1Done = spawn(t1) { t1Result.value = g1.addResult(b) }
+        let t1Done = spawn(t1) {
+            t1Result.value = g1.addResult(b)
+            t1Finished.signal()
+        }
 
-        XCTAssertEqual(t1Done.wait(timeout: .now() + gateTimeout), .success, "T1 hung")
+        XCTAssertEqual(t1Done.wait(timeout: .now() + 1), .success, "T1 waited for g2's transaction")
         XCTAssertEqual(t2Done.wait(timeout: .now() + gateTimeout), .success, "T2 hung")
-        assertOnlyAttachmentFailures([t1Result.value, t2Result.value, hookResult.value])
-        assertSingleMembership(b, in: [g1, g2, g3])
-        assertSingleMembership(y, in: [g1, g2, g3])
+        guard case .failure(.attachmentFailed(let inner))? = t1Result.value,
+              inner is ContainerMembershipTransactionError else {
+            return XCTFail("T1: \(String(describing: t1Result.value))")
+        }
+        guard case .success? = t2Result.value else { return XCTFail("T2: \(String(describing: t2Result.value))") }
+        guard case .failure(.attachmentFailed)? = hookResult.value else {
+            return XCTFail("hook: \(String(describing: hookResult.value))")
+        }
+        XCTAssertEqual(holders(of: b, in: [g1, g2, g3]).map(\.name), ["g2"])
+        XCTAssertEqual(holders(of: y, in: [g1, g2, g3]).map(\.name), ["g2"])
     }
 
     /// #1154 reproduction 2. Each hook transfers the other thread's child,
@@ -240,21 +251,24 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
     /// A nested container has a membership transaction and an ownership gate,
     /// and they are two resources (spec/03 §4.1 rule 2). T_a transfers `inner`
     /// (a group that is itself a child) and holds its gate in `inner`'s hook.
-    /// T_b waits for that gate. `inner`'s own membership transaction then
-    /// ends with a waiter (T_c), which releases the waits on that
-    /// transaction. T_b's gate wait must survive it, so T_a's wait for T_b's
-    /// transaction is refused instead of hanging.
+    /// T_b owns outer3's transaction and waits for that gate. `inner`'s own
+    /// membership transaction then ends with a waiter (T_c's disposal; a
+    /// membership change never waits, ADR-0187), which releases the waits on
+    /// that transaction. T_b's gate wait must survive it, so T_a's disposal
+    /// of outer3, which would wait for T_b, is refused instead of hanging.
     func testNestedContainerTransactionEndDoesNotDropAGateWait() throws {
         let outer1: GroupVM<GroupVM<ComponentVM>> = try group("outer1", construct: false)
         let outer2: GroupVM<GroupVM<ComponentVM>> = try group("outer2")
         let outer3: GroupVM<GroupVM<ComponentVM>> = try group("outer3")
-        let spare: GroupVM<ComponentVM> = try group("spare", construct: false)
 
+        let ta = SharedValue<UInt64>(0)
         let tb = SharedValue<UInt64>(0)
         let tc = SharedValue<UInt64>(0)
         let tbWaiting = DispatchSemaphore(value: 0)
         let tcWaiting = DispatchSemaphore(value: 0)
+        let taRefused = SharedValue(false)
         ThreadWaitGraph.shared.onWaitDecidedForTesting = { caller, accepted in
+            if !accepted, caller == ta.value { taRefused.value = true }
             guard accepted else { return }
             if caller == tb.value { tbWaiting.signal() }
             if caller == tc.value { tcWaiting.signal() }
@@ -265,9 +279,7 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         let firstRun = SharedValue(true)
         let firstSink = SharedValue(true)
         let innerAddResult = SharedValue<AddResult?>(nil)
-        let crossAddResult = SharedValue<AddResult?>(nil)
         let w = try child("w")
-        let u = try child("u")
         let innerRef = SharedValue<GroupVM<ComponentVM>?>(nil)
         let inner = GroupVM<ComponentVM>(
             name: "inner",
@@ -282,7 +294,7 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
                 // Open and end inner's own transaction while T_c waits for it.
                 innerAddResult.value = innerRef.value!.addResult(w)
                 // T_b owns outer3's transaction and waits for T_a: refused.
-                crossAddResult.value = outer3.addResult(spare)
+                outer3.dispose()
             }
         )
         innerRef.value = inner
@@ -294,15 +306,13 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         }.store(in: &cancellables)
         try outer1.addResult(inner).get()
 
-        let ta = SharedValue<UInt64>(0)
         let taResult = SharedValue<AddResult?>(nil)
         let taDone = spawn(ta) { taResult.value = outer2.addResult(inner) }
         XCTAssertEqual(hookEntered.wait(timeout: .now() + gateTimeout), .success)
         let tbResult = SharedValue<AddResult?>(nil)
         let tbDone = spawn(tb) { tbResult.value = outer3.addResult(inner) }
         XCTAssertEqual(sinkEntered.wait(timeout: .now() + gateTimeout), .success)
-        let tcResult = SharedValue<AddResult?>(nil)
-        let tcDone = spawn(tc) { tcResult.value = inner.addResult(u) }
+        let tcDone = spawn(tc) { inner.dispose() }
 
         XCTAssertEqual(taDone.wait(timeout: .now() + gateTimeout), .success, "T_a hung")
         XCTAssertEqual(tbDone.wait(timeout: .now() + gateTimeout), .success, "T_b hung")
@@ -310,15 +320,18 @@ final class OwnershipGateWaitCycleTests: XCTestCase {
         guard case .success? = innerAddResult.value else {
             return XCTFail("inner.addResult(w): \(String(describing: innerAddResult.value))")
         }
-        guard case .failure(.attachmentFailed)? = crossAddResult.value else {
-            return XCTFail("the cyclic membership wait was not refused: \(String(describing: crossAddResult.value))")
+        XCTAssertTrue(taRefused.value, "the cyclic disposal wait was not refused")
+        guard case .success? = taResult.value else {
+            return XCTFail("T_a \(String(describing: taResult.value))")
         }
-        guard case .success? = taResult.value, case .success? = tbResult.value, case .success? = tcResult.value else {
-            return XCTFail("T_a \(String(describing: taResult.value)), T_b \(String(describing: tbResult.value)), "
-                + "T_c \(String(describing: tcResult.value))")
+        // T_b's transfer runs after T_a's and may find outer2's transaction
+        // still open (ADR-0187).
+        switch tbResult.value {
+        case .success?, .failure(.attachmentFailed)?: break
+        default: XCTFail("T_b \(String(describing: tbResult.value))")
         }
+        XCTAssertEqual(outer3.status, .disposed, "outer3's deferred disposal ran")
+        XCTAssertEqual(inner.status, .disposed)
         assertSingleMembership(inner, in: [outer1, outer2, outer3])
-        XCTAssertEqual(Set(inner.snapshot().map(\.name)), ["w", "u"])
-        XCTAssertTrue(holders(of: spare, in: [outer1, outer2, outer3]).isEmpty)
     }
 }

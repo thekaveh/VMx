@@ -14,9 +14,14 @@ enum LateChildStage {
     /// The walk's late pull found no further late child; its commit-time
     /// seal comes later. The probe's child is the container.
     case lastScanDone
-    /// The commit-time seal starts a pull, before it checks whether the walk
-    /// was cancelled. The probe's child is the container.
+    /// The commit-time seal starts a pull, after it checked that the walk
+    /// was not cancelled and before it takes the membership gate. The
+    /// probe's child is the container.
     case sealing
+    /// The commit-time seal wrote `.constructed` and released the membership
+    /// gate; the publication has not started. The probe's child is the
+    /// container.
+    case sealed
 }
 
 /// The start records of auto-construct adds (spec/06 §5.1). An add that
@@ -58,8 +63,10 @@ final class LateChildStarts {
             }
         }
 
-        /// Marks the attempt done and runs the waiting callbacks.
-        fileprivate func finish() {
+        /// Marks the attempt done and runs the waiting callbacks. A failed
+        /// add calls it after it undid the attach (ADR-0186). Call it with no
+        /// lock held: a waiting walk resumes on this thread.
+        func finish() {
             let callbacks: [() -> Void] = lock.withLock {
                 done = true
                 let callbacks = onDone
