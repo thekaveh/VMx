@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-from vmx import ConstructionStatus, MessageHub, RxDispatcher
+from vmx import AsyncRelayCommand, ConstructionStatus, MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
 from vmx.notifications import Notification, NotificationHub
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
+from notes_showcase.models.note_model import NoteModel
 from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.dialog_service import IDialogService
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
@@ -432,3 +434,147 @@ async def test_selecting_a_note_then_deleting_it_clears_the_form() -> None:
     assert ws.note_form.has_bound_note is False
     assert ws.note_form.title == ""
     assert ws.note_form.body == ""
+
+
+# ── ADR-0201 interaction policies ──────────────────────────────────────────
+
+
+def _policy_workspace() -> tuple[WorkspaceVM, InMemoryNoteRepository, list[Notification]]:
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        save_note_delay=0.0,
+    )
+    notification_hub = NotificationHub()
+    observed: list[Notification] = []
+    notification_hub.pending.subscribe(
+        on_next=lambda snapshot: [observed.append(n) for n in snapshot if n not in observed]
+    )
+    ws = WorkspaceVM.builder().repository(repo).notification_hub(notification_hub).build()
+    return ws, repo, observed
+
+
+async def _stored_title(repo: InMemoryNoteRepository, notebook_id: str, note_id: str) -> str:
+    notes = await repo.load_notes(notebook_id)
+    return next(n.title for n in notes if n.id == note_id)
+
+
+def _save_action(ws: WorkspaceVM) -> AsyncRelayCommand:
+    action = next(a for a in ws.capability_actions.actions.value if a.label == "Save")
+    assert isinstance(action.command, AsyncRelayCommand)
+    return action.command
+
+
+async def test_a_search_that_hides_the_current_note_keeps_it_and_its_draft() -> None:
+    # ADR-0201 §2.1: a search never changes current; the editor keeps the note
+    # and its draft; the note is on the visible page again once it matches.
+    ws, _repo, _observed = _policy_workspace()
+    await ws.construct_async()
+    note = ws.notes_view.inner[0]
+    ws.notes_view.current = note
+    ws.note_form.title = "Draft title"
+
+    ws.notes_view.search_term = "no-note-matches-this-term"
+    await asyncio.sleep(0.3)  # the 150 ms search debounce
+
+    assert note not in ws.notes_view.visible_items
+    assert ws.notes_view.current is note
+    assert ws.note_form.title == "Draft title"
+    assert ws.note_form.is_dirty.value is True
+
+    ws.notes_view.search_term = ""
+    await asyncio.sleep(0.3)
+
+    assert ws.notes_view.current is note
+    assert note in ws.notes_view.visible_items
+    assert ws.note_form.title == "Draft title"
+
+
+async def test_selecting_another_note_discards_the_unsaved_draft() -> None:
+    # ADR-0201 §2.2: a note switch discards the draft with no prompt.
+    ws, repo, _observed = _policy_workspace()
+    await ws.construct_async()
+    first, second = ws.notes_view.inner[0], ws.notes_view.inner[1]
+    stored_title = first.title
+    ws.notes_view.current = first
+    ws.note_form.title = "Unsaved draft"
+
+    ws.notes_view.current = second
+
+    assert ws.note_form.title == second.title
+    assert ws.note_form.is_dirty.value is False
+
+    ws.notes_view.current = first
+
+    assert ws.note_form.title == stored_title
+    assert ws.note_form.is_dirty.value is False
+    assert await _stored_title(repo, first.model.notebook_id, first.model.id) == stored_title
+
+
+async def test_action_bar_save_on_the_edited_note_saves_the_editor_draft() -> None:
+    # ADR-0201 §2.3: the action-bar Save is the editor Save for the note that
+    # the editor holds: it persists the draft and posts the "Saved" toast.
+    ws, repo, observed = _policy_workspace()
+    await ws.construct_async()
+    note = ws.notes_view.inner[0]
+    ws.notes_view.current = note
+    ws.note_form.title = "Saved from the action bar"
+
+    await _save_action(ws).execute_async()
+
+    stored = await _stored_title(repo, note.model.notebook_id, note.model.id)
+    assert stored == "Saved from the action bar"
+    assert ws.note_form.is_dirty.value is False
+    assert any("Saved" in n.message for n in observed)
+
+
+async def test_action_bar_save_with_an_invalid_draft_writes_nothing() -> None:
+    ws, repo, observed = _policy_workspace()
+    await ws.construct_async()
+    note = ws.notes_view.inner[0]
+    stored_title = note.title
+    ws.notes_view.current = note
+    ws.note_form.title = ""
+
+    await _save_action(ws).execute_async()
+
+    assert await _stored_title(repo, note.model.notebook_id, note.model.id) == stored_title
+    assert ws.note_form.title == ""
+    assert not any("Saved" in n.message for n in observed)
+
+
+async def test_action_bar_save_with_a_clean_draft_writes_nothing() -> None:
+    ws, repo, observed = _policy_workspace()
+    await ws.construct_async()
+    note = ws.notes_view.inner[0]
+    ws.notes_view.current = note
+    saved: list[str] = []
+    original_save = repo.save_note
+
+    async def _counting_save(model: NoteModel) -> None:
+        saved.append(model.id)
+        await original_save(model)
+
+    repo.save_note = _counting_save  # type: ignore[method-assign]
+
+    await _save_action(ws).execute_async()
+
+    assert saved == []
+    assert not any("Saved" in n.message for n in observed)
+
+
+async def test_action_bar_save_on_a_note_the_editor_does_not_hold_saves_its_model() -> None:
+    # ADR-0201 §2.3: for any other focused note, Save persists the stored model.
+    ws, repo, _observed = _policy_workspace()
+    await ws.construct_async()
+    edited, focused = ws.notes_view.inner[0], ws.notes_view.inner[1]
+    ws.notes_view.current = edited
+    ws.note_form.title = "Draft that stays unsaved"
+    focused.model = dataclasses.replace(focused.model, title="Model title")
+    ws.set_focus(focused)
+
+    await _save_action(ws).execute_async()
+
+    assert await _stored_title(repo, focused.model.notebook_id, focused.model.id) == "Model title"
+    assert await _stored_title(repo, edited.model.notebook_id, edited.model.id) == edited.title
