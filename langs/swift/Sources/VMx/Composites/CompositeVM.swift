@@ -1022,14 +1022,16 @@ open class CompositeVM<Child: ComponentVMBase>:
                         children.remove(at: attached)
                     }
                 }
+                // Detached first: a deferred compensation destructs only a
+                // child with no parent (ADR-0218 rule 7).
+                if child._ownershipParent === self {
+                    child._parent = nil
+                    child._ownershipParent = nil
+                }
                 if let error = ContainerSupport.compensateAutoConstruct(
                     child, originalStatus: originalStatuses[offset]
                 ), compensationError == nil {
                     compensationError = error
-                }
-                if child._ownershipParent === self {
-                    child._parent = nil
-                    child._ownershipParent = nil
                 }
             }
             for transfer in transfers.reversed() { transfer.rollback() }

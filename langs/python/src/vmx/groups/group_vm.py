@@ -731,11 +731,13 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 with self._membership_gate:
                     if any(candidate is child for candidate in self._children):
                         self._children.remove(child)
+                # Detached first: a deferred compensation destructs only a
+                # child with no parent (ADR-0218 rule 7).
+                if child._parent is parent:
+                    child._set_parent(None)
                 error = compensate_auto_construct(child, original_status)
                 if compensation_error is None:
                     compensation_error = error
-                if child._parent is parent:
-                    child._set_parent(None)
             for staged_transfer in reversed(transfers):
                 if staged_transfer is not None:
                     staged_transfer.rollback()
