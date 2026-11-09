@@ -182,6 +182,33 @@ public class CollectionNotificationFailureTests
             next.Should().NotThrow();
     }
 
+    private sealed class CustomPropertyCollection(TestHub? hub = null)
+        : ServicedObservableCollection<string>(hub)
+    {
+        public void RaiseCustom() => OnPropertyChanged(new PropertyChangedEventArgs("Custom"));
+    }
+
+    [Fact]
+    public void Serviced_Subclass_Property_Outside_A_Mutation_Throws_At_Once()
+    {
+        using var hub = new TestHub();
+        var collection = new CustomPropertyCollection(hub);
+        var later = 0;
+        INotifyPropertyChanged notifier = collection;
+        notifier.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == "Custom") throw new HandlerFailure();
+        };
+        notifier.PropertyChanged += (_, e) => { if (e.PropertyName == "Custom") later++; };
+
+        collection.Invoking(c => c.RaiseCustom()).Should().Throw<HandlerFailure>();
+        later.Should().Be(1, "every handler runs before the failure is rethrown");
+
+        // The failure is not held back for the next, unrelated mutation.
+        collection.Invoking(c => c.Add("x")).Should().NotThrow();
+        collection.Should().Equal("x");
+    }
+
     [Fact]
     public void Serviced_PropertyChanged_Handler_Can_Be_Removed()
     {
