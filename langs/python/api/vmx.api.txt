@@ -661,6 +661,12 @@ module vmx
     property can_execute_changed [get] -> Observable[None]
     def dispose(self) -> 'None'
     def execute(self, parameter: 'Any' = None) -> 'None'
+  class DelayedTask(object)
+    def __init__(self, scheduler: 'SchedulerBase') -> 'None'
+    def cancel(self) -> 'None'
+    def dispose(self) -> 'None'
+    property is_pending [get] -> bool
+    def schedule(self, delay: 'float | timedelta', action: 'Callable[[], None]') -> 'None'
   class DerivedProperty(typing.Generic[~TValue])
     def __init__(self, derived_stream: 'Observable[TValue]', can_set: 'Callable[[TValue], bool] | None' = None, set_action: 'Callable[[TValue], None] | None' = None) -> 'None'
     def can_set(self, value: 'TValue') -> 'bool'
@@ -1653,6 +1659,7 @@ module vmx.properties
   from_two = vmx.from_two
 
 module vmx.services
+  DelayedTask = vmx.DelayedTask
   Dispatcher = vmx.Dispatcher
   MessageHub = vmx.MessageHub
   MessageHubProto = vmx.MessageHubProto
