@@ -1356,7 +1356,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         // Read after the unwind guard, which a panic can leave with it set.
         let delivering_errors = std::cell::Cell::new(false);
         // Admissions and starts join the queue in the same order, so the
-        // first `announced` starts had their admission change sent.
+        // first `announced` starts had their admission change sent or tried.
         let announced = std::cell::Cell::new(0_usize);
         let notified = catch_unwind(AssertUnwindSafe(|| {
             if !publications.is_empty() {
@@ -1399,8 +1399,13 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                         }
                     }
                     Notice::Admission => {
-                        self.raise_approve_can_execute_changed();
+                        // A failed admission send counts as sent, so the
+                        // release raises the change again, as in every
+                        // flavor. The approve command's forwarding
+                        // subscription isolates subscriber panics, so this
+                        // send fails only on an internal panic.
                         announced.set(announced.get() + 1);
+                        self.raise_approve_can_execute_changed();
                     }
                     Notice::Revalidated(could_approve) => {
                         self.publish_approve_state_change(could_approve);
