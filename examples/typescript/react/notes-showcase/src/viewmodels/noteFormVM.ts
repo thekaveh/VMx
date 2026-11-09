@@ -73,6 +73,15 @@ export class NoteFormVM extends ComponentVMBase {
   /** Inner approvals admitted so far; see `#approveFormAsync`. */
   #admissions = 0;
   /**
+   * Save order (#1379): the number of the save each form runs, and the number
+   * of the latest save started for each note id. Only the latest save of a
+   * note refreshes its list row and rebinds the editor, so an older save that
+   * settles last never shows the older values.
+   */
+  #savesStarted = 0;
+  readonly #formSaves = new Map<FormVM<NoteModel>, number>();
+  readonly #latestSaves = new Map<string, number>();
+  /**
    * Forms with an approval in flight, with the number of pending calls. A
    * form rebound or unbound mid-save is retired but not disposed until its
    * approval settles: FormVM suppresses settlement on a disposed form, so an
@@ -275,17 +284,20 @@ export class NoteFormVM extends ComponentVMBase {
   bindTo(note: NoteModel): void {
     this.#retireForm();
     this.#bound = note;
-    this.#form = new FormVM<NoteModel>({
+    const form: FormVM<NoteModel> = new FormVM<NoteModel>({
       initial: note,
-      persister: (m) => this.#persistAsync(m),
+      persister: (m) => this.#persistAsync(form, m),
       hub: this._hub,
       strict: true,
       validators: {
         title: (m) => m.title.trim().length === 0 ? TITLE_REQUIRED : null,
       },
     });
-    const form = this.#form;
+    this.#form = form;
     form.onApproved.subscribe((m) => {
+      // A newer save of this note started after this one. Its values are
+      // the ones the repository keeps, so this one shows nothing (#1379).
+      if (!this.#settleSave(form, m.id)) return;
       this.#onSaved.next(m);
       this.#adoptSaved(form, m);
     });
@@ -427,10 +439,32 @@ export class NoteFormVM extends ComponentVMBase {
     if (form !== null && !this.#settling.has(form)) form.dispose();
   }
 
-  async #persistAsync(note: NoteModel): Promise<void> {
+  async #persistAsync(form: FormVM<NoteModel>, note: NoteModel): Promise<void> {
     // The form calls its persister only for an admitted approval.
     this.#admissions += 1;
-    await this.#repo.saveNote(note);
+    this.#savesStarted += 1;
+    this.#formSaves.set(form, this.#savesStarted);
+    this.#latestSaves.set(note.id, this.#savesStarted);
+    try {
+      await this.#repo.saveNote(note);
+    } catch (error) {
+      // A failed save never settles, so it has no entry to keep.
+      this.#formSaves.delete(form);
+      throw error;
+    }
+  }
+
+  /**
+   * Returns `true` when `source` ran the latest save started for `noteId`,
+   * and forgets that save once it settles.
+   */
+  #settleSave(source: FormVM<NoteModel>, noteId: string): boolean {
+    const save = this.#formSaves.get(source);
+    if (save === undefined) return true;
+    this.#formSaves.delete(source);
+    if (this.#latestSaves.get(noteId) !== save) return false;
+    this.#latestSaves.delete(noteId);
+    return true;
   }
 
   #addTag(): void {
