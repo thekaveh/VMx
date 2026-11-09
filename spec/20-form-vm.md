@@ -170,6 +170,10 @@ Each flavor uses its idiomatic value-equality, which is overridable:
 
 - C#: `object.Equals` (record types provide structural equality by default).
   Override by defining the model's own equality (`record`, `Equals`/`==`).
+  A record's synthesized equality compares a collection field by reference.
+  The default snapshotter makes a new collection, so a new form for such a
+  record is dirty before any edit. The model overrides `Equals` and
+  `GetHashCode` to compare the collection element by element.
 - Python: `__eq__` (`@dataclass(eq=True)` / `@dataclass(frozen=True)` by default).
   Override by defining the model's own `__eq__`.
 - TypeScript: an **injectable structural deep-equality predicate**. Plain objects
