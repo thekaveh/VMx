@@ -1,7 +1,8 @@
 # 12. Rust Parity Status
 
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Items found
-after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7.
+after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7. §12.8
+and §12.12 are now closed (ADR-0205, ADR-0207).
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -103,9 +104,17 @@ clamping, pass-through mode, and navigation edge no-ops.
 
 **Resolved.** `Expandable` includes `is_expanded`, and expanded tree walking
 uses the expansion capability instead of a separate reduced tree hook.
+`HierarchicalVm::compose_expansion` composes an `ExpandableState` with a public
+hierarchy node, and `TreeNode` lists type-erased `TreeNodeRef` children, so
+`walk` and `walk_expanded` descend into composites, groups and aggregates
+(ADR-0207, #1262).
 
-Evidence: CAP-004 asserts the state read before and after `expand`; HIER-012 and
-the focused expandable-support tests verify lazy expanded-walk boundaries.
+Evidence: CAP-004 asserts the state read before and after `expand`. HIER-012
+and EXP-005 compose `ExpandableState` with `HierarchicalVm` and verify the
+expanded-walk boundaries. UTIL-001 to UTIL-003 walk the catalog `CompositeVm`
+tree, a `GroupVm` and an `AggregateVm3`, and
+`walk_expanded_descends_containers_and_stops_at_a_collapsed_node` mixes all
+four container kinds.
 
 ### 12.3.5. Searchable Term Mutation (CAP-008)
 
@@ -244,10 +253,11 @@ command, and composite suites contain focused assertions for each edge.
 `relay_disposal_emits_one_final_can_execute_notification` observe terminal
 callbacks directly and assert value-before-completion ordering.
 
-Still open (recorded in spec chapter 06): `FilteredCompositeVm` has no
-`Changed` stream, and `ModeledCrudCommands` has no `confirm_update` and a
-synchronous `with_confirm_delete`, which takes no `current_changed` trigger
-(`with_current_changed` takes the trigger but no confirmation).
+Still open (recorded in spec chapter 06): `ModeledCrudCommands` has no
+`confirm_update` and a synchronous `with_confirm_delete`, which takes no
+`current_changed` trigger (`with_current_changed` takes the trigger but no
+confirmation). `FilteredCompositeVm` now has a `changed()` stream (ADR-0207,
+#1259).
 
 Selection follows the shared rules of spec/06 §4.3 (ADR-0173). `set_current`,
 `select_component` and `deselect_component` open no membership transaction. A
@@ -320,7 +330,7 @@ The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
 parameter in §12.2.2 are the intentional flavor-specific shapes in this
 ledger. The §12.5 editorial note applies to all five flavors and is not a
 parity backlog. §12.7 to §12.12 record the items and differences found
-after closure. Future differences still require
+after closure; §12.8 and §12.12 are now closed. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
@@ -370,10 +380,15 @@ TypeScript, and Swift publish `CurrentPageIndex`, `Items`, `PageCount`, and the
 other paging properties on every change. Rust consumers read the state after
 each call.
 
-## 12.12. Open Item: FilteredCompositeVm Initial Cursor Policy
+## 12.12. Resolved: FilteredCompositeVm Initial Cursor Policy
 
-Rust `FilteredCompositeVm::new` always reconciles under `SnapToFirst`. A caller
-sets `Clear` or `PreserveIfVisible` with `set_cursor_policy` after construction,
-and that call does not reconcile again. C#, Python, TypeScript, and Swift take
-the policy at construction, so a `Clear` or `PreserveIfVisible` view starts
-with no current item; the same Rust view starts on the first visible item.
+**Resolved (ADR-0207, #1260).** Rust `FilteredCompositeVm::new` always
+reconciled under `SnapToFirst`, so a `Clear` or `PreserveIfVisible` view
+started on the first visible item. `with_cursor_policy` and
+`scored_with_cursor_policy` now take the policy at construction, as C#, Python,
+TypeScript, and Swift do, and such a view starts with no current item. `new`
+and `scored` keep `SnapToFirst`.
+
+Evidence: `constructor_cursor_policy_sets_the_initial_current_item` and
+`scored_constructor_cursor_policy_sets_the_initial_current_item` in the Rust
+`filtered_composite` conformance tests.

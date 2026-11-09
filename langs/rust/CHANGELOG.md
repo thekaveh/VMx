@@ -15,6 +15,34 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `FilteredCompositeVm::changed()`, a hot `ValueStream<()>` (#1259,
+  ADR-0207, spec/06 §9). It sends once after each source membership change,
+  `set_predicate`, `refresh` and `refresh_scores`, and once when
+  `set_current`, `move_next_visible` or `move_previous_visible` changes the
+  current item. A subscriber reads the new `visible()` and `current()`.
+  `dispose()` releases the source subscription and completes the stream, and
+  later calls send nothing. The view now subscribes to the source's local
+  membership stream and reconciles the current item at each source change,
+  not at the next read. The subscription holds the view weakly.
+
+- `FilteredCompositeVm::with_cursor_policy` and `scored_with_cursor_policy`
+  take the cursor policy at construction (#1260, ADR-0207). A `Clear` or
+  `PreserveIfVisible` view starts with no current item, as in the other
+  flavors. `new` and `scored` keep `SnapToFirst`.
+
+- `TreeNodeRef`, a type-erased handle that the tree walks yield (#1262,
+  ADR-0207). It has `id()`, `status()`, `type_name()`, `is`, `downcast_ref`,
+  `downcast`, `try_children_nodes()` and `expandable()`, and two handles are
+  equal for the same node identity. `CompositeVm`, `ModeledCompositeVm` and
+  `GroupVm` now list their children for `walk`, `walk_expanded` and `find`,
+  `AggregateVm1` to `AggregateVm6` and `ForwardingComponentVm` implement
+  `TreeNode`, and an aggregate lists its present components in slot order.
+
+- `HierarchicalVm::compose_expansion(ExpandableState)` and `expansion()`
+  (#1262, ADR-0207). `walk_expanded` yields a node whose composed state is
+  collapsed but not its descendants. A second composition returns
+  `VmxError::InvalidArgument`. The node does not dispose the state.
+
 - `ForwardingCompositeVm` implements `VmNode`, `PartialEq` and `Eq` (#1271,
   ADR-0205, spec/09 §2). Each node method forwards to the wrapped composite,
   so a `CompositeVm`, `GroupVm` or aggregate accepts the decorator as a child.
@@ -25,6 +53,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `collapse`, `toggle_expansion`, `is_expanded`, `on_current_changed`,
   `background_errors`, `set_current_selector`, `set_auto_construct_on_add`
   and `set_async_selection`.
+
 - `ComponentVmBuilder::on_model_changed` and the optional
   `ComponentVmOptions::on_model_changed` field (#1252, ADR-0206). The callback
   receives the accepted model after the `model` notification and any
@@ -33,6 +62,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `ModelChangedCallback<M>` type names the options field. Breaking: code that
   builds `ComponentVmOptions` with a struct literal must now set
   `on_model_changed`.
+
 - `ModeledCompositeVmBuilder::hint` and the inherent `ModeledCompositeVm::id`,
   `name` and `hint` accessors (#1253, ADR-0206). An unset hint is `""`, as in
   `CompositeVmBuilder`. `ComponentVmBuilder::build()` now supplies the model
@@ -40,16 +70,20 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `services`, and a missing hub reports `hub is required`.
   `ReadonlyComponentVmBuilder` wraps that builder, so a
   `ReadonlyComponentVm<()>` builder also needs no `model(())` call.
+
 - `ExpandableState::expansion_changes()`, a typed hot `ValueStream<bool>` for
   spec/05 §8 `IsExpandedChanged` (#1254, ADR-0206). It sends the new value once
   per effective change, does not replay the current value, and completes on
   `dispose()`. The `expanded_changed()` hub stays as the command trigger.
+
 - `Localizer::localize_with_args(key, args: &[&dyn Display])`, the spec/17 §1
   args form (#1266, ADR-0206). Its default implementation returns
   `localize(key)`, so existing implementors compile unchanged and
   `NullLocalizer` returns the key.
+
 - A regression test for a cycle-deferred disposal failure (ADR-0200,
   #1297). Rust already returned the failure from the hook thread's call.
+
 - The `notifications` Cargo feature, which `default` includes (ADR-0211,
   #1264). It gates the notification sub-package of spec/16:
   `NotificationHub`, `NullNotificationHub`, `NotificationHubApi`,
@@ -57,16 +91,20 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `NotificationWaiter`, `NotificationVm` and `ConfirmationVm`. A dependency
   with `default-features = false` builds the core without them. `ModalVm`
   stays in the core.
+
 - The `NotificationHubApi` trait (ADR-0211, #1264). It declares
   `post_notification`, `resolve`, `pending` and `pending_stream`.
   `NotificationHub`, `NullNotificationHub` and `Arc<H>` for every implementer
   `H` implement it, so `Arc<dyn NotificationHubApi>` works.
+
 - `COL-070` conformance tests (#1316, ADR-0193). An edit to a `keys1()` or
   `keys2()` snapshot does not change the dictionary. Rust already behaved this
   way.
+
 - The `COMP-042` and `GRP-012` tests now assert that each container message
   carries the container's name (#1309, ADR-0194). Rust already behaved this
   way.
+
 - `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
   `ComponentVm::own_member` contract and rejects the container itself with
@@ -75,20 +113,25 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   foreign dispose the container publishes `Disposed` first and disposes both
   after the hook returns (ADR-0179). A member registered after the disposal
   started is disposed by its registration.
+
 - `CompositeVm::with_destruct_order` and `GroupVm::with_destruct_order`, public
   raw constructors that take a `ChildOrder` (#1287, ADR-0204). `new` and
   `with_services` keep `ChildOrder::Insertion`.
+
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189). A refused child `select()` or `deselect()` already
   changed nothing and returned nothing in Rust (`COMP-052`).
+
 - `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
   `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
   `keys2()` snapshots. The tests cover add, insert, remove and clear, and
   mutations that change one key view or none (#1429). Rust already behaved
   this way.
+
 - `COL-066` conformance tests: a panicking local collection subscriber does
   not suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). Rust
   already behaved this way.
+
 - `TreeSelection<M>`, an opt-in helper that keeps one current node for the
   tree under a root `HierarchicalVm` (#667, ADR-0164, `HIER-033`..`HIER-040`).
   `TreeSelection::new(&root)` creates it. `can_select` walks parent links to
@@ -105,6 +148,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   never held while it reads the tree, subscribes or emits, and a revision
   counter discards a stale re-check. `dispose()` releases the subscriptions,
   clears without emitting, completes the stream, and is idempotent.
+
 - `ExpandableState::expand_command()`, `collapse_command()` and
   `toggle_expansion_command()`, and an inherent `can_toggle_expansion()`
   (#660, ADR-0159, EXP-006..008). Each command's predicate is the matching
@@ -113,6 +157,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   read, under a lock, and owns it: every call returns a clone of the same
   command, clones of the state share it, and `dispose()` disposes it, after
   which it is inert.
+
 - `GroupVmBuilder`, `CompositeVmBuilder` and `ModeledCompositeVmBuilder` have
   a `destruct_order(ChildOrder)` setter, and `GroupVmOptions` and
   `CompositeVmOptions` have a `destruct_order` field for `create`. With
@@ -121,6 +166,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `ChildOrder::Insertion`, keeps the current order. Construct order does not
   change, and every child is still disposed before its container (ADR-0161,
   `GRP-014`, `COMP-046`) (#662).
+
 - A supported child-transition helper for consumer view-model types that
   compose a `ComponentVm` (#661, ADR-0162, `LIFE-016`..`LIFE-020`).
   `ComponentVm::construct_with_children`, `destruct_with_children` and
@@ -133,12 +179,14 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   component transient until it settles, and a failing member or callback rolls
   the component back. The handle borrows the transition, so the compiler
   rejects a use outside the closure.
+
 - `ComponentVm::on_construct_children` and `on_destruct_children` store a
   member walk (#1288, ADR-0203). Every `construct()`, `destruct()`,
   `reconstruct()` and `reconstruct_command()` runs the stored walk after the
   hook, so a consumer type no longer needs its own reconstruct method or
   command. Clones share the walks. A walk captures the members, never the
   component.
+
 - `HierarchicalVm`, `ModeledCompositeVm` and `ForwardingCompositeVm` have
   `on_construct`, `on_destruct` and `on_dispose` methods with the `ComponentVm`
   closure signature (#1250, ADR-0203). Each replaces the hook of the wrapped
@@ -146,6 +194,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   rolls a `ComponentVm` back, and an eager `HierarchicalVm` then constructs no
   child. The modeled composite's hooks also run in both phases of
   `reconstruct()`.
+
 - `ComponentVm::own_member` registers a member view-model. `dispose()` now
   disposes the registered members in registration order before the component
   publishes `Disposed`, keeps the first failure, and returns it after the
@@ -155,6 +204,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `dispose()` of the component, re-entrant or from another thread, returns
   `Ok(())` at once without waiting, and the first call finishes the work. A
   component with no members disposes as before (#661, ADR-0162, `LIFE-018`).
+
 - A walk runs where the hook runs (#1288, ADR-0203). For a component built
   with `background(true)`, the walk of a construct or destruct runs on the
   background dispatcher. The call returns with the component transient, and
@@ -167,6 +217,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   therefore `Send + 'static`, and those methods run it in place of the stored
   walk. They no longer return `VmxError::InvalidArgument` for a background
   component.
+
 - `NotificationVm::dispose()` and `ConfirmationVm::dispose()` (#1067,
   ADR-0178, `DISP-004`). Disposal disposes the dismiss, approve and reject
   commands, so a kept command clone reports `can_execute()` false and no
@@ -175,6 +226,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   reaction stays authoritative, and a second call has no effect. Disposal
   never disposes the hub. Before this change, a kept command still resolved
   the hub after the host dropped the view model.
+
 - `HierarchicalVm<M, N = ()>` takes a node-data type `N`, the Rust form of a
   `TVM` subclass (#1263, ADR-0202). `parent()`, `children()`, `path()`, the
   children factory and `attach_many` use `HierarchicalVm<M, N>`, and
@@ -184,6 +236,24 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   code that names `HierarchicalVm<M>` or `TreeSelection<M>` is unchanged.
 
 ### Changed
+
+- **Breaking:** `TreeNode::try_children_nodes` returns
+  `VmxResult<Vec<TreeNodeRef>>`, and `TreeNode::children_nodes` is removed
+  (#1262, ADR-0207). `walk` and `walk_expanded` return
+  `VmxResult<Vec<TreeNodeRef>>`. `find` takes a `Fn(&TreeNodeRef) -> bool`
+  predicate and returns `VmxResult<Option<TreeNodeRef>>`. A walk therefore
+  crosses containers whose children have other types. Read a node through
+  `TreeNodeRef::downcast`. A handle wraps the container's child type.
+
+- `FilteredCompositeVm` reconciles the current item when the source
+  membership changes, not at the next `visible()` or `current()` read
+  (#1259, ADR-0207). A `changed()` notification caused by a source mutation
+  runs inside that mutation, before the source hub's `CollectionChanged`. A
+  subscriber that mutates the source there gets
+  `VmxError::OwnershipTransactionInProgress`.
+
+- `walk`, `walk_expanded` and `find` over a `CompositeVm` now visit its
+  children (#1262, ADR-0207). Before, they yielded only the composite itself.
 
 - Breaking: every illegal `construct`, `destruct` or `reconstruct` returns
   `VmxError::InvalidLifecycleTransition { from, operation }`, whose message
@@ -337,6 +407,10 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Fixed
 
+- `TreeSelection::dispose` resets the value that `current_changed()` retains
+  to `None` before it completes the stream (#1286, ADR-0207). A kept stream
+  clone no longer keeps the last selected node alive after disposal.
+
 - A container now rolls back when a background child that does not forward
   `VmNode::when_lifecycle_settled` fails (#1274, ADR-0205, spec/11 §4,
   `LIFE-014`). The container waits for such a child when it started the child
@@ -349,18 +423,21 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   child ended Destructed. This is a breaking behavior change (see Changed). A
   child on another hub, or one joined while already in flight, is still
   accepted in flight, so the container never waits without limit.
+
 - `AggregateVm1` to `AggregateVm6` now join a slot child that is already
   Constructing when `construct()` runs, as the composite and group walks do
   (#1273, spec/02 §6). Before, the aggregate called the child's `construct()`
   again, got `ConcurrentOperation` and rolled back to Destructed. A joined
   child that then fails rolls the aggregate back, and the failure reaches its
   `background_errors()` stream.
+
 - `CompositeVm::clear()` no longer resets `is_current` on a removed child
   after it releases the membership gate (#1285, spec/06 §4.3). The detach
   clear already commits the previous current child's flag under the gate, as
   in C# and Python. Before, a composite that added and selected the removed
   child in that gap, from an `on_current_changed` subscriber or another
   thread, found the child's `is_current()` reset to `false`.
+
 - A disposed `HierarchicalVm` node now refuses `add_child`, `remove_child`,
   `reparent_child`, `invalidate_children`, `invalidate_subtree` and
   `attach_many`, also where the call would do nothing (ADR-0190, spec/18 §7.1,
@@ -369,12 +446,14 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   under a disposed parent, and `invalidate_subtree` skips a disposed
   descendant. A refused call returns `VmxError::Disposed`; `attach_many`
   rejects every item and the invalidation methods return without a change.
+
 - A `CompositeVm` or `GroupVm` now sends no `CollectionChangedMessage` once its
   disposal is requested, also when the disposal is deferred (ADR-0190, spec/01
   §1.4, #1351). A local subscriber or `on_current_changed` callback that
   disposes the container now suppresses the hub message of that change. In a
   transfer whose old container disposes itself, the hub receives only the new
   container's `Add`. The `Count` message follows the same rule.
+
 - A current `AsyncResourceVm` loader that ends with its own cancellation now
   restores the saved stable state, as `cancel` does, instead of installing
   `Error` (ADR-0199, spec/23 §7, `ARES-012`, #1353). The cancellation can come
@@ -382,30 +461,36 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   superseded loader's cancellation changes nothing. The signal is
   `Err(VmxError::Cancelled)`. `load_async` and `reload_async` return after the
   restore is published, as they do after a loader failure.
+
 - `NotificationVm::is_resolved()` and `ConfirmationVm::is_resolved()` no
   longer change from `true` to `false` when `dispose()` races a hub
   `resolve` (ADR-0211, #1293). Both view models now read the hub under their
   flags lock, so `dispose()` reads the hub and sets `disposed` in one critical
   section, and `is_resolved()` returns a hub value only if no disposal
   completed between its `disposed` check and its hub read.
+
 - Every command of a disposing `NotificationVm` or `ConfirmationVm` now
   reports `can_execute()` false from the start of `dispose()` (ADR-0196,
   spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet
   disposed reported true inside a disposal `can_execute_changed`
   notification, while its `execute` did nothing.
+
 - A fire-and-forget `AsyncRelayCommand` fault now reaches `error_stream()`
   after the completion `can_execute_changed` message (ADR-0195, spec/04
   §10.4, #1327, `CMD-020`). An error subscriber now reads `is_executing()` as
   false.
+
 - A `FormVm` update now raises the approve command's `can_execute_changed`
   exactly once when it changes validity, or dirty state in strict mode
   (ADR-0196, spec/20 §5.2, #1327, `FORM-043`). Before, Rust raised it only
   when the computed eligibility flipped, and never during an approval.
+
 - `ObservableMultiDictionary` and `ObservableDictionary` Remove and Replace hub
   messages now carry the entry's position in enumeration order (#1316,
   ADR-0193, `COL-068`). Remove sends `old_index: Some(position)` and
   `new_index: None`. Replace sends `Some(position)` in both fields. Before,
   both sent `None`.
+
 - Breaking: a `CompositeVm` or `GroupVm` from the builder or from
   `create(options)` has no children until its first `construct()` (#1255,
   ADR-0204, spec/06 §1, spec/07 §3). That construct calls the `children`
@@ -418,12 +503,14 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `build()`: the container publishes `Constructing`, rolls back to
   `Destructed`, attaches nothing and keeps the factory for the next construct.
   A factory that panics also keeps its slot.
+
 - A stored `reconstruct_command()` of `CompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` reports `can_execute()` false once every
   container handle dropped, as in Swift; its `execute()` stays inert (#1483,
   ADR-0204). The aggregate command now holds the parent registration weakly,
   so the children of a dropped aggregate report no parent and can join
   another container while the command handle exists.
+
 - The `FormVm::dispose()` rustdoc now states the deferred-teardown rule
   (#1292). After a refused wait, or while a delivery outside a publication
   scope is in progress, the teardown runs when no publication and no delivery
@@ -433,6 +520,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   outside a scope. A new test keeps deliveries open on two threads and checks
   that the channels complete on the thread whose delivery ends last. The code
   does not change.
+
 - The `FormVm` rustdoc now states the limit of a re-entrant model `Clone`
   (#1279). The form runs `M::clone` under the lock of the live model or the
   snapshot, and these locks are not re-entrant. A model `Clone` that calls a
@@ -441,6 +529,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `set_model()`, `approve()`, `revert()` and the approve and deny commands,
   and `can_approve()` in strict mode. A model `Clone` can read `is_valid()`,
   `errors()`, `error_map()` and `field_error()`. The code does not change.
+
 - Disposing the current child of a `CompositeVm` now clears the composite's
   `current` before `dispose()` returns (ADR-0189, #1317). The composite
   publishes the change once and calls `on_current_changed(None)` once. The
@@ -448,12 +537,14 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   disposed child can no longer become current: `set_current` returns
   `VmxError::NonChild`. The composite's own dispose cascade does not clear
   `current`.
+
 - A `CompositeVm`, `GroupVm` or fixed-arity aggregate that holds a directly
   disposed child now destructs, constructs and reconstructs (ADR-0189,
   #1383). Container walks and the child-transition helper skip a disposed
   child. A walk that waits for a background child that is disposed meanwhile
   now goes on. Before, every `destruct()` failed with `VmxError::Disposed`
   and the container stayed `Constructed`.
+
 - A non-null selection while a `CompositeVm` is `Destructing` now changes
   nothing and returns `Ok(())` (ADR-0188, #1425). This covers `set_current`,
   `select_component`, the child `select()` path, and an async call and its
@@ -461,6 +552,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   and `reconstruct()` therefore return with no current child, also when
   `on_current_changed`, a child's destruct hook or another thread selects a
   child.
+
 - A `FormVm` call nested in a preparation callback or an `errors_changed`
   subscriber of `set_model` or `revert` now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
@@ -471,11 +563,13 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   nested call no longer commits while another thread holds a publication
   scope; it takes the refused-wait result. Queued notifications are dropped
   once the form is disposed.
+
 - `CompositeVm::replace` now clears the replaced child as `current` before it
   frees the child, as `remove_at` does (#1219). Before, the commit freed the
   child first. Another thread could adopt the freed child into another
   composite and select it there. The clear then reset the child's current
   flag while the other composite kept it current (`COMP-006`).
+
 - Every blocking wait between VMx resources now records in one process-wide
   wait-for graph, following ADR-0172 (spec/03 §4.1 and §4.2, spec/02 §2.4,
   `HUB-013`, #1158, #1180, #1183). Hub `send`, `batch` and `dispose` waits,
@@ -510,12 +604,14 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   completes the hub when the delivery returns.
   `vmx::wait_registered_for_testing` is a new hidden test seam that reports
   any recorded wait.
+
 - The thread that owns a `MessageHub` batch now waits for another thread's
   open borrowed scope before its nested `batch` closure runs (#1223,
   ADR-0172). The wait records an edge to the borrower, as the owner's `send`
   and `dispose` already did. Before this fix, the nested closure ran inside
   the other thread's borrowed scope. When the wait would close a cycle, the
   nested `batch` enters a borrowed scope (spec/03 §4.1 and §4.2 rule 3).
+
 - `MessageHub` `send`, `batch` and `dispose` no longer wait for a hub owner
   once the hub is disposed or its disposal is requested (#1224, spec/03
   §3.3). A woken waiter stops waiting at the disposal. Before this fix, these
@@ -524,6 +620,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   value, but it no longer claims the batch owner. So a later call does not
   wait for that closure. A second `dispose` returns at once. C#, Python and
   Swift already behaved this way.
+
 - The inline dispose cascade follows ADR-0175 (spec/02 §7.2, `LIFE-021`,
   #1174, #1167). Once `dispose()` closes hook admission and starts disposing
   children or members, `construct()`, `destruct()` and `reconstruct()` return
@@ -544,6 +641,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `VmxError::ConcurrentOperation` instead of the idempotent `Ok(())`, and a
   subscriber that holds the hub while it waits for the status to settle
   waits forever.
+
 - A leaf `ComponentVm` with `own_member` members disposes them at the same
   admitted-hook boundary as a container's children (#1164, LIFE-015). A
   `dispose()` from another thread while the leaf's construct or destruct hook
@@ -552,12 +650,14 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   disposed before `Disposed`. A leaf without members disposes as before. The
   background construct and destruct paths and `reconstruct()` check closed
   hook admission, as `transition_with_body` already did.
+
 - `TokenPagedComposition`: a load that finds a terminal token when it starts now
   fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
   terminal token after the load command admitted the run. The load then
   refetched page 1 and appended it again, and `has_more()` stayed true. The load
   now changes nothing and does not supersede an in-flight refresh. The ad hoc
   `load_more(loader)` call is unchanged.
+
 - `TokenPagedComposition` no longer deadlocks when a `Token::clone` waits for
   another load or refresh of the same pager (#1162). `current_token()` and
   each load cloned the stored token under the cursor lock. Every commit takes
@@ -567,6 +667,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   own lock, which no commit takes. A reader takes the cursor lock only to copy
   that handle, and runs `Token::clone` after it releases the lock. #1278
   later removed the token lock in this release.
+
 - The `CompositeVm` construct walk's `Current(selector)` assignment follows
   ADR-0165 (#1151). It skips a child that an add, insert, replacement or
   population has attached but not admitted, skips while disposal is pending,
@@ -577,11 +678,13 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   foreign add is refused meanwhile. A transfer commit clears `current` only
   while the moved child is still current, so it no longer clears a later
   selection and leaves its flag set.
+
 - The `CompositeVm::destruct` clear holds the publication lease (#1144, Rust
   part). A disposal from `on_current_changed(None)` during destruct is
   deferred until the clear's publication ends instead of running inside the
   callback. The clear still runs while another thread holds a transaction,
   inside the composite's own transaction and while disposal is deferred.
+
 - `FormVm` applies ADR-0174 rule 7 like the other threaded flavors, with
   the wait-for graph of ADR-0176 (spec/20 §5.5, #1160, #1170). Before,
   another thread's `approve()`, `set_model` and `revert()` ran during an
@@ -608,6 +711,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `another_threads_approval_waits_and_replays_only_its_own_deferred_edit`.
   `disposal_during_an_emission_skips_the_callbacks_not_yet_invoked` now
   disposes from an approval subscriber on the approving thread.
+
 - `FormVm::dispose` no longer completes the channels while another thread
   delivers a form notification outside a publication scope (spec/20 §5.5,
   ADR-0176, #1228). Such deliveries are an approval's admission eligibility
@@ -617,6 +721,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   thread completes the hubs and disposes the commands when the delivery
   returns, as in C# and Python. A `dispose()` from that delivery's own
   observer defers in the same way.
+
 - A validator registration on a live `FormVm` now revalidates as an update
   (spec/20 §5.5, ADR-0176, #1231). `with_validator`, `with_field_validator`,
   `with_model_validator` and `with_clearing_model_validator` revalidated at
@@ -626,6 +731,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   scope. When the wait would close a cycle, the revalidation joins the
   publisher's queue and replays there. The validator itself is registered at
   once.
+
 - A `FormVm` approval started from another approval's settlement notification
   now runs its approval subscribers with model edits applied at once (#1160).
   Before, the outer approval's pre-publication window stayed active, so those
@@ -633,6 +739,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   settlement now saves the enclosing pre-publication state, clears it before
   its subscribers run and restores it when it ends, as C# and Python do. Edits
   made by the outer notification still wait for the outer subscribers.
+
 - `FormVm` now queues every update made during an approval's
   pre-publication window (spec 3.30.0, ADR-0174, `FORM-039`, `FORM-040`)
   (#1168, #1050). The window opens when the post-persist commit starts. A
@@ -653,6 +760,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   the failure is returned. Call-time preparation runs the validators once more
   for each queued update. Calls from other threads now wait for the
   publication instead of joining the queue (see the ADR-0176 entry).
+
 - `CompositeVm`, `GroupVm` and `AggregateVm1`…`AggregateVm6` no longer dispose
   their children while their admitted construct or destruct hook runs on another
   thread (#1062, LIFE-015). The child cascade now runs at the hook boundary of
@@ -670,18 +778,21 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `CompositeVm` or `GroupVm` returns `Ok(())` at once. So a child that disposes
   its parent no longer makes the parent publish `Disposed` before the remaining
   children.
+
 - `TokenPagedComposition` no longer commits a refresh or load that a later load
   superseded (#1045). An operation started with no lock, so a load could start
   between a commit's last staleness check and its writes. The load then
   appended a page fetched for the old prefix to the new accumulator. A start
   now takes an operation gate. Each commit holds that gate from its final check
   until it has written the items and the cursor.
+
 - `FormVm::is_dirty` on another thread no longer pairs a model and a
   snapshot that never coexisted (#1073). A reset approval replaces both in two
   steps, so a clean reset could read as dirty. An approval that advanced the
   snapshot after an edit could also read as clean. `is_dirty` now reads the
   pair again when an approval commit overlapped its reads. It still holds no
   lock while `PartialEq` runs.
+
 - A `FormVm` approval with `reset_on_approved` now validates the reset model
   under the update lock, before it commits (#1046). Before, a validator
   registered on another thread during that validation was left out. The
@@ -689,6 +800,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   valid. A validator registered meanwhile now revalidates the committed model.
   A re-entrant registration during the validation makes it run again, until a
   run registers no validator.
+
 - A `FormVm` approval started from an approval subscriber no longer applies
   the outer approval's deferred edits early (#1061). Before, the outer
   approval's later subscribers saw the edited, dirty model instead of the
@@ -696,6 +808,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   edits, after its own subscribers have run, as C# does for nesting on one
   thread. An edit that a subscriber of the outermost approval makes still
   applies at once.
+
 - `ServicedObservableCollection` and `KeyedServicedObservableCollection` no
   longer deliver a stale message after user code panics under a mutation
   (#1065). User code runs under a mutation: `PartialEq` in `remove`, and the
@@ -703,6 +816,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   that code mutated the collection and then panicked, the nested change stayed
   queued. The next mutation delivered it before its own change. The queued
   messages are now discarded, as they already were when a subscriber panics.
+
 - `CompositeVm::add`, `CompositeVm::insert`, `GroupVm::add` and `GroupVm::insert`
   no longer deadlock when admission fails and a subscriber disposes the
   container (#1066). The rollback destructed the child while it held the
@@ -710,6 +824,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   destruct messages then waited for that gate on the same thread. The rollback
   now releases the gate first, as `replace` already did. The call returns
   `VmxError::Disposed`, and the container ends `Disposed`.
+
 - A cross-thread `dispose()` of a `CompositeVm`, `GroupVm` or fixed aggregate
   no longer hangs when its wait would close a wait-for cycle (ADR-0153,
   ADR-0167, #1058). Before, two threads that each held one container's
@@ -720,9 +835,11 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   when its transaction ends. If that owner's `add` has not admitted its child
   yet, the `add` returns `VmxError::Disposed` and rolls the child back. A
   disposal that closes no cycle still waits for the transaction.
+
 - The summary line of `ModalVm::open()` now says that the call has no effect
   and does not reopen a dismissed modal. Before, it said that the call marks
   the modal as open (#799).
+
 - Rustdoc now matches current behavior (#790). The `ValueStream` type doc says
   that `ValueStream::new` replays the current value and `ValueStream::hot` does
   not, with a doctest. `AsyncRelayCommand::execute` (inherent and trait) points
@@ -732,6 +849,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   failures the stream carries, not only those that settle after the call
   returns. The parity ledger limits "no join of an in-flight child" to
   `AggregateVm1`–`AggregateVm6`.
+
 - A `FormVm` reader on another thread no longer pairs one model with another
   model's errors. Before, `set_model` and `revert` installed the model before
   its errors. An approval reset installed the errors before the model. So
@@ -739,6 +857,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   model, `is_valid()`, `can_approve()`, `errors()`, `error_map()`, and
   `field_error()` report that model's errors, or a later model's. Readers still
   hold no lock while `PartialEq` or a validator runs (#770).
+
 - `MessageHub` delivery no longer locks the hub before each subscriber to
   check that it is still attached. Each subscriber now carries an active
   flag. Unsubscribing, dropping the `Subscription` and disposing the hub clear
@@ -749,6 +868,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   per handler. A detached handler still drops right after its own turn,
   outside that mark, so its `Drop` sees the same state as before. A release `send` to 100 subscribers drops from about 1,650 ns
   to about 570 ns. Before #636 it cost about 540 ns (#766).
+
 - `ObservableDictionary` and `ObservableMultiDictionary` lookups, and
   `remove(&item)` on `ServicedObservableCollection` and
   `KeyedServicedObservableCollection`, no longer copy every stored key or
@@ -757,21 +877,25 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   in use. A release `get` over 5,000 `String` keys drops from about 87,000 ns
   to about 4,700 ns, the cost before #636. Inserting a key that is already
   present now drops the argument key after the lock is released (#765).
+
 - The documentation of `HierarchicalVm::construct` and
   `HierarchicalVmBuilder::eager_children` no longer claims all descendants. The
   option applies to this node's children only. It continues deeper only
   through children that are eager themselves (#759, ADR-0156).
+
 - `DiscriminatorVm::active_key_changes()` ends on the active key when a
   newer setter commits between a setter's commit and its publication: on
   another thread, or from the replaced key's `Drop`. The older setter's key
   is then skipped on the stream; `active_changed()` still sends one message
   per effective change (#752).
+
 - `DerivedProperty::recompute` no longer loses an update that commits while
   its transform runs. Concurrent `recompute` calls now run one at a time, so
   each transform receives the previous result. A source update that commits
   during a transform wins over the transform's stale result. No lock is held
   while subscribers run, and the last value that `value_changes` publishes is
   the stored value. A commit no longer lands after `dispose()` returns (#751).
+
 - A `CompositeVm`, `GroupVm`, or fixed-slot aggregate that waits for a
   background child no longer leaks when its last handle drops without
   `dispose()` and the child never settles. Queued child steps, the settle
@@ -783,25 +907,30 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   nothing references any more (no handle and no command) abandons its
   transition; the child still settles. A command handle alone still lets
   an aggregate's deferred reconstruct complete (#750).
+
 - `CompositeVm::clear()` publishes the current child's `is_current` change
   after it releases the membership gate. Before, a hub or `property_changed()`
   subscriber that disposed the composite from that notification blocked on
   the gate its own thread held, and `clear()` never returned (#749).
+
 - The blanket `Reconstructable::reconstruct` now waits for a deferred
   destruct and then constructs again, as the inherent `reconstruct` does.
   Before, it called `construct` while the destruct was still in flight,
   ignored the `ConcurrentOperation` error, and left a background component,
   or a container or aggregate with a background child, `Destructed` (#748).
+
 - `ServicedObservableCollection::remove` and
   `KeyedServicedObservableCollection::remove` that find no match deliver a
   change their `PartialEq` made to the collection before they return. Before,
   that change waited in the delivery queue until a later mutation drained it,
   or was never delivered (#747).
+
 - `ManualDispatcher::drain_foreground` and `drain_background` release the
   queue lock before each action runs, as `drain()` does. Before, an action
   that dispatched to the same queue, such as a background hook that
   constructs another background VM, blocked on that lock and the drain never
   returned (#746).
+
 - `CompositeVm` and `GroupVm` with `auto_construct_on_add` no longer
   publish `Constructed` while a child added after the construct walk's last
   late scan is still `Constructing` (#744, spec/02 §6, spec/06 §5.1). Before,
@@ -816,6 +945,7 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   `can_construct()`, `can_destruct()`, `can_reconstruct()` and the
   reconstruct command report `false`, and `construct()` and `destruct()`
   return `ConcurrentOperation`, as during `Constructing`.
+
 - The construct walk of `CompositeVm` and `GroupVm` no longer rolls the
   container back when it reaches a child that a cross-thread add attached
   during `Constructing` but has not started yet (#743, spec/06 §5.1). Before,
@@ -833,38 +963,45 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   walk keeps its records in its own scope, which ends with that walk, so a
   failed or superseded walk never takes or clears a later walk's records, and
   an add after the walk's last scan keeps no record.
+
 - `FormVm` replays a model edit deferred during an approval settlement even
   when an approval subscriber panics, then lets the panic continue to the
   `approve()` caller, as the other flavors do in `finally`. Before, the edit
   was skipped and the next successful approval replayed it over newer edits
   (#740).
+
 - `RelayCommand`s built from clones of one `RelayCommandBuilder` share their
   action, but a nested call deferred between them now uses its own command's
   disposal state. Before, a deferred call ran after
   its own command was disposed, or was dropped when the outer command was
   disposed (#739).
+
 - A component whose lifecycle hook panics now releases its settle waiters as
   the panic unwinds. Before, a `CompositeVm` or `GroupVm` waiting on a
   background child whose `on_dispose` hook panicked stayed `Constructing`,
   and its later `construct()` and `destruct()` returned
   `ConcurrentOperation`. `transition_with` and `reconstruct` release the
   waiters through a drop guard; the panic still reaches the caller (#738).
+
 - A container no longer deadlocks when a background child settles and a
   queued child step owns the last handle to a view-model. Settling, starting a
   transition and rolling one back now drop the cleared settle queue after the
   hub and container locks are released. Before, dropping the composite while a
   failing background child settled, or removing a queued child and dropping
   its handle, blocked the hub (#701).
+
 - `GroupVm::construct`, `reconstruct()` and the reconstruct command no longer
   deadlock when a child hook or hub subscriber adds a child or calls
   `set_auto_construct_on_add` during the construct walk. The group reads its
   auto-construct flag before the walk, as `CompositeVm` does. Before, the walk
   held the flag's lock, so the re-entrant call waited forever (#702).
+
 - Disposing a `CompositeVm`, `GroupVm` or aggregate while it waits on a
   background child no longer deadlocks when a queued child step owns the last
   handle to a removed child whose model `Drop` reads the container. The
   abandoned settle queue now drops after the container's core lock is
   released (#741).
+
 - `CompositeVm` no longer deadlocks when its current selector, its
   `on_current_changed` callback or a hub subscriber to `current` re-enters the
   composite. The selector and callback are cloned out before they run. A
@@ -873,12 +1010,14 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   callback can replace itself. A callback fired by `set_current` still gets
   `OwnershipTransactionInProgress` if it changes the current child
   (spec/06 §3.2). Before, each call ran under the mutex that stores it (#716).
+
 - `FormVm::approve` no longer persists an invalid model while another thread
   calls `set_model`. Admission now checks validity, marks the approval in
   flight and captures the model under the form's update lock, which
   `set_model` also takes. Before, an edit could commit between the check and
   the capture, so the persister, the snapshotter and `on_approved` received a
   model the validators reject (#719).
+
 - A `TokenPagedComposition` built with `with_auto_construct_loader` no longer
   commits a load or refresh that an item's construct hook superseded. The
   load and refresh tasks now check the operation generation and disposal
