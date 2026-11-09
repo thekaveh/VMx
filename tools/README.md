@@ -49,8 +49,12 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   Unit tests live in `tools/tests/`. Run with:
 
   ```bash
-  uv --project langs/python run pytest tools/tests/
+  uv --project langs/python sync --locked --all-extras
+  uv --project langs/python run python -m pytest tools/tests/
   ```
+
+  The sync installs the `test` and `tools` extras. The tests stop with a usage
+  error when the installed `markdown-it-py` differs from the `tools` extra pin.
 
 - `check-python-fixture-sync.py` — verifies the Python package's tracked runtime
   lifecycle fixture and the sdist's four conformance fixtures are byte-identical

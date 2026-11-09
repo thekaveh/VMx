@@ -14,7 +14,7 @@ and documentation updates. This runbook adds only the adapter steps.
 The protected `npm-react` environment is restricted to `react-v*` tags. The npm
 trusted publisher is pending until a trusted publish succeeds. Register it with
 the shared fields, environment `npm-react`, and "Allow npm publish" ticked. The
-bootstrap procedure is in git history.
+bootstrap procedure is in git history at [commit `0c88386e`, §1](https://github.com/thekaveh/VMx/blob/0c88386eb3fffbe1d0620178bfd391745bd5db4e/packages/react/RELEASING.md#L7-L27).
 
 The first trusted publish, tag `react-v0.1.2`, failed with `E404`. That error
 means npm found no matching trusted publisher

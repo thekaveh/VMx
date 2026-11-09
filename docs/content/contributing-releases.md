@@ -47,7 +47,8 @@ release procedure for every flavor.
 The main local check families are:
 
 - C#: restore, build, test, and `dotnet format`
-- Python: `uv run pytest`, `ruff`, and `mypy --strict`
+- Python: `uv sync --locked --all-extras`, then `uv run python -m pytest`,
+  `ruff`, and `mypy --strict`
 - TypeScript: `npm ci`, fixture sync, typecheck, lint, build, and test.
   Vitest global setup runs `npm run build`, including fixture and schema
   synchronization, before test workers start. This also applies to watch

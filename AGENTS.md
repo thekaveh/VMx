@@ -36,10 +36,10 @@ keys consumed by tools, tests, and review checklists.
 ### 3.1 Python (`langs/python`)
 ```bash
 cd langs/python
-uv sync --locked --all-extras
-uv run pytest                              # full suite
-uv run pytest tests/conformance            # conformance only
-uv run pytest -k LIFE_005                  # a single conformance ID
+uv sync --locked --all-extras              # once per new worktree, before any test
+uv run python -m pytest                    # full suite
+uv run python -m pytest tests/conformance  # conformance only
+uv run python -m pytest -k LIFE_005        # a single conformance ID
 uv run ruff check
 uv run ruff format --check
 uv run mypy --strict src/vmx               # must be strict-clean
@@ -87,9 +87,16 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-features
 cargo test --locked                        # default features: test seams compiled out
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
-cargo package --locked
+CARGO_TARGET_DIR=target/package-verify cargo package --locked  # own target dir, see below
 python3 ../../tools/check-rust-package.py  # crate holds exactly the tracked files
 ```
+`cargo package` verifies the crate by building the packaged copy in the target
+directory's `package/` folder. In a shared target directory, that build leaves
+a stale `vmx-rs` library. Later integration-test builds there, such as
+`cargo test --test conformance`, link it and ignore edits to `src/`. The gate
+therefore runs `cargo package` in its own `CARGO_TARGET_DIR`. If a target
+directory has already run `cargo package`, run `cargo clean -p vmx-rs` in it
+once.
 
 ### 3.6 Conformance coverage tool
 ```bash
@@ -100,9 +107,12 @@ python3 tools/check-conformance-coverage.py
 uv --project langs/python run python tools/check-conformance-coverage.py \
     --require csharp --require python --require typescript --require swift --require rust
 
-# The tool's own unit tests
-uv --project langs/python run pytest tools/tests/
+# The tool's own unit tests (the sync installs the test and tools extras)
+uv --project langs/python sync --locked --all-extras
+uv --project langs/python run python -m pytest tools/tests/
 ```
+Use `python -m pytest`, not a bare `pytest` command: without the `test` extra in
+`langs/python/.venv`, a bare `pytest` command can run an outside `pytest` from `PATH`.
 Running ruff on `tools/` requires the project config: `--config langs/python/pyproject.toml`.
 
 ### 3.7 Pre-commit
