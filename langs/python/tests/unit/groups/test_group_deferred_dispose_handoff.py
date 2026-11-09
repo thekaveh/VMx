@@ -16,7 +16,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.collections import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -89,7 +89,7 @@ def test_handoff_refuses_a_foreign_add_that_starts_before_dispose_admits() -> No
     def foreign_add() -> None:
         handoffs.append(1)
         worker = _start(lambda: group.add(x), errors)
-        worker.join(HANG_GUARD)
+        join_thread(worker)
         assert not worker.is_alive()
 
     _wrap_handoff(group, foreign_add)
@@ -118,7 +118,7 @@ def test_handoff_does_not_wait_for_a_foreign_add_that_waits_for_the_owner() -> N
 
     def worker_handler(_event: CollectionChangedEvent) -> None:
         if threading.get_ident() != main:
-            worker_saw_owner_return.append(owner_returned.wait(HANG_GUARD))
+            worker_saw_owner_return.append(wait_event(owner_returned))
 
     group.on_collection_changed.subscribe(worker_handler)
     _wrap_handoff(group, lambda: workers.append(_start(lambda: group.add(x), errors)))
@@ -128,7 +128,7 @@ def test_handoff_does_not_wait_for_a_foreign_add_that_waits_for_the_owner() -> N
     finally:
         owner_returned.set()
     assert len(workers) == 1
-    workers[0].join(3 * HANG_GUARD)
+    join_thread(workers[0], 3 * HANG_GUARD)
     assert not workers[0].is_alive()
 
     assert worker_saw_owner_return == []

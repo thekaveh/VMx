@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from tests.wait_graph_seams import wait_until_waiting
 from vmx.forms import FormVM
 from vmx.messages import PropertyChangedMessage
@@ -183,7 +183,7 @@ class _Scenario:
             return
         try:
             self.y_draining.set()
-            assert self.y_release.wait(HANG_GUARD)
+            assert wait_event(self.y_release)
             self._y_call()
         except BaseException as error:
             self.y_failures.append(error)
@@ -218,22 +218,22 @@ class _Scenario:
         y.start()
         assert y.ident is not None
         self.y_ident = y.ident
-        assert self.y_draining.wait(HANG_GUARD)
+        assert wait_event(self.y_draining)
 
         x = Thread(target=self._run_x, daemon=True)
         x.start()
         assert x.ident is not None
         self.x_ident = x.ident
         try:
-            assert self.x_in_sink.wait(HANG_GUARD)
+            assert wait_event(self.x_in_sink)
             if self.order == "x_send_first":
                 # X's hub send waits for Y's drain before Y calls the form.
                 wait_until_waiting(self.x_ident)
         finally:
             self.y_release.set()
 
-        x.join(HANG_GUARD * 2)
-        y.join(HANG_GUARD * 2)
+        join_thread(x, 2 * HANG_GUARD)
+        join_thread(y, 2 * HANG_GUARD)
         assert not x.is_alive(), "thread X stalled"
         assert not y.is_alive(), "thread Y stalled"
         assert self.y_done.is_set()
@@ -319,7 +319,7 @@ def test_another_threads_update_waits_for_the_update_scope_and_records_its_wait(
     def sink(errors: dict[str, str]) -> None:
         if errors and not in_sink.is_set():
             in_sink.set()
-            assert release_sink.wait(HANG_GUARD)
+            assert wait_event(release_sink)
             order.append("x-errors")
 
     form.errors_changed.subscribe(sink)
@@ -329,7 +329,7 @@ def test_another_threads_update_waits_for_the_update_scope_and_records_its_wait(
         form.set_model(Model("bad"))
 
     def y() -> None:
-        assert in_sink.wait(HANG_GUARD)
+        assert wait_event(in_sink)
         form.set_model(Model("y"))
 
     x_thread = Thread(target=x, daemon=True)
@@ -342,8 +342,8 @@ def test_another_threads_update_waits_for_the_update_scope_and_records_its_wait(
         assert form.model == Model("bad")
     finally:
         release_sink.set()
-    x_thread.join(HANG_GUARD * 2)
-    y_thread.join(HANG_GUARD * 2)
+    join_thread(x_thread, 2 * HANG_GUARD)
+    join_thread(y_thread, 2 * HANG_GUARD)
 
     assert not x_thread.is_alive()
     assert not y_thread.is_alive()
@@ -360,7 +360,7 @@ def test_no_notification_is_delivered_under_the_state_lock() -> None:
     def read_from_another_thread(*_: object) -> None:
         reader = Thread(target=lambda: (form.model, form.errors), daemon=True)
         reader.start()
-        reader.join(HANG_GUARD)
+        join_thread(reader)
         reads.append(not reader.is_alive())
 
     form.errors_changed.subscribe(read_from_another_thread)

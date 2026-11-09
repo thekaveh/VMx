@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 import pytest
 
+from tests.liveness import wait_event
 from tests.unit.helpers.real_asyncio_dispatcher import RunningAsyncioDispatcher
 from vmx.components.component_vm import ComponentVM
 from vmx.lifecycle.status import ConstructionStatus
@@ -123,7 +124,7 @@ def test_dispose_before_queued_terminal_delivery_does_not_resurrect_vm() -> None
 
         def block_loop() -> None:
             blocker_started.set()
-            if not release_blocker.wait(harness.timeout * 2):
+            if not wait_event(release_blocker, 2 * harness.timeout):
                 harness.errors.append(AssertionError("foreground blocker release timed out"))
 
         harness.loop.call_soon_threadsafe(block_loop)
