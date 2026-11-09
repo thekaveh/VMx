@@ -108,6 +108,75 @@ public class ConfirmationDecoratorCommandTests
         context.Posts.Should().Be(0, "VMx does not marshal the confirmed inner command to the caller's context");
     }
 
+    // ADR-0195 D1: a confirmation that another thread completes while Execute()
+    // is still running must not run the inner command inside that call either.
+    // The completer races the gap between Execute()'s completion check and its await.
+    [Fact]
+    public void Execute_With_Confirmation_Completed_During_The_Call_Never_Runs_Inner_Inline()
+    {
+        const int Iterations = 200_000;
+        var inlineRuns = 0;
+        var started = 0;
+        TaskCompletionSource<bool>? pending = null;
+        var jitter = 0;
+        using var inner = RelayCommand.Builder()
+            .Task(() =>
+            {
+                if (s_insideExecute) Interlocked.Increment(ref inlineRuns);
+            })
+            .Build();
+        using var command = new ConfirmationDecoratorCommand(inner, () =>
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            Volatile.Write(ref pending, tcs);
+            Interlocked.Increment(ref started);
+            return tcs.Task;
+        });
+        using var stop = new CancellationTokenSource();
+        var completer = new Thread(() =>
+        {
+            var seen = 0;
+            while (!stop.IsCancellationRequested)
+            {
+                if (Volatile.Read(ref started) == seen) continue;
+                seen = Volatile.Read(ref started);
+                Thread.SpinWait(Volatile.Read(ref jitter));
+                Volatile.Read(ref pending)!.TrySetResult(true);
+            }
+        })
+        { IsBackground = true };
+        completer.Start();
+        try
+        {
+            for (var i = 0; i < Iterations; i++)
+            {
+                Volatile.Write(ref jitter, i % 4);
+                s_insideExecute = true;
+                try
+                {
+                    command.Execute(null);
+                }
+                finally
+                {
+                    s_insideExecute = false;
+                }
+                // Let the completer settle this round before the next one starts.
+                SpinWait.SpinUntil(() => Volatile.Read(ref pending)!.Task.IsCompleted, HangGuard)
+                    .Should().BeTrue();
+            }
+        }
+        finally
+        {
+            stop.Cancel();
+            completer.Join(HangGuard);
+        }
+
+        inlineRuns.Should().Be(0, "Execute() never runs the inner command inside its own call");
+    }
+
+    [ThreadStatic]
+    private static bool s_insideExecute;
+
     private sealed class RecordingSynchronizationContext : SynchronizationContext
     {
         private int _posts;

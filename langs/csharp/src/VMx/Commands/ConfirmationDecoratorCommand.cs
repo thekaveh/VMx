@@ -113,9 +113,11 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
         var confirmation = _confirm();
         // Execute() never runs the inner command inside its own call (spec/04
         // §8.3.1, ADR-0195). A completed confirmation would continue inline, so
-        // move to the thread pool. Task.Yield() is not used: it would post to the
-        // caller's SynchronizationContext, and VMx does not marshal (spec/11 §3.1).
-        if (!awaitInner && confirmation.IsCompleted)
+        // move to the thread pool first. The hop is unconditional: another thread
+        // can complete the confirmation between an IsCompleted check and the await.
+        // Task.Yield() is not used: it would post to the caller's
+        // SynchronizationContext, and VMx does not marshal (spec/11 §3.1).
+        if (!awaitInner)
             await ThreadPoolHop.Instance;
         var confirmed = await confirmation.ConfigureAwait(false);
         // A confirmation that resolves after disposal runs nothing (spec §8.4, ADR-0134).
