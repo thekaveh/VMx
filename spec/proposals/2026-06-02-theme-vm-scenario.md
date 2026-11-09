@@ -64,13 +64,28 @@ ThemeVM : ComponentVM<ThemeModel>
   # commands:
   setThemeCommand     : RelayCommand<string>       # arg is preset name; raises on unknown
   toggleHighContrast  : RelayCommand               # flips model.highContrast; non-destructive over current accent + scale
-  setAccentColor      : RelayCommand<string>       # accepts a hex string; hex parse-validation is flavor-discretionary (in-VM per TS, or delegated to the adapter to keep the VM framework-agnostic per Python/C#) — not gated by a THEME conformance ID
+  setAccentColor      : RelayCommand<string>       # accepts only #RGB or #RRGGBB; rejects any other value like an unknown preset (ADR-0201 §2.5)
   setFontScale        : RelayCommand<Double>       # clamps to [0.75..1.75]
-  followSystemCommand : RelayCommand               # sets followSystem=true and re-reads the host's current theme
+  followSystemCommand : RelayCommand               # sets followSystem=true and re-reads the host's current theme; with no host provider, keeps the theme (ADR-0201 §2.6)
 
   # events (via hub):
   ThemeChangedMessage(prev: ThemeModel, curr: ThemeModel)  # published after every effective change
 ```
+
+**Accent validation (ADR-0201 §2.5).** `setAccentColor` accepts only `#RGB`
+or `#RRGGBB`, with hexadecimal digits in either case, and stores the value as
+given. It rejects any other value, an empty or null value included, as
+`THEME-002` rejects an unknown preset. C#, Python and TypeScript raise their
+idiomatic argument error. Swift throws `ThemeError.invalidAccent` from
+`applyAccentColor(_:)`, and `setAccentColor` discards the rejection
+(ADR-0009). A rejected accent publishes no `ThemeChangedMessage` and leaves the
+model unchanged.
+
+**Follow-system with no provider (ADR-0201 §2.6).** With no host theme
+provider, `followSystemCommand` keeps the name, accent, font scale and
+high-contrast values and sets `followSystem` to true. It publishes one
+`ThemeChangedMessage` only when `followSystem` was false. A provider that
+reports a name that is not a preset has the same result.
 
 Every command MUST be `cancelable` (`CanExecute == false` while the dispatcher is mid-transition; this avoids the case where a user toggles theme 5 times in 50 ms during a SwiftUI animation and the adapter ends up in an intermediate state).
 
@@ -102,7 +117,7 @@ Each scenario MUST be tested in every flavor that implements the contract.
 - Theme persistence across app restarts (a separate `IPreferencesService` port; flagships may opt in via a follow-up PR).
 - Per-component theme overrides (e.g., "render this note in sepia mode regardless of app theme") — left to the host app.
 - Animated theme transitions — explicitly NOT part of the contract; an animating adapter is allowed but not required.
-- A theme picker UI — the flagships should ship a Settings menu in a later PR; this contract specifies the VM surface only.
+- A theme picker UI beyond the control strip. Per ADR-0201 §2.4, every flagship ships one strip: a button for each preset (`setThemeCommand`), a high-contrast toggle (`toggleHighContrast`), and font-size decrease and increase buttons (`setFontScale` with the current factor minus or plus 0.1). No flagship ships an accent or follow-system control.
 
 ## 8. Migration
 
