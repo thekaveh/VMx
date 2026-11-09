@@ -80,7 +80,8 @@ public class COMP_047_GRP_015_ConstructWalkMembership_Tests
         IComponentVM Root,
         Action<ComponentVM> Add,
         Func<ComponentVM, bool> Remove,
-        Func<IReadOnlyList<ComponentVM>> Snapshot);
+        Func<IReadOnlyList<ComponentVM>> Snapshot,
+        LateChildStarts LateStarts);
 
     private static Rig Create(string kind)
     {
@@ -92,13 +93,15 @@ public class COMP_047_GRP_015_ConstructWalkMembership_Tests
                 .Name("p").Services(hub, dispatcher)
                 .Children(() => Array.Empty<ComponentVM>())
                 .AutoConstructOnAdd(true).Build();
-            return new Rig(dispatcher, hub, composite, composite.Add, composite.Remove, composite.Snapshot);
+            return new Rig(dispatcher, hub, composite, composite.Add, composite.Remove, composite.Snapshot,
+                composite.LateStartsForTesting);
         }
         var group = GroupVM<ComponentVM>.Builder()
             .Name("g").Services(hub, dispatcher)
             .Children(() => Array.Empty<ComponentVM>())
             .AutoConstructOnAdd(true).Build();
-        return new Rig(dispatcher, hub, group, group.Add, group.Remove, group.Snapshot);
+        return new Rig(dispatcher, hub, group, group.Add, group.Remove, group.Snapshot,
+            group.LateStartsForTesting);
     }
 
     private static ComponentVM Child(Rig rig, string name, bool background, Action? onConstruct = null)
@@ -206,16 +209,46 @@ public class COMP_047_GRP_015_ConstructWalkMembership_Tests
     }
 
     // A late child whose own add fails is undone; the container still constructs.
+    // The walk waits on the add's start attempt while the child's hook fails.
     private static void FailedLateAddIsUndone(string kind)
     {
         var rig = Create(kind);
         var anchor = Child(rig, "a", background: true);
         rig.Add(anchor);
         var construct = rig.Root.ConstructAsync();
-        var failing = Child(rig, "f", background: false, Failing("f"));
-
-        var add = () => rig.Add(failing);
-        add.Should().Throw<InvalidOperationException>("the add's own construct failed");
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var walkWaiting = new ManualResetEventSlim();
+        var failing = Child(rig, "f", background: false, Failing("f", () =>
+        {
+            entered.Set();
+            release.Wait(Liveness.HangGuard).Should().BeTrue("the test releases the hook");
+        }));
+        rig.LateStarts.ProbeForTesting = (child, stage) =>
+        {
+            if (ReferenceEquals(child, failing) && stage == LateChildStage.WalkWaitingOnAdd) walkWaiting.Set();
+        };
+        Exception? addError = null;
+        var adder = new Thread(() =>
+        {
+            try { rig.Add(failing); }
+            catch (Exception error) { addError = error; }
+        })
+        { IsBackground = true };
+        adder.Start();
+        try
+        {
+            entered.Wait(Liveness.HangGuard).Should().BeTrue("the add starts the late child");
+            rig.Dispatcher.RunFirst(); // the anchor settles; the walk reaches the late child
+            walkWaiting.Wait(Liveness.HangGuard).Should().BeTrue("the walk waits on the add's attempt");
+            rig.Root.Status.Should().Be(ConstructionStatus.Constructing);
+        }
+        finally
+        {
+            release.Set(); // the late child's hook fails now
+            adder.Join(Liveness.HangGuard).Should().BeTrue("the failed add completes");
+        }
+        addError.Should().BeOfType<InvalidOperationException>("the add's own construct failed");
         rig.Snapshot().Should().NotContain(failing, "the failed add is undone");
         rig.Dispatcher.RunAll();
 
