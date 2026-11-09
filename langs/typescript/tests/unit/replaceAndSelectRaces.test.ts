@@ -260,7 +260,7 @@ describe("select() on a member that is not Constructed (#1229)", () => {
     expect(a.isCurrent).toBe(false);
   });
 
-  it("still reports the transaction error inside the caller's own transaction", () => {
+  it("is silent inside the caller's own transaction too (ADR-0188)", () => {
     const a = leaf("a");
     const sut = composite([a]);
     sut.construct();
@@ -277,7 +277,7 @@ describe("select() on a member that is not Constructed (#1229)", () => {
     sut.add(b);
     sut.setAt(1, replacement);
 
-    expect(String(caught)).toContain("transaction is already in progress");
+    expect(caught).toBeNull();
     expect(sut.current).toBeNull();
   });
 
