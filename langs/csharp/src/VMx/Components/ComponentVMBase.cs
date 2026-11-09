@@ -43,6 +43,13 @@ internal interface IParentCompositeVM
 
     /// <summary>Stage-detaches a child without publishing the removal.</summary>
     ParentTransferToken DetachForTransfer(IComponentVM vm);
+
+    /// <summary>
+    /// Called once by a child after it published Disposed from its own
+    /// disposal. A composite clears the child as Current (spec/06 §4.3 rule 9,
+    /// ADR-0189); a parent without a selection slot ignores it.
+    /// </summary>
+    void ChildDisposed(IComponentVM vm);
 }
 
 /// <summary>
@@ -604,10 +611,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <item>A child already at the target status (<see cref="ConstructionStatus.Constructed"/>
     /// or <see cref="ConstructionStatus.Destructed"/>) is skipped. A child already
     /// <see cref="ConstructionStatus.Constructing"/> or <see cref="ConstructionStatus.Destructing"/>
-    /// is joined and is not started again.</item>
+    /// is joined and is not started again. A <see cref="ConstructionStatus.Disposed"/>
+    /// child is skipped.</item>
     /// <item>A background child keeps this VM in its transient status until the
     /// child settles. The rest of the walk then continues on this VM's
     /// foreground dispatcher.</item>
+    /// <item>A child that reaches <see cref="ConstructionStatus.Disposed"/> while the
+    /// walk waits for it ends the wait as a success.</item>
     /// <item>A child that settles at another status faults the task with an
     /// <see cref="InvalidOperationException"/>, and later children do not start.
     /// This VM then rolls back to its prior settled status. Siblings that already
@@ -694,6 +704,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // further children, matching Python and TypeScript; nor does a walk
             // whose owner was disposed, as TypeScript abandons it on dispose.
             if (WalkStopped(scope)) return;
+            // A Disposed child is skipped: the walk calls no lifecycle
+            // operation on it and does not fail (spec/02 §6, ADR-0189).
+            if (child.Status == ConstructionStatus.Disposed) continue;
             Task pending;
             if (construct)
             {
@@ -710,10 +723,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             }
             var resumes = !pending.IsCompleted;
             await pending.ConfigureAwait(false);
-            if (construct && child.Status != ConstructionStatus.Constructed)
+            // A child that reached Disposed while the walk waited settles the
+            // wait as a success (spec/02 §6, ADR-0189).
+            var settled = child.Status;
+            if (construct && settled is not ConstructionStatus.Constructed and not ConstructionStatus.Disposed)
                 throw new InvalidOperationException(
                     $"Child '{child.Name}' did not reach Constructed.");
-            if (!construct && child.Status != ConstructionStatus.Destructed)
+            if (!construct && settled is not ConstructionStatus.Destructed and not ConstructionStatus.Disposed)
                 throw new InvalidOperationException(
                     $"Child '{child.Name}' did not reach Destructed.");
 
@@ -917,11 +933,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private bool CommitIsCurrent(bool value)
     {
         // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal.
-        // A selection change on an already-disposed VM is a silent no-op
-        // (no INPC raise, no hub PropertyChangedMessage), mirroring Swift
-        // (VMX-006). Reads the terminal state under the same _gate the
-        // lifecycle-race guards use.
-        if (IsDisposed()) return false;
+        // A selection change on an already-disposed VM publishes nothing (no
+        // INPC raise, no hub PropertyChangedMessage), mirroring Swift
+        // (VMX-006). One change still applies: when its composite stops
+        // making it Current, the flag becomes false (ADR-0189). Reads the
+        // terminal state under the same _gate the lifecycle-race guards use.
+        if (IsDisposed())
+        {
+            if (!value) _isCurrent = false;
+            return false;
+        }
 
         // Idempotent-set guard: spec/03-messages.md mandates that a property
         // assignment to the same value MUST NOT emit a PropertyChanged hub
@@ -1764,6 +1785,10 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
 
         DrainAndThrow(delivery!, shouldDrain);
+        // After Disposed and before this call returns, in both disposal
+        // orders: a composite clears this child as Current (spec/06 §4.3
+        // rule 9, ADR-0189). It skips the clear in its own dispose cascade.
+        FirstFailure.Capture(ref firstError, () => Parent?.ChildDisposed(this));
         void FinishDisposal()
         {
             // A container reaches its child cascade only after the admitted

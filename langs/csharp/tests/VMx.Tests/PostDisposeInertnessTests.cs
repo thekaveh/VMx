@@ -27,14 +27,22 @@ public sealed class PostDisposeInertnessTests
             .Children(() => kids).Build();
         parent.Construct();
         parent.Current = kids[0];
-        kids[0].Dispose();
         kids[1].Dispose();
+
+        kids[1].CanSelect().Should().BeFalse();
+        kids[1].Select();
+        parent.Current.Should().BeSameAs(kids[0]);
+
+        // Disposing the current child clears Current (spec/06 §4.3 rule 9,
+        // ADR-0189); its own selection calls stay no-ops after that.
+        kids[0].Dispose();
+        parent.Current.Should().BeNull();
 
         kids[0].CanDeselect().Should().BeFalse();
         kids[0].Deselect();
-        kids[1].Select();
+        kids[0].Select();
 
-        parent.Current.Should().BeSameAs(kids[0]);
+        parent.Current.Should().BeNull();
     }
 
     [Fact]
