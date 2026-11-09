@@ -16,6 +16,31 @@ Thanks for your interest in contributing!
    self-approval.
 5. Maintainers promote `develop` to protected `main` through a separate PR.
 
+### 1.1 Branch sync policy
+
+`develop` and `main` stay in sync by tree, not by history. The
+`develop-gitflow` ruleset permits squash merges only, and the `main-gitflow`
+ruleset permits merge commits only. No permitted PR can bring a `main` merge
+commit into `develop`, so `develop` history does not contain the `main` merge
+commits. `git rev-list --count origin/develop..origin/main` is therefore
+never 0, and it grows by one with each promotion.
+
+- **Promotion.** Each promotion PR from `develop` to `main` merges with a merge
+  commit. GitHub reports every promotion PR as `BEHIND` `main`. This state is
+  expected and does not show that the promotion head is out of date. After the
+  merge, check that `main` has the promotion head's tree; the command exits 0:
+
+  ```bash
+  git fetch origin
+  git diff --quiet <promotion head> <main merge commit>
+  ```
+
+- **Back-sync.** A change that reaches `main` by another route, such as a
+  merged release-please release PR, does not reach `develop` by itself. Before
+  the next promotion, open a squash PR to `develop` from a branch cut at that
+  `main` commit. After it merges, `git diff --quiet origin/main origin/develop`
+  exits 0 when no other change has landed on `develop` since.
+
 ## 2. Per-language setup
 
 ### 2.1 C#
