@@ -356,6 +356,8 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         # Materialize before mutation so factory failure cannot leave a child
         # detached from its original parent.
         self._ensure_children_materialized()
+        # The receiver's factory can adopt the child, so read the parent again.
+        old_parent = child._hierarchical_parent
         old_index = -1
         if old_parent is not None:
             old_parent._ensure_children_materialized()

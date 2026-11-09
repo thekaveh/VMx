@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from vmx.hierarchical import HierarchicalVM
-from vmx.messages import TreeStructureChangedMessage
+from vmx.messages import TreeStructureChange, TreeStructureChangedMessage
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
 
@@ -323,6 +323,24 @@ class TestDisposedNodeRefusal:
 
         assert calls == []
         assert child.parent is old
+
+    def test_add_child_rereads_parent_after_lazy_factory_adopts_the_child(self) -> None:
+        hub = make_hub()
+        child = leaf(hub, "child")
+        receiver = parent_of([child], hub)
+        tree_msgs: list[TreeStructureChangedMessage] = []
+
+        def on_msg(m: object) -> None:
+            if isinstance(m, TreeStructureChangedMessage):
+                tree_msgs.append(m)
+
+        hub.messages.subscribe(on_next=on_msg)
+
+        receiver.add_child(child)
+
+        assert list(receiver.children) == [child]
+        assert child.parent is receiver
+        assert [m.change for m in tree_msgs] == [TreeStructureChange.REPARENTED]
 
     def test_disposed_unmaterialized_node_refuses_invalidation_without_materializing(
         self,
