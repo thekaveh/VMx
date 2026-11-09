@@ -14,6 +14,8 @@ below for them.
 
 ### Added
 
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
 - `ReadOnlyObservableList` is exported from `vmx` and `vmx.collections`, and
   `COL-070` conformance tests cover it (#1316, ADR-0193). `keys1` and `keys2`
   already returned this read-only view.
@@ -72,6 +74,10 @@ below for them.
 
 ### Changed
 
+- A refused child `select()` or `deselect()` now changes nothing and raises
+  nothing (ADR-0188, spec/05 §6, #1424). Before, it raised inside the caller's
+  own uncommitted membership transaction and while disposal of the composite
+  was pending.
 - A `CollectionChangedMessage` from a `CompositeVM` or `GroupVM` now carries
   the container's `name` as its `sender_name` (#1309, ADR-0194). Before, it
   carried the runtime type name, such as `CompositeVM`. A hub filter on that
@@ -82,6 +88,19 @@ below for them.
 
 ### Fixed
 
+- Disposing the current child of a composite now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `on_current_changed` with `None` once.
+  The disposed child reads `is_current` false. A disposed child can no longer
+  become current: the setter raises the non-member `ValueError`.
+- A composite, group or aggregate that holds a directly disposed child now
+  destructs, constructs and reconstructs (ADR-0189, #1383). Container walks
+  and the child-transition helper skip a disposed child. Before, every
+  `destruct()` failed and the container stayed `Constructed`.
+- A non-null selection while a composite is `Destructing` now changes nothing
+  and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
+  therefore return with no current child, also when an `on_current_changed`
+  callback or a child's destruct hook selects a child.
 - `ObservableDictionary` Remove and Replace hub messages now carry the entry's
   position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets
   `index` and `old_index` to the position before the removal, and `new_index` to

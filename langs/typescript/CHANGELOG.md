@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -74,6 +76,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A refused child `select()` or `deselect()` now changes nothing and raises
+  nothing (ADR-0188, #1424). Before, it raised inside the caller's own
+  uncommitted membership transaction and while disposal of the composite was
+  pending.
 - **Source-breaking:** `ObservableDictionary.keys1` and `keys2` now return a
   read-only `ReadOnlyObservableList<TKey>` (#1316, ADR-0193, `COL-070`). The
   view reads and notifies as before, but it has no mutator and no batch
@@ -115,6 +121,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Disposing the current child of a composite now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `onCurrentChanged(null)` once. The
+  disposed child reads `isCurrent` false. A disposed child can no longer
+  become current: the setter throws the non-member error.
+- A composite, group or aggregate that holds a directly disposed child now
+  destructs, constructs and reconstructs (ADR-0189, #1383). Container walks and
+  `_transitionChildren` skip a disposed child. A walk that waits for a child
+  that is disposed meanwhile now settles at its target. Before, every
+  `destruct()` failed and the container stayed `Constructed`.
+- A non-null selection while a composite is `Destructing` now changes nothing
+  and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
+  therefore return with no current child, also when an `onCurrentChanged`
+  callback or a child's destruct hook selects a child.
 - `ObservableDictionary` Remove and Replace hub messages now carry the entry's
   position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets
   `index` and `oldIndex` to the position before the removal, and `newIndex` to
