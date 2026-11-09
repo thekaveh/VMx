@@ -49,9 +49,10 @@ public sealed class NotificationHub : INotificationHub, IDisposable
             {
                 return _pendingSubject.Subscribe(observer);
             }
-            catch (ObjectDisposedException)
+            catch (ObjectDisposedException) when (_pendingSubject.IsDisposed)
             {
                 // Dispose disposed the subject between the check and the subscribe.
+                // A subscriber's own exception on a live hub still propagates.
             }
         }
         observer.OnCompleted();

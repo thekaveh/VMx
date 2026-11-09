@@ -288,6 +288,21 @@ public class NotificationsConformanceTests
     }
 
     [Fact]
+    public void Subscriber_ObjectDisposedException_On_A_Live_Hub_Reaches_The_Caller()
+    {
+        using var hub = new NotificationHub();
+        var completions = 0;
+
+        var subscribe = () => hub.Pending.Subscribe(
+            _ => throw new ObjectDisposedException("subscriber"),
+            () => completions++);
+
+        subscribe.Should().Throw<ObjectDisposedException>()
+            .Which.ObjectName.Should().Be("subscriber");
+        completions.Should().Be(0, "a live hub does not complete the subscriber");
+    }
+
+    [Fact]
     public void Reentrant_Dispose_Then_Subscribe_Gets_Completion_Only()
     {
         var hub = new NotificationHub();
