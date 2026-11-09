@@ -254,8 +254,11 @@ public class GRP_014_COMP_046_ReverseDestructOrder_Tests
                 .Name(name).Services(hub, dispatcher).Model(name).Background(true).Build())
             .ToArray();
         var parent = make(hub, dispatcher, children);
-        _ = parent.ConstructAsync();
-        background.RunUntil(() => parent.Status == ConstructionStatus.Constructed);
+        var construct = parent.ConstructAsync();
+        // The walk resumes on a pool thread, so wait for the whole construct.
+        background.RunUntil(() => construct.IsCompleted);
+        construct.Status.Should().Be(TaskStatus.RanToCompletion);
+        parent.Status.Should().Be(ConstructionStatus.Constructed);
         var log = Record(hub);
 
         parent.Destruct();
@@ -263,7 +266,9 @@ public class GRP_014_COMP_046_ReverseDestructOrder_Tests
         // The walk starts only the last child and waits for it to settle.
         children.Select(child => child.Status).Should().Equal(
             ConstructionStatus.Constructed, ConstructionStatus.Constructed, ConstructionStatus.Destructing);
-        background.RunUntil(() => parent.Status == ConstructionStatus.Destructed);
+        var vm = (ComponentVMBase)parent;
+        background.RunUntil(() =>
+            parent.Status == ConstructionStatus.Destructed && !vm.HasInFlightLifecycleForTesting);
         log.Should().Equal(Expect(ConstructionStatus.Destructed, ["c", "b", "a"], parent.Name));
         hub.Dispose();
     }
