@@ -1473,6 +1473,13 @@ class _ComponentVMBase(ABC):
         - It waits for a background child: the future stays pending until
           the child settles, then the walk continues. A child that reaches
           ``Disposed`` meanwhile settles the wait as a success.
+        - A walk that waited continues on this VM's foreground dispatcher,
+          not on the thread that settled the child. A walk whose children
+          all settle at once runs on the calling thread to its end
+          (spec/11 §4, ADR-0218).
+        - It joins a construct or destruct of a child that another thread
+          starts between the walk's status read and its start call
+          (ADR-0218).
         - A child that settles at any other status fails the walk with the
           child's error (or a ``RuntimeError``). The walk starts no later
           child, and it does not undo children that already reached the
@@ -1684,8 +1691,15 @@ class _ComponentVMBase(ABC):
                     continue
 
                 def child_settled(completed: Future[None]) -> None:
-                    if child_reached_expected(completed):
-                        advance()
+                    if not child_reached_expected(completed):
+                        return
+                    # The walk waited, so it continues on its owner's
+                    # foreground, not on the thread that settled the child
+                    # (spec/02 §6, spec/11 §4, ADR-0218).
+                    try:
+                        owner._dispatcher.foreground.schedule(lambda _s, _st: advance())
+                    except BaseException as error:
+                        fail(error)
 
                 pending.add_done_callback(child_settled)
                 return
@@ -1854,7 +1868,14 @@ class _ComponentVMBase(ABC):
                 waiter: Future[None] = Future()
                 self._lifecycle_waiters.append(waiter)
                 return waiter
-        return self._start_lifecycle_future(self.construct)
+        try:
+            return self._start_lifecycle_future(self.construct)
+        except StatusTransitionError:
+            # Another thread started the construct after the read above.
+            joined = self._join_raced_transition(construct=True)
+            if joined is None:
+                raise
+            return joined
 
     def _construct_commit_for_running_hook(self) -> Callable[[], None]:
         """The commit step of the construct walk that the running hook starts.
@@ -1923,7 +1944,48 @@ class _ComponentVMBase(ABC):
                 waiter: Future[None] = Future()
                 self._lifecycle_waiters.append(waiter)
                 return waiter
-        return self._start_lifecycle_future(self.destruct)
+        try:
+            return self._start_lifecycle_future(self.destruct)
+        except StatusTransitionError:
+            # Another thread started the destruct after the read above.
+            joined = self._join_raced_transition(construct=False)
+            if joined is None:
+                raise
+            return joined
+
+    def _join_raced_transition(self, *, construct: bool) -> Future[None] | None:
+        """Join a transition that started between a status read and a start call.
+
+        A walk, and an add that auto-constructs, start a child only when no
+        transition of that child is in flight (spec/02 §6, ADR-0218). When
+        the start call is refused because another caller started the same
+        transition after the read, this returns a waiter of that
+        transition. It returns ``None`` when no such transition is in
+        flight, and once the inline dispose cascade started (LIFE-021), so
+        the caller re-raises the refusal.
+        """
+        with self._lifecycle_lock:
+            if self._hook_admission_closed:
+                return None
+            status = self._status
+            pending = self._construct_publication_pending
+            if construct:
+                in_flight = (
+                    status is ConstructionStatus.CONSTRUCTING
+                    or pending
+                    # Admitted, before Constructing is published.
+                    or (status is ConstructionStatus.DESTRUCTED and self._in_flight)
+                )
+            else:
+                in_flight = status is ConstructionStatus.DESTRUCTING or (
+                    # Admitted, before Destructing is published.
+                    status is ConstructionStatus.CONSTRUCTED and self._in_flight and not pending
+                )
+            if not in_flight:
+                return None
+            waiter: Future[None] = Future()
+            self._lifecycle_waiters.append(waiter)
+            return waiter
 
     def _start_lifecycle_future(self, operation: Callable[[], None]) -> Future[None]:
         waiter: Future[None] = Future()
