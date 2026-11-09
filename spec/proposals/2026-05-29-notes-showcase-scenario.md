@@ -183,7 +183,8 @@ examples/
    `NotesViewVM.bindTo(notebook)`, which awaits a ~150 ms simulated
    notes-for-notebook fetch (via `reconstruct()`).
 1. **Notes display.** `NotesViewVM` filters by selected notebook, applies the
-   `SearchableState` debounced 150 ms title-search predicate, applies the
+   `SearchableState` debounced 150 ms note-search predicate (title, body or
+   tag), applies the
    `showStarredOnly` `IFilterable` predicate, and paginates 5 per page via
    `PagedComposition`. A search, the starred filter or a page change never
    changes `current` (ADR-0201 §2.1). While the current note is not on the
@@ -246,7 +247,7 @@ notebook has ≥ 6 notes (multi-page demonstration). 3 notes starred.
 | 4   | `FormVM` snapshot/revert (ch. 20)                 | Note editor                                        |
 | 5   | `DerivedProperty` (ch. 15)                        | Status bar, `isDirty`, capability actions          |
 | 6   | `RelayCommand` reactive `canExecute` (ch. 4)      | Save / Revert / Delete                             |
-| 7   | `SearchableState` + `IFilterable<T>` (§14.5–14.6) | Title search + starred filter                      |
+| 7   | `SearchableState` + `IFilterable<T>` (§14.5–14.6) | Note search + starred filter                       |
 | 8   | `IPageable` + `PagedComposition` (§14.10, ch. 21) | Notes pagination                                   |
 | 9   | `INotificationHub` + `NotificationVM` (ch. 16)    | Toast region                                       |
 | 10  | Async `construct()` + dispatcher (ch. 2, 11)      | Workspace load + notebook switch + save            |
