@@ -8,6 +8,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `SearchableState` construction no longer starts a term debounce
+  (ADR-0198, `SRCH-008`, #1307). Before, the seeded empty term emitted one
+  filtered snapshot one debounce window after construction, with no term
+  change or `Search()` call.
 - Added: `COL-067` conformance tests (#1176, ADR-0177). An
   `ObservableDictionary` mutation changes the entries and `Count` first. Then
   it updates each key view that changes, raises the dictionary events and
@@ -569,6 +573,15 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx.Notifications
 
+- Fixed: `NotificationVM` and `ConfirmationVM` keep `RemainingTime` and
+  `Opacity` from their first resolution or disposal (ADR-0197, `NOTIF-019`,
+  #1306). Before, both values kept decaying with the scheduler clock after
+  resolution or `Dispose()`, and no change notification reported the new
+  values.
+- Fixed: a `Pending` subscription made after `NotificationHub` disposal
+  receives completion only, with no snapshot and no error (ADR-0197,
+  `NOTIF-020`, #1476). Before, it received `ObjectDisposedException`, and a
+  `NotificationVM` built over a disposed hub threw.
 - Fixed: when a `Pending` subscriber disposes the hub and then throws, the
   queued completion still runs, so `Pending` completes and its subject is
   disposed before any waiting thread wakes. Before, the abandoned queue

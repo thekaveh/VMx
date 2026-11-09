@@ -1,3 +1,4 @@
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
@@ -30,7 +31,32 @@ public sealed class NotificationHub : INotificationHub, IDisposable
     private int _emitterThreadId;
 
     /// <inheritdoc/>
-    public IObservable<IReadOnlyList<Notification>> Pending => _pendingSubject.AsObservable();
+    /// <remarks>
+    /// A subscription made after <see cref="Dispose"/> returns receives
+    /// completion only: no value and no error (ADR-0197, NOTIF-020).
+    /// </remarks>
+    public IObservable<IReadOnlyList<Notification>> Pending =>
+        Observable.Create<IReadOnlyList<Notification>>(SubscribePending);
+
+    private IDisposable SubscribePending(IObserver<IReadOnlyList<Notification>> observer)
+    {
+        bool disposed;
+        lock (_lock)
+            disposed = _disposed;
+        if (!disposed)
+        {
+            try
+            {
+                return _pendingSubject.Subscribe(observer);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Dispose disposed the subject between the check and the subscribe.
+            }
+        }
+        observer.OnCompleted();
+        return Disposable.Empty;
+    }
 
     /// <inheritdoc/>
     public Task<NotificationReaction> Post(Notification notification)

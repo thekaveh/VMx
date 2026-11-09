@@ -39,6 +39,7 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     private IDisposable? _tickSub;
     private bool _isResolved;
     private bool _disposed;
+    private TimeSpan? _keptRemaining;
 
     /// <summary>
     /// Creates a <see cref="NotificationVM"/>.
@@ -109,14 +110,19 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     /// <summary>Configured lifespan (default 60 s).</summary>
     public TimeSpan Lifespan => _lifespan;
 
-    /// <summary>Time remaining until auto-dismiss. Decays to <see cref="TimeSpan.Zero"/>.</summary>
+    /// <summary>
+    /// Time remaining until auto-dismiss. Decays to <see cref="TimeSpan.Zero"/>.
+    /// Keeps its value from the first resolution or disposal (ADR-0197).
+    /// </summary>
     public TimeSpan RemainingTime
     {
         get
         {
-            var elapsed = _scheduler.Now - _start;
-            var remaining = _lifespan - elapsed;
-            return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            lock (_gate)
+            {
+                if (_keptRemaining is { } kept) return kept;
+            }
+            return ComputeRemaining();
         }
     }
 
@@ -175,6 +181,7 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         {
             if (_disposed) return;
             _disposed = true;
+            _keptRemaining ??= ComputeRemaining();
             if (!disposing) return;
 
             timerSub = _timerSub;
@@ -278,12 +285,21 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
             }
 
             _isResolved = true;
+            _keptRemaining ??= ComputeRemaining();
             timerSub = _timerSub;
             _timerSub = null;
             tickSub = _tickSub;
             _tickSub = null;
             return true;
         }
+    }
+
+    /// <summary>Reads the remaining time from the scheduler clock.</summary>
+    private TimeSpan ComputeRemaining()
+    {
+        var elapsed = _scheduler.Now - _start;
+        var remaining = _lifespan - elapsed;
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
     /// <summary>

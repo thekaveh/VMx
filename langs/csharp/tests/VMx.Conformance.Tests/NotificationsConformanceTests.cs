@@ -6,7 +6,7 @@ using static VMx.Tests.Helpers.Liveness;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for the notifications sub-package, NOTIF-001..016.
+/// Conformance tests for the notifications sub-package, NOTIF-001..017 and NOTIF-020.
 /// See spec/16-notifications.md, ADR-0013, ADR-0031.
 /// </summary>
 public class NotificationsConformanceTests
@@ -205,14 +205,20 @@ public class NotificationsConformanceTests
     public async Task NOTIF_017_Dispose_Resolves_InFlight_Waiters_With_Pending()
     {
         var hub = new NotificationHub();
-        var completed = false;
-        using var sub = hub.Pending.Subscribe(_ => { }, () => completed = true);
+        var completions = 0;
+        var disposeStarted = false;
+        var valuesAfterDispose = 0;
+        using var sub = hub.Pending.Subscribe(
+            _ => { if (disposeStarted) valuesAfterDispose++; },
+            () => completions++);
         var task = hub.Post(new Notification(NotificationType.Confirmation, "in-flight"));
 
+        disposeStarted = true;
         hub.Dispose();
 
         (await task).Should().Be(NotificationReaction.Pending);
-        completed.Should().BeTrue("the Pending observable completes on dispose");
+        completions.Should().Be(1, "the Pending observable completes once on dispose");
+        valuesAfterDispose.Should().Be(0, "dispose sends no final snapshot (ADR-0197)");
 
         // Subsequent post resolves immediately with Pending and does not enqueue.
         var late = hub.Post(new Notification(NotificationType.Notification, "late"));
@@ -222,6 +228,99 @@ public class NotificationsConformanceTests
         // Subsequent resolve is a no-op; second dispose is a no-op.
         hub.Resolve(new Notification(NotificationType.Notification, "ghost"), NotificationReaction.Approve);
         hub.Dispose();
+    }
+
+    // ── NOTIF-020 ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// NOTIF-020: a Pending subscription made after dispose receives completion
+    /// only: no value, no error, no throw. See spec/16-notifications.md §9 and
+    /// ADR-0197.
+    /// </summary>
+    [Fact]
+    [Trait("Conformance", "NOTIF-020")]
+    public void NOTIF_020_Pending_Subscription_After_Dispose_Completes_Only()
+    {
+        var hub = new NotificationHub();
+        _ = hub.Post(new Notification(NotificationType.Notification, "posted"));
+        hub.Dispose();
+
+        var values = 0;
+        var errors = 0;
+        var completions = 0;
+        var subscribe = () => hub.Pending.Subscribe(
+            _ => values++,
+            _ => errors++,
+            () => completions++);
+        subscribe.Should().NotThrow();
+        values.Should().Be(0, "neither the posted notification nor an empty list arrives");
+        errors.Should().Be(0);
+        completions.Should().Be(1);
+
+        // An onNext-only subscription does not throw either.
+        var onNextOnly = () => hub.Pending.Subscribe(_ => values++).Dispose();
+        onNextOnly.Should().NotThrow();
+        values.Should().Be(0);
+    }
+
+    [Fact]
+    public void NotificationVM_Over_Disposed_Hub_Constructs_And_Dismisses()
+    {
+        var hub = new NotificationHub();
+        hub.Dispose();
+        var notification = new Notification(NotificationType.Notification, "late");
+
+        NotificationVM? vm = null;
+        var construct = () => vm = new NotificationVM(
+            notification, hub, new Microsoft.Reactive.Testing.TestScheduler());
+        construct.Should().NotThrow();
+        using (vm!)
+        {
+            vm!.IsResolved.Should().BeFalse();
+            vm.DismissCommand.Execute(null);
+            vm.IsResolved.Should().BeTrue();
+        }
+        IReadOnlyList<Notification>? last = null;
+        _ = hub.Pending.Subscribe(snapshot => last = snapshot);
+        last.Should().BeNull("a disposed hub sends no snapshot and stays empty");
+        _ = hub.Post(notification);
+        last.Should().BeNull();
+    }
+
+    [Fact]
+    public void Reentrant_Dispose_Then_Subscribe_Gets_Completion_Only()
+    {
+        var hub = new NotificationHub();
+        var lateValues = 0;
+        var lateErrors = 0;
+        var lateCompletions = 0;
+        Exception? thrown = null;
+        var reentered = false;
+        using var outer = hub.Pending.Subscribe(snapshot =>
+        {
+            if (snapshot.Count == 0 || reentered) return;
+            reentered = true;
+            hub.Dispose();
+            try
+            {
+                hub.Pending.Subscribe(
+                    _ => lateValues++,
+                    _ => lateErrors++,
+                    () => lateCompletions++);
+            }
+            catch (Exception error)
+            {
+                thrown = error;
+            }
+        });
+
+        _ = hub.Post(new Notification(NotificationType.Notification, "trigger"));
+
+        reentered.Should().BeTrue();
+        thrown.Should().BeNull();
+        lateValues.Should().Be(0);
+        lateErrors.Should().Be(0);
+        lateCompletions.Should().Be(1);
     }
 
     [Fact]
