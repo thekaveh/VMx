@@ -87,6 +87,30 @@ fn paging_keeps_the_selection_and_j_selects_a_note_on_the_page() {
     assert!(repository.note("rust-parity").is_some());
 }
 
+// ADR-0201 §2.1: `d` deletes the current note even while a page change
+// hides its row. The editor shows that note, and the prompt names it.
+#[test]
+fn d_after_a_page_change_deletes_the_hidden_current_note() {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+
+    press(&workspace, "n");
+    assert!(marked_rows(&workspace).is_empty());
+    let screen_after_paging = screen(&workspace);
+    assert!(
+        screen_after_paging.contains("Title: Rust flavor parity"),
+        "{screen_after_paging}"
+    );
+
+    press(&workspace, "d");
+    let messages = workspace.notifications().messages();
+    assert_eq!(messages, vec!["Delete note 'Rust flavor parity'?"]);
+
+    press(&workspace, "y");
+    assert!(repository.note("rust-parity").is_none());
+    assert!(repository.note("docs-refresh").is_some());
+}
+
 #[test]
 fn a_search_that_hides_the_selection_keeps_it() {
     let workspace = WorkspaceVm::seeded().expect("workspace builds");

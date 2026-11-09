@@ -56,11 +56,16 @@ again.
 
 - The C# `NotesViewVM` raises `Current` changed when the current note goes
   back into the visible slice, so the Avalonia `ListBox` selects it again.
+  While the note is hidden, the list has no row for it. Thus the
+  `ListBox` `SelectedItem` is `null`, and `Current` keeps the note.
 - The Rust `WorkspaceVm` no longer changes the selection or reloads the
   editor on a search or a page change. The Rust TUI gains the `j` and `k`
   keys. They select the next or the previous note on the visible page. When
   the current note is not on that page, both keys select the first visible
   note.
+- The Rust `d` key deletes the current note even while its row is hidden.
+  The editor shows that note, and the delete prompt names it. A page
+  change or a search still cancels a pending delete.
 
 Rejected: move the selection to a visible note. That reloads the editor and
 discards the draft each time the user types a search term.

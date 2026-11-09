@@ -162,8 +162,10 @@ first two policies apply to it.
 1. **Selection after a refilter or a page change.** A search, the starred
    filter or a page change never changes `current`. While the current note is
    not on the visible page, the editor keeps that note and its draft. When
-   the note is visible again, the list marks it as selected again. The Rust
-   TUI selects notes with `j` and `k` on the visible page.
+   the note is visible again, the list marks it as selected again. While
+   the note is hidden, no list row is selected. The Rust TUI selects notes
+   with `j` and `k` on the visible page. Its `d` key deletes the current
+   note even while its row is hidden, and the prompt names that note.
 1. **Unsaved edits on a note switch.** A selection of another note discards
    the unsaved draft with no prompt. The editor then shows the stored values
    of the selected note. The dirty marker and the enabled Save and Revert
@@ -181,7 +183,9 @@ first two policies apply to it.
 1. **Accent validation.** `setAccentColor` accepts only `#RGB` or `#RRGGBB`.
    It rejects any other value like an unknown preset in `THEME-002`: no
    `ThemeChangedMessage` and no model change. Swift rejects through
-   `applyAccentColor(_:)`, and its command discards the rejection.
+   `applyAccentColor(_:)`, and its command discards the rejection. A C#
+   `null` accent sent through the command does nothing, because
+   `RelayCommand<string>` does not run its task for `null`.
 1. **Follow-system with no provider.** No flagship passes a host theme
    provider. With no provider, `followSystemCommand` keeps the theme values
    and sets `followsSystem` to true.

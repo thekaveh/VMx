@@ -1012,10 +1012,12 @@ impl WorkspaceVm {
         Ok(())
     }
 
-    // Paging, searching, and switching notebooks cancel a pending delete:
-    // its note may leave the screen, and `y` must never delete a note the
-    // user no longer sees. Paging and searching never change the selection
-    // or reload the editor, so a hidden note keeps its draft (ADR-0201 §2.1).
+    // Paging, searching, and switching notebooks cancel a pending delete, so
+    // `y` confirms only a prompt that the user saw on the current screen.
+    // Paging and searching never change the selection or reload the editor,
+    // so a hidden note keeps its draft (ADR-0201 §2.1). `d` deletes the
+    // current note even while its row is hidden. The editor shows that note,
+    // and the prompt names it.
 
     pub fn next_page(&self) {
         self.reject_delete_current();
