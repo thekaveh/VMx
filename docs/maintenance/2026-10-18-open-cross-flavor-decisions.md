@@ -179,4 +179,4 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 | §2.6  | `SetModel` while approval publishes                                                           | ADR-0174  | [#1211](https://github.com/thekaveh/VMx/pull/1211) |
 | §2.9  | Selecting from a composite's own structural transaction                                       | ADR-0173  | [#1212](https://github.com/thekaveh/VMx/pull/1212) |
 | §2.11 | Lifecycle call during a container's inline dispose cascade                                    | ADR-0175  | [#1216](https://github.com/thekaveh/VMx/pull/1216) |
-| §3    | Swift: throwing inner command in CMDD-010 and CMDD-013, and the FORM-035/036 deny snapshotter | ADR-0184  | PRNUM                                              |
+| §3    | Swift: throwing inner command in CMDD-010 and CMDD-013, and the FORM-035/036 deny snapshotter | ADR-0184  | [#1490](https://github.com/thekaveh/VMx/pull/1490) |
