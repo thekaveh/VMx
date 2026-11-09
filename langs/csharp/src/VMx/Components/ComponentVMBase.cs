@@ -292,15 +292,11 @@ internal static class ComponentOwnership
         IEnumerable<ParentTransferToken?> transfers,
         Action publish)
     {
-        Exception? firstError = null;
+        ExceptionDispatchInfo? firstError = null;
         foreach (var transfer in transfers)
-        {
-            try { transfer?.Commit(); }
-            catch (Exception error) { firstError ??= error; }
-        }
-        try { publish(); }
-        catch (Exception error) { firstError ??= error; }
-        if (firstError is not null) ExceptionDispatchInfo.Capture(firstError).Throw();
+            FirstFailure.Capture(ref firstError, transfer, static token => token?.Commit());
+        FirstFailure.Capture(ref firstError, publish);
+        firstError?.Throw();
     }
 
     internal static ParentTransferToken? BeginTransfer(

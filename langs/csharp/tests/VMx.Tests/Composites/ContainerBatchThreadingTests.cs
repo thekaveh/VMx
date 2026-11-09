@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.Reactive.Linq;
 using FluentAssertions;
 using VMx.Components;
@@ -102,6 +103,38 @@ public class ContainerBatchThreadingTests
         batch.Dispose();
 
         log.Should().Equal("local:Reset", "hub:Reset");
+    }
+
+    [Fact]
+    public void Close_During_A_Raise_That_Saw_The_Open_Batch_Still_Delivers_The_Reset()
+    {
+        // The probe pauses a Raise after it saw the open batch and before it
+        // marks the batch dirty, and closes the batch from another thread in
+        // that gap. Without one lock over the depth and the dirty flag, the
+        // close finds the batch clean, and the dirty flag set after it is
+        // never delivered (#1344). With the lock, the close waits for the
+        // Raise and then delivers one Reset.
+        var delivered = new List<NotifyCollectionChangedAction>();
+        var batch = new ContainerBatch(args => { lock (delivered) delivered.Add(args.Action); }, () => true);
+        var handle = batch.Enter();
+        using var closed = new ManualResetEventSlim();
+        Thread? closer = null;
+        batch.RaiseProbe = () =>
+        {
+            closer = new Thread(() =>
+            {
+                handle.Dispose();
+                closed.Set();
+            });
+            closer.Start();
+            closed.Wait(TimeSpan.FromMilliseconds(200));
+        };
+
+        batch.Raise(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, "a", 0));
+        batch.RaiseProbe = null;
+        closer!.Join();
+
+        lock (delivered) delivered.Should().Equal(NotifyCollectionChangedAction.Reset);
     }
 
     [Fact]

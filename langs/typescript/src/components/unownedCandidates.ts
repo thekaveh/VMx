@@ -9,6 +9,10 @@ import type { ComponentVMBase, IOwningParentVM } from "./componentVMBase.js";
  * that is an owner on the ancestor chain of `parent`, belongs to someone else
  * and is skipped. Each canonical identity is disposed once. The disposal is
  * best-effort: the population's own failure is the one that propagates.
+ *
+ * The checks and the disposal run in one synchronous step. Another
+ * population can take a candidate only before the checks, and then the
+ * checks skip it.
  */
 export function disposeUnownedCandidates(
   parent: IOwningParentVM,

@@ -13,8 +13,15 @@ internal static class UnownedCandidates
     /// <summary>
     /// Disposes each candidate that has no parent, is in no other ownership
     /// transaction, and is not an owner on the ancestor chain of
-    /// <paramref name="parent"/>. Each canonical identity is disposed once. The disposal is best-effort: the population's own
-    /// failure is the one that propagates.
+    /// <paramref name="parent"/>. Each canonical identity is disposed once.
+    /// The disposal is best-effort: the population's own failure is the one
+    /// that propagates.
+    /// <para>
+    /// The parent and in-progress checks take no lock. If another thread
+    /// starts to attach a candidate after the checks, this cleanup can still
+    /// dispose it. A factory's fresh output is normally reachable only by the
+    /// failed population, so the window is narrow.
+    /// </para>
     /// </summary>
     internal static void Dispose(IParentCompositeVM parent, IEnumerable<IComponentVM?> candidates)
     {

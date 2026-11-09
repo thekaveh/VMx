@@ -20,6 +20,11 @@ def dispose_unowned_candidates(
     chain of *parent*, belongs to someone else and is skipped. Each canonical
     identity is disposed once. The disposal is best-effort: the population's
     own failure is the one that propagates.
+
+    The parent and in-progress checks take no lock. If another thread starts
+    to attach a candidate after the checks, this cleanup can still dispose it.
+    A factory's fresh output is normally reachable only by the failed
+    population, so the window is narrow.
     """
     seen: set[int] = set()
     for candidate in candidates:

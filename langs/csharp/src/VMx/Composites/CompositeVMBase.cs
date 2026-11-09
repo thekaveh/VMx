@@ -205,8 +205,13 @@ internal static class ContainerMembership
 /// The depth and the dirty flag change under one lock, so batches opened and
 /// closed on several threads keep an exact depth, and a change that marks the
 /// batch dirty is never lost to a concurrent close (#1344). Delivery runs
-/// outside the lock. A close after the container's disposal is requested
-/// delivers nothing, so no local event goes without its hub message.
+/// outside the lock. A close that finds the container's disposal requested
+/// delivers nothing, so that close raises no local event without its hub
+/// message. The check is best-effort: a disposal that another thread requests
+/// after it and before the hub publish still lets the local <c>Reset</c> go
+/// without a hub message. Every unbatched change has the same window, because
+/// <see cref="ContainerMembership.DeliverCollectionChanged{TContainer, VM}"/>
+/// reads its publish check after the local handlers.
 /// </summary>
 internal sealed class ContainerBatch
 {
@@ -229,6 +234,12 @@ internal sealed class ContainerBatch
         _canDeliverReset = canDeliverReset;
     }
 
+    /// <summary>
+    /// Test-only probe: runs in <see cref="Raise"/> after it sees an open
+    /// batch and before it marks the batch dirty. Null in production.
+    /// </summary>
+    internal Action? RaiseProbe { get; set; }
+
     /// <summary>Opens one batch level; disposing the handle closes it once.</summary>
     internal IDisposable Enter()
     {
@@ -243,6 +254,7 @@ internal sealed class ContainerBatch
         {
             if (_depth > 0)
             {
+                RaiseProbe?.Invoke();
                 _dirty = true;
                 return;
             }

@@ -69,6 +69,13 @@ func validateAggregateSlots(
 /// transaction holds, or that is an owner on the ancestor chain of `parent`,
 /// belongs to someone else and is skipped. Each canonical identity is
 /// disposed once.
+///
+/// The cleanup is best-effort. The parent check takes no lock, so another
+/// thread that starts to attach a candidate after the checks can still lose
+/// it to this cleanup. The in-progress check never waits: a candidate whose
+/// gate another thread holds at that moment is skipped and stays undisposed.
+/// A factory's fresh output is normally reachable only by the refused
+/// population, so both windows are narrow.
 func disposeUnownedCandidates(parent: OwnershipParentVM, _ candidates: [ComponentVMBase]) {
     var seen = Set<ObjectIdentifier>()
     for candidate in candidates {
