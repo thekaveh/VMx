@@ -545,6 +545,8 @@ def test_validate_readme_reports_each_raw_html_tag() -> None:
         "[a][r]\n\n[r]: https://example.com '<b>x</b>'",
         "- item\n\n  ```cs\n  List<T>\n  ```",
         "- item\n\n      List<T>",
+        '[a][r]\n\n[r]: https://example.com\n  "<b>x</b>"',
+        "\\``a <b> `",
     ],
     ids=[
         "inline-code",
@@ -561,6 +563,8 @@ def test_validate_readme_reports_each_raw_html_tag() -> None:
         "definition-title",
         "fence-in-list",
         "indented-code-in-list",
+        "definition-title-on-next-line",
+        "escaped-backtick-shortens-the-opener",
     ],
 )
 def test_validate_readme_accepts_markdown_that_is_not_raw_html(body: str) -> None:
@@ -577,6 +581,8 @@ def test_validate_readme_accepts_markdown_that_is_not_raw_html(body: str) -> Non
         ("Unmatched ``List<T>` run.", "<T>"),
         ("`a\n\n<b>` crosses a blank line.", "<b>"),
         ('[a](https://example.com "t") then <b>x</b>', "<b>"),
+        ('[a][r]\n\n[r]: https://example.com "<b>x</b>" trailing', "<b>"),
+        ("\\`a <b>`", "<b>"),
     ],
     ids=[
         "paragraph-continuation",
@@ -586,6 +592,8 @@ def test_validate_readme_accepts_markdown_that_is_not_raw_html(body: str) -> Non
         "unmatched-backticks",
         "span-across-blank-line",
         "after-link-title",
+        "definition-title-with-trailing-text",
+        "escaped-single-backtick",
     ],
 )
 def test_validate_readme_still_rejects_raw_html_outside_code(body: str, tag: str) -> None:
@@ -594,10 +602,22 @@ def test_validate_readme_still_rejects_raw_html_outside_code(body: str, tag: str
     assert f"{_RAW_HTML_ERROR}{tag}" in errors
 
 
-@pytest.mark.parametrize("opener", ["<!-- ", "<? "])
-def test_validate_readme_scans_unterminated_openers_in_linear_time(opener: str) -> None:
-    # #1439: each unterminated opener used to scan to the end of the text.
-    readme = "# VMx\n\n" + opener * 50_000 + "\n"
+@pytest.mark.parametrize(
+    ("opener", "count"),
+    [
+        ("<!-- ", 50_000),
+        ("<? ", 50_000),
+        ("<![CDATA[ ", 50_000),
+        ("[ ", 50_000),
+        ("](", 5_000),
+        ("[a](", 5_000),
+        ("](<", 5_000),
+    ],
+)
+def test_validate_readme_scans_unterminated_openers_in_linear_time(opener: str, count: int) -> None:
+    # #1439: each unterminated opener, bracket or link destination used to scan
+    # to the end of the text.
+    readme = "# VMx\n\n" + opener * count + "\n"
 
     started = time.perf_counter()
     errors = checker.validate_readme(readme, "VMx")

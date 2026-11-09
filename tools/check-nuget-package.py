@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import itertools
+import bisect
 import os
 import re
 import stat
@@ -96,8 +96,10 @@ _DECLARATION = re.compile(r"<![A-Za-z]")
 _AUTOLINK = re.compile(r"(?<!\\)(?<!\]\()<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*)>")
 # An optional "...", '...' or (...) title after an inline destination (CommonMark).
 _TITLE = re.compile(r"""\s+(?:"[^"]*"|'[^']*'|\([^)]*\))""")
+# The title may follow on the next line, and only spaces may follow it (CommonMark).
 _DEFINITION_TITLE = re.compile(
-    r"""^( {0,3}\[[^\]]+\]:[ \t]*(?:\n[ \t]*)?<?[^\s>]+>?)[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\))""",
+    r"""^( {0,3}\[[^\]]+\]:[ \t]*(?:\n[ \t]*)?<?[^\s>]+>?)"""
+    r"""(?:[ \t]+|[ \t]*\n[ \t]*)(?:"[^"]*"|'[^']*'|\([^)]*\))(?=[ \t]*$)""",
     re.MULTILINE,
 )
 _REFERENCE_LABEL = re.compile(r"\[([^\]]*)\]")
@@ -107,35 +109,41 @@ _REFERENCE_DEFINITION = re.compile(
 )
 
 
+_MAX_PARENTHESES = 32
+
+
 def _label(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def _closing_bracket(text: str, start: int) -> int:
-    """Return the index of the ']' that closes the '[' at start, or -1."""
-    depth = 0
-    index = start
+def _closing_brackets(text: str) -> dict[int, int]:
+    """Map the index of each matched '[' to the index of its closing ']'.
+
+    One pass with a stack, so an unmatched '[' costs nothing later (#1439).
+    """
+    matches: dict[int, int] = {}
+    stack: list[int] = []
+    index = 0
     while index < len(text):
         char = text[index]
         if char == "\\":
             index += 2
             continue
         if char == "[":
-            depth += 1
-        elif char == "]":
-            depth -= 1
-            if depth == 0:
-                return index
+            stack.append(index)
+        elif char == "]" and stack:
+            matches[stack.pop()] = index
         index += 1
-    return -1
+    return matches
 
 
 def _destination(text: str, start: int) -> tuple[str, int, tuple[int, int] | None] | None:
     """Parse an inline destination and optional title at text[start] == '('.
 
     Return the URL, the index after the closing ')' and the title's span, or
-    None. A bare destination may hold balanced parentheses at any depth
-    (CommonMark).
+    None. A bare destination may hold balanced parentheses up to
+    _MAX_PARENTHESES deep, the cmark limit that CommonMark allows. The limit
+    bounds the work of a run of unclosed destinations (#1439).
     """
     if start >= len(text) or text[start] != "(":
         return None
@@ -143,8 +151,9 @@ def _destination(text: str, start: int) -> tuple[str, int, tuple[int, int] | Non
     while index < len(text) and text[index] in " \t\n":
         index += 1
     if index < len(text) and text[index] == "<":
-        close = text.find(">", index)
-        if close < 0 or "\n" in text[index:close]:
+        line_end = text.find("\n", index)
+        close = text.find(">", index, len(text) if line_end < 0 else line_end)
+        if close < 0:
             return None
         url, index = text[index + 1 : close], close + 1
     else:
@@ -156,6 +165,8 @@ def _destination(text: str, start: int) -> tuple[str, int, tuple[int, int] | Non
                 continue
             if char == "(":
                 depth += 1
+                if depth > _MAX_PARENTHESES:
+                    return None
             elif char == ")":
                 if depth == 0:
                     break
@@ -235,25 +246,25 @@ def _strip_code_blocks(text: str) -> str:
 def _strip_code_spans(text: str) -> str:
     """Remove code spans: a backtick run closed by the next run of equal length.
 
-    A span cannot cross a blank line here. An unmatched run is literal text.
+    A span cannot cross a blank line here. An unmatched run is literal text. A
+    backslash before a run escapes only its first backtick, so the rest of the
+    run can still open a span. Inside a span a backslash is literal, so a
+    closing run is never shortened.
     """
     runs = [(match.start(), match.end()) for match in _BACKTICKS.finditer(text)]
     by_length: dict[int, list[int]] = {}
     for position, (start, end) in enumerate(runs):
         by_length.setdefault(end - start, []).append(position)
-    next_of_length: dict[int, int] = {}
-    for positions in by_length.values():
-        for current, following in itertools.pairwise(positions):
-            next_of_length[current] = following
     out: list[str] = []
     copied = 0
     position = 0
     while position < len(runs):
         start, end = runs[position]
         if start > 0 and text[start - 1] == "\\":
-            position += 1
-            continue
-        closer = next_of_length.get(position)
+            start += 1
+        candidates = by_length.get(end - start, [])
+        following = bisect.bisect_right(candidates, position)
+        closer = candidates[following] if start < end and following < len(candidates) else None
         if closer is None or _PARAGRAPH_BREAK.search(text, end, runs[closer][0]):
             position += 1
             continue
@@ -325,12 +336,13 @@ def _inline_targets(
     """Return (is_image, url) for inline links and images, including the image
     inside a linked image. Record which reference definitions are used, and how."""
     targets: list[tuple[bool, str]] = []
+    closing = _closing_brackets(text)
     index = 0
     while (start := text.find("[", index)) >= 0:
         if start > 0 and text[start - 1] == "\\":
             index = start + 1
             continue
-        end = _closing_bracket(text, start)
+        end = closing.get(start, -1)
         if end < 0:
             # An unmatched '[' is prose; later links still count.
             index = start + 1
