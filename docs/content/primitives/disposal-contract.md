@@ -163,7 +163,8 @@ flavor-specific difference.
 | Value streams and their subscriptions (Rust only)                              | Subscribers complete once; subscriptions detach                       | Later sends are inert                                                       | Subscribers                                                                                                                                                                                        | Last value                |
 
 In the VM families row, a container change is a composite or group membership
-or selection change. These changes can refuse after disposal; the flavor
+or selection change: add, insert, remove, remove by index, replace, clear,
+move, or a selection. These changes can refuse after disposal; the flavor
 exceptions below state the result in each flavor. Every other change is inert.
 
 Rows marked "only" exist in the named flavor. Every other row applies to every
@@ -176,10 +177,10 @@ flavor unless the exceptions below say otherwise.
 - `MessageHub`, `AsyncRelayCommand`, and `TokenPagedComposition` claim disposal
   under a gate. `NotificationHub` claims it under a lock.
 - VM lifecycle calls other than dispose raise. Property changes are inert.
-- Composite and group `Add`, `Remove`, and `Clear` raise
-  `ObjectDisposedException`. A composite selection raises
-  `ObjectDisposedException`, a null clear included, unless it assigns the child
-  that is already current, which changes nothing.
+- Composite and group `Add`, `Insert`, `Remove`, `RemoveAt`, `Clear`, `Move`,
+  and the indexer setter raise `ObjectDisposedException`. A composite selection
+  raises `ObjectDisposedException`, a null clear included, unless it assigns the
+  child that is already current, which changes nothing.
 - `RelayCommand` and `RelayCommand<T>` can raise one final `CanExecuteChanged`
   before the terminal disabled state.
 - The message stream is `Messages`; the derived-property stream is
@@ -200,9 +201,10 @@ flavor unless the exceptions below say otherwise.
   `NotificationHub` use their own locks. `AsyncResourceVM` uses its resource
   gate.
 - The terminal status is `DISPOSED`; illegal lifecycle calls raise.
-- Composite and group `add`, `remove`, and `clear` raise `RuntimeError`. A
-  composite selection raises `RuntimeError`, a null clear included, unless it
-  assigns the child that is already current, which changes nothing.
+- Composite and group `add`, `insert`, `remove`, `remove_at`, `clear`, `move`,
+  item assignment, and item deletion raise `RuntimeError`. A composite selection
+  raises `RuntimeError`, a null clear included, unless it assigns the child that
+  is already current, which changes nothing.
 - Commands complete their owned subjects once. The async relay command cancels
   one in-flight task.
 - `NotificationHub` futures resolve `PENDING`, and post resolves `PENDING`.
@@ -219,9 +221,9 @@ flavor unless the exceptions below say otherwise.
 ### 6.8.5.3. TypeScript
 
 - The terminal status is `Disposed`; illegal lifecycle calls throw.
-- Composite and group `add`, `remove`, and `clear` throw `Error`. Every
-  composite selection after `Disposed` throws `Error`, a null clear and the
-  child that is already current included.
+- Composite and group `add`, `insert`, `remove`, `removeAt`, `setAt`, `clear`,
+  and `move` throw `Error`. Every composite selection after `Disposed` throws
+  `Error`, a null clear and the child that is already current included.
 - Commands complete their owned subjects once. The async relay command aborts
   one `AbortController`.
 - `NotificationHub` promises resolve `Pending`. `NotificationVM` and
@@ -246,10 +248,13 @@ flavor unless the exceptions below say otherwise.
   illegal lifecycle calls throw.
 - After `Disposed`, a composite `current` assignment or `setCurrent(_:)` of a
   member or `nil` changes nothing and does not throw. A non-member is still
-  refused. Composite and group `addResult(_:)` return
-  `.failure(.attachmentFailed)`, so `add(_:)` stops a debug build with
-  `assertionFailure` and changes nothing in a release build. `remove(_:)`
-  returns `false`, and `removeAt(_:)` and `clear()` return without a change.
+  refused: `setCurrent(_:)` throws `CompositeMembershipError`, and the
+  `current` setter traps. Composite and group `addResult(_:)`,
+  `insertResult(_:at:)`, and `replaceResult(at:with:)` return
+  `.failure(.attachmentFailed)`. So `add(_:)` stops a debug build with
+  `assertionFailure` and changes nothing in a release build, and
+  `insert(_:at:)` and `replace(at:with:)` change nothing. `remove(_:)` returns
+  `false`, and `removeAt(_:)` and `clear()` return without a change.
   `move(from:to:)` throws `ContainerOwnershipError.attachmentFailed`.
 - VM families claim disposal under the lifecycle lock. `MessageHub` and
   `NotificationHub` use their own locks. `TokenPagedComposition` claims it on
@@ -284,9 +289,10 @@ flavor unless the exceptions below say otherwise.
 - A VM sends one `Disposed` message. It releases children, LIFO owned
   registrations, and its property-change stream. Illegal lifecycle calls return
   `VmxError::Disposed`.
-- Composite and group `add` and `remove` return `VmxError::Disposed`. Composite
-  `set_current` returns `VmxError::Disposed` for every value, `None` and the
-  child that is already current included. `clear()` makes no change.
+- Composite and group `add`, `insert`, `remove`, `remove_at`, `replace`, and
+  `move_item` return `VmxError::Disposed`. Composite `set_current` returns
+  `VmxError::Disposed` for every value, `None` and the child that is already
+  current included. `clear()` makes no change.
 - `MessageHub` claims disposal under its state mutex. It removes subscribers and
   drops queued messages instead of completing a stream.
 - `Subscription` and `PropertyChangedSubscription` are the hub subscription

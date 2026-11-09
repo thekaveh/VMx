@@ -130,3 +130,42 @@ def test_a_disposed_group_refuses_membership_changes() -> None:
     with pytest.raises(RuntimeError, match="disposing"):
         group.clear()
     assert len(group) == 1
+
+
+def test_a_disposed_composite_refuses_index_and_move_changes() -> None:
+    composite, a, b = _disposed_composite()
+    with pytest.raises(RuntimeError, match="disposing"):
+        composite.insert(0, _extra())
+    with pytest.raises(RuntimeError, match="disposing"):
+        composite.remove_at(1)
+    with pytest.raises(RuntimeError, match="disposing"):
+        composite[1] = _extra()
+    with pytest.raises(RuntimeError, match="disposing"):
+        composite.move(0, 1)
+    assert list(composite) == [a, b]
+    assert composite.current is a
+
+
+def test_a_disposed_group_refuses_index_and_move_changes() -> None:
+    hub: MessageHub[Message] = MessageHub()
+    a = ComponentVM.builder().name("a").services(hub, RxDispatcher.immediate()).build()
+    b = ComponentVM.builder().name("b").services(hub, RxDispatcher.immediate()).build()
+    group: GroupVM[ComponentVM] = (
+        GroupVMBuilder[ComponentVM]()
+        .name("g")
+        .services(hub, RxDispatcher.immediate())
+        .children(lambda: [a, b])
+        .build()
+    )
+    group.construct()
+    group.dispose()
+
+    with pytest.raises(RuntimeError, match="disposing"):
+        group.insert(0, _extra())
+    with pytest.raises(RuntimeError, match="disposing"):
+        group.remove_at(1)
+    with pytest.raises(RuntimeError, match="disposing"):
+        group[1] = _extra()
+    with pytest.raises(RuntimeError, match="disposing"):
+        group.move(0, 1)
+    assert list(group) == [a, b]

@@ -42,6 +42,34 @@ final class PostDisposeContainerMembershipTests: XCTestCase {
         XCTAssertTrue(composite.current === a)
     }
 
+    func testDisposedCompositeStillRefusesANonMember() throws {
+        let (composite, a, _) = try disposedComposite()
+
+        XCTAssertFalse(composite.canSetCurrent(try extra()))
+        XCTAssertThrowsError(try composite.setCurrent(try extra())) { error in
+            XCTAssertTrue(error is CompositeMembershipError)
+        }
+        XCTAssertTrue(composite.current === a)
+    }
+
+    func testDisposedCompositeRefusesInsertAndReplace() throws {
+        let (composite, a, b) = try disposedComposite()
+
+        guard case .failure(.attachmentFailed) = composite.insertResult(try extra(), at: 0) else {
+            return XCTFail("insertResult after disposal must fail")
+        }
+        guard case .failure(.attachmentFailed) = composite.replaceResult(at: 1, with: try extra()) else {
+            return XCTFail("replaceResult after disposal must fail")
+        }
+        composite.insert(try extra(), at: 0)
+        composite.replace(at: 1, with: try extra())
+
+        XCTAssertEqual(composite.count, 2)
+        XCTAssertTrue(composite.snapshot()[0] === a)
+        XCTAssertTrue(composite.snapshot()[1] === b)
+        XCTAssertTrue(composite.current === a)
+    }
+
     func testDisposedCompositeRefusesAddAndMoveAndIgnoresRemoveAndClear() throws {
         let (composite, a, b) = try disposedComposite()
 
@@ -73,5 +101,32 @@ final class PostDisposeContainerMembershipTests: XCTestCase {
         XCTAssertFalse(group.remove(a))
         group.clear()
         XCTAssertEqual(group.count, 1)
+    }
+
+    func testDisposedGroupRefusesInsertReplaceAndMoveAndIgnoresRemoveAt() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        let a = try ComponentVM.builder().name("a").services(hub: hub, dispatcher: dispatcher).build()
+        let b = try ComponentVM.builder().name("b").services(hub: hub, dispatcher: dispatcher).build()
+        let group = try GroupVM<ComponentVM>.builder()
+            .name("g").services(hub: hub, dispatcher: dispatcher)
+            .children { [a, b] }.build()
+        try group.construct()
+        group.dispose()
+
+        guard case .failure(.attachmentFailed) = group.insertResult(try extra(), at: 0) else {
+            return XCTFail("insertResult after disposal must fail")
+        }
+        guard case .failure(.attachmentFailed) = group.replaceResult(at: 1, with: try extra()) else {
+            return XCTFail("replaceResult after disposal must fail")
+        }
+        group.insert(try extra(), at: 0)
+        group.replace(at: 1, with: try extra())
+        XCTAssertThrowsError(try group.move(from: 0, to: 1))
+        group.removeAt(0)
+
+        XCTAssertEqual(group.count, 2)
+        XCTAssertTrue(group.snapshot()[0] === a)
+        XCTAssertTrue(group.snapshot()[1] === b)
     }
 }

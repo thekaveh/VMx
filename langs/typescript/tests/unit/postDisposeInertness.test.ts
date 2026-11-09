@@ -96,6 +96,36 @@ describe("post-dispose inertness", () => {
     expect(group.count).toBe(1);
   });
 
+  it("a disposed composite refuses index and move changes", () => {
+    const d = disposedComposite();
+    expect(() => d.composite.insert(0, extra())).toThrow("disposing");
+    expect(() => d.composite.removeAt(1)).toThrow("disposing");
+    expect(() => d.composite.setAt(1, extra())).toThrow("disposing");
+    expect(() => d.composite.move(0, 1)).toThrow("disposing");
+    expect([...d.composite]).toEqual([d.a, d.b]);
+    expect(d.composite.current).toBe(d.a);
+  });
+
+  it("a disposed group refuses index and move changes", () => {
+    const hub = new MessageHub();
+    const kids = ["a", "b"].map((name) =>
+      ComponentVM.builder().name(name).services(hub, RxDispatcher.immediate()).build(),
+    );
+    const group = GroupVM.builder<ComponentVM>()
+      .name("g")
+      .services(hub, RxDispatcher.immediate())
+      .children(() => kids)
+      .build();
+    group.construct();
+    group.dispose();
+
+    expect(() => group.insert(0, extra())).toThrow("disposing");
+    expect(() => group.removeAt(1)).toThrow("disposing");
+    expect(() => group.setAt(1, extra())).toThrow("disposing");
+    expect(() => group.move(0, 1)).toThrow("disposing");
+    expect([...group]).toEqual(kids);
+  });
+
   it("a disposed derived property rejects writes", () => {
     const writes: number[] = [];
     const property = new DerivedProperty(

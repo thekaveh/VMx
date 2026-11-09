@@ -104,6 +104,40 @@ public sealed class PostDisposeInertnessTests
     }
 
     [Fact]
+    public void A_disposed_composite_refuses_index_and_move_changes()
+    {
+        var (composite, a, b) = DisposedComposite();
+        var extra = ComponentVM.Builder().Name("x").Services(new MessageHub(), RxDispatcher.Immediate()).Build();
+
+        composite.Invoking(c => c.Insert(0, extra)).Should().Throw<ObjectDisposedException>();
+        composite.Invoking(c => c.RemoveAt(1)).Should().Throw<ObjectDisposedException>();
+        composite.Invoking(c => c[1] = extra).Should().Throw<ObjectDisposedException>();
+        composite.Invoking(c => c.Move(0, 1)).Should().Throw<ObjectDisposedException>();
+        composite.Should().Equal(a, b);
+        composite.Current.Should().BeSameAs(a);
+    }
+
+    [Fact]
+    public void A_disposed_group_refuses_index_and_move_changes()
+    {
+        var hub = new MessageHub();
+        var dispatcher = RxDispatcher.Immediate();
+        var a = ComponentVM.Builder().Name("a").Services(hub, dispatcher).Build();
+        var b = ComponentVM.Builder().Name("b").Services(hub, dispatcher).Build();
+        var group = GroupVM<IComponentVM>.Builder().Name("g").Services(hub, dispatcher)
+            .Children(() => [a, b]).Build();
+        group.Construct();
+        group.Dispose();
+
+        var extra = ComponentVM.Builder().Name("x").Services(hub, dispatcher).Build();
+        group.Invoking(g => g.Insert(0, extra)).Should().Throw<ObjectDisposedException>();
+        group.Invoking(g => g.RemoveAt(1)).Should().Throw<ObjectDisposedException>();
+        group.Invoking(g => g[1] = extra).Should().Throw<ObjectDisposedException>();
+        group.Invoking(g => g.Move(0, 1)).Should().Throw<ObjectDisposedException>();
+        group.Should().Equal(a, b);
+    }
+
+    [Fact]
     public void A_disposed_derived_property_rejects_writes()
     {
         var writes = new List<int>();

@@ -68,3 +68,48 @@ fn disposed_group_refuses_add_and_remove_and_clear_makes_no_change() {
     group.clear();
     assert_eq!(group.len(), 1);
 }
+
+#[test]
+fn disposed_composite_refuses_insert_remove_at_replace_and_move() {
+    let (composite, a, b) = disposed_composite();
+
+    assert!(matches!(
+        composite.insert(0, Child::new("x")),
+        Err(VmxError::Disposed)
+    ));
+    assert!(matches!(composite.remove_at(1), Err(VmxError::Disposed)));
+    assert!(matches!(
+        composite.replace(1, Child::new("y")),
+        Err(VmxError::Disposed)
+    ));
+    assert!(matches!(composite.move_item(0, 1), Err(VmxError::Disposed)));
+    assert_eq!(composite.len(), 2);
+    assert!(composite.get(0) == Some(a.clone()));
+    assert!(composite.get(1) == Some(b));
+    assert!(composite.current() == Some(a));
+}
+
+#[test]
+fn disposed_group_refuses_insert_remove_at_replace_and_move() {
+    let group = GroupVm::new("g");
+    let a = Child::new("a");
+    let b = Child::new("b");
+    group.add(a.clone()).unwrap();
+    group.add(b.clone()).unwrap();
+    group.construct().unwrap();
+    group.dispose().unwrap();
+
+    assert!(matches!(
+        group.insert(0, Child::new("x")),
+        Err(VmxError::Disposed)
+    ));
+    assert!(matches!(group.remove_at(1), Err(VmxError::Disposed)));
+    assert!(matches!(
+        group.replace(1, Child::new("y")),
+        Err(VmxError::Disposed)
+    ));
+    assert!(matches!(group.move_item(0, 1), Err(VmxError::Disposed)));
+    assert_eq!(group.len(), 2);
+    assert!(group.get(0) == Some(a));
+    assert!(group.get(1) == Some(b));
+}
