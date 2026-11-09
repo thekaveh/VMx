@@ -4,7 +4,8 @@ use vmx::{
     AggregateVm6, Command, ComponentVm, CompositeVm, DecoratorCommand, DiscriminatorVm,
     FilteredCompositeVm, FormVm, MessageHub, NotificationHub, NotificationReaction,
     NotificationType, NotificationVm, NullDispatcher, PagedComposition, ParentHandle, RelayCommand,
-    SearchableState, TokenPagedComposition, VmNode, VmxError, VmxResult, NO_HOOK,
+    Scheduler, SearchableState, SystemScheduler, TokenPagedComposition, VmNode, VmxError,
+    VmxResult, NO_HOOK,
 };
 
 const PAGE_SIZE: usize = 2;
@@ -754,14 +755,18 @@ impl_node!(GlobalSearchVm);
 pub struct NotificationsVm {
     core: ComponentVm<()>,
     hub: NotificationHub,
+    /// Runs the notification lifespans: real time in the app, virtual time in
+    /// tests.
+    scheduler: Arc<dyn Scheduler>,
     active_vms: Arc<Mutex<Vec<NotificationVm>>>,
 }
 
 impl NotificationsVm {
-    fn new(hub: MessageHub) -> Self {
+    fn new(hub: MessageHub, scheduler: Arc<dyn Scheduler>) -> Self {
         Self {
             core: ComponentVm::with_model("notifications", (), hub, NullDispatcher::new()),
             hub: NotificationHub::new(),
+            scheduler,
             active_vms: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -774,9 +779,10 @@ impl NotificationsVm {
             let resolved = active
                 .extract_if(.., |vm| vm.is_resolved())
                 .collect::<Vec<_>>();
-            active.push(NotificationVm::with_hub(
+            active.push(NotificationVm::with_scheduler(
                 notification.clone(),
                 self.hub.clone(),
+                self.scheduler.clone(),
                 60_000,
             ));
             let excess = active.len().saturating_sub(NOTIFICATION_CAP);
@@ -808,6 +814,15 @@ impl NotificationsVm {
     /// Returns the entries that are still pending, oldest first.
     pub fn visible(&self) -> Vec<NotificationVm> {
         lock(&self.active_vms).clone()
+    }
+
+    /// Reports whether the hub still lists the notification. An expired
+    /// notification is no longer pending.
+    pub fn is_pending(&self, notification_id: u64) -> bool {
+        self.hub
+            .pending()
+            .iter()
+            .any(|notification| notification.id == notification_id)
     }
 
     pub fn messages(&self) -> Vec<String> {
@@ -905,6 +920,15 @@ impl WorkspaceVm {
     }
 
     pub fn new(repository: InMemoryNoteRepository) -> VmxResult<Self> {
+        Self::with_scheduler(repository, SystemScheduler)
+    }
+
+    /// Builds the workspace with `scheduler` as the clock of the notification
+    /// lifespans. Tests pass a `VirtualTimeScheduler`.
+    pub fn with_scheduler(
+        repository: InMemoryNoteRepository,
+        scheduler: impl Scheduler,
+    ) -> VmxResult<Self> {
         let hub = MessageHub::new();
         let notebooks = NotebooksVm::new(&repository, hub.clone());
         let notebook_id = notebooks.current_id.clone();
@@ -917,7 +941,7 @@ impl WorkspaceVm {
             })?;
         let form = NoteFormVm::new(repository.clone(), selected, hub.clone());
         let global_search = GlobalSearchVm::new(repository.clone(), hub.clone());
-        let notifications = NotificationsVm::new(hub.clone());
+        let notifications = NotificationsVm::new(hub.clone(), Arc::new(scheduler));
         let editor = EditorModeVm::new(hub);
         let aggregate = AggregateVm6::new(
             "workspace",
@@ -941,9 +965,11 @@ impl WorkspaceVm {
             move || {
                 // One delete confirmation at a time: a second request would
                 // replace the only slot that `y`/`r` resolve and strand the
-                // first confirmation.
-                if lock(&pending_delete).is_some() {
-                    return;
+                // first confirmation. An expired confirmation frees the slot.
+                if let Some((_, _, notification_id)) = &*lock(&pending_delete) {
+                    if notifications.is_pending(*notification_id) {
+                        return;
+                    }
                 }
                 if let Some(note) = notes.current_note() {
                     let message = format!("Delete note '{}'?", note.title);
@@ -1072,6 +1098,10 @@ impl WorkspaceVm {
         let Some((note_id, title, notification_id)) = lock(&self.pending_delete).take() else {
             return;
         };
+        // An expired confirmation deletes nothing.
+        if !self.notifications.is_pending(notification_id) {
+            return;
+        }
         self.notifications
             .resolve(notification_id, NotificationReaction::Approve);
         if self.repository.delete_note(&note_id).is_some() {

@@ -5,7 +5,10 @@ use pretty_assertions::assert_eq;
 use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::thread;
 use std::time::Duration;
-use vmx::{Command, ConstructionStatus, NotificationReaction, NotificationType, VmNode};
+use vmx::{
+    Command, ConstructionStatus, NotificationReaction, NotificationType, VirtualTimeScheduler,
+    VmNode,
+};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -374,6 +377,43 @@ fn a_repeated_delete_request_keeps_one_resolvable_confirmation() {
     workspace.reject_delete_current();
     assert!(workspace.notifications().messages().is_empty());
     assert!(repository.note("rust-parity").is_some());
+}
+
+#[test]
+fn a_notification_expires_after_its_lifespan() {
+    let scheduler = VirtualTimeScheduler::new();
+    let workspace =
+        WorkspaceVm::with_scheduler(InMemoryNoteRepository::seeded(), scheduler.clone())
+            .expect("workspace builds");
+    let notifications = workspace.notifications();
+    notifications.post(NotificationType::Notification, "saved");
+
+    scheduler.advance_by(Duration::from_secs(59));
+    assert_eq!(notifications.messages(), vec!["saved"]);
+
+    scheduler.advance_by(Duration::from_secs(1));
+    assert!(notifications.messages().is_empty());
+}
+
+#[test]
+fn an_expired_delete_confirmation_deletes_nothing_and_frees_the_slot() {
+    let scheduler = VirtualTimeScheduler::new();
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::with_scheduler(repository.clone(), scheduler.clone())
+        .expect("workspace builds");
+
+    workspace.request_delete_current();
+    scheduler.advance_by(Duration::from_secs(60));
+    assert!(workspace.notifications().messages().is_empty());
+
+    workspace.approve_delete_current();
+    assert!(repository.note("rust-parity").is_some());
+
+    workspace.request_delete_current();
+    assert_eq!(
+        workspace.notifications().messages(),
+        vec!["Delete note 'Rust flavor parity'?"]
+    );
 }
 
 #[test]
