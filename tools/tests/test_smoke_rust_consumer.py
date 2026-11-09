@@ -1,5 +1,8 @@
 """Tests for the disposable local/public Rust crate consumer."""
 
+import json
+import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -35,10 +38,22 @@ def test_public_add_command_is_exact() -> None:
     ]
 
 
+def _fake_metadata(
+    target: Path, calls: list[list[str]]
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    def fake(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        payload = json.dumps({"target_directory": str(target)})
+        return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
+
+    return fake
+
+
 def test_local_package_generation_uses_lockfile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: list[str] = []
+    monkeypatch.setattr(smoke.subprocess, "run", _fake_metadata(tmp_path / "target", []))
 
     def fake_run(args: list[str], *, cwd: Path, timeout: float = 300) -> None:
         assert timeout == 300
@@ -49,9 +64,46 @@ def test_local_package_generation_uses_lockfile(
 
     monkeypatch.setattr(smoke, "_run", fake_run)
 
-    smoke._package(tmp_path, "0.20.0", "cargo")
-
+    assert smoke._package(tmp_path, "0.20.0", "cargo") == (
+        tmp_path / "target/package/vmx-rs-0.20.0.crate"
+    )
     assert captured[:3] == ["cargo", "package", "--locked"]
+
+
+def test_local_package_is_found_in_a_target_directory_outside_the_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_dir = tmp_path / "langs/rust"
+    package_dir.mkdir(parents=True)
+    outside = tmp_path / "elsewhere/cargo-target"
+    metadata_calls: list[list[str]] = []
+    monkeypatch.setattr(smoke.subprocess, "run", _fake_metadata(outside, metadata_calls))
+
+    def fake_run(args: list[str], *, cwd: Path, timeout: float = 300) -> None:
+        tarball = outside / "package/vmx-rs-0.20.0.crate"
+        tarball.parent.mkdir(parents=True)
+        tarball.touch()
+
+    monkeypatch.setattr(smoke, "_run", fake_run)
+
+    tarball = smoke._package(package_dir, "0.20.0", "cargo")
+
+    assert tarball == outside / "package/vmx-rs-0.20.0.crate"
+    assert not (package_dir / "target").exists()
+    assert metadata_calls[0][:5] == ["cargo", "metadata", "--format-version", "1", "--no-deps"]
+
+
+def test_missing_target_directory_in_metadata_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        smoke.subprocess,
+        "run",
+        lambda args, **_kwargs: subprocess.CompletedProcess(args, 0, stdout="{}", stderr=""),
+    )
+
+    with pytest.raises(ValueError, match="target_directory"):
+        smoke._package(tmp_path, "0.20.0", "cargo")
 
 
 def test_invalid_release_version_is_rejected() -> None:

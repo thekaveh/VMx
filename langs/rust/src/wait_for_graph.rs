@@ -145,10 +145,12 @@ impl WaitForGraph {
         lock(&self.state).waiting_on.remove(&caller);
     }
 
+    #[cfg(any(test, feature = "test-seams"))]
     fn is_waiting(&self, thread: ThreadId) -> bool {
         lock(&self.state).waiting_on.contains_key(&thread)
     }
 
+    #[cfg(any(test, feature = "test-seams"))]
     fn is_waiting_for_membership(&self, thread: ThreadId) -> bool {
         lock(&self.state)
             .waiting_on
@@ -183,6 +185,8 @@ fn reaches(state: &GraphState, target: ThreadId, start: ThreadId) -> bool {
 
 /// Test-only seam: reports whether `thread` waits for another thread's
 /// container membership transaction. Production code never calls it.
+/// Only the non-default `test-seams` feature exports it.
+#[cfg(feature = "test-seams")]
 #[doc(hidden)]
 pub fn container_wait_registered_for_testing(thread: ThreadId) -> bool {
     waits().is_waiting_for_membership(thread)
@@ -191,7 +195,9 @@ pub fn container_wait_registered_for_testing(thread: ThreadId) -> bool {
 /// Test-only seam: reports whether `thread` has recorded any wait in the
 /// wait-for graph: a message hub, lifecycle hook, container membership or
 /// form publication wait.
-/// Production code never calls it.
+/// Production code never calls it. Only the non-default `test-seams`
+/// feature exports it.
+#[cfg(any(test, feature = "test-seams"))]
 #[doc(hidden)]
 pub fn wait_registered_for_testing(thread: ThreadId) -> bool {
     waits().is_waiting(thread)

@@ -115,6 +115,17 @@ def test_captures_initial_executable_for_later_steps(
     assert output.read_text() == f"executable={interpreter[1]}\n"
 
 
+def test_capture_without_github_output_skips_the_step_output(
+    interpreter: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # #1471: a step's exact command must also run outside GitHub Actions.
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    result = run_helper(interpreter, "--capture-output")
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+    assert "GITHUB_OUTPUT is not set; skipping the executable step output" in result.stderr
+
+
 def captured_environment(interpreter: tuple[Path, Path], tmp_path: Path) -> dict[str, str]:
     """Run the identity step with GITHUB_ENV and return the variables it recorded."""
     env_file = tmp_path / "env"

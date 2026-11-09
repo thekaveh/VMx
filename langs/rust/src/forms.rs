@@ -1247,13 +1247,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             mut after,
             mut starts,
         } = notices;
-        let mut delivering_errors = false;
+        // Read after the unwind guard, which a panic can leave with it set.
+        let delivering_errors = std::cell::Cell::new(false);
         let notified = catch_unwind(AssertUnwindSafe(|| {
             if !publications.is_empty() {
                 lock(&self.nested)
                     .error_deliveries
                     .push((current, Notices::default()));
-                delivering_errors = true;
+                delivering_errors.set(true);
                 let mut sent = 0;
                 while sent < publications.len() {
                     self.publish_validation_changed();
@@ -1268,7 +1269,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                         starts.extend(scoped.starts);
                     }
                 }
-                delivering_errors = false;
+                delivering_errors.set(false);
                 self.end_error_delivery(current, &mut publications, &mut starts);
                 for publication in &mut publications {
                     publication.close_scope();
@@ -1293,7 +1294,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             }
         }));
         // An unexpected unwind can leave the error delivery open.
-        if delivering_errors {
+        if delivering_errors.get() {
             self.end_error_delivery(current, &mut publications, &mut starts);
         }
         let mut first_panic = notified.err();
