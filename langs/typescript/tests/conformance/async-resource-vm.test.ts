@@ -607,6 +607,148 @@ describe("AsyncResourceVM conformance", () => {
     });
   });
 
+  describe("ARES-012", () => {
+    const signals = [
+      ["DOMException AbortError", () => abortError()],
+      ["Error named AbortError", () => Object.assign(new Error("cancelled"), { name: "AbortError" })],
+    ] as const;
+
+    function expectEligibility(
+      vm: AsyncResourceVM<number>,
+      load: boolean,
+      reload: boolean,
+      cancel: boolean,
+    ): void {
+      expect(vm.loadCommand.canExecute()).toBe(load);
+      expect(vm.reloadCommand.canExecute()).toBe(reload);
+      expect(vm.cancelCommand.canExecute()).toBe(cancel);
+    }
+
+    describe.each(signals)("with a %s", (_label, makeSignal) => {
+      it.each(["direct", "command"] as const)(
+        "restores Idle when the %s initial load cancels itself",
+        async (entry) => {
+          const result = deferred<number>();
+          let signal: AbortSignal | undefined;
+          const vm = new AsyncResourceVM<number>({
+            name: "resource",
+            hub: new MessageHub(),
+            dispatcher: NullDispatcher.INSTANCE,
+            loader: (current) => {
+              signal = current;
+              return result.promise;
+            },
+          });
+          const commandErrors: unknown[] = [];
+          vm.loadCommand.errors.subscribe((error) => commandErrors.push(error));
+
+          const load = entry === "direct" ? vm.load() : vm.loadCommand.executeAsync();
+          expect(vm.state).toEqual({ status: AsyncResourceStatus.Loading });
+          result.reject(makeSignal());
+          await expect(load).resolves.toBeUndefined();
+
+          expect(signal?.aborted).toBe(false);
+          expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
+          expect(commandErrors).toEqual([]);
+          expectEligibility(vm, true, false, false);
+        },
+      );
+
+      it("restores Idle and keeps the discarded value cleaned once on a discard reload", async () => {
+        const second = deferred<number>();
+        const cleaned: number[] = [];
+        let attempt = 0;
+        const vm = new AsyncResourceVM<number>({
+          name: "resource",
+          hub: new MessageHub(),
+          dispatcher: NullDispatcher.INSTANCE,
+          cleanupValue: (value) => cleaned.push(value),
+          loader: () => {
+            attempt += 1;
+            return attempt === 1 ? Promise.resolve(5) : second.promise;
+          },
+        });
+        const commandErrors: unknown[] = [];
+        vm.reloadCommand.errors.subscribe((error) => commandErrors.push(error));
+        await vm.load();
+
+        const reload = vm.reloadCommand.executeAsync();
+        expect(cleaned).toEqual([5]);
+        second.reject(makeSignal());
+        await expect(reload).resolves.toBeUndefined();
+
+        expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
+        expect(cleaned).toEqual([5]);
+        expect(commandErrors).toEqual([]);
+        expectEligibility(vm, true, false, false);
+      });
+
+      it("restores the retained Ready value without cleaning it", async () => {
+        const second = deferred<number>();
+        const cleaned: number[] = [];
+        let attempt = 0;
+        const vm = new AsyncResourceVM<number>({
+          name: "resource",
+          hub: new MessageHub(),
+          dispatcher: NullDispatcher.INSTANCE,
+          retention: AsyncResourceRetention.RetainPrevious,
+          cleanupValue: (value) => cleaned.push(value),
+          loader: () => {
+            attempt += 1;
+            return attempt === 1 ? Promise.resolve(3) : second.promise;
+          },
+        });
+        const commandErrors: unknown[] = [];
+        vm.reloadCommand.errors.subscribe((error) => commandErrors.push(error));
+        await vm.load();
+
+        const reload = vm.reload();
+        expect(vm.state).toEqual({ status: AsyncResourceStatus.Loading, value: 3 });
+        second.reject(makeSignal());
+        await expect(reload).resolves.toBeUndefined();
+
+        expect(vm.state).toEqual({ status: AsyncResourceStatus.Ready, value: 3 });
+        expect(cleaned).toEqual([]);
+        expect(commandErrors).toEqual([]);
+        expectEligibility(vm, false, true, false);
+      });
+
+      it("ignores a superseded loader's cancellation", async () => {
+        const first = deferred<number>();
+        const second = deferred<number>();
+        let attempt = 0;
+        const vm = new AsyncResourceVM<number>({
+          name: "resource",
+          hub: new MessageHub(),
+          dispatcher: NullDispatcher.INSTANCE,
+          loader: () => {
+            attempt += 1;
+            return attempt === 1 ? first.promise : second.promise;
+          },
+        });
+        const notifications: string[] = [];
+        vm.propertyChanged.subscribe((name) => notifications.push(`prop:${name}`));
+        for (const command of [vm.loadCommand, vm.reloadCommand, vm.cancelCommand]) {
+          command.canExecuteChanged.subscribe(() => notifications.push("cmd"));
+        }
+
+        const older = vm.load();
+        const newer = vm.reload();
+        const beforeOlder = notifications.length;
+        first.reject(makeSignal());
+        await older;
+        await flush();
+
+        expect(notifications.length).toBe(beforeOlder);
+        expect(vm.state).toEqual({ status: AsyncResourceStatus.Loading });
+        expectEligibility(vm, false, true, true);
+        second.resolve(2);
+        await newer;
+        expect(vm.state).toEqual({ status: AsyncResourceStatus.Ready, value: 2 });
+      });
+    });
+  });
+
   it("rolls back a failed loading publication before invoking the loader", async () => {
     const startError = new Error("loading publication failed");
     const rollbackError = new Error("rollback publication failed");

@@ -654,91 +654,38 @@ token read holds no lock while `Token::clone` runs. A built Rust `CompositeVm` o
 `GroupVm` runs its children factory on the first construct, and Rust
 containers own their registered members.
 
-v3.30.0 also clarifies concurrent and failure behavior. A cross-thread
-container disposal that would close a wait cycle defers to the transaction
-owner, and each threaded flavor records its blocking waits in one wait-for
-graph. Selection and the initial `Current` assignment never wait for a
-membership transaction. Tree walks report invalid factory output as a
-recoverable error, which is a source break for Swift and Rust callers. A failing
-local subscriber does not suppress the hub message (`COL-066`). A lifecycle call
-during the inline dispose cascade fails as a call on a `Disposed` view-model
-(`LIFE-021`). A foreign dispose publishes `Disposed` first.
-`ObservableDictionary` updates its key views before its events (`COL-067`).
-`FormVM` queues updates made during approval publication, its publication
-waits join the wait-for graph, and nested updates notify at the outermost
-update (`FORM-039`..`FORM-042`). `Current(selector)` runs on every
-construct phase, and first access to lazy children does not construct them.
-`PagedComposition` states which flavors keep a live source, and a token-paged
-load that finds no more pages fetches nothing. The awaited `ExecuteAsync()` of
-a confirmation awaits its inner command, and TypeScript form equality compares
-a `DOMException` by name and message.
+v3.30.0 also clarifies concurrent and failure behavior. A cross-thread container
+disposal that would close a wait cycle defers to the transaction owner, and each
+threaded flavor records its blocking waits in one wait-for graph. Selection and
+the initial `Current` assignment never wait for a membership transaction. Tree
+walks report invalid factory output as a recoverable error, which is a source
+break for Swift and Rust callers. A failing local subscriber does not suppress
+the hub message (`COL-066`). A lifecycle call during the inline dispose cascade
+fails as a call on a `Disposed` view-model (`LIFE-021`). A foreign dispose
+publishes `Disposed` first. `ObservableDictionary` updates its key views before
+its events (`COL-067`). `FormVM` queues updates made during approval
+publication, its publication waits join the wait-for graph, and nested updates
+notify at the outermost update (`FORM-039`..`FORM-042`). A current
+`AsyncResourceVM` loader that ends with its own cancellation restores the saved
+stable state, as `Cancel` does (`ARES-012`). Each lifecycle failure reaches
+exactly one reporting route, including a cycle-deferred terminal cleanup and
+every failure of a shared-scheduler flush. A refused child `select()` or
+`deselect()`, and a non-null selection while a composite is `Destructing`,
+change nothing and raise nothing (`COMP-051`, `COMP-052`). Container walks and
+the child-transition helper skip a `Disposed` child, and the composite clears
+`Current` when its current child disposes itself (`LIFE-022`, `COMP-050`).
+`Current(selector)` runs on every construct phase, and first access to lazy
+children does not construct them. `PagedComposition` states which flavors keep a
+live source, and a token-paged load that finds no more pages fetches nothing.
+The awaited `ExecuteAsync()` of a confirmation awaits its inner command, and
+TypeScript form equality compares a `DOMException` by name and message.
 
 v3.30.0 also corrects spec prose that disagreed with the code and names all
 five flavors where ADR-0121 requires it. It moves the spec release history from
 `spec/README.md` to this file. These changes add no behavior.
 
-The 26 new conformance IDs bring the catalog to 451 library IDs plus 5
+The 31 new conformance IDs bring the catalog to 456 library IDs plus 5
 scenario IDs. Chapter count stays at 24.
 
-See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0202, ADR-0204 and
-the affected behavior chapters.
-v3.30.0 also defines lifecycle calls during the inline dispose cascade, in
-which a view-model disposes its children and members before it publishes
-`Disposed`. A `construct()`, `destruct()`, or `reconstruct()` call that starts
-during the cascade fails with the error of a call on a `Disposed` view-model,
-even where it would be a no-op. It publishes no status, runs no hook, and calls
-no slot factory. Once the cascade has started, no hook is admitted and no
-status other than `Disposed` commits. A transition that started earlier
-publishes nothing more and returns as a call that `Disposed` superseded. The
-member cascade follows the same rules (`LIFE-021`). The catalog now contains
-447 library IDs plus 5 scenario IDs.
-
-See ADR-0175 and chapter 02 §2.4, §7.1, and §7.2.
-v3.30.0 also makes a failing local subscriber leave the hub message intact. A
-hub-publishing collection or container that commits a change sends exactly one
-`CollectionChangedMessage` for it, even when a local subscriber fails. C# and
-Python then rethrow the first failure; TypeScript, Swift, and Rust return
-normally (`COL-066`). The catalog now contains 445 library IDs plus 5 scenario
-IDs.
-
-See ADR-0171, chapter 01 §1.4, and chapter 21 §2.5.
-
-v3.30.0 also states the `ObservableDictionary` key-view order. A mutation
-changes the entries and `Count`, then the key views that change, then raises the
-dictionary events and sends the hub message. The order of the two key-view
-notifications is not specified, so a key-view handler must not rely on the
-other view (`COL-067`). No flavor changes behavior. The catalog now contains
-449 library IDs plus 5 scenario IDs.
-
-See ADR-0177 and chapter 21 §4.2.
-
-v3.30.0 also defines when a `FormVM` update nested in a form callback notifies.
-A `SetModel`, deny, or approve call made from a preparation callback, or from an
-`ErrorsChanged` observer of `SetModel` or deny, does its state work at once. It
-sends no notification before it returns. The outermost update on the thread
-sends the queue before it returns, with no form lock held: error maps first, in
-commit order, then the other notifications. A nested approval's persister
-starts after the queue. A nested call never waits for another thread's
-publication scope. Disposal drops queued notifications, and a `Dispose()`
-before a persister starts prevents the persister call (`FORM-041`,
-`FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
-
-See ADR-0180 and chapter 20 §5.4 and §10.
-
-v3.30.0 also makes two composite selection refusals silent. A refused child
-`select()` or `deselect()` changes nothing and raises nothing in every flavor.
-While a composite is `Destructing`, a non-null selection changes nothing and
-raises nothing, so `destruct()` always returns with `Current` null
-(`COMP-051`, `COMP-052`).
-
-See ADR-0188 and chapter 05 §6 and chapter 06 §3.1, §4.3 and §5.
-
-v3.30.0 also covers a child that is disposed while it is still a member.
-Container walks and the child-transition helper skip a `Disposed` child, so
-the container still destructs, constructs and reconstructs (`LIFE-022`). A
-`Disposed` child is not selectable. When the current child publishes
-`Disposed` from its own `dispose()`, the composite clears `Current`, and the
-child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 455
-library IDs plus 5 scenario IDs.
-
-See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
+See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0188, ADR-0189,
+ADR-0199, ADR-0200, ADR-0202, ADR-0204 and the affected behavior chapters.

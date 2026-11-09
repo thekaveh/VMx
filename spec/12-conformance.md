@@ -1,8 +1,8 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 455 library IDs
-in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
+`XXX-NNN`. Each of the five language flavors MUST implement every library ID
+in `langs/<lang>/tests/conformance/` before it can be marked stable. The
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
 `tools/check-conformance-coverage.py` and the example suites verify THEME.
@@ -4938,3 +4938,24 @@ their host contract permits
 application callback occurs
 **And** a newly returned ownership unit is cleaned exactly once when cleanup is
 configured
+
+### ARES-012 — A loader's own cancellation restores the saved stable state
+
+**Given** a current loader that ends with its flavor's native cancellation
+signal, which the VM did not request: C# `OperationCanceledException` from
+another token, Python `asyncio.CancelledError`, a TypeScript rejection whose
+`name` is `"AbortError"`, Swift `CancellationError`, or Rust
+`Err(VmxError::Cancelled)`
+**When** this ends an initial load, a discard-mode reload from `Ready(oldValue)`,
+or a retained reload from `Ready(oldValue)`
+**Then** state returns to `Idle`, `Idle`, or `Ready(oldValue)`, as `Cancel`
+restores it
+**And** the awaitable intent completes normally, no `Error` state is installed,
+and no async-command error is emitted
+**And** the restored value is not cleaned, and the discarded value was cleaned
+exactly once at reload start
+**And** command eligibility matches the restored state
+**When** a superseded loader ends with the same signal after a newer operation
+became current
+**Then** the newer operation stays current, and the superseded completion
+causes no state or command notification
