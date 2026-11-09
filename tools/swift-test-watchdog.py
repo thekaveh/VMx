@@ -12,7 +12,10 @@ A single-process `swift test` runs every case in one `xctest` process. There
 the watchdog reads the `Test Case '...' started.` and `passed`/`failed` lines
 of the command's output. A case that has started and not finished within
 `--per-test-timeout` is reported by name, and the whole command is sampled and
-killed (#1461). `--timeout` bounds the whole command as a backstop.
+killed (#1461). A `--parallel` command skips this output check: SwiftPM
+replays a crashed case's output, `started` line included, with no `passed` or
+`failed` line after it, and the process-tree check already bounds each case.
+`--timeout` bounds the whole command as a backstop.
 
     python3 tools/swift-test-watchdog.py --per-test-timeout 120 -- swift test --parallel
     python3 tools/swift-test-watchdog.py --per-test-timeout 300 -- swift test
@@ -149,12 +152,13 @@ class OutputCases:
         return None
 
 
-def relay(stream: IO[bytes], cases: OutputCases) -> None:
+def relay(stream: IO[bytes], cases: OutputCases | None) -> None:
     """Copy the command's output to ours and record XCTest case progress."""
     for raw in iter(stream.readline, b""):
         sys.stdout.buffer.write(raw)
         sys.stdout.buffer.flush()
-        cases.feed(raw.decode("utf-8", errors="replace").rstrip("\r\n"), time.monotonic())
+        if cases is not None:
+            cases.feed(raw.decode("utf-8", errors="replace").rstrip("\r\n"), time.monotonic())
 
 
 def snapshot() -> list[ProcessInfo]:
@@ -233,7 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         env={**os.environ, "NSUnbufferedIO": "YES"},
     )
     assert process.stdout is not None
-    cases = OutputCases()
+    # A `--parallel` run is bounded per case by the process tree; its replayed
+    # output can hold a `started` line that never finishes (a crashed case).
+    cases = None if "--parallel" in command else OutputCases()
     reader = threading.Thread(target=relay, args=(process.stdout, cases), daemon=True)
     reader.start()
     hung: dict[int, str] = {}
@@ -262,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 sample(info.pid)
                 kill(info.pid)
-            name = cases.overdue(time.monotonic(), args.per_test_timeout)
+            name = None if cases is None else cases.overdue(time.monotonic(), args.per_test_timeout)
             if name is not None:
                 print(
                     f"::error::XCTest case {name} ran longer than "

@@ -218,3 +218,32 @@ def test_a_single_process_run_whose_cases_finish_in_time_passes() -> None:
     assert result.returncode == 0
     assert "Test Case '-[Fake.Suite testB]' passed" in result.stdout
     assert "::error::" not in result.stdout
+
+
+# A stand-in for the replayed output of a `--parallel` run: SwiftPM prints a
+# crashed case's output, `started` line included, with no `passed` or `failed`
+# line after it, and the run goes on.
+_PARALLEL_REPLAY = """
+import sys, time
+print("Test Case '-[Fake.Suite testCrashed]' started.", flush=True)
+time.sleep(float(sys.argv[2]))
+"""
+
+
+def test_a_parallel_run_ignores_a_started_line_without_a_finish() -> None:
+    result, _ = _run(
+        "--per-test-timeout",
+        "1",
+        "--poll-interval",
+        "0.2",
+        "--",
+        sys.executable,
+        "-c",
+        _PARALLEL_REPLAY,
+        "--parallel",
+        "3",
+    )
+
+    assert result.returncode == 0
+    assert "Test Case '-[Fake.Suite testCrashed]' started." in result.stdout
+    assert "::error::" not in result.stdout
