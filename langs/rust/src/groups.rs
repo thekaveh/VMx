@@ -811,7 +811,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Test-only seam: runs `probe` after each construct walk's last late
     /// scan, before the group commits `Constructed`. Production code never
-    /// calls it.
+    /// calls it. Only the non-default `test-seams` feature exports it.
+    #[cfg(feature = "test-seams")]
     #[doc(hidden)]
     pub fn set_last_scan_probe_for_testing<F>(&self, probe: F)
     where
@@ -822,7 +823,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Test-only seam: runs `probe` after each construct walk's commit step
     /// wrote `Constructed` and before the group publishes it. Production
-    /// code never calls it.
+    /// code never calls it. Only the non-default `test-seams` feature
+    /// exports it.
+    #[cfg(feature = "test-seams")]
     #[doc(hidden)]
     pub fn set_seal_probe_for_testing<F>(&self, probe: F)
     where

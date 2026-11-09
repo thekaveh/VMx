@@ -230,9 +230,11 @@ trait Container {
     /// Runs `hook` after the construct walk's last late scan and before the
     /// commit: through the selector for a composite, which runs there, and
     /// through a test-only probe for a group, which has no selector.
+    #[cfg(feature = "test-seams")]
     fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>);
     /// Runs `hook` after the construct walk's commit step wrote
     /// `Constructed` and before the container publishes it.
+    #[cfg(feature = "test-seams")]
     fn after_seal(&self, hook: Arc<dyn Fn() + Send + Sync>);
     /// Whether the container's reconstruct command can execute now.
     fn reconstruct_can_execute(&self) -> bool;
@@ -266,12 +268,14 @@ impl Container for CompositeVm<Node> {
     fn len(&self) -> usize {
         CompositeVm::len(self)
     }
+    #[cfg(feature = "test-seams")]
     fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>) {
         self.set_current_selector(move |_| {
             hook();
             None
         });
     }
+    #[cfg(feature = "test-seams")]
     fn after_seal(&self, hook: Arc<dyn Fn() + Send + Sync>) {
         self.set_seal_probe_for_testing(move || hook());
     }
@@ -313,9 +317,11 @@ impl Container for GroupVm<Node> {
     fn reconstruct_can_execute(&self) -> bool {
         Command::can_execute(&self.reconstruct_command())
     }
+    #[cfg(feature = "test-seams")]
     fn after_last_scan(&self, hook: Arc<dyn Fn() + Send + Sync>) {
         self.set_last_scan_probe_for_testing(move || hook());
     }
+    #[cfg(feature = "test-seams")]
     fn after_seal(&self, hook: Arc<dyn Fn() + Send + Sync>) {
         self.set_seal_probe_for_testing(move || hook());
     }
@@ -1252,6 +1258,7 @@ fn group_walk_waits_for_late_child_its_add_is_still_attaching() {
 /// runs the walk (`cross_thread` false) or from another thread the hook joins.
 /// The container must reach `Constructed` only after `late` does
 /// (spec/02 §6, spec/06 §5.1); the hook runs once (spec/06 §3.2).
+#[cfg(feature = "test-seams")]
 fn add_after_last_scan<C>(cross_thread: bool)
 where
     C: Container + Clone + Send + Sync + 'static,
@@ -1315,21 +1322,25 @@ where
     constructed_after_late(&log, &at_constructed);
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn composite_waits_for_child_added_after_last_scan_on_the_walk_thread() {
     add_after_last_scan::<CompositeVm<Node>>(false);
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn composite_waits_for_child_added_after_last_scan_from_another_thread() {
     add_after_last_scan::<CompositeVm<Node>>(true);
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn group_waits_for_child_added_after_last_scan_on_the_walk_thread() {
     add_after_last_scan::<GroupVm<Node>>(false);
 }
 
+#[cfg(feature = "test-seams")]
 #[test]
 fn group_waits_for_child_added_after_last_scan_from_another_thread() {
     add_after_last_scan::<GroupVm<Node>>(true);
@@ -1337,6 +1348,7 @@ fn group_waits_for_child_added_after_last_scan_from_another_thread() {
 
 /// What a commit-step window probe saw: the container's status, whether its
 /// reconstruct command could execute, and the result of its add.
+#[cfg(feature = "test-seams")]
 type WindowProbe = Arc<Mutex<Option<(ConstructionStatus, bool, VmxResult<()>)>>>;
 
 /// An add in the commit-step window, after the walk's commit step wrote
@@ -1344,6 +1356,7 @@ type WindowProbe = Arc<Mutex<Option<(ConstructionStatus, bool, VmxResult<()>)>>>
 /// add-after-`Constructed` rule (spec/02 §2.4, ADR-0186, #1374). The add reads
 /// `Constructed`, registers no start record, and starts the background child
 /// at once; the container publishes `Constructed` once without waiting for it.
+#[cfg(feature = "test-seams")]
 fn add_in_commit_step_window_follows_add_after_constructed<C>()
 where
     C: Container + Clone + Send + Sync + 'static,
@@ -1394,11 +1407,13 @@ where
 }
 
 #[test]
+#[cfg(feature = "test-seams")]
 fn composite_add_in_commit_step_window_follows_add_after_constructed() {
     add_in_commit_step_window_follows_add_after_constructed::<CompositeVm<Node>>();
 }
 
 #[test]
+#[cfg(feature = "test-seams")]
 fn group_add_in_commit_step_window_follows_add_after_constructed() {
     add_in_commit_step_window_follows_add_after_constructed::<GroupVm<Node>>();
 }
@@ -1407,6 +1422,7 @@ fn group_add_in_commit_step_window_follows_add_after_constructed() {
 /// dispose before the commit step (`before_seal`) or in the commit-step
 /// window leaves the container `Disposed`, and it never publishes
 /// `Constructed`.
+#[cfg(feature = "test-seams")]
 fn disposal_during_the_seal_commits_nothing<C>(before_seal: bool)
 where
     C: Container + Clone + Send + Sync + 'static,
@@ -1448,21 +1464,25 @@ where
 }
 
 #[test]
+#[cfg(feature = "test-seams")]
 fn composite_disposal_before_the_commit_step_commits_nothing() {
     disposal_during_the_seal_commits_nothing::<CompositeVm<Node>>(true);
 }
 
 #[test]
+#[cfg(feature = "test-seams")]
 fn composite_disposal_in_the_commit_step_window_commits_nothing() {
     disposal_during_the_seal_commits_nothing::<CompositeVm<Node>>(false);
 }
 
 #[test]
+#[cfg(feature = "test-seams")]
 fn group_disposal_before_the_commit_step_commits_nothing() {
     disposal_during_the_seal_commits_nothing::<GroupVm<Node>>(true);
 }
 
 #[test]
+#[cfg(feature = "test-seams")]
 fn group_disposal_in_the_commit_step_window_commits_nothing() {
     disposal_during_the_seal_commits_nothing::<GroupVm<Node>>(false);
 }

@@ -216,9 +216,9 @@ impl<T: VmNode> CompositeSelection<T> {
             }
         }
         if let Some(expected) = expected_current_id {
-            if !lock(&self.current)
+            if lock(&self.current)
                 .as_ref()
-                .is_some_and(|current| current.id() == expected)
+                .is_none_or(|current| current.id() != expected)
             {
                 return Err(VmxError::NotCurrent);
             }
@@ -1419,7 +1419,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Test-only seam: runs `probe` after each construct walk's commit step
     /// wrote `Constructed` and before the composite publishes it. Production
-    /// code never calls it.
+    /// code never calls it. Only the non-default `test-seams` feature
+    /// exports it.
+    #[cfg(feature = "test-seams")]
     #[doc(hidden)]
     pub fn set_seal_probe_for_testing<F>(&self, probe: F)
     where

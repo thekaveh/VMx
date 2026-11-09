@@ -33,8 +33,44 @@ pub use async_resource_vm::{
 };
 pub use async_value::{AsyncValue, AsyncValuePanic};
 pub use value_stream::{ValueStream, ValueSubscription};
+#[cfg(feature = "test-seams")]
 #[doc(hidden)]
 pub use wait_for_graph::{container_wait_registered_for_testing, wait_registered_for_testing};
+
+/// Renders the doctests that pin the `test-seams` gate: each seam call
+/// compiles with the feature and fails to compile without it.
+#[cfg(doctest)]
+macro_rules! test_seam_probes {
+    ($fence:literal) => {
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::wait_registered_for_testing(std::thread::current().id());"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let _ = vmx::container_wait_registered_for_testing(std::thread::current().id());"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let group = vmx::GroupVm::<vmx::ComponentVm<i32>>::new(\"probe\");"]
+        #[doc = "group.set_last_scan_probe_for_testing(|| {});"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let group = vmx::GroupVm::<vmx::ComponentVm<i32>>::new(\"probe\");"]
+        #[doc = "group.set_seal_probe_for_testing(|| {});"]
+        #[doc = "```"]
+        #[doc = ""]
+        #[doc = concat!("```", $fence)]
+        #[doc = "let composite = vmx::CompositeVm::<vmx::ComponentVm<i32>>::new(\"probe\");"]
+        #[doc = "composite.set_seal_probe_for_testing(|| {});"]
+        #[doc = "```"]
+        pub struct TestSeamProbes;
+    };
+}
+#[cfg(all(doctest, feature = "test-seams"))]
+test_seam_probes!("rust");
+#[cfg(all(doctest, not(feature = "test-seams")))]
+test_seam_probes!("compile_fail");
 
 /// Version of the compiled Rust package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -765,6 +765,25 @@ impl ErrorState {
 /// [`with_model_validator`](Self::with_model_validator),
 /// [`with_clearing_model_validator`](Self::with_clearing_model_validator))
 /// has no effect.
+///
+/// # Re-entrant `Clone`
+///
+/// The form runs `M::clone` while it holds the lock of the value that it
+/// clones, the live model or the snapshot. These locks are not re-entrant. A
+/// model `Clone` must therefore not call a method of its own form that reads
+/// the model or the snapshot on the same thread, for example
+/// [`model`](Self::model), [`snapshot`](Self::snapshot),
+/// [`is_dirty`](Self::is_dirty) and [`set_model`](Self::set_model).
+/// [`approve`](Self::approve), [`revert`](Self::revert) and the
+/// [`approve_command`](Self::approve_command) and
+/// [`deny_command`](Self::deny_command) commands also read the model or the
+/// snapshot. [`can_approve`](Self::can_approve) calls `is_dirty` in strict
+/// mode, so the same limit applies to it there. Such a call never returns.
+///
+/// A model `Clone` can read the validation errors through
+/// [`is_valid`](Self::is_valid), [`errors`](Self::errors),
+/// [`error_map`](Self::error_map) and [`field_error`](Self::field_error).
+/// These reads take only the error lock, never the model or snapshot lock.
 pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     pub(crate) component: ComponentVm<M>,
     snapshot: Arc<Mutex<M>>,
@@ -944,6 +963,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Returns a clone of the current editable model.
+    ///
+    /// `M::clone` runs while this call holds the model lock, and that lock
+    /// is not re-entrant. A model `Clone` that calls this method, or another
+    /// method that reads the model, on its own thread never returns. See
+    /// [Re-entrant `Clone`](Self#re-entrant-clone).
     pub fn model(&self) -> M {
         self.component.model()
     }
@@ -1223,13 +1247,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             mut after,
             mut starts,
         } = notices;
-        let mut delivering_errors = false;
+        // Read after the unwind guard, which a panic can leave with it set.
+        let delivering_errors = std::cell::Cell::new(false);
         let notified = catch_unwind(AssertUnwindSafe(|| {
             if !publications.is_empty() {
                 lock(&self.nested)
                     .error_deliveries
                     .push((current, Notices::default()));
-                delivering_errors = true;
+                delivering_errors.set(true);
                 let mut sent = 0;
                 while sent < publications.len() {
                     self.publish_validation_changed();
@@ -1244,7 +1269,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                         starts.extend(scoped.starts);
                     }
                 }
-                delivering_errors = false;
+                delivering_errors.set(false);
                 self.end_error_delivery(current, &mut publications, &mut starts);
                 for publication in &mut publications {
                     publication.close_scope();
@@ -1269,7 +1294,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             }
         }));
         // An unexpected unwind can leave the error delivery open.
-        if delivering_errors {
+        if delivering_errors.get() {
             self.end_error_delivery(current, &mut publications, &mut starts);
         }
         let mut first_panic = notified.err();
@@ -1324,6 +1349,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Returns a clone of the last approved or initial snapshot.
+    ///
+    /// `M::clone` runs while this call holds the snapshot lock, and that lock
+    /// is not re-entrant. A model `Clone` that calls this method, or another
+    /// method that reads the snapshot, on its own thread never returns. See
+    /// [Re-entrant `Clone`](Self#re-entrant-clone).
     pub fn snapshot(&self) -> M {
         clone_locked(&self.snapshot)
     }
@@ -2000,18 +2030,26 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// Disposal waits for an update in progress on another thread, and until
     /// no other thread holds a publication scope on the form (spec/20 §5.4
     /// and §5.5). When that wait would close a wait-for cycle, the call marks
-    /// the form disposed and returns at once. Later calls are then inert, and
-    /// the publishing thread completes the hubs and disposes the commands when
-    /// its publications end. Either way, calls on other threads that wait for
-    /// a publication scope stop waiting and find the form disposed.
+    /// the form disposed and returns at once, and later calls are inert.
+    /// Either way, calls on other threads that wait for a publication scope
+    /// stop waiting and find the form disposed.
     ///
     /// A notification delivered outside a publication scope does not make
     /// disposal wait: an approval's admission notification, an update's
-    /// notifications after its `errors_changed` send, or an `approve_errors`
-    /// send. Disposal then marks the form disposed and returns, and the
-    /// delivering thread completes the hubs and disposes the commands when
-    /// that delivery returns (spec/20 §5.5). This also applies to a disposal
-    /// from that delivery's own observer.
+    /// notifications after its `errors_changed` send, a validator
+    /// registration's notifications, or an `approve_errors` send. When such a
+    /// delivery is in progress on any thread, disposal marks the form
+    /// disposed and returns at once. This also applies to a disposal from
+    /// that delivery's own observer.
+    ///
+    /// After a refused wait, or while a delivery outside a scope is in
+    /// progress, the teardown is deferred: no hub completes and no command is
+    /// disposed yet. The teardown runs when no publication and no delivery
+    /// remains on any thread, on the thread that ends the last one (spec/20
+    /// §5.5). That thread can be another thread than the publishing or
+    /// delivering thread that the disposal found. For example, when threads A
+    /// and C each deliver outside a scope and A returns first, the teardown
+    /// runs on C when C returns.
     pub fn dispose(&self) {
         loop {
             let Serialized { guard, refused_by } = self.serialize();

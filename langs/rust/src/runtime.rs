@@ -2700,13 +2700,18 @@ pub(crate) struct LateStarts {
     /// The scope of the walk that still scans for late members, if any.
     current: Arc<Mutex<Option<Arc<WalkScope>>>>,
     /// Test-only seam: runs after a walk's last late scan, outside the gate.
+    /// Only the `test-seams` feature compiles it.
+    #[cfg(feature = "test-seams")]
     last_scan_probe: Arc<Mutex<Option<LastScanProbe>>>,
     /// Test-only seam: runs after a walk's commit step wrote Constructed and
-    /// before the publication, outside the gate.
+    /// before the publication, outside the gate. Only the `test-seams`
+    /// feature compiles it.
+    #[cfg(feature = "test-seams")]
     seal_probe: Arc<Mutex<Option<LastScanProbe>>>,
 }
 
 /// A test-only callback a construct walk runs at one of its seams.
+#[cfg(feature = "test-seams")]
 type LastScanProbe = Arc<dyn Fn() + Send + Sync>;
 
 impl LateStarts {
@@ -2715,35 +2720,50 @@ impl LateStarts {
         Self {
             gate,
             current: Arc::default(),
+            #[cfg(feature = "test-seams")]
             last_scan_probe: Arc::default(),
+            #[cfg(feature = "test-seams")]
             seal_probe: Arc::default(),
         }
     }
 
     /// Test-only seam: sets the callback a construct walk runs after its last
     /// late scan, outside the membership gate. Production code never sets it.
+    #[cfg(feature = "test-seams")]
     pub(crate) fn set_last_scan_probe(&self, probe: LastScanProbe) {
         *lock(&self.last_scan_probe) = Some(probe);
     }
 
+    /// Runs the test-only probe, if one is set. Without the `test-seams`
+    /// feature it does nothing, so a default build takes no lock here.
     fn run_last_scan_probe(&self) {
-        let probe = lock(&self.last_scan_probe).clone();
-        if let Some(probe) = probe {
-            probe();
+        #[cfg(feature = "test-seams")]
+        {
+            let probe = lock(&self.last_scan_probe).clone();
+            if let Some(probe) = probe {
+                probe();
+            }
         }
     }
 
     /// Test-only seam: sets the callback a construct walk runs after its
     /// commit step and before the publication, outside the membership gate
     /// (spec/02 §2.4, ADR-0186). Production code never sets it.
+    #[cfg(feature = "test-seams")]
     pub(crate) fn set_seal_probe(&self, probe: LastScanProbe) {
         *lock(&self.seal_probe) = Some(probe);
     }
 
+    /// Runs the test-only seal probe, if one is set. Without the
+    /// `test-seams` feature it does nothing, so a default build takes no
+    /// lock here.
     fn run_seal_probe(&self) {
-        let probe = lock(&self.seal_probe).clone();
-        if let Some(probe) = probe {
-            probe();
+        #[cfg(feature = "test-seams")]
+        {
+            let probe = lock(&self.seal_probe).clone();
+            if let Some(probe) = probe {
+                probe();
+            }
         }
     }
 

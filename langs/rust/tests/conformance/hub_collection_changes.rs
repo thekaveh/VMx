@@ -2,9 +2,10 @@
 //! ch. 06 §4–§4.2, ch. 07, ch. 21 §2.4, ADR-0142).
 //!
 //! Rust's `CompositeVm` and `GroupVm` keep their children in a hub-bound
-//! `ObservableList`, so the container's hub is its collection-change channel:
-//! there is no separate local stream to order against. These tests therefore
-//! assert that each effective mutation delivers exactly one
+//! `ObservableList`. The list sends each change to its local membership stream
+//! (`ObservableMembershipSource::subscribe_membership`) and then to the
+//! container's hub. These tests cover the hub channel: they assert that each
+//! effective mutation delivers exactly one
 //! `CollectionChangedMessage` before the mutating call returns, in mutation
 //! order, sent by the container, with the positions of chapter 21 §2.4. Rust's
 //! additional `PropertyChanged("Count")` message (ADR-0085) is ignored.
