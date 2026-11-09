@@ -1,7 +1,7 @@
 //
 // RelayCommand conformance tests.
 //
-// Claimed IDs: CMD-001..004, CMD-006, CMD-014..016, plus BLD-005 (additive triggers on
+// Claimed IDs: CMD-001..004, CMD-006, CMD-014..016, CMD-021, plus BLD-005 (additive triggers on
 // the command builder). CMD-005 (parameterized RelayCommandOf) and CMD-007
 // (truth-table fixture) are covered by RelayCommandOfTests /
 // RelayCommandTruthTableTests (Phase 3 Inc 4).
@@ -101,6 +101,36 @@ final class RelayCommandTests: XCTestCase {
         XCTAssertEqual(fires, 3)
         cancel.cancel()
     }
+
+    /// CMD-021 — structural: `canExecuteChanged` has the failure type `Never`
+    /// and a Combine sink cannot throw, so no handler can fail. With a trigger
+    /// built through an operator, two handlers each see both trigger
+    /// notifications and the imperative raise.
+    func testCmd021CanExecuteChangedHandlersCannotFailAndAllReceive() {
+        let source = PassthroughSubject<Int, Never>()
+        let cmd = RelayCommand.builder()
+            .triggers(source.map { _ in () }.eraseToAnyPublisher())
+            .build()
+        XCTAssertTrue(failureType(of: cmd.canExecuteChanged) == Never.self)
+        var first = 0
+        var second = 0
+        let a = cmd.canExecuteChanged.sink { first += 1 }
+        let b = cmd.canExecuteChanged.sink { second += 1 }
+
+        source.send(1)
+        source.send(2)
+        XCTAssertEqual(first, 2)
+        XCTAssertEqual(second, 2)
+
+        cmd.raiseCanExecuteChanged()
+        XCTAssertEqual(first, 3)
+        XCTAssertEqual(second, 3)
+        a.cancel()
+        b.cancel()
+        cmd.dispose()
+    }
+
+    private func failureType<P: Publisher>(of _: P) -> Any.Type { P.Failure.self }
 
     /// CMD-016 — imperative raise after disposal is a no-op.
     func testCmd016ImperativeRaiseAfterDisposalIsNoOp() {

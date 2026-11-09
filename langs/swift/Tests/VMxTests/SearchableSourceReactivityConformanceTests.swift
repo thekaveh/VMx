@@ -223,4 +223,44 @@ final class SearchableSourceReactivityConformanceTests: XCTestCase {
         XCTAssertEqual(first.disposeCount, 0)
         XCTAssertEqual(second.disposeCount, 0)
     }
+
+    /// SRCH-009 — structural: the predicate and item supplier are
+    /// non-throwing closures, and `filtered` has the failure type `Never`, so
+    /// neither can fail. Two subscribers each receive every snapshot once.
+    func testSRCH009PredicateAndSubscribersCannotFailAndAllReceive() {
+        let predicate: (String, String) -> Bool = searchMatches
+        let items: () -> [String] = { ["apple", "banana"] }
+        let sut = SearchableState<String>(
+            items: items,
+            predicate: predicate,
+            debounce: .milliseconds(0)
+        )
+        XCTAssertTrue(failureType(of: sut.filtered) == Never.self)
+        var first: [[String]] = []
+        var second: [[String]] = []
+        // A term change goes through the debounce scheduler (`.main`), even
+        // with a zero debounce, so wait for both subscribers.
+        let delivered = expectation(description: "both subscribers receive the term result")
+        delivered.expectedFulfillmentCount = 2
+        sut.filtered.dropFirst().first().sink { _ in delivered.fulfill() }
+            .store(in: &cancellables)
+        sut.filtered.dropFirst().first().sink { _ in delivered.fulfill() }
+            .store(in: &cancellables)
+        sut.filtered.sink { first.append($0) }.store(in: &cancellables)
+        sut.filtered.sink { second.append($0) }.store(in: &cancellables)
+        first.removeAll()
+        second.removeAll()
+
+        sut.searchTerm = "an"
+        wait(for: [delivered], timeout: 2)
+        XCTAssertEqual(first, [["banana"]])
+        XCTAssertEqual(second, [["banana"]])
+
+        sut.search()
+        XCTAssertEqual(first, [["banana"], ["banana"]])
+        XCTAssertEqual(second, [["banana"], ["banana"]])
+        sut.dispose()
+    }
+
+    private func failureType<P: Publisher>(of _: P) -> Any.Type { P.Failure.self }
 }
