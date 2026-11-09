@@ -318,8 +318,8 @@ flavor unless the exceptions below say otherwise.
   owned commands enter a terminal disabled state. Late work cannot commit pager
   state.
 - `NotificationHub` claims disposal atomically. Dispose sends no final
-  snapshot on `pending_stream()`, no `pending` message on `pending_changed()`
-  and no `pending_snapshots()` entry. A later `pending_stream()` subscription
+  snapshot on `pending_stream()` and no `pending` message on
+  `pending_changed()`. A later `pending_stream()` subscription
   completes at once with no replay. Waiters read `Pending`; post returns a
   pending result; resolve cannot re-enqueue (ADR-0197).
 - `FormVm` enters a terminal inert state. It releases its command gate and

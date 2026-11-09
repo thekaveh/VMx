@@ -140,7 +140,7 @@ No flavor differs, so ADR-0009 gains no entry.
 - `NOTIF-017` now requires that a current subscriber receives no value from
   the dispose. `DISP-003` requires one completion and no terminal snapshot.
 
-With ADR-0198, the catalog grows from 451 to 454 library IDs (459 in total).
+With the `SRCH-008` ID of ADR-0198, the catalog grows by three library IDs.
 
 ## 5. Consequences
 

@@ -12,7 +12,7 @@ pre-publication changes.
 
 The closure was revalidated against the current Rust implementation, its
 conformance and regression tests, the canonical spec, and the four-flavor
-consensus on **2026-07-26**. All five flavors cover all 454 library IDs. The
+consensus on **2026-07-26**. All five flavors cover every library ID. The
 focused Rust tests cited below now assert the canonical member shape and edge
 behavior rather than the earlier reduced Rust surface.
 
@@ -375,10 +375,10 @@ do complete in Rust.
 ## 12.10. Recorded Difference: Notification Hub Disposal Snapshot
 
 **Resolved.** ADR-0197 removes the final snapshot in every flavor. Rust
-dispose sends no value on `pending_stream()`, no `pending` message on
-`pending_changed()` and no `pending_snapshots()` entry before completion, as
-C#, Python, TypeScript and Swift already did. A `pending_stream()` subscription
-made after dispose completes at once with no replay (NOTIF-017, NOTIF-020).
+dispose sends no value on `pending_stream()` and no `pending` message on
+`pending_changed()` before completion, as C#, Python, TypeScript and Swift
+already did. A `pending_stream()` subscription made after dispose completes at
+once with no replay (NOTIF-017, NOTIF-020).
 Waiters resolve to `Pending` in every flavor.
 
 ## 12.11. Open Item: PagedComposition Notifications

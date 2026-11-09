@@ -1,7 +1,23 @@
 use vmx::{
-    make_confirm, Command, ConfirmationVm, Notification, NotificationHub, NotificationReaction,
-    NotificationType, NotificationVm, NullNotificationHub,
+    make_confirm, Command, ConfirmationVm, Notification, NotificationHub, NotificationHubApi,
+    NotificationReaction, NotificationType, NotificationVm, NullNotificationHub, ValueSubscription,
 };
+
+type Snapshots = std::sync::Arc<std::sync::Mutex<Vec<Vec<Notification>>>>;
+
+/// Records each pending snapshot that `hub` commits from now on, in delivery
+/// order. The hub keeps no snapshot history (ADR-0211), so a test observes
+/// snapshots through `pending_stream()`. The replayed current snapshot is not
+/// recorded.
+fn record_committed_snapshots(hub: &NotificationHub) -> (ValueSubscription, Snapshots) {
+    let snapshots = Snapshots::default();
+    let recorded = snapshots.clone();
+    let subscription = hub
+        .pending_stream()
+        .subscribe(move |pending| recorded.lock().unwrap().push(pending));
+    snapshots.lock().unwrap().clear();
+    (subscription, snapshots)
+}
 
 /// NOTIF-001 — Post returns an awaitable that completes when Resolve is called
 #[test]
@@ -63,6 +79,7 @@ fn reposting_same_notification_reuses_pending_completion() {
 #[test]
 fn post_adds_notification_to_pending_snapshot() {
     let hub = NotificationHub::new();
+    let (_recorder, committed) = record_committed_snapshots(&hub);
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let values = observed.clone();
     let _subscription = hub
@@ -84,8 +101,9 @@ fn post_adds_notification_to_pending_snapshot() {
         *late_values.lock().unwrap(),
         vec![vec![notification.clone()]]
     );
-    assert!(hub
-        .pending_snapshots()
+    assert!(committed
+        .lock()
+        .unwrap()
         .last()
         .unwrap()
         .contains(&notification));
@@ -107,6 +125,7 @@ fn reentrant_pending_mutation_publishes_each_committed_snapshot_once() {
             reentrant.post_notification(second_for_callback.clone());
         }
     });
+    let (_recorder, committed) = record_committed_snapshots(&hub);
 
     hub.post_notification(first.clone());
 
@@ -119,7 +138,7 @@ fn reentrant_pending_mutation_publishes_each_committed_snapshot_once() {
         ]
     );
     assert_eq!(
-        hub.pending_snapshots(),
+        *committed.lock().unwrap(),
         vec![vec![first.clone()], vec![first, second]]
     );
 }
@@ -144,6 +163,7 @@ fn concurrent_pending_delivery_matches_committed_snapshot_order() {
         }
         snapshots.lock().unwrap().push(pending);
     });
+    let (_recorder, committed) = record_committed_snapshots(&hub);
 
     let first_poster = {
         let hub = hub.clone();
@@ -188,7 +208,7 @@ fn concurrent_pending_delivery_matches_committed_snapshot_order() {
         ]
     );
     assert_eq!(
-        hub.pending_snapshots(),
+        *committed.lock().unwrap(),
         vec![vec![first.clone()], vec![first, second]]
     );
 }
@@ -272,15 +292,12 @@ fn resolve_removes_notification_from_pending_snapshot() {
                 .push(waiter_at_publish.try_get());
         }
     });
+    let (_recorder, committed) = record_committed_snapshots(&hub);
 
     hub.resolve(notification.id, NotificationReaction::Approve);
 
     assert!(!hub.pending().contains(&notification));
-    assert!(!hub
-        .pending_snapshots()
-        .last()
-        .unwrap()
-        .contains(&notification));
+    assert_eq!(*committed.lock().unwrap(), vec![Vec::<Notification>::new()]);
     assert_eq!(
         *completion_state.lock().unwrap(),
         vec![None],
@@ -383,22 +400,54 @@ fn resolving_unknown_notification_is_noop() {
 /// NOTIF-009 — NullNotificationHub.Post resolves to Approve immediately
 #[test]
 fn null_notification_hub_resolves_approve() {
-    let notification = Notification::new(NotificationType::Confirmation, "confirm?");
-    let waiter = NullNotificationHub::post(notification);
+    let hub = NullNotificationHub::new();
+    let notification = hub.post(NotificationType::Confirmation, "confirm?");
+    let waiter = hub.post_notification(notification.clone());
 
     assert_eq!(waiter.wait(), NotificationReaction::Approve);
+    hub.resolve(notification.id, NotificationReaction::Reject);
+    assert!(hub.pending().is_empty());
 
     let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let observed = values.clone();
     let completed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let completion = completed.clone();
-    let _subscription = NullNotificationHub::pending_stream().subscribe_with_completion(
+    let _subscription = hub.pending_stream().subscribe_with_completion(
         move |pending| observed.lock().unwrap().push(pending),
         move || completion.store(true, std::sync::atomic::Ordering::SeqCst),
     );
 
     assert_eq!(*values.lock().unwrap(), vec![Vec::<Notification>::new()]);
     assert!(completed.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+/// NOTIF-009 — NullNotificationHub replaces NotificationHub where a caller takes the hub trait
+#[test]
+fn null_notification_hub_replaces_the_hub_through_the_hub_trait() {
+    fn post_and_resolve(hub: &impl NotificationHubApi) -> NotificationReaction {
+        let notification = Notification::new(NotificationType::Confirmation, "confirm?");
+        let waiter = hub.post_notification(notification.clone());
+        hub.resolve(notification.id, NotificationReaction::Approve);
+        assert!(hub.pending().is_empty());
+        waiter.wait()
+    }
+
+    assert_eq!(
+        post_and_resolve(&NullNotificationHub),
+        NotificationReaction::Approve
+    );
+    assert_eq!(
+        post_and_resolve(&NotificationHub::new()),
+        NotificationReaction::Approve
+    );
+}
+
+/// NOTIF-010 — make_confirm over a NullNotificationHub completes with true
+#[test]
+fn make_confirm_over_null_hub_completes_true() {
+    let confirm = make_confirm(NullNotificationHub, "ok?");
+
+    assert!(confirm().wait());
 }
 
 /// NOTIF-010 — make_confirm helper returns true iff resolved Approve
@@ -685,7 +734,6 @@ fn hub_dispose_resolves_waiters_pending() {
         },
     );
     let values_before = values.lock().unwrap().len();
-    let snapshots_before = hub.pending_snapshots().len();
 
     hub.dispose();
 
@@ -701,7 +749,6 @@ fn hub_dispose_resolves_waiters_pending() {
         recorder.is_empty(),
         "dispose sends no pending message (ADR-0197)"
     );
-    assert_eq!(hub.pending_snapshots().len(), snapshots_before);
 }
 
 /// NOTIF-019 — NotificationVM remaining time and opacity stop at resolution or disposal
@@ -912,6 +959,7 @@ fn concurrent_dispose_returns_after_queued_terminal_publication_and_completions(
 ///
 /// `dispose()` returns `()`, so "exactly one caller claims teardown" is observed
 /// through its single-shot effects: one completion and no snapshot.
+/// A `pending_stream()` recorder observes the snapshots (ADR-0211).
 #[test]
 fn concurrent_notification_hub_dispose_completes_once_without_a_snapshot() {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -929,7 +977,7 @@ fn concurrent_notification_hub_dispose_completes_once_without_a_snapshot() {
                 completed.fetch_add(1, Ordering::SeqCst);
             },
         );
-        let before = hub.pending_snapshots().len();
+        let (_recorder, committed) = record_committed_snapshots(&hub);
         let barrier = Arc::new(Barrier::new(32));
         let threads = (0..32)
             .map(|_| {
@@ -946,9 +994,8 @@ fn concurrent_notification_hub_dispose_completes_once_without_a_snapshot() {
             thread.join().unwrap();
         }
 
-        assert_eq!(
-            hub.pending_snapshots().len(),
-            before,
+        assert!(
+            committed.lock().unwrap().is_empty(),
             "iteration {iteration}: dispose publishes no snapshot"
         );
         assert_eq!(

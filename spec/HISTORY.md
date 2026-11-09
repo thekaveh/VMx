@@ -707,6 +707,24 @@ before a persister starts prevents the persister call (`FORM-041`,
 
 See ADR-0180 and chapter 20 §5.4 and §10.
 
+v3.30.0 also makes two composite selection refusals silent. A refused child
+`select()` or `deselect()` changes nothing and raises nothing in every flavor.
+While a composite is `Destructing`, a non-null selection changes nothing and
+raises nothing, so `destruct()` always returns with `Current` null
+(`COMP-051`, `COMP-052`).
+
+See ADR-0188 and chapter 05 §6 and chapter 06 §3.1, §4.3 and §5.
+
+v3.30.0 also covers a child that is disposed while it is still a member.
+Container walks and the child-transition helper skip a `Disposed` child, so
+the container still destructs, constructs and reconstructs (`LIFE-022`). A
+`Disposed` child is not selectable. When the current child publishes
+`Disposed` from its own `dispose()`, the composite clears `Current`, and the
+child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 455
+library IDs plus 5 scenario IDs.
+
+See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
+
 v3.30.0 also stops the notification render state at the first terminal step. A
 `NotificationVM` or `ConfirmationVM` keeps `RemainingTime` and `Opacity` from
 its first resolution, an observed hub resolution, or its disposal
@@ -714,12 +732,12 @@ its first resolution, an observed hub resolution, or its disposal
 no final `Pending` snapshot. It completes `Pending` once, after any snapshots
 queued before dispose (`NOTIF-017`, `DISP-003`). A `Pending` subscription made
 after dispose receives completion only, with no value and no error
-(`NOTIF-020`). The catalog now contains 453 library IDs plus 5 scenario IDs.
+(`NOTIF-020`). The catalog now contains 457 library IDs plus 5 scenario IDs.
 
 See ADR-0197 and chapter 16 §2.3, §6, §7, and §9.
 
 v3.30.0 also makes `SearchableState` construction start no term debounce. This
 holds for every debounce length, zero included (`SRCH-008`). The catalog now
-contains 454 library IDs plus 5 scenario IDs.
+contains 458 library IDs plus 5 scenario IDs.
 
 See ADR-0198 and chapter 06 §8 and §10.
