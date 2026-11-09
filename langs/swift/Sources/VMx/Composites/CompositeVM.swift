@@ -426,6 +426,10 @@ open class CompositeVM<Child: ComponentVMBase>:
         } catch {
             return .failure(.attachmentFailed(error))
         }
+        var lateStart: LateChildStarts.Record?
+        // Ends the start attempt after the membership transaction, on success
+        // and after an undo (ADR-0186, ADR-0218 rule 4).
+        defer { finishLateStart(child, lateStart) }
         defer { endMembershipTransaction() }
         let originalStatus = child.status
         let transfer: ParentTransfer?
@@ -448,7 +452,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         child._parent = self
         child._ownershipParent = self
         pendingAdmissions.insert(ObjectIdentifier(child))
-        let lateStart = registerLateStartLocked(child)
+        lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         // When autoConstructOnAdd is set and the composite is already
         // Constructed, construct the child BEFORE emitting the Add event
@@ -467,9 +471,6 @@ open class CompositeVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            // Mark the attempt done only after the undo, so a walk that
-            // waits on it sees a non-member (ADR-0186).
-            lateStart?.finish()
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
@@ -488,13 +489,14 @@ open class CompositeVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            var compensationError: Error?
-            if originalStatus == .destructed && child.status == .constructed {
-                do { try child.destruct() } catch { compensationError = error }
-            }
+            let compensationError = ContainerSupport.compensateAutoConstruct(
+                child, originalStatus: originalStatus
+            )
             transfer?.rollback()
             if let compensationError {
-                return .failure(.attachmentFailed(compensationError))
+                return .failure(.attachmentFailed(ContainerRollbackError(
+                    originalError: error, compensationError: compensationError
+                )))
             }
             return .failure(.attachmentFailed(error))
         }
@@ -530,6 +532,10 @@ open class CompositeVM<Child: ComponentVMBase>:
         } catch {
             return .failure(.attachmentFailed(error))
         }
+        var lateStart: LateChildStarts.Record?
+        // Ends the start attempt after the membership transaction, on success
+        // and after an undo (ADR-0186, ADR-0218 rule 4).
+        defer { finishLateStart(child, lateStart) }
         defer { endMembershipTransaction() }
         let originalStatus = child.status
         let childCount = membershipGate.withLock { children.count }
@@ -556,7 +562,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         child._parent = self
         child._ownershipParent = self
         pendingAdmissions.insert(ObjectIdentifier(child))
-        let lateStart = registerLateStartLocked(child)
+        lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         if let error = autoConstructAttached(child, record: lateStart) {
             membershipGate.withLock {
@@ -570,9 +576,6 @@ open class CompositeVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            // Mark the attempt done only after the undo, so a walk that
-            // waits on it sees a non-member (ADR-0186).
-            lateStart?.finish()
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
@@ -591,13 +594,14 @@ open class CompositeVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            var compensationError: Error?
-            if originalStatus == .destructed && child.status == .constructed {
-                do { try child.destruct() } catch { compensationError = error }
-            }
+            let compensationError = ContainerSupport.compensateAutoConstruct(
+                child, originalStatus: originalStatus
+            )
             transfer?.rollback()
             if let compensationError {
-                return .failure(.attachmentFailed(compensationError))
+                return .failure(.attachmentFailed(ContainerRollbackError(
+                    originalError: error, compensationError: compensationError
+                )))
             }
             return .failure(.attachmentFailed(error))
         }
@@ -683,6 +687,10 @@ open class CompositeVM<Child: ComponentVMBase>:
         } catch {
             return .failure(.attachmentFailed(error))
         }
+        var lateStart: LateChildStarts.Record?
+        // Ends the start attempt after the membership transaction, on success
+        // and after an undo (ADR-0186, ADR-0218 rule 4).
+        defer { finishLateStart(child, lateStart) }
         defer { endMembershipTransaction() }
         let originalStatus = child.status
         let childCount = membershipGate.withLock { children.count }
@@ -714,7 +722,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         child._parent = self
         child._ownershipParent = self
         pendingAdmissions.insert(ObjectIdentifier(child))
-        let lateStart = registerLateStartLocked(child)
+        lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         if let error = autoConstructAttached(child, record: lateStart) {
             membershipGate.withLock {
@@ -728,9 +736,6 @@ open class CompositeVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            // Mark the attempt done only after the undo, so a walk that
-            // waits on it sees a non-member (ADR-0186).
-            lateStart?.finish()
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
@@ -749,13 +754,14 @@ open class CompositeVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            var compensationError: Error?
-            if originalStatus == .destructed && child.status == .constructed {
-                do { try child.destruct() } catch { compensationError = error }
-            }
+            let compensationError = ContainerSupport.compensateAutoConstruct(
+                child, originalStatus: originalStatus
+            )
             transfer?.rollback()
             if let compensationError {
-                return .failure(.attachmentFailed(compensationError))
+                return .failure(.attachmentFailed(ContainerRollbackError(
+                    originalError: error, compensationError: compensationError
+                )))
             }
             return .failure(.attachmentFailed(error))
         }
@@ -881,6 +887,12 @@ open class CompositeVM<Child: ComponentVMBase>:
         )
     }
 
+    /// Marks an add's start attempt done after its membership transaction
+    /// ended (see `ContainerSupport.finishLateStart`).
+    private func finishLateStart(_ child: Child, _ record: LateChildStarts.Record?) {
+        ContainerSupport.finishLateStart(child, record, in: self, starts: lateStarts)
+    }
+
     /// Test-only seam: runs at each `LateChildStage` of this container's
     /// late-child start records. Production code never sets it.
     var lateChildProbeForTesting: ((ComponentVMBase, LateChildStage) -> Void)? {
@@ -893,6 +905,10 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     open override func _onConstruct() throws {
         try super._onConstruct()
+        // A foreign `dispose()` superseded the hook: population and the walk
+        // are post-hook container actions, so neither runs, and `construct()`
+        // returns without an error (spec/02 §2.4, ADR-0218 rule 5).
+        if _isDisposalRequested() { return }
         // Children whose construct population started are joined, not restarted.
         var joined: [ComponentVMBase] = []
         if !populated {
@@ -924,9 +940,10 @@ open class CompositeVM<Child: ComponentVMBase>:
             lateChild: lateChildSource(after: snapshot, scope: scope),
             membership: ChildMembership { [weak self] child in self?.isMember(child) ?? false }
         ) { [self] in
-            if let selector = currentSelector,
-               let initial = selector(snapshot),
-               snapshot.contains(where: { $0 === initial }) {
+            // The selector reads the live membership, so it can pick a late
+            // child. The assignment makes a pick that is not an admitted
+            // member a silent no-op (spec/06 §3.2, ADR-0218 rule 2).
+            if let selector = currentSelector, let initial = selector(self.snapshot()) {
                 _assignInitialCurrent(initial)
             }
         }
@@ -1005,11 +1022,10 @@ open class CompositeVM<Child: ComponentVMBase>:
                         children.remove(at: attached)
                     }
                 }
-                let originalStatus = originalStatuses[offset]
-                if originalStatus == .destructed && child.status == .constructed {
-                    do { try child.destruct() } catch {
-                        if compensationError == nil { compensationError = error }
-                    }
+                if let error = ContainerSupport.compensateAutoConstruct(
+                    child, originalStatus: originalStatuses[offset]
+                ), compensationError == nil {
+                    compensationError = error
                 }
                 if child._ownershipParent === self {
                     child._parent = nil
@@ -1018,7 +1034,9 @@ open class CompositeVM<Child: ComponentVMBase>:
             }
             for transfer in transfers.reversed() { transfer.rollback() }
             if let compensationError {
-                return .failure(.attachmentFailed(compensationError))
+                return .failure(.attachmentFailed(ContainerRollbackError(
+                    originalError: attachmentError, compensationError: compensationError
+                )))
             }
             if let ownershipError = attachmentError as? ContainerOwnershipError {
                 return .failure(ownershipError)

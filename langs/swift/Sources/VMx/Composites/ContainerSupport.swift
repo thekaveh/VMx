@@ -108,14 +108,15 @@ enum ContainerSupport {
 
     /// Auto-construct-on-add of a child an add attached; returns the child's
     /// construct error. With a start `record` (the container was
-    /// `Constructing` at the attach), a `Destructed` child starts now and the
-    /// record is marked done right after the attempt, before the add
-    /// publishes anything. Without one, the child starts only when the
+    /// `Constructing` at the attach), a `Destructed` child starts now. A
+    /// construct that another thread started after the status read is left
+    /// alone: the walk joins it, and the add neither starts nor waits for it
+    /// (ADR-0218 rule 6). Without a record, the child starts only when the
     /// container is `Constructed`: one attached before the walk's snapshot is
-    /// constructed by the walk (spec/06 §5.1). When the construct fails, the
-    /// record stays open: the add undoes the attach and then calls
-    /// `record.finish()`, so a walk that waits on the record sees a
-    /// non-member and ignores the child (ADR-0186).
+    /// constructed by the walk (spec/06 §5.1). This helper never marks the
+    /// record done: the add calls `finishLateStart` after it ends its
+    /// membership transaction, on success and after its undo, so a walk that
+    /// waits on the record resumes only then (ADR-0186, ADR-0218 rule 4).
     static func autoConstructAttached(
         _ child: ComponentVMBase,
         in container: ComponentVMBase,
@@ -124,16 +125,61 @@ enum ContainerSupport {
         starts: LateChildStarts
     ) -> Error? {
         guard autoConstructOnAdd else { return nil }
-        guard let record else {
+        guard record != nil else {
             guard container.isConstructed else { return nil }
             do { try child.construct() } catch { return error }
             return nil
         }
         starts.probe(child, .attached)
         if child.status == .destructed {
-            do { try child.construct() } catch { return error }
+            starts.probe(child, .starting)
+            do {
+                try child.construct()
+            } catch let error as StatusTransitionError {
+                guard child._isInTransition(.constructing) || child.status == .constructed else {
+                    return error
+                }
+            } catch {
+                return error
+            }
         }
+        return nil
+    }
+
+    /// Marks an add's start attempt done. The add calls it after it ended
+    /// its membership transaction (ADR-0218 rule 4).
+    static func finishLateStart(
+        _ child: ComponentVMBase,
+        _ record: LateChildStarts.Record?,
+        in container: ComponentVMBase,
+        starts: LateChildStarts
+    ) {
+        guard let record else { return }
         starts.finish(child, record, constructing: container.status == .constructing)
+    }
+
+    /// The lifecycle compensation of a child that a failed add, insert,
+    /// index replacement or population attached (spec/06 §4.2). Only a child
+    /// that was `Destructed` before the change is compensated. A child whose
+    /// construct is still in flight is not waited for: once that construct
+    /// settles at `Constructed` and the child has no parent, VMx calls its
+    /// `destruct()`, and the failed change reports no failure of that call
+    /// (ADR-0218 rule 7). A `Constructed` child is destructed now. Returns
+    /// that destruct's error.
+    static func compensateAutoConstruct(
+        _ child: ComponentVMBase,
+        originalStatus: ConstructionStatus
+    ) -> Error? {
+        guard originalStatus == .destructed else { return nil }
+        let deferred = child._awaitSettle(from: .constructing) { [weak child] in
+            guard let child, child.status == .constructed,
+                  child._transferOwnershipParent == nil else { return }
+            // A background child reports a destruct hook failure through its
+            // own background path; nobody waits for this call.
+            try? child.destruct()
+        }
+        guard deferred == nil, child.status == .constructed else { return nil }
+        do { try child.destruct() } catch { return error }
         return nil
     }
 }

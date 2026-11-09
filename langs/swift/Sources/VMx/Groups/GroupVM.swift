@@ -245,6 +245,10 @@ open class GroupVM<Child: ComponentVMBase>:
         } catch {
             return .failure(.attachmentFailed(error))
         }
+        var lateStart: LateChildStarts.Record?
+        // Ends the start attempt after the membership transaction, on success
+        // and after an undo (ADR-0186, ADR-0218 rule 4).
+        defer { finishLateStart(child, lateStart) }
         defer { endMembershipTransaction() }
         let originalStatus = child.status
         let transfer: ParentTransfer?
@@ -266,7 +270,7 @@ open class GroupVM<Child: ComponentVMBase>:
         children.append(child)
         child._parent = groupParent
         child._ownershipParent = groupParent
-        let lateStart = registerLateStartLocked(child)
+        lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         // When autoConstructOnAdd is set and the group is already Constructed,
         // construct the child BEFORE emitting the Add event (GRP-005). `add` is
@@ -284,9 +288,6 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            // Mark the attempt done only after the undo, so a walk that
-            // waits on it sees a non-member (ADR-0186).
-            lateStart?.finish()
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
@@ -302,13 +303,14 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            var compensationError: Error?
-            if originalStatus == .destructed && child.status == .constructed {
-                do { try child.destruct() } catch { compensationError = error }
-            }
+            let compensationError = ContainerSupport.compensateAutoConstruct(
+                child, originalStatus: originalStatus
+            )
             transfer?.rollback()
             if let compensationError {
-                return .failure(.attachmentFailed(compensationError))
+                return .failure(.attachmentFailed(ContainerRollbackError(
+                    originalError: error, compensationError: compensationError
+                )))
             }
             return .failure(.attachmentFailed(error))
         }
@@ -337,6 +339,10 @@ open class GroupVM<Child: ComponentVMBase>:
         } catch {
             return .failure(.attachmentFailed(error))
         }
+        var lateStart: LateChildStarts.Record?
+        // Ends the start attempt after the membership transaction, on success
+        // and after an undo (ADR-0186, ADR-0218 rule 4).
+        defer { finishLateStart(child, lateStart) }
         defer { endMembershipTransaction() }
         let originalStatus = child.status
         let childCount = membershipGate.withLock { children.count }
@@ -362,7 +368,7 @@ open class GroupVM<Child: ComponentVMBase>:
         children.insert(child, at: index)
         child._parent = groupParent
         child._ownershipParent = groupParent
-        let lateStart = registerLateStartLocked(child)
+        lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         if let error = autoConstructAttached(child, record: lateStart) {
             membershipGate.withLock {
@@ -375,9 +381,6 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            // Mark the attempt done only after the undo, so a walk that
-            // waits on it sees a non-member (ADR-0186).
-            lateStart?.finish()
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
@@ -393,13 +396,14 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            var compensationError: Error?
-            if originalStatus == .destructed && child.status == .constructed {
-                do { try child.destruct() } catch { compensationError = error }
-            }
+            let compensationError = ContainerSupport.compensateAutoConstruct(
+                child, originalStatus: originalStatus
+            )
             transfer?.rollback()
             if let compensationError {
-                return .failure(.attachmentFailed(compensationError))
+                return .failure(.attachmentFailed(ContainerRollbackError(
+                    originalError: error, compensationError: compensationError
+                )))
             }
             return .failure(.attachmentFailed(error))
         }
@@ -478,6 +482,10 @@ open class GroupVM<Child: ComponentVMBase>:
         } catch {
             return .failure(.attachmentFailed(error))
         }
+        var lateStart: LateChildStarts.Record?
+        // Ends the start attempt after the membership transaction, on success
+        // and after an undo (ADR-0186, ADR-0218 rule 4).
+        defer { finishLateStart(child, lateStart) }
         defer { endMembershipTransaction() }
         let originalStatus = child.status
         let childCount = membershipGate.withLock { children.count }
@@ -506,7 +514,7 @@ open class GroupVM<Child: ComponentVMBase>:
         old._ownershipParent = nil
         child._parent = groupParent
         child._ownershipParent = groupParent
-        let lateStart = registerLateStartLocked(child)
+        lateStart = registerLateStartLocked(child)
         membershipGate.unlock()
         if let error = autoConstructAttached(child, record: lateStart) {
             membershipGate.withLock {
@@ -521,9 +529,6 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            // Mark the attempt done only after the undo, so a walk that
-            // waits on it sees a non-member (ADR-0186).
-            lateStart?.finish()
             transfer?.rollback()
             return .failure(.attachmentFailed(error))
         }
@@ -541,13 +546,14 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
-            var compensationError: Error?
-            if originalStatus == .destructed && child.status == .constructed {
-                do { try child.destruct() } catch { compensationError = error }
-            }
+            let compensationError = ContainerSupport.compensateAutoConstruct(
+                child, originalStatus: originalStatus
+            )
             transfer?.rollback()
             if let compensationError {
-                return .failure(.attachmentFailed(compensationError))
+                return .failure(.attachmentFailed(ContainerRollbackError(
+                    originalError: error, compensationError: compensationError
+                )))
             }
             return .failure(.attachmentFailed(error))
         }
@@ -654,6 +660,12 @@ open class GroupVM<Child: ComponentVMBase>:
         )
     }
 
+    /// Marks an add's start attempt done after its membership transaction
+    /// ended (see `ContainerSupport.finishLateStart`).
+    private func finishLateStart(_ child: Child, _ record: LateChildStarts.Record?) {
+        ContainerSupport.finishLateStart(child, record, in: self, starts: lateStarts)
+    }
+
     /// Test-only seam: runs at each `LateChildStage` of this container's
     /// late-child start records. Production code never sets it.
     var lateChildProbeForTesting: ((ComponentVMBase, LateChildStage) -> Void)? {
@@ -666,6 +678,10 @@ open class GroupVM<Child: ComponentVMBase>:
 
     open override func _onConstruct() throws {
         try super._onConstruct()
+        // A foreign `dispose()` superseded the hook: population and the walk
+        // are post-hook container actions, so neither runs, and `construct()`
+        // returns without an error (spec/02 §2.4, ADR-0218 rule 5).
+        if _isDisposalRequested() { return }
         // Children whose construct population started are joined, not restarted.
         var joined: [ComponentVMBase] = []
         if !populated, let factory = childrenFactory {
@@ -764,11 +780,10 @@ open class GroupVM<Child: ComponentVMBase>:
                         children.remove(at: attached)
                     }
                 }
-                let originalStatus = originalStatuses[offset]
-                if originalStatus == .destructed && child.status == .constructed {
-                    do { try child.destruct() } catch {
-                        if compensationError == nil { compensationError = error }
-                    }
+                if let error = ContainerSupport.compensateAutoConstruct(
+                    child, originalStatus: originalStatuses[offset]
+                ), compensationError == nil {
+                    compensationError = error
                 }
                 if child._ownershipParent === groupParent {
                     child._parent = nil
@@ -777,7 +792,9 @@ open class GroupVM<Child: ComponentVMBase>:
             }
             for transfer in transfers.reversed() { transfer.rollback() }
             if let compensationError {
-                return .failure(.attachmentFailed(compensationError))
+                return .failure(.attachmentFailed(ContainerRollbackError(
+                    originalError: attachmentError, compensationError: compensationError
+                )))
             }
             if let ownershipError = attachmentError as? ContainerOwnershipError {
                 return .failure(ownershipError)
