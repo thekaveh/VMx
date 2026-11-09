@@ -19,6 +19,8 @@ repos:
     rev: v0.17.3
     hooks:
       - id: ruff-check
+        # The alias keeps `pre-commit run ruff` working (#1335).
+        alias: ruff
         # tools/ sits outside langs/python/, so ruff's auto-discovery would
         # never find langs/python/pyproject.toml when invoked on tools/ paths
         # from the repo root. Pass --config explicitly to apply the same
@@ -33,6 +35,7 @@ repos:
       # run in .github/workflows/conformance.yml. Ruff writes no file into the
       # template folder, so `template_files("python-console")` still passes.
       - id: ruff-check
+        alias: ruff
         name: ruff-check (starters/python-console)
         args:
           - "--fix"
