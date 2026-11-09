@@ -4,9 +4,9 @@
 //! `eq` mutates its owner leaves the correct final state; and deterministic
 //! notification clocks saturate instead of overflowing.
 
+use super::bounded_wait::within_timeout;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::RecvTimeoutError;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use vmx::{
     ComponentVm, ConstructionStatus, DiscriminatorVm, KeyedServicedObservableCollection, Message,
@@ -18,32 +18,8 @@ use vmx::{
     ConfirmationVm, NotificationHub, NotificationReaction, NotificationType, NotificationVm,
 };
 
-/// Runs `body` on a worker and fails if it does not finish in time, so a
-/// deadlock regression fails the test instead of hanging the suite. A worker
-/// panic is reported as a panic, with its message, not as a deadlock.
-fn within_timeout<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
-    let (tx, rx) = mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let _ = tx.send(body());
-    });
-    match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(value) => value,
-        Err(RecvTimeoutError::Timeout) => {
-            panic!("{what} deadlocked: user code ran under an internal lock")
-        }
-        Err(RecvTimeoutError::Disconnected) => {
-            let message = match worker.join() {
-                Ok(()) => "worker exited without a result".to_string(),
-                Err(payload) => payload
-                    .downcast_ref::<&str>()
-                    .map(|text| (*text).to_string())
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "non-string panic payload".to_string()),
-            };
-            panic!("{what} worker panicked: {message}")
-        }
-    }
-}
+/// The bound on every wait in this file.
+const BOUND: Duration = Duration::from_secs(5);
 
 type Probe = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
 
@@ -94,7 +70,7 @@ fn component_set_model_eq_may_read_the_component() {
     *probe.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.model();
     }));
-    let (equal, changed) = within_timeout("ComponentVm::set_model", {
+    let (equal, changed) = within_timeout("ComponentVm::set_model", BOUND, {
         let vm = vm.clone();
         let probe = Arc::clone(&probe);
         move || {
@@ -119,7 +95,7 @@ fn serviced_collection_remove_eq_may_read_the_collection() {
     *probe.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.len();
     }));
-    let removed = within_timeout("ServicedObservableCollection::remove", {
+    let removed = within_timeout("ServicedObservableCollection::remove", BOUND, {
         let collection = collection.clone();
         let probe = Arc::clone(&probe);
         move || collection.remove(&Probing::new(2, &probe))
@@ -150,7 +126,7 @@ fn serviced_collection_remove_rescans_after_eq_mutates_the_collection() {
             let _ = writer.remove_at(0);
         }
     }));
-    let removed = within_timeout("ServicedObservableCollection::remove", {
+    let removed = within_timeout("ServicedObservableCollection::remove", BOUND, {
         let collection = collection.clone();
         let probe = Arc::clone(&probe);
         move || collection.remove(&Probing::new(2, &probe))
@@ -170,7 +146,7 @@ fn keyed_collection_remove_eq_may_read_the_collection() {
     *probe.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.len();
     }));
-    let removed = within_timeout("KeyedServicedObservableCollection::remove", {
+    let removed = within_timeout("KeyedServicedObservableCollection::remove", BOUND, {
         let collection = collection.clone();
         let probe = Arc::clone(&probe);
         move || collection.remove(&Probing::new(1, &probe))
@@ -189,7 +165,7 @@ fn dictionary_eq_may_read_the_dictionary() {
     *probe.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.keys();
     }));
-    let (value, removed) = within_timeout("ObservableDictionary", {
+    let (value, removed) = within_timeout("ObservableDictionary", BOUND, {
         let dictionary = dictionary.clone();
         let probe = Arc::clone(&probe);
         move || {
@@ -254,6 +230,7 @@ fn keyed_collection_lookup_key_hash_and_eq_may_read_the_collection() {
     let key = |id| ProbingKey(Probing::new(id, &probe));
     let (found, missing, contained, absent) = within_timeout(
         "KeyedServicedObservableCollection::get_by_key/contains_key",
+        BOUND,
         {
             let collection = collection.clone();
             let (two, three, one, four) = (key(2), key(3), key(1), key(4));
@@ -279,7 +256,7 @@ fn keyed_collection_write_key_hash_and_eq_may_read_the_collection() {
     let probe: Probe = Arc::new(Mutex::new(None));
     let collection = len_reading_keyed_collection(&probe);
     let (duplicate, replaced, added, updated, removed, removed_key, removed_at, ids) =
-        within_timeout("KeyedServicedObservableCollection writes", {
+        within_timeout("KeyedServicedObservableCollection writes", BOUND, {
             let collection = collection.clone();
             let probe = Arc::clone(&probe);
             move || {
@@ -362,7 +339,7 @@ fn dictionary_get_value_clone_may_read_the_dictionary() {
     *probe.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.keys();
     }));
-    let value = within_timeout("ObservableDictionary::get", {
+    let value = within_timeout("ObservableDictionary::get", BOUND, {
         let dictionary = dictionary.clone();
         move || dictionary.get(&1).map(|value| value.id)
     });
@@ -390,7 +367,7 @@ fn multi_dictionary_get_and_entries_value_clone_may_read_the_dictionary() {
     *probe.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.count();
     }));
-    let (value, entries) = within_timeout("ObservableMultiDictionary::get/entries", {
+    let (value, entries) = within_timeout("ObservableMultiDictionary::get/entries", BOUND, {
         let dictionary = dictionary.clone();
         move || {
             let value = dictionary.get(&"b", &1).map(|value| value.id);
@@ -415,7 +392,7 @@ fn discriminator_eq_may_read_the_discriminator() {
     *probe.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.active_key();
     }));
-    let active = within_timeout("DiscriminatorVm::set_active_key", {
+    let active = within_timeout("DiscriminatorVm::set_active_key", BOUND, {
         let discriminator = discriminator.clone();
         let probe = Arc::clone(&probe);
         move || {
@@ -441,7 +418,7 @@ fn token_paged_refresh_eq_may_read_the_pager() {
     *probe.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.items();
     }));
-    let ids = within_timeout("TokenPagedComposition::refresh", {
+    let ids = within_timeout("TokenPagedComposition::refresh", BOUND, {
         let pager = pager.clone();
         move || {
             pager.refresh();
@@ -535,7 +512,7 @@ fn discriminator_clear_modals_drop_may_read_the_discriminator() {
     *hook.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.modal_depth();
     }));
-    let (depth, active) = within_timeout("DiscriminatorVm::clear_modals", {
+    let (depth, active) = within_timeout("DiscriminatorVm::clear_modals", BOUND, {
         let discriminator = discriminator.clone();
         move || {
             discriminator.clear_modals();
@@ -555,7 +532,7 @@ fn discriminator_dispose_drop_may_read_the_discriminator() {
     *hook.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.modal_depth();
     }));
-    let depth = within_timeout("DiscriminatorVm::dispose", {
+    let depth = within_timeout("DiscriminatorVm::dispose", BOUND, {
         let discriminator = discriminator.clone();
         move || {
             discriminator.dispose();
@@ -591,7 +568,7 @@ fn serviced_collection_clear_and_replace_all_drop_may_read_the_collection() {
     *hook.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.len();
     }));
-    let lengths = within_timeout("ServicedObservableCollection::clear/replace_all", {
+    let lengths = within_timeout("ServicedObservableCollection::clear/replace_all", BOUND, {
         let collection = collection.clone();
         let hook = Arc::clone(&hook);
         move || {
@@ -616,19 +593,23 @@ fn keyed_collection_clear_replace_all_and_upsert_drop_may_read_the_collection() 
     *hook.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.len();
     }));
-    let lengths = within_timeout("KeyedServicedObservableCollection::clear/replace_all", {
-        let collection = collection.clone();
-        let hook = Arc::clone(&hook);
-        move || {
-            let added = collection.upsert(DropProbing::new(2, &hook)).unwrap();
-            collection
-                .replace_all([DropProbing::new(3, &hook)])
-                .unwrap();
-            let replaced = collection.len();
-            collection.clear();
-            (added, replaced, collection.len())
-        }
-    });
+    let lengths = within_timeout(
+        "KeyedServicedObservableCollection::clear/replace_all",
+        BOUND,
+        {
+            let collection = collection.clone();
+            let hook = Arc::clone(&hook);
+            move || {
+                let added = collection.upsert(DropProbing::new(2, &hook)).unwrap();
+                collection
+                    .replace_all([DropProbing::new(3, &hook)])
+                    .unwrap();
+                let replaced = collection.len();
+                collection.clear();
+                (added, replaced, collection.len())
+            }
+        },
+    );
     *hook.lock().unwrap() = None;
     assert_eq!(lengths, (false, 1, 0));
 }
@@ -642,7 +623,7 @@ fn observable_list_clear_and_replace_all_drop_may_read_the_list() {
     *hook.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.len();
     }));
-    let lengths = within_timeout("ObservableList::clear/replace_all", {
+    let lengths = within_timeout("ObservableList::clear/replace_all", BOUND, {
         let list = list.clone();
         let hook = Arc::clone(&hook);
         move || {
@@ -667,7 +648,7 @@ fn keyed_collection_remove_rescans_after_eq_mutates_the_collection() {
     *probe.lock().unwrap() = Some(first_call(move || {
         let _ = writer.remove_at(0);
     }));
-    let removed = within_timeout("KeyedServicedObservableCollection::remove", {
+    let removed = within_timeout("KeyedServicedObservableCollection::remove", BOUND, {
         let collection = collection.clone();
         let probe = Arc::clone(&probe);
         move || collection.remove(&Probing::new(2, &probe))
@@ -699,7 +680,7 @@ fn dictionary_ids(dictionary: &ObservableDictionary<Probing, &'static str>) -> V
 fn dictionary_insert_retries_after_eq_mutates_the_dictionary() {
     let probe: Probe = Arc::new(Mutex::new(None));
     let dictionary = shifting_dictionary(&probe);
-    within_timeout("ObservableDictionary::insert", {
+    within_timeout("ObservableDictionary::insert", BOUND, {
         let dictionary = dictionary.clone();
         let probe = Arc::clone(&probe);
         move || dictionary.insert(Probing::new(2, &probe), "deux")
@@ -713,7 +694,7 @@ fn dictionary_insert_retries_after_eq_mutates_the_dictionary() {
 fn dictionary_get_retries_after_eq_mutates_the_dictionary() {
     let probe: Probe = Arc::new(Mutex::new(None));
     let dictionary = shifting_dictionary(&probe);
-    let value = within_timeout("ObservableDictionary::get", {
+    let value = within_timeout("ObservableDictionary::get", BOUND, {
         let dictionary = dictionary.clone();
         let probe = Arc::clone(&probe);
         move || dictionary.get(&Probing::new(2, &probe))
@@ -742,7 +723,7 @@ fn shifting_multi_dictionary(
 fn multi_dictionary_insert_retries_after_eq_mutates_the_dictionary() {
     let probe: Probe = Arc::new(Mutex::new(None));
     let dictionary = shifting_multi_dictionary(&probe);
-    within_timeout("ObservableMultiDictionary::insert", {
+    within_timeout("ObservableMultiDictionary::insert", BOUND, {
         let dictionary = dictionary.clone();
         let probe = Arc::clone(&probe);
         move || dictionary.insert(Probing::new(2, &probe), 0, "deux")
@@ -756,7 +737,7 @@ fn multi_dictionary_insert_retries_after_eq_mutates_the_dictionary() {
 fn multi_dictionary_get_retries_after_eq_mutates_the_dictionary() {
     let probe: Probe = Arc::new(Mutex::new(None));
     let dictionary = shifting_multi_dictionary(&probe);
-    let value = within_timeout("ObservableMultiDictionary::get", {
+    let value = within_timeout("ObservableMultiDictionary::get", BOUND, {
         let dictionary = dictionary.clone();
         let probe = Arc::clone(&probe);
         move || dictionary.get(&Probing::new(2, &probe), &0)
@@ -790,7 +771,7 @@ fn component_set_model_rechecks_after_eq_installs_the_same_model() {
     let same = Probing::new(2, &probe);
     // Installs the incoming model first, so the outer assignment is equal.
     *probe.lock().unwrap() = Some(first_call(move || writer.set_model(same.clone())));
-    let id = within_timeout("ComponentVm::set_model", {
+    let id = within_timeout("ComponentVm::set_model", BOUND, {
         let vm = vm.clone();
         let probe = Arc::clone(&probe);
         move || {
@@ -820,7 +801,7 @@ fn discriminator_set_active_key_rechecks_after_eq_installs_the_same_key() {
     let same = Probing::new(2, &probe);
     // Activates the incoming key first, so the outer assignment is equal.
     *probe.lock().unwrap() = Some(first_call(move || writer.set_active_key(same.clone())));
-    let active = within_timeout("DiscriminatorVm::set_active_key", {
+    let active = within_timeout("DiscriminatorVm::set_active_key", BOUND, {
         let discriminator = discriminator.clone();
         let probe = Arc::clone(&probe);
         move || {
@@ -869,7 +850,7 @@ fn superseded_refresh_pager(probe: &Probe) -> TokenPagedComposition<Probing, u8>
 fn token_paged_refresh_yields_to_an_operation_started_by_eq() {
     let probe: Probe = Arc::new(Mutex::new(None));
     let pager = superseded_refresh_pager(&probe);
-    let ids = within_timeout("TokenPagedComposition::refresh", {
+    let ids = within_timeout("TokenPagedComposition::refresh", BOUND, {
         let pager = pager.clone();
         move || {
             pager.refresh();
@@ -942,7 +923,7 @@ fn auto_construct_token_paged_refresh_yields_to_an_operation_started_by_eq() {
         let appended = appended.clone();
         writer.load_more(move |_| (vec![appended], None));
     }));
-    let ids = within_timeout("TokenPagedComposition::refresh (auto-construct)", {
+    let ids = within_timeout("TokenPagedComposition::refresh (auto-construct)", BOUND, {
         let pager = pager.clone();
         move || {
             pager.refresh();
@@ -973,7 +954,7 @@ fn nested_hub_subscriptions(hub: &MessageHub) -> vmx::Subscription {
 
 #[test]
 fn hub_subscription_dispose_may_drop_a_subscription_on_the_same_hub() {
-    within_timeout("Subscription::dispose", || {
+    within_timeout("Subscription::dispose", BOUND, || {
         let hub = MessageHub::new();
         let outer = nested_hub_subscriptions(&hub);
         outer.dispose();
@@ -983,7 +964,7 @@ fn hub_subscription_dispose_may_drop_a_subscription_on_the_same_hub() {
 
 #[test]
 fn hub_subscription_drop_may_drop_a_subscription_on_the_same_hub() {
-    within_timeout("Subscription drop", || {
+    within_timeout("Subscription drop", BOUND, || {
         let hub = MessageHub::new();
         drop(nested_hub_subscriptions(&hub));
         hub.send(custom("after"));
@@ -992,7 +973,7 @@ fn hub_subscription_drop_may_drop_a_subscription_on_the_same_hub() {
 
 #[test]
 fn hub_dispose_may_drop_a_subscription_on_the_same_hub() {
-    within_timeout("MessageHub::dispose", || {
+    within_timeout("MessageHub::dispose", BOUND, || {
         let hub = MessageHub::new();
         let _outer = nested_hub_subscriptions(&hub);
         hub.dispose();
@@ -1001,7 +982,7 @@ fn hub_dispose_may_drop_a_subscription_on_the_same_hub() {
 
 #[test]
 fn hub_dispose_during_delivery_may_drop_a_subscription_on_the_same_hub() {
-    within_timeout("MessageHub::dispose during delivery", || {
+    within_timeout("MessageHub::dispose during delivery", BOUND, || {
         let hub = MessageHub::new();
         let _outer = nested_hub_subscriptions(&hub);
         let disposer = hub.clone();
@@ -1012,7 +993,7 @@ fn hub_dispose_during_delivery_may_drop_a_subscription_on_the_same_hub() {
 
 #[test]
 fn value_stream_teardown_may_drop_a_subscription_on_the_same_stream() {
-    within_timeout("ValueStream dispose", || {
+    within_timeout("ValueStream dispose", BOUND, || {
         let stream = vmx::ValueStream::hot(0_u8);
         let nested = |stream: &vmx::ValueStream<u8>| {
             let inner = stream.subscribe(|_| {});
@@ -1190,7 +1171,7 @@ fn serviced_collection_remove_without_a_match_delivers_the_eq_change() {
         }
     }));
 
-    let removed = within_timeout("ServicedObservableCollection::remove", {
+    let removed = within_timeout("ServicedObservableCollection::remove", BOUND, {
         let collection = collection.clone();
         let probe = Arc::clone(&probe);
         move || collection.remove(&Probing::new(9, &probe))
@@ -1221,7 +1202,7 @@ fn keyed_serviced_collection_remove_without_a_match_delivers_the_eq_change() {
         }
     }));
 
-    let removed = within_timeout("KeyedServicedObservableCollection::remove", {
+    let removed = within_timeout("KeyedServicedObservableCollection::remove", BOUND, {
         let collection = collection.clone();
         let probe = Arc::clone(&probe);
         move || collection.remove(&Probing::new(9, &probe))
@@ -1278,7 +1259,7 @@ fn serviced_collection_remove_panic_discards_the_queued_messages() {
     assert!(outcome.is_err());
     assert!(changes.lock().unwrap().is_empty());
     assert_eq!(collection.len(), 1);
-    within_timeout("ServicedObservableCollection::push after a panic", {
+    within_timeout("ServicedObservableCollection::push after a panic", BOUND, {
         let (collection, probe) = (collection.clone(), Arc::clone(&probe));
         move || collection.push(Probing::new(3, &probe))
     });
@@ -1306,10 +1287,14 @@ fn keyed_collection_remove_panic_discards_the_queued_messages() {
     assert!(outcome.is_err());
     assert!(changes.lock().unwrap().is_empty());
     assert_eq!(collection.len(), 1);
-    within_timeout("KeyedServicedObservableCollection::push after a panic", {
-        let (collection, probe) = (collection.clone(), Arc::clone(&probe));
-        move || collection.push(Probing::new(3, &probe)).unwrap()
-    });
+    within_timeout(
+        "KeyedServicedObservableCollection::push after a panic",
+        BOUND,
+        {
+            let (collection, probe) = (collection.clone(), Arc::clone(&probe));
+            move || collection.push(Probing::new(3, &probe)).unwrap()
+        },
+    );
     assert_eq!(*changes.lock().unwrap(), vec![("Add".to_string(), Some(1))]);
 }
 
@@ -1342,7 +1327,7 @@ fn serviced_collection_clear_drop_panic_publishes_the_reset_first() {
         vec![("Reset".to_string(), None), ("Add".to_string(), Some(0))]
     );
     assert_eq!(collection.len(), 1);
-    within_timeout("ServicedObservableCollection::push after a panic", {
+    within_timeout("ServicedObservableCollection::push after a panic", BOUND, {
         let (collection, quiet) = (collection.clone(), Arc::clone(&quiet));
         move || collection.push(DropProbing::new(10, &quiet))
     });

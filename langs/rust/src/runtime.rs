@@ -1807,6 +1807,17 @@ impl PropertyChangedStream {
         }
     }
 
+    /// Returns the number of live change handlers on this stream, so a test
+    /// can detect a subscription that was never released (#1300).
+    ///
+    /// Production code never calls it. Only the non-default `test-seams`
+    /// feature exports it.
+    #[cfg(feature = "test-seams")]
+    #[doc(hidden)]
+    pub fn subscriber_count_for_testing(&self) -> usize {
+        lock(&self.inner).subscribers.len()
+    }
+
     pub(crate) fn subscribe_with_completion<F, C>(
         &self,
         handler: F,

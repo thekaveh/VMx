@@ -6,7 +6,7 @@
 //! bounded by `GUARD`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -14,6 +14,8 @@ use vmx::{
     ComponentVm, CompositeVm, ConstructionStatus, ManualDispatcher, Message, MessageHub, VmNode,
     VmxError,
 };
+
+use super::bounded_wait::within_timeout;
 
 type Leaf = ComponentVm<&'static str, ManualDispatcher>;
 type Root = CompositeVm<Leaf, ManualDispatcher>;
@@ -56,19 +58,6 @@ fn record_current_changes(root: &Root) -> Log {
 
 fn entries(log: &Log) -> Vec<String> {
     log.lock().unwrap().clone()
-}
-
-/// Runs `body` on another thread and returns its result within the guard.
-fn within_guard<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(body());
-    });
-    match rx.recv_timeout(GUARD) {
-        Ok(value) => value,
-        Err(RecvTimeoutError::Timeout) => panic!("{what} did not finish within the hang guard"),
-        Err(RecvTimeoutError::Disconnected) => panic!("{what} panicked"),
-    }
 }
 
 /// A one-shot signal between two threads with a bounded wait.
@@ -292,7 +281,9 @@ fn deferred_walk_disposal_refuses_a_foreign_add() {
         }
         disposer.dispose().unwrap();
         let (worker_root, worker_child) = (disposer.clone(), extra_for_worker.clone());
-        let result = within_guard("the foreign add", move || worker_root.add(worker_child));
+        let result = within_timeout("the foreign add", GUARD, move || {
+            worker_root.add(worker_child)
+        });
         *sink.lock().unwrap() = Some(result);
     });
 
@@ -468,7 +459,7 @@ fn selection_commits_while_another_thread_holds_an_add() {
 
     let selector = root.clone();
     let (selected_a, staged) = (a.clone(), late.clone());
-    let outcome = within_guard("selection during a foreign add", move || {
+    let outcome = within_timeout("selection during a foreign add", GUARD, move || {
         (
             selector.set_current(Some(selected_a.clone())),
             selector.can_select_component(&selected_a),
@@ -608,7 +599,7 @@ fn deferred_disposal_refuses_non_null_selection_but_not_a_clear() {
 
     let selector = root.clone();
     let (selected_b, deselected_a) = (b.clone(), a.clone());
-    let outcome = within_guard("selection while disposal is deferred", move || {
+    let outcome = within_timeout("selection while disposal is deferred", GUARD, move || {
         (
             selector.set_current(Some(selected_b.clone())),
             selector.select_component(&selected_b),
@@ -670,7 +661,9 @@ fn foreign_disposal_during_a_selection_publication_is_deferred() {
 
     let disposer = root.clone();
     assert_eq!(
-        within_guard("dispose during a publication", move || disposer.dispose()),
+        within_timeout("dispose during a publication", GUARD, move || {
+            disposer.dispose()
+        }),
         Ok(())
     );
     assert_eq!(root.status(), ConstructionStatus::Constructed);
@@ -698,7 +691,7 @@ fn async_selection_validates_at_call_time_and_at_delivery() {
 
     let selector = root.clone();
     let (selected_a, staged) = (a.clone(), late.clone());
-    let outcome = within_guard("async selection during a foreign add", move || {
+    let outcome = within_timeout("async selection during a foreign add", GUARD, move || {
         (
             selector.set_current(Some(selected_a)),
             selector.set_current(Some(staged)),
@@ -837,7 +830,7 @@ fn destruct_clear_runs_while_disposal_is_deferred_by_a_foreign_transfer() {
     entered.wait("the worker defers root's disposal");
 
     let destructor = root.clone();
-    let destructed = within_guard("destruct while disposal is deferred", move || {
+    let destructed = within_timeout("destruct while disposal is deferred", GUARD, move || {
         let result = destructor.destruct();
         (result, destructor.current())
     });
@@ -885,7 +878,7 @@ fn transfer_destination_admits_the_moved_child_after_the_old_parents_detach_comm
                 return;
             }
             let (dest, child) = (window_dest.clone(), window_child.clone());
-            let observed = within_guard("the foreign selection", move || {
+            let observed = within_timeout("the foreign selection", GUARD, move || {
                 let can_select = dest.can_select_component(&child);
                 (can_select, dest.set_current(Some(child)))
             });
@@ -1105,7 +1098,7 @@ fn clear_keeps_the_flag_of_a_child_another_thread_selected_meanwhile() {
     entered.wait("clear() reaches its on_current_changed subscriber");
 
     let (adopter, adopted) = (b.clone(), x.clone());
-    within_guard("the adoption on another thread", move || {
+    within_timeout("the adoption on another thread", GUARD, move || {
         adopter.add(adopted.clone()).unwrap();
         adopter.set_current(Some(adopted)).unwrap();
     });

@@ -2,14 +2,17 @@
 //! index, so a build of n distinct keys makes O(n) key comparisons, not
 //! n(n−1)/2. User `hash` and `eq` still run with no VMx mutex held.
 
+use super::bounded_wait::within_timeout;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::RecvTimeoutError;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use vmx::{MessageHub, ObservableDictionary, ObservableMultiDictionary};
 
 const SIZE: u32 = 1_000;
+
+/// The bound on every wait in this file.
+const BOUND: Duration = Duration::from_secs(5);
 
 /// A key that counts its `eq` calls on a counter shared by every key of one
 /// test, so tests running in parallel do not interfere.
@@ -116,32 +119,6 @@ fn multi_dictionary_builds_make_linear_comparisons() {
     }
 }
 
-/// Runs `body` on a worker and fails if it does not finish in time, so a
-/// deadlock regression fails the test instead of hanging the suite.
-fn within_timeout<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
-    let (tx, rx) = mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let _ = tx.send(body());
-    });
-    match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(value) => value,
-        Err(RecvTimeoutError::Timeout) => {
-            panic!("{what} deadlocked: user code ran under an internal lock")
-        }
-        Err(RecvTimeoutError::Disconnected) => {
-            let message = match worker.join() {
-                Ok(()) => "worker exited without a result".to_string(),
-                Err(payload) => payload
-                    .downcast_ref::<&str>()
-                    .map(|text| (*text).to_string())
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "non-string panic payload".to_string()),
-            };
-            panic!("{what} worker panicked: {message}")
-        }
-    }
-}
-
 type Probe = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
 
 /// A key whose `hash` and `eq` both call `probe`, which reads the dictionary
@@ -191,7 +168,7 @@ fn dictionary_hash_and_eq_may_read_the_dictionary() {
     *probe.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.keys();
     }));
-    let (value, removed) = within_timeout("ObservableDictionary", {
+    let (value, removed) = within_timeout("ObservableDictionary", BOUND, {
         let dictionary = dictionary.clone();
         let (one, two) = (key(1), key(2));
         move || {
@@ -224,7 +201,7 @@ fn multi_dictionary_hash_and_eq_may_read_the_dictionary() {
             reader.keys1().to_vec(),
         );
     }));
-    let (value, removed) = within_timeout("ObservableMultiDictionary", {
+    let (value, removed) = within_timeout("ObservableMultiDictionary", BOUND, {
         let dictionary = dictionary.clone();
         let (one, two) = (key(1), key(2));
         move || {

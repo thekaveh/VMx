@@ -6,6 +6,7 @@ mod conformance {
     mod async_value;
     mod auto_construct_during_constructing;
     mod background_child_settle;
+    mod bounded_wait;
     mod builder_population;
     mod builders;
     mod capabilities;
@@ -84,6 +85,7 @@ mod conformance {
     #[cfg(feature = "test-seams")]
     mod recompute_wait_cycle;
     mod reconstruct_command_parity;
+    mod reconstruct_settle;
     mod reverse_destruct_order;
     mod search_filter;
     mod selection_transactions;

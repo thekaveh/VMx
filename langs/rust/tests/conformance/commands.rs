@@ -1,4 +1,4 @@
-use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
@@ -6,6 +6,8 @@ use vmx::{
     AsyncRelayCommand, CancellationToken, Command, CompositeCommand, DecoratorCommand, Message,
     MessageHub, RelayCommand, RelayCommandOf, VmxError, VmxResult, NO_PREDICATE,
 };
+
+use super::bounded_wait::within_timeout;
 
 #[derive(serde::Deserialize)]
 struct CommandFixture {
@@ -1088,18 +1090,6 @@ fn disposed_relay_commands_are_inert() {
 
 const NESTED_TIMEOUT: Duration = Duration::from_secs(5);
 
-fn without_deadlock<R: Send + 'static>(scenario: impl FnOnce() -> R + Send + 'static) -> R {
-    let (done, result) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = done.send(catch_unwind(AssertUnwindSafe(scenario)));
-    });
-    match result.recv_timeout(NESTED_TIMEOUT) {
-        Ok(Ok(value)) => value,
-        Ok(Err(panic)) => resume_unwind(panic),
-        Err(_) => panic!("the nested execution deadlocked: no result within {NESTED_TIMEOUT:?}"),
-    }
-}
-
 type Log = Arc<Mutex<Vec<String>>>;
 
 fn entries(log: &Log) -> Vec<String> {
@@ -1116,7 +1106,7 @@ fn slot_command(slot: &Arc<Mutex<Option<RelayCommand>>>) -> RelayCommand {
 
 #[test]
 fn an_action_that_executes_its_own_command_runs_the_nested_execution() {
-    let (log, predicate_calls) = without_deadlock(|| {
+    let (log, predicate_calls) = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let log = Log::default();
         let runs = Arc::new(AtomicUsize::new(0));
         let predicate_calls = Arc::new(AtomicUsize::new(0));
@@ -1155,7 +1145,7 @@ fn an_action_that_executes_its_own_command_runs_the_nested_execution() {
 
 #[test]
 fn nested_parameterized_executions_run_in_call_order_with_their_parameters() {
-    let visited = without_deadlock(|| {
+    let visited = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let visited = Arc::new(Mutex::new(Vec::new()));
         let slot = Arc::new(Mutex::new(None::<RelayCommandOf<u32>>));
         let command = RelayCommandOf::new({
@@ -1186,7 +1176,7 @@ fn nested_parameterized_executions_run_in_call_order_with_their_parameters() {
 fn a_can_execute_changed_handler_may_execute_the_running_command() {
     // The action raises the change imperatively, or through a builder trigger.
     for through_trigger in [false, true] {
-        let (runs, log) = without_deadlock(move || {
+        let (runs, log) = within_timeout("nested execute", NESTED_TIMEOUT, move || {
             let log = Log::default();
             let runs = Arc::new(AtomicUsize::new(0));
             let trigger = MessageHub::new();
@@ -1241,7 +1231,7 @@ fn a_can_execute_changed_handler_may_execute_the_running_command() {
 
 #[test]
 fn a_nested_execution_is_admitted_when_it_is_made() {
-    let (runs, predicate_calls) = without_deadlock(|| {
+    let (runs, predicate_calls) = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let runs = Arc::new(AtomicUsize::new(0));
         let busy = Arc::new(AtomicBool::new(false));
         let predicate_calls = Arc::new(AtomicUsize::new(0));
@@ -1282,7 +1272,7 @@ fn a_nested_execution_is_admitted_when_it_is_made() {
 
 #[test]
 fn a_deferred_execution_does_not_run_once_its_command_is_disposed() {
-    let (runs, can_execute) = without_deadlock(|| {
+    let (runs, can_execute) = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let runs = Arc::new(AtomicUsize::new(0));
         let slot = Arc::new(Mutex::new(None::<RelayCommand>));
         let command = RelayCommand::new({
@@ -1308,25 +1298,26 @@ fn a_deferred_execution_does_not_run_once_its_command_is_disposed() {
 
 #[test]
 fn a_panicking_action_discards_its_nested_executions_and_stays_usable() {
-    let (panicked, runs_after_panic, runs) = without_deadlock(|| {
-        let runs = Arc::new(AtomicUsize::new(0));
-        let slot = Arc::new(Mutex::new(None::<RelayCommand>));
-        let command = RelayCommand::new({
-            let (runs, slot) = (runs.clone(), slot.clone());
-            move || {
-                if runs.fetch_add(1, Ordering::SeqCst) == 0 {
-                    slot_command(&slot).execute();
-                    panic!("action failed after a nested execute");
+    let (panicked, runs_after_panic, runs) =
+        within_timeout("nested execute", NESTED_TIMEOUT, || {
+            let runs = Arc::new(AtomicUsize::new(0));
+            let slot = Arc::new(Mutex::new(None::<RelayCommand>));
+            let command = RelayCommand::new({
+                let (runs, slot) = (runs.clone(), slot.clone());
+                move || {
+                    if runs.fetch_add(1, Ordering::SeqCst) == 0 {
+                        slot_command(&slot).execute();
+                        panic!("action failed after a nested execute");
+                    }
                 }
-            }
-        });
-        *slot.lock().unwrap() = Some(command.clone());
+            });
+            *slot.lock().unwrap() = Some(command.clone());
 
-        let panicked = catch_unwind(AssertUnwindSafe(|| command.execute())).is_err();
-        let runs_after_panic = runs.load(Ordering::SeqCst);
-        command.execute();
-        (panicked, runs_after_panic, runs.load(Ordering::SeqCst))
-    });
+            let panicked = catch_unwind(AssertUnwindSafe(|| command.execute())).is_err();
+            let runs_after_panic = runs.load(Ordering::SeqCst);
+            command.execute();
+            (panicked, runs_after_panic, runs.load(Ordering::SeqCst))
+        });
 
     // The panic propagates to the caller (spec §3) and drops the nested call.
     assert!(panicked);
@@ -1336,7 +1327,7 @@ fn a_panicking_action_discards_its_nested_executions_and_stays_usable() {
 
 #[test]
 fn an_execute_from_another_thread_waits_for_the_running_action() {
-    let log = without_deadlock(|| {
+    let log = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let log = Log::default();
         let (entered_tx, entered) = mpsc::channel::<()>();
         let (release, released) = mpsc::channel::<()>();
@@ -1389,7 +1380,7 @@ fn an_execute_from_another_thread_waits_for_the_running_action() {
 
 #[test]
 fn wrappers_re_entered_from_their_inner_action_do_not_deadlock() {
-    let (composite_runs, decorator_log) = without_deadlock(|| {
+    let (composite_runs, decorator_log) = within_timeout("nested execute", NESTED_TIMEOUT, || {
         let runs = Arc::new(AtomicUsize::new(0));
         let composite_slot = Arc::new(Mutex::new(None::<CompositeCommand>));
         let inner = RelayCommand::new({

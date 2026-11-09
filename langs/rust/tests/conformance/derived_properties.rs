@@ -1,8 +1,12 @@
 use std::sync::{mpsc, Arc, Barrier, Mutex};
 
+use super::bounded_wait::within_timeout;
 use serde::Deserialize;
 use serde_json::Value;
 use vmx::{DerivedProperty, ExpandableState, ValueStream};
+
+/// The bound on every deadlock wait in this file.
+const BOUND: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Deserialize)]
 struct DerivedPropertyFixture {
@@ -502,16 +506,6 @@ fn value_changes_subscriber_may_recompute() {
     assert_eq!(values.lock().unwrap().last(), Some(&3));
 }
 
-/// Runs `body` on a worker and fails if it does not finish within 5 s.
-fn finishes<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(body());
-    });
-    rx.recv_timeout(std::time::Duration::from_secs(5))
-        .unwrap_or_else(|_| panic!("{what} deadlocked"))
-}
-
 /// #751 — a `value_changes` subscriber that recomputes, while another
 /// thread's `recompute` transform runs, does not deadlock either thread.
 #[test]
@@ -539,7 +533,7 @@ fn subscriber_recompute_during_another_threads_transform_does_not_deadlock() {
         .unwrap();
     release.send(()).unwrap();
 
-    finishes("recompute and source delivery", move || {
+    within_timeout("recompute and source delivery", BOUND, move || {
         worker.join().unwrap();
         sender.join().unwrap();
     });
@@ -563,7 +557,7 @@ fn subscriber_may_wait_for_another_threads_source_update() {
         })
     };
 
-    finishes("recompute", {
+    within_timeout("recompute", BOUND, {
         let property = property.clone();
         move || property.recompute(|value| value + 1)
     });

@@ -2130,24 +2130,17 @@ mod reentrant_selection {
     //! The current selector and the `on_current_changed` callback may re-enter
     //! the composite without deadlocking it (#716).
 
+    use super::super::bounded_wait::within_timeout;
     use super::{child, Child};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{mpsc, Arc, Mutex};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use vmx::{Command, CompositeVm, Message, VmxResult};
 
     type Composite = CompositeVm<Child>;
 
-    /// Runs `action` on a worker and fails if it does not return in time.
-    fn bounded<R: Send + 'static>(what: &str, action: impl FnOnce() -> R + Send + 'static) -> R {
-        let (sent, received) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = sent.send(action());
-        });
-        received
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap_or_else(|_| panic!("{what} did not return: re-entrant selection deadlocked"))
-    }
+    /// The bound on every wait in this module.
+    const BOUND: Duration = Duration::from_secs(5);
 
     fn two_children() -> (Composite, Child, Child) {
         let composite = Composite::new("composite");
@@ -2175,7 +2168,10 @@ mod reentrant_selection {
         let (composite, _, _) = two_children();
         reselect_from_callback(&composite);
         let worker = composite.clone();
-        assert_eq!(bounded("construct", move || worker.construct()), Ok(()));
+        assert_eq!(
+            within_timeout("construct", BOUND, move || worker.construct()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -2188,7 +2184,10 @@ mod reentrant_selection {
             }
         });
         let worker = composite.clone();
-        assert_eq!(bounded("construct", move || worker.construct()), Ok(()));
+        assert_eq!(
+            within_timeout("construct", BOUND, move || worker.construct()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -2204,7 +2203,7 @@ mod reentrant_selection {
         });
         let worker = composite.clone();
         assert_eq!(
-            bounded("set_current", move || worker.set_current(Some(a))),
+            within_timeout("set_current", BOUND, move || worker.set_current(Some(a))),
             Ok(())
         );
         composite.set_current(Some(b)).unwrap();
@@ -2217,13 +2216,16 @@ mod reentrant_selection {
         composite.construct().unwrap();
         reselect_from_callback(&composite);
         let worker = composite.clone();
-        assert_eq!(bounded("reconstruct", move || worker.reconstruct()), Ok(()));
+        assert_eq!(
+            within_timeout("reconstruct", BOUND, move || worker.reconstruct()),
+            Ok(())
+        );
 
         let (composite, _, _) = two_children();
         composite.construct().unwrap();
         reselect_from_callback(&composite);
         let command = composite.reconstruct_command();
-        bounded("reconstruct_command", move || command.execute());
+        within_timeout("reconstruct_command", BOUND, move || command.execute());
     }
 
     #[test]
@@ -2250,7 +2252,10 @@ mod reentrant_selection {
             }
         });
         let worker = composite.clone();
-        assert_eq!(bounded("construct", move || worker.construct()), Ok(()));
+        assert_eq!(
+            within_timeout("construct", BOUND, move || worker.construct()),
+            Ok(())
+        );
     }
 
     #[test]
@@ -2264,7 +2269,7 @@ mod reentrant_selection {
             }
         });
         let worker = composite.clone();
-        let result: VmxResult<()> = bounded("destruct", move || worker.destruct());
+        let result: VmxResult<()> = within_timeout("destruct", BOUND, move || worker.destruct());
         assert_eq!(result, Ok(()));
     }
 }

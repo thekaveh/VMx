@@ -170,6 +170,23 @@ pub trait Reconstructable {
     /// Reports whether reconstruction is currently admitted.
     fn can_reconstruct(&self) -> bool;
     /// Reconstructs the receiver.
+    ///
+    /// This method discards the result of each destruct and construct call
+    /// that it makes, also of the construct that a settle callback runs after
+    /// a background destruct settles. Thus it returns no admission error and
+    /// no synchronous hook error. When the destruct call fails, it returns
+    /// without a construct. A background hook failure still goes to the
+    /// `background_errors` stream of the node type, also when this method
+    /// started the transition.
+    ///
+    /// To receive these errors, call the inherent `reconstruct()` method of
+    /// the concrete type, for example
+    /// [`ComponentVm::reconstruct`](crate::ComponentVm::reconstruct),
+    /// [`CompositeVm::reconstruct`](crate::CompositeVm::reconstruct) or
+    /// [`GroupVm::reconstruct`](crate::GroupVm::reconstruct). The inherent
+    /// method returns a destruct error and a synchronous construct error. A
+    /// construct that waits for a background child sends its error to the
+    /// type's `background_errors` stream.
     fn reconstruct(&self);
 }
 

@@ -1520,3 +1520,153 @@ fn aggregate_reconstruct_completes_while_only_a_command_is_held() {
     );
     drop(command);
 }
+
+/// Work queued on a [`HoldingDispatcher`].
+type HeldWork = Arc<Mutex<Vec<Box<dyn FnOnce() + Send>>>>;
+
+/// A dispatcher that either holds each action until the test runs it, or
+/// discards every action, so a background child it serves never settles.
+#[derive(Clone)]
+struct HoldingDispatcher {
+    held: Option<HeldWork>,
+}
+
+impl HoldingDispatcher {
+    fn holding() -> Self {
+        Self {
+            held: Some(HeldWork::default()),
+        }
+    }
+
+    fn discarding() -> Self {
+        Self { held: None }
+    }
+
+    /// Runs the held actions in order, including the ones they queue, until
+    /// none remains.
+    fn run_held(&self) {
+        let held = self
+            .held
+            .as_ref()
+            .expect("a discarding dispatcher holds no work");
+        loop {
+            let next = {
+                let mut queue = held.lock().unwrap();
+                (!queue.is_empty()).then(|| queue.remove(0))
+            };
+            match next {
+                Some(action) => action(),
+                None => break,
+            }
+        }
+    }
+}
+
+impl vmx::Dispatcher for HoldingDispatcher {
+    fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
+        if let Some(held) = &self.held {
+            held.lock().unwrap().push(action);
+        }
+    }
+
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        self.dispatch(action);
+    }
+}
+
+type Held = ComponentVm<Arc<DropSentinel>, HoldingDispatcher>;
+
+/// A background component whose model sets the returned flag when it drops.
+fn held_child(
+    hub: &MessageHub,
+    dispatcher: &HoldingDispatcher,
+    name: &str,
+) -> (Held, Arc<AtomicBool>) {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let child = ComponentVm::builder()
+        .name(name)
+        .model(Arc::new(DropSentinel(Arc::clone(&dropped))))
+        .background(true)
+        .services(hub.clone(), dispatcher.clone())
+        .build()
+        .unwrap();
+    (child, dropped)
+}
+
+/// Drives `container` into the late-child join and drops it there (#1281).
+///
+/// The container has auto-construct on and one background anchor child
+/// whose work is held. While the container is Constructing, the test adds a
+/// late background child whose work is discarded, then runs the anchor's
+/// work. The construct walk then joins the late child, which never settles,
+/// and keeps its next scan step queued. When the last container handle
+/// drops, both child models must drop.
+fn late_child_join_frees_both_children<C: VmNode>(
+    hub: &MessageHub,
+    container: C,
+    add: impl Fn(&C, Held),
+    items: impl Fn(&C) -> Vec<Held>,
+) {
+    let anchor_dispatcher = HoldingDispatcher::holding();
+    let late_dispatcher = HoldingDispatcher::discarding();
+    let (anchor, anchor_dropped) = held_child(hub, &anchor_dispatcher, "anchor");
+    add(&container, anchor);
+    container.construct().unwrap();
+    assert_eq!(container.status(), ConstructionStatus::Constructing);
+
+    let (late, late_dropped) = held_child(hub, &late_dispatcher, "late");
+    add(&container, late);
+    anchor_dispatcher.run_held();
+
+    let statuses: Vec<_> = items(&container).iter().map(VmNode::status).collect();
+    assert_eq!(
+        statuses,
+        vec![
+            ConstructionStatus::Constructed,
+            ConstructionStatus::Constructing
+        ],
+        "the anchor settles and the late child stays pending"
+    );
+    assert_eq!(container.status(), ConstructionStatus::Constructing);
+    drop(container);
+
+    assert!(
+        anchor_dropped.load(Ordering::SeqCst),
+        "the container waiting on a late child leaked its anchor child"
+    );
+    assert!(
+        late_dropped.load(Ordering::SeqCst),
+        "the container waiting on a late child leaked its late child"
+    );
+}
+
+/// #1281 — a composite dropped while its construct walk waits for a late
+/// background child frees both children.
+#[test]
+fn composite_waiting_on_a_late_child_frees_its_children() {
+    let hub = MessageHub::new();
+    let composite: CompositeVm<Held, HoldingDispatcher> =
+        CompositeVm::with_services("composite", hub.clone(), HoldingDispatcher::discarding());
+    composite.set_auto_construct_on_add(true);
+    late_child_join_frees_both_children(
+        &hub,
+        composite,
+        |composite, child| composite.add(child).unwrap(),
+        CompositeVm::items,
+    );
+}
+
+/// #1281 — the same for a group.
+#[test]
+fn group_waiting_on_a_late_child_frees_its_children() {
+    let hub = MessageHub::new();
+    let group: GroupVm<Held, HoldingDispatcher> =
+        GroupVm::with_services("group", hub.clone(), HoldingDispatcher::discarding());
+    group.set_auto_construct_on_add(true);
+    late_child_join_frees_both_children(
+        &hub,
+        group,
+        |group, child| group.add(child).unwrap(),
+        GroupVm::items,
+    );
+}
