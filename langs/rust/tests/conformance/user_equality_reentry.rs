@@ -1314,7 +1314,7 @@ fn keyed_collection_remove_panic_discards_the_queued_messages() {
 /// admission ends and publishes its own `Add`. No message is left queued, and
 /// another thread can mutate the collection next.
 #[test]
-fn serviced_collection_clear_drop_panic_discards_the_queued_messages() {
+fn serviced_collection_clear_drop_panic_publishes_the_reset_first() {
     let hook: Probe = Arc::new(Mutex::new(None));
     let quiet: Probe = Arc::new(Mutex::new(None));
     let collection = ServicedObservableCollection::new(1);

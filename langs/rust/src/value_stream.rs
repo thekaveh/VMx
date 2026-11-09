@@ -308,6 +308,11 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     }
 
     /// Publishes `value` to current subscribers unless the stream is disposed.
+    ///
+    /// When another thread is draining the stream, `send` queues `value` and
+    /// waits for that thread to deliver it. If the wait would close a wait-for
+    /// cycle, `send` returns at once, and `value` stays queued in order for
+    /// the draining thread (spec/03 §4.1, ADR-0209).
     pub fn send(&self, value: T) {
         self.send_if(value, || true);
     }
@@ -397,6 +402,12 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     }
 
     /// Completes the stream once and makes later sends inert.
+    ///
+    /// When another thread is draining the stream, `dispose` queues the
+    /// completion after the queued values and waits for that thread to
+    /// deliver it. If the wait would close a wait-for cycle, `dispose` returns
+    /// at once, and the completion stays queued for the draining thread
+    /// (spec/03 §4.1, ADR-0209).
     pub fn dispose(&self) {
         let current = thread::current().id();
         // Subscriber closures may own other subscriptions on this stream;

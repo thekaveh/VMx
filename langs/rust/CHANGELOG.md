@@ -163,7 +163,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `get` and `ObservableMultiDictionary::entries` run `V::clone` (and `entries`
   runs `K::clone`) with no dictionary lock held. A key or value that reads its
   collection no longer deadlocks. Clones of one stored dictionary value take
-  turns.
+  turns. While another thread clones a value that `remove` removes, `remove`
+  waits for that clone and returns a clone of its own.
 - `TokenPagedComposition` runs the item `T::clone` with no pager lock held
   (#1277). Each stored item has a copy for `items()` and a copy for the
   refresh comparison, behind their own locks, which no commit takes. A

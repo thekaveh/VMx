@@ -1589,6 +1589,11 @@ where
     }
 
     /// Removes and returns the value associated with `key`.
+    ///
+    /// If another thread is cloning the removed value in [`get`](Self::get),
+    /// `remove` waits for that clone and then returns a clone of its own. The
+    /// stored value then drops on whichever of the two threads releases it
+    /// last.
     pub fn remove(&self, key: &K) -> Option<V> {
         let removed = loop {
             let (revision, index) = self.locate(key);
@@ -1772,6 +1777,11 @@ where
     }
 
     /// Removes and returns the value associated with a key pair.
+    ///
+    /// If another thread is cloning the removed value in [`get`](Self::get)
+    /// or [`entries`](Self::entries), `remove` waits for that clone and then
+    /// returns a clone of its own. The stored value then drops on whichever of
+    /// the two threads releases it last.
     pub fn remove(&self, key1: &K1, key2: &K2) -> Option<V> {
         let removed = loop {
             let (revision, index) = self.locate(key1, key2);
