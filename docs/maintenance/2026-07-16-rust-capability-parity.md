@@ -1,7 +1,7 @@
 # 12. Rust Parity Status
 
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
-after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7.
+after closure: §12.7 to §12.13, plus the "Still open" notes in §12.4.7.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -316,7 +316,7 @@ observable behavior covered by this review.
 The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
 parameter in §12.2.2 are the intentional flavor-specific shapes in this
 ledger. The §12.5 editorial note applies to all five flavors and is not a
-parity backlog. §12.7 to §12.12 record the open items and differences found
+parity backlog. §12.7 to §12.13 record the open items and differences found
 after closure. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
@@ -392,3 +392,22 @@ sets `Clear` or `PreserveIfVisible` with `set_cursor_policy` after construction,
 and that call does not reconcile again. C#, Python, TypeScript, and Swift take
 the policy at construction, so a `Clear` or `PreserveIfVisible` view starts
 with no current item; the same Rust view starts on the first visible item.
+
+## 12.13. Open Item: Aggregate Preflight Candidate Cleanup
+
+When a population fails before its commit, C#, Python, and TypeScript dispose
+the candidates that nobody owns (#1324). The population fails when a factory
+or projector throws, or when the reservation or validation preflight refuses
+it. Swift factories and projectors cannot throw, so Swift applies only the
+preflight part. The cleanup skips a candidate that has a parent, that another
+ownership transaction holds, or that owns the aggregate on its ancestor chain.
+It disposes each canonical identity once.
+
+Rust does not apply this cleanup. In `AggregateVm1` to `AggregateVm6`,
+`construct()` returns the `validate_fixed_aggregate_candidate` error before it
+disposes any candidate, and `reconstruct()` runs the same `construct()`. Only
+lazy slots produce fresh candidates, so only they need the cleanup. An eager
+slot keeps its existing value.
+
+Spec/08 §2 and §4 do not state the rule yet. #1324 stays open for the ADR, the
+spec/08 and spec/06 text, any conformance ID, and the Rust cleanup.
