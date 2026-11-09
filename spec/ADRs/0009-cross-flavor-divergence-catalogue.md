@@ -106,7 +106,7 @@ ADR-0006 and require no further action:
   shadowing/hiding warnings (`CS0108`) and makes the tree-parent semantics
   explicit at the call site.
 
-### 2.5 `HierarchicalVM` recursive-generic constraint (Python)
+### 2.5 `HierarchicalVM` recursive-generic constraint (Python and Rust)
 
 - **C#**: `where TVM : HierarchicalVM<TModel, TVM>` — true F-bounded
   generic constraint enforced by the compiler.
@@ -120,6 +120,11 @@ ADR-0006 and require no further action:
   a self-referential, parameter-bound recursion the way the nominal type
   systems do. The runtime/subclass contract is still enforced by
   convention and by `mypy --strict` against concrete subclasses.
+- **Rust**: `HierarchicalVm<M, N = ()>` — Rust has no subclassing, so a
+  node-data type `N` takes the place of `TVM` (ADR-0202). The node type is
+  `HierarchicalVm<M, N>`, and `parent()`, `children()` and `path()` return
+  it. `node_data()` returns the consumer's per-node state, and an extension
+  trait adds node methods.
 
 ### 2.6 Python interface-prefix convention (v2.0 vs v2.1 split)
 
