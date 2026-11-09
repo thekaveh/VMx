@@ -1,15 +1,16 @@
 //! Regression tests: `TokenPagedComposition` runs `Token::clone` with no pager
-//! lock held, so a clone that waits for another load or refresh of the same
-//! pager returns instead of deadlocking (spec 21 §6.2, #1162).
+//! lock held (spec 21 §6.1 and §6.2, #1162, #1278, ADR-0202). A clone that
+//! waits for another load, refresh or cursor read of the same pager returns
+//! instead of deadlocking, and so does a clone that reads the cursor again on
+//! its own thread.
 //!
 //! The token runs a one-shot hook in `Clone`. Each hook waits at most
 //! [`HOOK_BOUND`] and records whether the operation it waited for finished, so
 //! a regression fails an assertion and does not hang the suite.
 
 use std::{
-    cell::Cell,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc, Arc, Mutex,
     },
     thread::{self, JoinHandle},
@@ -321,23 +322,128 @@ fn a_refresh_started_inside_an_ad_hoc_load_cursor_read_finishes() {
     });
 }
 
-/// `Send` but not `Sync`.
-#[derive(Clone, Debug, PartialEq)]
-struct CellToken(Cell<usize>);
+/// Case 1: the clone waits for another thread's `current_token()`, which
+/// clones the same stored token. That read returns while the first clone waits.
+#[test]
+fn a_clone_that_waits_for_another_threads_current_token_sees_it_return() {
+    let backend = Backend::new();
+    let pages = backend.plain_pager();
+    load_first_page(&pages, &backend);
+    let returned_in_time = Arc::new(AtomicBool::new(false));
+    let reader: Arc<Mutex<Option<JoinHandle<Option<u8>>>>> = Arc::new(Mutex::new(None));
+    let (hook_returned, hook_reader, hook_pages) =
+        (returned_in_time.clone(), reader.clone(), pages.clone());
+    backend.arm(move || {
+        let (done_tx, done_rx) = mpsc::channel();
+        let read = thread::spawn(move || {
+            let token = token_number(&hook_pages);
+            let _ = done_tx.send(());
+            token
+        });
+        *hook_reader.lock().unwrap() = Some(read);
+        let done = done_rx.recv_timeout(HOOK_BOUND).is_ok();
+        hook_returned.store(done, Ordering::SeqCst);
+    });
+
+    let returned = token_number(&pages);
+    let read = reader.lock().unwrap().take().expect("the hook ran");
+    let other = join_bounded(read, "the other thread's read");
+
+    assert!(
+        returned_in_time.load(Ordering::SeqCst),
+        "the other thread's current_token() returned while Token::clone waited"
+    );
+    assert_eq!(other, Some(1));
+    assert_eq!(returned, Some(1));
+}
+
+/// Case 2: the clone calls `current_token()` again on its own thread.
+#[test]
+fn a_clone_that_reads_current_token_on_its_own_thread_returns() {
+    let backend = Backend::new();
+    let pages = backend.plain_pager();
+    load_first_page(&pages, &backend);
+    let inner = Arc::new(Mutex::new(None::<Option<u8>>));
+    let (hook_inner, hook_pages) = (inner.clone(), pages.clone());
+    backend.arm(move || {
+        *hook_inner.lock().unwrap() = Some(token_number(&hook_pages));
+    });
+
+    let (done_tx, done_rx) = mpsc::channel();
+    let outer_pages = pages.clone();
+    // On a regression this thread stays blocked; the bounded wait still ends.
+    thread::spawn(move || {
+        let _ = done_tx.send(token_number(&outer_pages));
+    });
+
+    let outer = done_rx
+        .recv_timeout(HOOK_BOUND)
+        .expect("current_token() returned after its clone read the cursor again");
+    assert_eq!(outer, Some(1));
+    assert_eq!(*inner.lock().unwrap(), Some(Some(1)));
+}
+
+/// Case 2 through a load: the load's cursor read runs a clone that calls
+/// `current_token()` on the load's thread. The load finishes and commits.
+fn current_token_inside_load_cursor_read<T: Keyed>(
+    pages: TokenPagedComposition<T, HookToken>,
+    backend: &Backend,
+) {
+    load_first_page(&pages, backend);
+    let inner = Arc::new(Mutex::new(None::<Option<u8>>));
+    let (hook_inner, hook_pages) = (inner.clone(), pages.clone());
+    backend.arm(move || {
+        *hook_inner.lock().unwrap() = Some(token_number(&hook_pages));
+    });
+
+    let load_pages = pages.clone();
+    let load = thread::spawn(move || load_pages.load_next());
+    join_bounded(load, "the load");
+
+    assert_eq!(*inner.lock().unwrap(), Some(Some(1)));
+    assert_eq!(keys(&pages), [1, 2]);
+    assert_eq!(token_number(&pages), Some(2));
+}
+
+#[test]
+fn a_load_next_cursor_read_whose_clone_reads_current_token_finishes() {
+    let backend = Backend::new();
+    current_token_inside_load_cursor_read(backend.plain_pager(), &backend);
+}
+
+#[test]
+fn an_auto_construct_load_next_cursor_read_whose_clone_reads_current_token_finishes() {
+    let backend = Backend::new();
+    current_token_inside_load_cursor_read(backend.auto_construct_pager(), &backend);
+}
+
+/// A `Send + Sync` token that keeps its state in a shared atomic.
+#[derive(Clone, Debug)]
+struct SharedToken(Arc<AtomicUsize>);
+
+impl PartialEq for SharedToken {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.load(Ordering::SeqCst) == other.0.load(Ordering::SeqCst)
+    }
+}
 
 fn assert_send_sync<T: Send + Sync>() {}
 
 #[test]
-fn a_send_but_not_sync_token_pages() {
-    assert_send_sync::<TokenPagedComposition<i32, CellToken>>();
-    let pages = TokenPagedComposition::with_loader(None, |token: Option<CellToken>| match token {
-        None => (vec![1], Some(CellToken(Cell::new(1)))),
-        Some(_) => (vec![2], None),
-    });
+fn a_send_and_sync_token_pages() {
+    assert_send_sync::<TokenPagedComposition<i32, SharedToken>>();
+    let pages =
+        TokenPagedComposition::with_loader(None, |token: Option<SharedToken>| match token {
+            None => (vec![1], Some(SharedToken(Arc::new(AtomicUsize::new(1))))),
+            Some(_) => (vec![2], None),
+        });
 
     pages.load_next();
 
     assert_eq!(pages.items(), [1]);
-    assert_eq!(pages.current_token(), Some(CellToken(Cell::new(1))));
+    assert_eq!(
+        pages.current_token(),
+        Some(SharedToken(Arc::new(AtomicUsize::new(1))))
+    );
     assert!(pages.has_more());
 }
