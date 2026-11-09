@@ -9,7 +9,8 @@ and an ADR.
 When an ADR closes an item, remove the item from its section and add a row to
 §6 that names the ADR and the pull request. A closed item keeps no stub, and
 its number is not used again, so an ADR that cites the number still finds it in
-§6.
+§6. A section without numbered items, such as §3, closes as a whole. It keeps
+its heading and says "None open", and its §6 row names the section.
 
 Paths are relative to the repository root. Line numbers are those of the
 recording date.
