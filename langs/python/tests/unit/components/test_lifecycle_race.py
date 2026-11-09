@@ -33,7 +33,7 @@ import pytest
 import reactivex.disposable as rx_disposable
 from reactivex.scheduler import ImmediateScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, future_result
 from vmx.components import base as component_base
 from vmx.components.builders import ComponentVMOfBuilder
 from vmx.lifecycle.status import ConstructionStatus
@@ -181,7 +181,7 @@ def test_background_construct_racing_dispose_is_atomic() -> None:
             vm.dispose()
 
             for future in background.futures:
-                future.result(HANG_GUARD)  # surface any unexpected worker crash
+                future_result(future)  # surface any unexpected worker crash
             sub.dispose()
 
             if vm.status is ConstructionStatus.CONSTRUCTED:
@@ -346,7 +346,7 @@ def test_foreign_dispose_waits_for_ordinary_lifecycle_publication(
             # contain implementation mutants that deadlock despite release.
             for worker in workers:
                 try:
-                    worker.result(HANG_GUARD)
+                    future_result(worker)
                 except BaseException as error:
                     failures.append(error)
             subscription.dispose()
