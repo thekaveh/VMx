@@ -720,6 +720,36 @@ fn direct_constructors_default_hint_to_empty_string() {
     let resource = AsyncResourceVm::new("resource", |_| Ok(1));
     let aggregate1 = AggregateVm1::new("aggregate1", ComponentVm::new("a"));
     let aggregate2 = AggregateVm2::new("aggregate2", ComponentVm::new("a"), ComponentVm::new("b"));
+    let aggregate3 = AggregateVm3::new(
+        "aggregate3",
+        ComponentVm::new("a"),
+        ComponentVm::new("b"),
+        ComponentVm::new("c"),
+    );
+    let aggregate4 = AggregateVm4::new(
+        "aggregate4",
+        ComponentVm::new("a"),
+        ComponentVm::new("b"),
+        ComponentVm::new("c"),
+        ComponentVm::new("d"),
+    );
+    let aggregate5 = AggregateVm5::new(
+        "aggregate5",
+        ComponentVm::new("a"),
+        ComponentVm::new("b"),
+        ComponentVm::new("c"),
+        ComponentVm::new("d"),
+        ComponentVm::new("e"),
+    );
+    let aggregate6 = AggregateVm6::new(
+        "aggregate6",
+        ComponentVm::new("a"),
+        ComponentVm::new("b"),
+        ComponentVm::new("c"),
+        ComponentVm::new("d"),
+        ComponentVm::new("e"),
+        ComponentVm::new("f"),
+    );
     let forwarding_component = ForwardingComponentVm::new(ComponentVm::with_model(
         "forwarded",
         1,
@@ -737,6 +767,10 @@ fn direct_constructors_default_hint_to_empty_string() {
     assert_eq!(resource.hint(), "");
     assert_eq!(aggregate1.hint(), "");
     assert_eq!(aggregate2.hint(), "");
+    assert_eq!(aggregate3.hint(), "");
+    assert_eq!(aggregate4.hint(), "");
+    assert_eq!(aggregate5.hint(), "");
+    assert_eq!(aggregate6.hint(), "");
     assert_eq!(forwarding_component.hint(), "");
     assert_eq!(forwarding_composite.hint(), "");
 }

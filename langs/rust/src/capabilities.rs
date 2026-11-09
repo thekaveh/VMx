@@ -391,6 +391,10 @@ impl ExpandableState {
     /// completes the stream. When a newer change commits before an older one
     /// publishes, the older value is skipped, so the stream ends on the
     /// current value.
+    ///
+    /// The returned handle shares the state's stream. Callers subscribe to
+    /// it and must not call `send` on it: only this state sends, so that
+    /// every value matches [`is_expanded`](Self::is_expanded).
     pub fn expansion_changes(&self) -> ValueStream<bool> {
         self.core.expansion_changes.clone()
     }

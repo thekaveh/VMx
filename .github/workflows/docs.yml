@@ -37,6 +37,7 @@ on:
       - "langs/csharp/tests/VMx.Tests/Integration/**"
       - "langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py"
       - "langs/python/tests/unit/state/test_connection_state_recipe.py"
+      - "langs/rust/tests/conformance/expandable.rs"
       - "langs/swift/Tests/VMxTests/SwiftUIRecipeTests.swift"
       - "langs/typescript/tests/unit/asyncResourceRecipes.test.ts"
       - "langs/typescript/tests/unit/componentAuthoringRecipes.test.ts"

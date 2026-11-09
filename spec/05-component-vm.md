@@ -337,7 +337,9 @@ ExpandableState : IExpandable, ICollapsible, IExpansionTogglable:
 
 Rust exposes `IsExpandedChanged` as `expansion_changes()`, a hot
 `ValueStream<bool>` that sends the new value once per effective change and does
-not replay the current value to a new subscriber. Rust also keeps the
+not replay the current value to a new subscriber. Under concurrent changes, an
+older value is skipped when a newer change commits before it publishes, so the
+stream always ends on the current value (ADR-0206). Rust also keeps the
 `expanded_changed()` hub, which publishes a `Message::Custom` whose `name` is
 `"true"` or `"false"` on each effective change; the expansion commands use that
 hub as their trigger (ADR-0206).

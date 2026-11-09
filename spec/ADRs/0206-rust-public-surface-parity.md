@@ -61,7 +61,9 @@ matches an existing Rust precedent.
    delegate to the inner composite. `ComponentVmBuilder::build()` supplies the
    model `()` when `M` is `()` and no model was set, so an unmodeled builder
    needs only `name` and `services`. A missing hub then reports
-   `hub is required`.
+   `hub is required`. `ReadonlyComponentVmBuilder` wraps
+   `ComponentVmBuilder`, so the same fallback applies to a
+   `ReadonlyComponentVm<()>` builder.
 1. **Typed expansion stream.** `ExpandableState::expansion_changes()` returns a
    hot `ValueStream<bool>`. It sends the new value once per effective change,
    before the hub message, and does not replay the current value to a new

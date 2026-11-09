@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use vmx::{walk_expanded, Command, ExpandableState, Message, ValueSubscription};
+use vmx::{walk_expanded, Command, ComponentVm, ExpandableState, Message, ValueSubscription};
 
 /// Records every value the typed expansion stream sends.
 fn record_expansion_changes(state: &ExpandableState) -> (Arc<Mutex<Vec<bool>>>, ValueSubscription) {
@@ -137,6 +137,76 @@ fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
     assert!(
         typed.lock().unwrap().is_empty(),
         "the disposed typed stream sends nothing"
+    );
+}
+
+/// Under concurrent changes the typed stream ends on the current value: an
+/// older value that loses the race to a newer commit is skipped (ADR-0206).
+#[test]
+fn expansion_changes_end_on_the_current_value_across_threads() {
+    let state = ExpandableState::new();
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
+    let start = Arc::new(std::sync::Barrier::new(8));
+    let workers = (0..8)
+        .map(|_| {
+            let state = state.clone();
+            let start = Arc::clone(&start);
+            std::thread::spawn(move || {
+                start.wait();
+                for _ in 0..200 {
+                    state.toggle_expansion();
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+
+    let expanded = state.is_expanded();
+    assert_eq!(typed.lock().unwrap().last().copied(), Some(expanded));
+    assert_eq!(state.expansion_changes().value(), expanded);
+}
+
+/// The owner recipe in `docs/content/primitives/state-reactive-helpers.md`:
+/// the owner forwards each typed value as a property change and disposes the
+/// subscription and the helper with itself.
+#[test]
+fn owner_recipe_forwards_expansion_changes_and_disposes_with_the_owner() {
+    // docs-snippet:start rust-expansion-forwarder
+    let expansion = ExpandableState::new();
+    let owner = ComponentVm::new("tree-node");
+    let forwarder_owner = owner.clone();
+    let forwarder = expansion
+        .expansion_changes()
+        .subscribe(move |_expanded| forwarder_owner.notify_property_changed("is_expanded"));
+    // The owner disposes the subscription and the helper with itself.
+    let owned_expansion = expansion.clone();
+    owner.own(move || {
+        forwarder.dispose();
+        owned_expansion.dispose();
+    });
+    // docs-snippet:end rust-expansion-forwarder
+    let changes = owner.hub().record(1024);
+
+    expansion.expand();
+    owner.dispose().unwrap();
+    expansion.collapse();
+
+    let forwarded = changes
+        .messages()
+        .into_iter()
+        .filter(|message| {
+            matches!(message, Message::PropertyChanged(change) if change.property_name == "is_expanded")
+        })
+        .count();
+    assert_eq!(
+        forwarded, 1,
+        "one forwarded change before the owner's disposal"
+    );
+    assert!(
+        expansion.is_expanded(),
+        "the disposed helper ignores collapse"
     );
 }
 

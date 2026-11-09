@@ -1482,7 +1482,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVmBu
         }
     }
 
-    /// Sets the required immutable model.
+    /// Sets the immutable model. It is required unless `M` is `()`.
     pub fn model(self, model: M) -> Self {
         Self {
             inner: self.inner.model(model),

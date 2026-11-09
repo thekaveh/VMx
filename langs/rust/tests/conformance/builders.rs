@@ -418,8 +418,8 @@ fn modeled_composite_builder_defaults_hint_to_empty_string() {
     assert_eq!(composite.hint(), "");
 }
 
-/// An unmodeled `ComponentVm<()>` needs only `name` and `services`
-/// (spec/10 §3; #1253).
+/// An unmodeled `ComponentVm<()>` needs only `name` and `services`, and so
+/// does the read-only builder that wraps it (spec/10 §3; #1253).
 #[test]
 fn unmodeled_component_builder_requires_only_name_and_services() {
     let vm = ComponentVm::<()>::builder()
@@ -436,4 +436,11 @@ fn unmodeled_component_builder_requires_only_name_and_services() {
         missing_services,
         Err(vmx::VmxError::BuilderValidation(message)) if message.contains("hub")
     ));
+
+    let readonly = vmx::ReadonlyComponentVm::<()>::builder()
+        .name("readonly")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+    assert_eq!(readonly.name(), "readonly");
 }

@@ -23,6 +23,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `CompositeVmBuilder`. `ComponentVmBuilder::build()` now supplies the model
   `()` for an unmodeled `ComponentVm<()>`, so the builder needs only `name` and
   `services`, and a missing hub reports `hub is required`.
+  `ReadonlyComponentVmBuilder` wraps that builder, so a
+  `ReadonlyComponentVm<()>` builder also needs no `model(())` call.
 - `ExpandableState::expansion_changes()`, a typed hot `ValueStream<bool>` for
   spec/05 §8 `IsExpandedChanged` (#1254, ADR-0206). It sends the new value once
   per effective change, does not replay the current value, and completes on
