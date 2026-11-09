@@ -27,12 +27,15 @@ lines cannot compete for the same generic tag.
 
 ## 1. Prerequisites
 
-- Full Xcode is available in CI (`macos-latest`) so root and nested
+- Full Xcode is available in CI (`macos-15`) so root and nested
   `swift test --parallel` runs can load XCTest. Local Command Line Tools are
   enough for `swift build`, but not always for `swift test`.
 - `VMxVersion.current` and `VMxVersion.minSpecVersion` in
   `Sources/VMx/Version.swift` match the intended release.
-- `langs/swift/CHANGELOG.md` has the complete release entry. The README,
+- `langs/swift/CHANGELOG.md` has the complete release entry. A release-prep PR
+  has replaced `unreleased source version` in its `## [X.Y.Z]` heading with
+  the release date, immediately before the tag, so the heading date equals the
+  tag date (`CONTRIBUTING.md` §4.3). The README,
   compatibility matrix, site, and wiki must remain truthful about source-only
   status until the public tag and clean-consumer checks succeed.
 - The intended release version has never been tagged. Never move or reuse an existing

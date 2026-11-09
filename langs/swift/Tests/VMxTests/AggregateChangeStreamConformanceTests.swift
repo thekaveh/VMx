@@ -29,7 +29,7 @@ where S.Input == Void, S.Failure == Never {
             subscriber.receive(completion: .finished)
             delivered.signal()
         }
-        precondition(delivered.wait(timeout: .now() + 2) == .success)
+        precondition(delivered.wait(timeout: .now() + hangGuard) == .success)
     }
 
     func cancel() { subscriber = nil }
@@ -64,7 +64,7 @@ where S.Input == Void, S.Failure == Never {
         guard demand > .none, !emitted, let subscriber else { return }
         emitted = true
         DispatchQueue.global().async { _ = subscriber.receive(()) }
-        precondition(hookEntered.wait(timeout: .now() + 2) == .success)
+        precondition(hookEntered.wait(timeout: .now() + hangGuard) == .success)
     }
 
     func cancel() { subscriber = nil }
@@ -301,20 +301,20 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
                 _beforeStageRecord: {
                     hookEnteredByPublisher.signal()
                     hookEnteredByTest.signal()
-                    _ = releaseHook.wait(timeout: .now() + 2)
+                    _ = releaseHook.wait(timeout: .now() + hangGuard * 2)
                 }
             )
             constructionFinished.signal()
             raceAggregate.dispose()
         }
-        XCTAssertEqual(hookEnteredByTest.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(hookEnteredByTest.wait(timeout: .now() + hangGuard), .success)
         XCTAssertEqual(
             constructionFinished.wait(timeout: .now() + 0.05),
             .timedOut,
             "activation must wait for atomic staging record"
         )
         releaseHook.signal()
-        XCTAssertEqual(constructionFinished.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(constructionFinished.wait(timeout: .now() + hangGuard), .success)
 
         // A synchronous value staged during initial construction is pre-existing
         // state: it is discarded, and construction emits no replayable Membership.
@@ -644,5 +644,62 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         _ = group.remove(child)
         XCTAssertEqual(groupPulses, 2)
         groupSubscription.cancel()
+    }
+
+    /// AGCH-011 — the subscribers of one envelope receive it in subscription order.
+    func testAgch011SubscribersReceiveEachEnvelopeInSubscriptionOrder() {
+        // Hash-based storage can match the order by chance, so repeat with
+        // fresh aggregates and fresh subscriber identities.
+        for _ in 0..<20 {
+            let source = AggregateTestSource([AggregateTestItem("first")])
+            let sut = aggregate(source)
+            var delivered: [(Int, AggregateChangeReason)] = []
+            var completed: [Int] = []
+            for label in 0..<5 {
+                sut.observe()
+                    .sink(
+                        receiveCompletion: { _ in completed.append(label) },
+                        receiveValue: { delivered.append((label, $0.reason)) }
+                    )
+                    .store(in: &cancellables)
+            }
+
+            source.add(AggregateTestItem("plain"))
+            XCTAssertEqual(delivered.map(\.0), [0, 1, 2, 3, 4])
+            XCTAssertTrue(delivered.allSatisfy { $0.1 == .membership })
+
+            delivered.removeAll()
+            sut.withBatch { source.add(AggregateTestItem("batched")) }
+            XCTAssertEqual(delivered.map(\.0), [0, 1, 2, 3, 4])
+            XCTAssertTrue(delivered.allSatisfy { $0.1 == .batch })
+
+            sut.dispose()
+            XCTAssertEqual(completed, [0, 1, 2, 3, 4])
+            cancellables.removeAll()
+        }
+    }
+
+    /// AGCH-011 — a resubscription goes last (ADR-0192 rule 3).
+    func testAgch011ResubscriptionIsDeliveredLast() {
+        for _ in 0..<20 {
+            let item = AggregateTestItem("item")
+            let source = AggregateTestSource([item])
+            let sut = aggregate(source)
+            var delivered: [Int] = []
+            var subscriptions: [AnyCancellable] = []
+            for label in 0..<5 {
+                subscriptions.append(sut.observe().sink { _ in delivered.append(label) })
+            }
+            subscriptions[1].cancel()
+            subscriptions[1] = sut.observe().sink { _ in delivered.append(1) }
+
+            item.changes.emit()
+            XCTAssertEqual(delivered, [0, 2, 3, 4, 1])
+            delivered.removeAll()
+            sut.withBatch { item.changes.emit() }
+            XCTAssertEqual(delivered, [0, 2, 3, 4, 1])
+            sut.dispose()
+            subscriptions.removeAll()
+        }
     }
 }

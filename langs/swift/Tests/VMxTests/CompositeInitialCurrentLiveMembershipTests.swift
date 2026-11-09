@@ -113,7 +113,7 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
         let late = try ComponentVM.builder()
             .name("late")
             .services(hub: hub, dispatcher: dispatcher)
-            .onConstruct { _ = releaseLate.wait(timeout: .now() + 10) }
+            .onConstruct { _ = releaseLate.wait(timeout: .now() + hangGuard * 2) }
             .build()
         let picked = try ComponentVM.builder()
             .name("picked").services(hub: hub, dispatcher: dispatcher).build()
@@ -135,8 +135,8 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
             composite.add(late)
             addFinished.signal()
         }.start()
-        XCTAssertEqual(lateStarted.wait(timeout: .now() + 10), .success)
-        let deadline = Date().addingTimeInterval(10)
+        XCTAssertEqual(lateStarted.wait(timeout: .now() + hangGuard), .success)
+        let deadline = Date().addingTimeInterval(hangGuard)
         while late.status != .constructing && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.001)
         }
@@ -144,7 +144,7 @@ final class CompositeInitialCurrentLiveMembershipTests: XCTestCase {
         dispatcher.flushBackground()
         dispatcher.flushForeground()
         releaseLate.signal()
-        XCTAssertEqual(addFinished.wait(timeout: .now() + 10), .success, "the add stalled")
+        XCTAssertEqual(addFinished.wait(timeout: .now() + hangGuard), .success, "the add stalled")
         for _ in 0..<10 {
             dispatcher.flushBackground()
             dispatcher.flushForeground()

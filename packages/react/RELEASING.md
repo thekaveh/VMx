@@ -31,7 +31,8 @@ release tarball:
 - A published `@thekaveh/vmx` satisfies the adapter's `@thekaveh/vmx` peer
   range. The job does not require the `langs/typescript` source version on npm.
 - `npm audit --omit=dev --audit-level=low` passes. Dev-only advisories cannot
-  reach consumers. The full lockfile is still audited on every pull request by
+  reach consumers. The full lockfile, and the React 18 lockfile in
+  `packages/react-18-deps`, are still audited on every pull request by
   `typescript.yml` and every week by `security-audit.yml`.
 - Type-check, lint, tests, build, the package check, and packed React 18.3.1
   and 19.2.8 consumers pass.
@@ -42,7 +43,10 @@ the tarball's name and version against the tag, and publishes that tarball.
 ## 3. Release procedure
 
 1. Land release changes through develop and main. Update `package.json` and add
-   a substantive matching changelog section.
+   a substantive matching changelog section. Immediately before the tag, a
+   release-prep PR replaces `unreleased source version` in the `## [X.Y.Z]`
+   heading with the release date, so the heading date equals the tag date
+   (`CONTRIBUTING.md` §4.3).
 2. Run the package, React 18/19, packed-consumer, showcase, security, and docs
    gates from a clean checkout.
 3. Confirm `react-v<X.Y.Z>` and the npm version do not exist.
@@ -63,7 +67,9 @@ rerun of the failed 0.1.2 job cannot publish: it uses the tag's own
 
 1. On npmjs.com, register the trusted publisher for `@thekaveh/vmx-react` as
    section 1 describes.
-2. Promote `develop` to `main` with the 0.1.3 version and changelog section.
+2. Promote `develop` to `main` with the 0.1.3 version and changelog section,
+   after a release-prep PR dates the 0.1.3 heading as section 3 step 1
+   describes.
 3. On that main commit, run
    `python3 tools/check-version-consistency.py --release-tag react-v0.1.3`.
 4. Follow section 3 from step 3 with tag `react-v0.1.3`.

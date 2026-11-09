@@ -10,7 +10,7 @@ from collections.abc import Callable
 from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.scheduler import ThreadPoolScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.services.dispatcher import RxDispatcher
 
 
@@ -62,7 +62,7 @@ class RunningAsyncioDispatcher:
 
     def __enter__(self) -> RunningAsyncioDispatcher:
         self.thread.start()
-        if not self.started.wait(self.timeout):
+        if not wait_event(self.started, self.timeout):
             startup_error = AssertionError("foreground event loop did not start")
             self._cleanup(startup_error)
             raise startup_error
@@ -95,7 +95,7 @@ class RunningAsyncioDispatcher:
         return admitted
 
     def assert_event(self, event: threading.Event, description: str) -> None:
-        assert event.wait(self.timeout), (
+        assert wait_event(event, self.timeout), (
             f"timed out waiting for {description}; errors={self.errors!r}"
         )
 
@@ -115,7 +115,7 @@ class RunningAsyncioDispatcher:
             cleanup_errors.append(AssertionError("RxPY pool workers did not stop"))
         if self.thread.is_alive():
             attempt(lambda: self.loop.call_soon_threadsafe(self.loop.stop))
-            attempt(lambda: self.thread.join(self.timeout))
+            attempt(lambda: join_thread(self.thread, self.timeout))
         if self.thread.is_alive():
             cleanup_errors.append(AssertionError("foreground event loop did not stop"))
         elif not self.loop.is_closed():

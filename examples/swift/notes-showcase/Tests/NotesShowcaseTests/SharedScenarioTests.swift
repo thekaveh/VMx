@@ -111,7 +111,12 @@ private final class ScenarioAdapter {
 }
 
 private func themeSnapshot(_ model: ThemeModel) -> [String: Any] {
-    let presetAccent = ThemeModel.presets[model.name]?.accentColor
+    // Bind the lookup before reading its field: Swift 6.4 at -Onone can return
+    // a non-nil field for a missing key when the two are chained (#1462).
+    var presetAccent: String?
+    if let preset = ThemeModel.presets[model.name] {
+        presetAccent = preset.accentColor
+    }
     return [
         "name": model.name,
         "high_contrast": model.highContrast,

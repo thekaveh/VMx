@@ -43,8 +43,9 @@ provenance for an eligible GitHub-hosted trusted-publishing run.
    PR flow.
 2. Confirm `langs/typescript/package.json` has the intended version and update
    `__minSpecVersion__` in `langs/typescript/src/version.ts` when required.
-3. Add a matching `## [X.Y.Z] — YYYY-MM-DD` entry to
-   `langs/typescript/CHANGELOG.md`.
+3. In `langs/typescript/CHANGELOG.md`, replace `unreleased source version` in
+   the matching `## [X.Y.Z]` heading with the release date, immediately before
+   the tag (`CONTRIBUTING.md` §4.3).
 4. From a clean checkout of current `origin/main`, verify the version and that
    neither the tag nor npm version exists:
 

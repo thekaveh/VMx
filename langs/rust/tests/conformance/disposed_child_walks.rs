@@ -172,8 +172,9 @@ struct Leaf {
 
 impl Leaf {
     fn construct(&self) -> VmxResult<()> {
-        self.component.construct_with_children(|walk| {
-            for member in &self.members {
+        let members = self.members.clone();
+        self.component.construct_with_children(move |walk| {
+            for member in &members {
                 walk.transition(member)?;
             }
             Ok(())
@@ -181,8 +182,9 @@ impl Leaf {
     }
 
     fn destruct(&self) -> VmxResult<()> {
-        self.component.destruct_with_children(|walk| {
-            for member in &self.members {
+        let members = self.members.clone();
+        self.component.destruct_with_children(move |walk| {
+            for member in &members {
                 walk.transition(member)?;
             }
             Ok(())

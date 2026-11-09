@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -27,7 +28,8 @@ public sealed class DecoratorCommand : ICommand, IDisposable
         _preExecute = preExecute;
         _postExecute = postExecute;
         _extraPredicate = extraPredicate;
-        _innerHandler = (sender, args) => CanExecuteChanged?.Invoke(this, args);
+        _innerHandler = (sender, args) =>
+            FanOut.Raise(CanExecuteChanged, handler => handler(this, args))?.Throw();
         _inner.CanExecuteChanged += _innerHandler;
     }
 

@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reactive.Linq;
+using VMx.Internal;
 
 namespace VMx.Messages;
 
@@ -33,7 +34,9 @@ public static class PropertyValueChangedExtensions
     ///   <c>vm => vm.IsValid</c>.  The expression is compiled once per call;
     ///   all subscriptions to the returned observable share that compilation.
     /// </param>
-    /// <returns>Cold observable; each subscription attaches a new filter to <c>hub.Messages</c>.</returns>
+    /// <returns>Cold observable; each subscription attaches a new filter to <c>hub.Messages</c>.
+    /// A subscriber that throws stays attached, and its failure is discarded
+    /// (spec/03 §3.4 and §3.6, ADR-0191).</returns>
     public static IObservable<TProperty> PropertyValueChangedMessagesFor<TSource, TProperty>(
         this VMx.Services.IMessageHub hub,
         TSource source,
@@ -47,11 +50,11 @@ public static class PropertyValueChangedExtensions
         // message's generic sender type: real VMs publish
         // PropertyChangedMessage<IComponentVM>, which is not an
         // IPropertyChangedMessage<TSource> for a concrete TSource.
-        return hub.Messages
+        return new IsolatedObservable<TProperty>(hub.Messages
             .Where(m => m is IPropertyChangedMessage<object> propertyChanged
                 && ReferenceEquals(propertyChanged.SenderObject, source)
                 && propertyChanged.PropertyName == propertyName)
-            .Select(_ => getter(source));
+            .Select(_ => getter(source)));
     }
 
     private static string ExtractPropertyName<TSource, TProperty>(

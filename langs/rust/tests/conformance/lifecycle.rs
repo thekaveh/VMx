@@ -525,13 +525,37 @@ fn dispose_transitions_to_disposed_from_destructed_and_constructed() {
     }
 }
 
+/// Asserts that `result` is the lifecycle transition error naming `from`
+/// and `operation` in its fields and in its message (spec/02 §2.1,
+/// ADR-0203).
+fn assert_names_state_and_operation(
+    result: vmx::VmxResult<()>,
+    from: ConstructionStatus,
+    operation: &str,
+) {
+    let error = result.expect_err("the illegal lifecycle call must fail");
+    assert!(
+        matches!(
+            &error,
+            VmxError::InvalidLifecycleTransition { from: state, operation: name }
+                if *state == from && *name == operation
+        ),
+        "expected {from:?} via {operation}, got {error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains(&format!("{from:?}")) && message.contains(operation),
+        "the message must name {from:?} and {operation}: {message}"
+    );
+}
+
 /// LIFE-005 — construct from Disposed raises
 #[test]
 fn construct_from_disposed_raises() {
     let vm = ComponentVm::new("vm");
     vm.dispose().unwrap();
 
-    assert!(matches!(vm.construct(), Err(VmxError::Disposed)));
+    assert_names_state_and_operation(vm.construct(), ConstructionStatus::Disposed, "construct");
 }
 
 /// LIFE-006 — destruct from Disposed raises
@@ -540,7 +564,35 @@ fn destruct_from_disposed_raises() {
     let vm = ComponentVm::new("vm");
     vm.dispose().unwrap();
 
-    assert!(matches!(vm.destruct(), Err(VmxError::Disposed)));
+    assert_names_state_and_operation(vm.destruct(), ConstructionStatus::Disposed, "destruct");
+}
+
+/// LIFE-005, LIFE-006 — every lifecycle call on a disposed component names
+/// `Disposed` and the operation, with background work off and on (spec/02
+/// §2.1, ADR-0203).
+#[test]
+fn lifecycle_calls_from_disposed_name_the_state_and_operation() {
+    for background in [false, true] {
+        let dispatcher = ManualDispatcher::new();
+        let vm: ComponentVm<i32, ManualDispatcher> = ComponentVm::builder()
+            .name("vm")
+            .model(0)
+            .background(background)
+            .services(MessageHub::new(), dispatcher.clone())
+            .build()
+            .unwrap();
+        vm.dispose().unwrap();
+
+        for (operation, result) in [
+            ("construct", vm.construct()),
+            ("destruct", vm.destruct()),
+            ("reconstruct", vm.reconstruct()),
+        ] {
+            assert_names_state_and_operation(result, ConstructionStatus::Disposed, operation);
+        }
+        assert_eq!(dispatcher.queued_len(), 0, "background: {background}");
+        assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    }
 }
 
 /// LIFE-007 — IsConstructed equals Status == Constructed
@@ -657,23 +709,45 @@ fn status_changes_raise_local_status_and_is_constructed_after_hub() {
 }
 
 /// LIFE-008 — Concurrent operation while transitioning raises
+///
+/// The same operation called again during `Constructing` and during
+/// `Destructing` names that transient status and the operation (ADR-0203).
 #[test]
 fn concurrent_operation_while_transitioning_raises() {
     let vm = ComponentVm::new("vm");
-    let vm_clone = vm.clone();
-    let inner_error = Arc::new(Mutex::new(None));
-    let inner_error_clone = inner_error.clone();
-    vm.on_construct(move || {
-        *inner_error_clone.lock().unwrap() = Some(vm_clone.construct().unwrap_err());
-        Ok(())
-    });
+    let inner_results = Arc::new(Mutex::new(Vec::new()));
+    {
+        let (vm_clone, results) = (vm.clone(), Arc::clone(&inner_results));
+        vm.on_construct(move || {
+            results.lock().unwrap().push((
+                ConstructionStatus::Constructing,
+                "construct",
+                vm_clone.construct(),
+            ));
+            Ok(())
+        });
+    }
+    {
+        let (vm_clone, results) = (vm.clone(), Arc::clone(&inner_results));
+        vm.on_destruct(move || {
+            results.lock().unwrap().push((
+                ConstructionStatus::Destructing,
+                "destruct",
+                vm_clone.destruct(),
+            ));
+            Ok(())
+        });
+    }
 
     vm.construct().unwrap();
+    vm.destruct().unwrap();
 
-    assert!(matches!(
-        inner_error.lock().unwrap().as_ref(),
-        Some(VmxError::ConcurrentOperation)
-    ));
+    let results = std::mem::take(&mut *inner_results.lock().unwrap());
+    assert_eq!(results.len(), 2);
+    for (from, operation, result) in results {
+        assert_names_state_and_operation(result, from, operation);
+    }
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
 }
 
 #[test]
@@ -860,21 +934,24 @@ fn destruct_from_destructed_is_noop() {
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
 }
 
-/// Legal rows must succeed; illegal rows must fail with the Rust
-/// `StatusTransitionError` equivalent. Per `02-lifecycle.md` (documented open
-/// Rust gap), a call from `Disposed` returns `VmxError::Disposed` and a call
-/// during another transition returns `VmxError::ConcurrentOperation`; every
-/// other illegal row returns `InvalidLifecycleTransition` naming state and
-/// operation.
+/// Legal rows must succeed; every illegal row, including one from `Disposed`
+/// or during another transition, must fail with the Rust
+/// `StatusTransitionError` equivalent, `InvalidLifecycleTransition`, naming
+/// the row's state and operation (spec/02 §2.1, ADR-0203).
 fn assert_fixture_result(result: &vmx::VmxResult<()>, row: &LifecycleRow) {
     if row.legal {
         assert!(result.is_ok(), "{} via {}: {result:?}", row.from, row.via);
         return;
     }
-    match (row.from.as_str(), result) {
-        ("Disposed", Err(VmxError::Disposed)) => {}
-        ("Constructing" | "Destructing", Err(VmxError::ConcurrentOperation)) => {}
-        (_, Err(VmxError::InvalidLifecycleTransition { from, operation })) => {
+    match result {
+        Err(error @ VmxError::InvalidLifecycleTransition { from, operation }) => {
+            let message = error.to_string();
+            assert!(
+                message.contains(row.from.as_str()) && message.contains(row.via.as_str()),
+                "{} via {}: the message must name both: {message}",
+                row.from,
+                row.via
+            );
             assert_eq!(
                 *from,
                 fixture_status(&row.from),
@@ -884,7 +961,7 @@ fn assert_fixture_result(result: &vmx::VmxResult<()>, row: &LifecycleRow) {
             );
             assert_eq!(*operation, row.via, "{} via {}", row.from, row.via);
         }
-        (_, other) => panic!(
+        other => panic!(
             "{} via {} must raise the lifecycle transition error, got {other:?}",
             row.from, row.via
         ),

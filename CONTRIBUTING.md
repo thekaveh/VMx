@@ -13,7 +13,13 @@ Thanks for your interest in contributing!
    security, and spec-discipline aggregate checks to pass against the latest
    target branch. Obtain maintainer review when another reviewer is available.
    The repository has one direct collaborator, so the ruleset does not require
-   self-approval.
+   self-approval. A new push to a PR cancels that PR's older run of each of the
+   nine pull-request CI workflows: `python`, `csharp`, `typescript`, `swift`,
+   `rust`, `conformance`, `spec-discipline`, `security-audit`, and
+   `examples-contract-checks`. Their runs on `develop` and `main`, scheduled
+   runs, and manual runs are never cancelled. The `docs`, `wiki`, `release`,
+   `release-please`, `starters`, and `typescript-windows-watch` workflows keep
+   their own concurrency groups.
 5. Maintainers promote `develop` to protected `main` through a separate PR.
 
 ### 1.1 Branch sync policy
@@ -90,8 +96,7 @@ seeds a 3.14 environment and checks that a selected sync repairs it.
 ```bash
 cd langs/typescript
 npm ci
-npm run sync-fixtures   # copy spec/fixtures/*.json → src/fixtures/
-npm run typecheck
+npm run typecheck       # pre-script copies spec/fixtures/*.json → src/fixtures/
 npm run typecheck:tests # type-check tests/ separately; CI runs this too
 npm run lint
 npm run build
@@ -116,6 +121,19 @@ the manifest declares tools version 5.9) and a macOS / iOS / tvOS / watchOS
 host — the flavor depends on Combine, which
 is not available on Linux. See `langs/swift/README.md` §5 for the conformance
 summary and the Swift-specific divergences.
+
+Do not chain a member access onto a dictionary lookup, as in
+`dict[key]?.field`. Apple Swift 6.4 (swiftlang-6.4.0.34.1) at `-Onone` can
+return a non-nil value from that expression when the key is missing; `-O`
+builds return `nil`. `swift test`, and `swift build` without `-c release`,
+use the debug configuration, which compiles at `-Onone`. Bind the lookup
+first, with `if let value = dict[key] { ... }` or
+`guard let value = dict[key] else { ... }`, and then read the field. The
+`swift` workflow runs `python3 tools/check-swift-subscript-chains.py`, which
+fails on any `]?.`, also one split over two lines, in the root
+`Package.swift` and in the Swift files under `langs/swift`, `examples/swift`
+and `starters/swift-package` (#1462). An upstream Swift report is not filed
+yet.
 
 ### 2.5 Rust
 
@@ -188,6 +206,52 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
+```
+
+### 2.8 Public API baselines
+
+Each flavor's CI compares the public API of its packages with a recorded
+baseline (#1365). The C#, Python and TypeScript checks fail on any
+difference from a tracked API listing, an added member included. The
+TypeScript listing leaves out comments, so a doc-comment edit alone does not
+change it; it keeps the `private constructor()` and `#private` markers. The
+Rust and Swift checks build a recorded baseline revision and fail on a break.
+
+| Flavor | Baseline | CI check | Intended change |
+|---|---|---|---|
+| C# | `PublicAPI.Shipped.txt` and `PublicAPI.Unshipped.txt` next to each library project; `langs/csharp/src/VMx/PublicAPI/net8.0/` lists the members that only `net8.0` declares | `dotnet build` (PublicApiAnalyzers: RS0016 for a member that the files do not list, RS0017 for a listed member that is gone) | Add new members to `PublicAPI.Unshipped.txt` with the RS0016 code fix, or with `dotnet format analyzers VMx.sln --diagnostics RS0016 --severity warn` (run it again until the count stops changing). Delete or edit the line of a removed or changed member. |
+| Python | `langs/python/api/vmx.api.txt` | `tools/check-python-api.py` on Python 3.12 | In `langs/python`: `uv run --python 3.12 python ../../tools/check-python-api.py --update` |
+| TypeScript | `langs/typescript/api/vmx.api.txt` | `tools/check-typescript-api.py` after `npm run build` | In `langs/typescript`: `npm run build && python3 ../../tools/check-typescript-api.py --update` |
+| Rust | `langs/rust/api/baseline-revision` | `cargo semver-checks` 0.51.0 on Rust 1.99.1; in a pull request, `tools/check-rust-api-baseline.py` first checks that the baseline revision declares the same `Cargo.toml` version as the pull request's base | Bump the `Cargo.toml` version as SemVer requires; the tool then accepts the break. Keep the baseline revision in that pull request. |
+| Swift | `langs/swift/api/baseline-revision` and `langs/swift/api/breakage-allowlist.txt` | `swift package diagnose-api-breaking-changes` on the root package's `VMx` product | Add each reported `API breakage: ...` line to the allowlist. |
+
+Commit the updated baseline in the same PR as the API change, so that the
+review shows it. A removed or changed public member is a breaking change: it
+needs a major version bump, or a minor bump while the version is 0.x (as for
+`vmx-rs`). An added member needs a minor bump (SemVer).
+
+`cargo semver-checks` accepts any break once the `Cargo.toml` version has
+moved past the version at the Rust baseline revision. The first pull request
+after a `vmx-rs` version bump must therefore set
+`langs/rust/api/baseline-revision` to a `develop` commit with the new version,
+for example its own base commit; `tools/check-rust-api-baseline.py` fails
+until it does. After a Swift release, set `langs/swift/api/baseline-revision`
+to the release commit and empty the Swift allowlist.
+
+The local commands match CI:
+
+```bash
+(cd langs/csharp && dotnet build VMx.sln -c Release)
+(cd langs/python && uv run --python 3.12 python ../../tools/check-python-api.py)
+(cd langs/typescript && npm run build && python3 ../../tools/check-typescript-api.py)
+cargo install cargo-semver-checks --version 0.51.0 --locked
+python3 tools/check-rust-api-baseline.py --base-rev origin/develop
+cargo semver-checks check-release --manifest-path langs/rust/Cargo.toml \
+    --baseline-rev "$(tr -d '[:space:]' < langs/rust/api/baseline-revision)" \
+    --default-features
+swift package diagnose-api-breaking-changes \
+    "$(tr -d '[:space:]' < langs/swift/api/baseline-revision)" --products VMx \
+    --breakage-allowlist-path langs/swift/api/breakage-allowlist.txt
 ```
 
 ## 3. Spec-driven changes
@@ -333,8 +397,9 @@ cause on `main` through the normal PR flow, bump the package to a new patch
 version, and release it with a new tag.
 
 **Spec compatibility.** Each package declares the minimum spec version it
-implements. A spec major bump requires a major bump in every active flavor
-(`README.md` §6.1).
+implements. A spec major bump requires a major bump in every active flavor,
+and a flavor's own source-breaking change requires a flavor major bump even
+under a spec minor bump (`README.md` §6.1).
 
 **Tag prefixes.** Every operational tag prefix (`csharp-*`, `python-v`,
 `typescript-v`, `react-v`, `rust-v`, `swift-v`) selects only its own release
@@ -345,6 +410,25 @@ filters jobs by prefix, so one flavor's tag never publishes another package.
 publication. The compatibility matrix must distinguish source status from
 public package status. Release automation verifies exact tag/package agreement
 before upload.
+
+**CHANGELOG placement.** Record each change in the CHANGELOG section of the
+package's current source version. While that version is unreleased, its
+heading reads `## [X.Y.Z] — unreleased source version`, and `[Unreleased]`
+stays empty. A source-version bump adds a new section above the earlier one;
+entries already recorded stay where they are. The release-prep PR replaces
+`unreleased source version` with the release date immediately before the tag,
+so the heading date equals the tag date. After a release and before the next
+bump, new entries go under `[Unreleased]`, and the bump PR moves them into the
+new section. In C#, each of `VMx`, `VMx.Notifications` and
+`VMx.Extensions.DependencyInjection` applies this rule to its own sections:
+`## [X.Y.Z]` for `VMx` and `## [<package> X.Y.Z]` for a companion. `[Unreleased]`
+keeps one `### <package>` subsection for each package, and a subsection stays
+empty while its package's current section is an unreleased source version.
+`tools/check-version-consistency.py` rejects `[Unreleased]` notes for a package
+whose current section is an unreleased source version. The React adapter
+changelog, `packages/react/CHANGELOG.md`, follows the same rule; its headings
+use ` - ` as the separator, for example
+`## [X.Y.Z] - unreleased source version`.
 
 **Publication claims.** Publication claims never precede public evidence. After
 the public artifact and a fresh consumer verify, update the repository docs and

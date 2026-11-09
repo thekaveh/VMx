@@ -83,6 +83,7 @@ def _preload_scripts() -> None:
     _preload("check-swift-package-sync.py", "check_swift_package_sync")
     _preload("check-typescript-package.py", "check_typescript_package")
     _preload("check-nuget-package.py", "check_nuget_package")
+    _preload("check-dependency-locks.py", "check_dependency_locks")
     _preload("check-coverage-floor.py", "check_coverage_floor")
     _preload("compare-coverage-runs.py", "compare_coverage_runs")
     _preload("check-rust-package.py", "check_rust_package")
@@ -94,6 +95,10 @@ def _preload_scripts() -> None:
     _preload("render-csharp-release-notes.py", "render_csharp_release_notes")
     _preload("select-csharp-release.py", "select_csharp_release")
     _preload("swift-test-watchdog.py", "swift_test_watchdog")
+    _preload("check-python-api.py", "check_python_api")
+    _preload("check-typescript-api.py", "check_typescript_api")
+    _preload("check-swift-subscript-chains.py", "check_swift_subscript_chains")
+    _preload("check-rust-api-baseline.py", "check_rust_api_baseline")
 
 
 def pytest_configure(config: pytest.Config) -> None:

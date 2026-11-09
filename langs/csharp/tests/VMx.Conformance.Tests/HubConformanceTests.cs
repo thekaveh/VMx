@@ -149,7 +149,8 @@ public class HubConformanceTests
         var goodSub = hub.Messages.OfType<Stub>().Subscribe(m => goodSeen.Add(m.Tag));
 
         // A raw hub subscriber that throws keeps its subscription: the hub
-        // swallows the exception (spec/03 §3.4) without detaching the observer.
+        // swallows the exception (spec/03 §3.4) without detaching the observer,
+        // so A's handler runs for both messages (spec v3.30, ADR-0191).
         var trace = new List<string>();
         var rawThrowing = hub.Messages.Subscribe(m =>
         {

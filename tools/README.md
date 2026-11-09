@@ -76,9 +76,20 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `swift-test-watchdog.py` — runs a SwiftPM test command and watches the
   `xctest` process that `swift test --parallel` starts for each case. A case
   that outlives `--per-test-timeout` is sampled, killed, and reported by name,
-  so a hang fails within minutes instead of at the job timeout. `--timeout`
-  bounds the whole command. The Swift `examples` job runs the NotesShowcase
-  tests through it.
+  so a hang fails within minutes instead of at the job timeout. For a
+  single-process `swift test`, it reads XCTest's `Test Case '...' started.`
+  lines instead, and kills the whole run when a case does not finish in time.
+  A `--parallel` command skips that output check, because SwiftPM replays a
+  crashed case's `started` line with no finish line after it. `--timeout`
+  bounds the whole command. The Swift `examples`, `coverage floor` and `thread
+  sanitizer` jobs run their tests through it.
+
+- `ci-retry.mjs` — runs a CI command up to three times, 20 s apart, and kills
+  each attempt after 240 s. With `--retry-on=npm-network` it retries only a
+  registry or network error, so an `npm audit` advisory fails after one
+  attempt. Every workflow `npm ci` and `npm audit` runs through it;
+  `tools/tests/test_ci_retry.py` checks that each retried step fits inside its
+  job timeout.
 
 - `select-csharp-release.py` — maps the three collision-free stable C# tag
   namespaces to exactly one package ID, verifies that package's project version,
@@ -92,11 +103,15 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-fixture-contracts.py` — Validates the canonical fixture inventories and their structural contracts.
 - `check-nuget-package.py` — Validates the VMx NuGet main and symbol packages against an exact contract.
 - `check-python-interpreter.py` — Asserts the interpreter identity, then runs Python arguments with that executable.
+- `check-python-api.py` — Compares the public API of the `vmx` Python package with `langs/python/api/vmx.api.txt` on Python 3.12; `--update` rewrites the baseline.
 - `check-python-package.py` — Validates the exact VMx Python wheel and sdist contents before publication.
 - `check-react-package.py` — Fails when the React adapter's npm payload drifts from its allowlist.
+- `check-rust-api-baseline.py` — In a pull request, checks that the Rust API baseline revision declares the same `Cargo.toml` version as the base commit, so `cargo semver-checks` cannot accept a break against a stale baseline.
 - `check-rust-doc-snippets.py` — Compiles every Rust fence in the public Rust getting-started guide.
 - `check-rust-package.py` — Verifies that the Rust crate package holds exactly the fixed top-level and generated files plus each file Git tracks under `langs/rust/src` and `langs/rust/tests`. A new tracked file needs no edit to the tool.
 - `check-swift-package-sync.py` — Verifies that the root and nested SwiftPM manifests stay equivalent.
+- `check-swift-subscript-chains.py` — Rejects `]?.` (optional chaining on a subscript result), also split over two lines, in the repository's Swift files; Swift 6.4 at `-Onone` can return a non-nil member for a missing dictionary key there (#1462).
+- `check-typescript-api.py` — Compares the built `@thekaveh/vmx` declarations, with chunk hashes and comments removed, with `langs/typescript/api/vmx.api.txt`; `--update` rewrites the baseline.
 - `check-typescript-package.py` — Verifies the exact allowlisted contents of the TypeScript npm package.
 - `check-typescript-schema-sync.py` — Asserts that TypeScript's tracked conformance schema copies match the spec.
 - `check-version-consistency.py` — Cross-checks manifest versions, the compatibility matrix, changelog sections, and git tags; `--release-tag` adds the release preflight.
@@ -105,7 +120,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `compare-coverage-runs.py` — Compares llvm-cov exports of repeated runs and lists where their coverage differs.
 - `coverage-floors.json` — Recorded Rust and Swift coverage floors read by `check-coverage-floor.py`.
 - `create-starter.py` — Generates an application starter from `starters/<channel>/` outside the checkout, installs the exact public package and runs its smoke test (channels: `typescript-node`, `python-console`, `swift-package`, `react-vite`). Each template directory has a file allowlist, so any stray file fails generation, including `__pycache__`, `.mypy_cache`, `node_modules` and `.build`. Remove ignored files with `git clean -fdX starters/` (list them first with `-n`). Run the Python channel with an interpreter outside the checkout, not `langs/python/.venv`.
-- `ensure-release-changelog-unreleased.py` — Restores the canonical Unreleased section after Release Please runs.
+- `ensure-release-changelog-unreleased.py` — Restores the canonical Unreleased section after Release Please runs, and rewrites Release Please's `*` bullets and blank-line runs into the mdformat-clean form.
 - `extract-release-notes.awk` — Extracts one changelog section for a flavor's GitHub Release (Python, TypeScript, React, Rust, Swift).
 - `release-please-labels.py` — Moves a merged Python release PR to `autorelease: tagged` after its GitHub Release (`relabel`), and fails on one left at `autorelease: pending` (`check`).
 - `render-csharp-release-notes.py` — Renders C# GitHub Release notes from a selected-package manifest.
