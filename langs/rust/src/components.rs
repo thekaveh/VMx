@@ -145,18 +145,22 @@ impl ComponentCommands {
 }
 
 /// One in-flight construct or destruct of a [`ComponentVm`] that walks the
-/// component's member view-models (spec/02 §6.1, ADR-0162).
+/// component's member view-models (spec/02 §6.1, ADR-0162, ADR-0203).
 ///
 /// This is the Rust analogue of the protected child-transition helper that
 /// subclasses of the component base use in the other flavors. Rust has no
 /// subclassing, so a consumer view-model type composes a `ComponentVm`, keeps
-/// its member view-models in fields, and drives them through
+/// its member view-models in fields, and gives the component a walk closure:
+/// a stored walk through [`ComponentVm::on_construct_children`] and
+/// [`ComponentVm::on_destruct_children`], which every construct, destruct,
+/// reconstruct and reconstruct command runs, or a walk for one call through
 /// [`ComponentVm::construct_with_children`],
 /// [`ComponentVm::destruct_with_children`], and
-/// [`ComponentVm::reconstruct_with_children`]. Those methods run the
-/// component's own transition and, after its `on_construct` or `on_destruct`
-/// hook succeeds, pass a `ChildTransitions` to the walk closure. The closure
-/// adds steps:
+/// [`ComponentVm::reconstruct_with_children`]. The component runs its own
+/// transition and, after its `on_construct` or `on_destruct` hook succeeds,
+/// passes a `ChildTransitions` to the walk closure, on the thread that runs
+/// the hook: the background dispatcher for a construct or destruct of a
+/// component built with `background(true)`. The closure adds steps:
 ///
 /// - [`transition`](Self::transition) constructs or destructs one child. Steps
 ///   run in the order they are added, one child at a time: a child starts only
@@ -180,12 +184,9 @@ impl ComponentCommands {
 /// The steps take no order option: pass the children in the order the walk
 /// needs, for example in reverse for a reverse-order destruct.
 ///
-/// Two limits apply. `construct_with_children` and `destruct_with_children`
-/// return [`VmxError::InvalidArgument`] for a component built with
-/// `background(true)`, because the walk cannot move to the background
-/// dispatcher; `reconstruct_with_children` runs synchronously like
-/// [`ComponentVm::reconstruct`]. And [`ComponentVm::reconstruct`] and
-/// [`ComponentVm::reconstruct_command`] run only the hooks, never a walk.
+/// A reconstruct runs the destruct walk and then the construct walk on the
+/// calling thread, also for a component built with `background(true)`
+/// (spec/11 §4); background members still settle in the background.
 ///
 /// The handle borrows the transition, so it exists only inside the walk
 /// closure; using it from anywhere else does not compile. That is the Rust
@@ -193,21 +194,25 @@ impl ComponentCommands {
 /// usage error:
 ///
 /// ```compile_fail,E0521
-/// use vmx::{ChildTransitions, ComponentVm};
+/// use vmx::{ChildTransitions, ComponentVm, VmxResult};
+///
+/// fn escape<'a>(walk: &ChildTransitions<'a>, slot: &mut Option<&ChildTransitions<'a>>) {
+///     *slot = Some(walk);
+/// }
 ///
 /// let vm = ComponentVm::new("parent");
-/// let mut escaped: Option<&ChildTransitions<'_, vmx::NullDispatcher>> = None;
-/// vm.construct_with_children(|walk| {
-///     escaped = Some(walk);
+/// let mut escaped = None;
+/// let run = |walk: &ChildTransitions<'_>| -> VmxResult<()> {
+///     escape(walk, &mut escaped);
 ///     Ok(())
-/// })
-/// .unwrap();
+/// };
+/// vm.construct_with_children(run).unwrap();
 /// ```
 ///
 /// A consumer type with two members:
 ///
 /// ```
-/// use vmx::{ComponentVm, ConstructionStatus, VmxResult};
+/// use vmx::{Command, ComponentVm, ConstructionStatus, VmxResult};
 ///
 /// struct Dashboard {
 ///     component: ComponentVm,
@@ -224,28 +229,27 @@ impl ComponentCommands {
 ///         };
 ///         dashboard.component.own_member(&dashboard.chart)?;
 ///         dashboard.component.own_member(&dashboard.table)?;
+///         // The walks capture the members, never the component (#750).
+///         let (chart, table) = (dashboard.chart.clone(), dashboard.table.clone());
+///         dashboard.component.on_construct_children(move |walk| {
+///             walk.transition(&chart)?;
+///             walk.transition(&table)
+///         });
+///         let (chart, table) = (dashboard.chart.clone(), dashboard.table.clone());
+///         dashboard.component.on_destruct_children(move |walk| {
+///             walk.transition(&table)?;
+///             walk.transition(&chart)
+///         });
 ///         Ok(dashboard)
-///     }
-///
-///     fn construct(&self) -> VmxResult<()> {
-///         self.component.construct_with_children(|walk| {
-///             walk.transition(&self.chart)?;
-///             walk.transition(&self.table)
-///         })
-///     }
-///
-///     fn destruct(&self) -> VmxResult<()> {
-///         self.component.destruct_with_children(|walk| {
-///             walk.transition(&self.table)?;
-///             walk.transition(&self.chart)
-///         })
 ///     }
 /// }
 ///
 /// let dashboard = Dashboard::new().unwrap();
-/// dashboard.construct().unwrap();
+/// dashboard.component.construct().unwrap();
 /// assert_eq!(dashboard.table.status(), ConstructionStatus::Constructed);
-/// dashboard.destruct().unwrap();
+/// dashboard.component.reconstruct_command().execute();
+/// assert_eq!(dashboard.chart.status(), ConstructionStatus::Constructed);
+/// dashboard.component.destruct().unwrap();
 /// assert_eq!(dashboard.chart.status(), ConstructionStatus::Destructed);
 /// dashboard.component.dispose().unwrap();
 /// assert_eq!(dashboard.chart.status(), ConstructionStatus::Disposed);
@@ -326,7 +330,20 @@ impl<'a, D: Dispatcher> ChildTransitions<'a, D> {
     }
 }
 
-/// Runs `operation` on `core` and, after its hook, the walk closure.
+/// Runs `walk` as the member walk of the transition `operation` in flight
+/// on `core`.
+fn run_walk<D, F>(core: &ComponentCore<D>, operation: LifecycleOperation, walk: F) -> VmxResult<()>
+where
+    D: Dispatcher,
+    F: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()>,
+{
+    let transitions = ChildTransitions::new(core, operation);
+    let result = walk(&transitions);
+    transitions.finish(result)
+}
+
+/// Runs `operation` on `core` and, after its hook, the walk closure, on the
+/// calling thread.
 fn walk_children<D, F>(
     core: &ComponentCore<D>,
     operation: LifecycleOperation,
@@ -336,10 +353,114 @@ where
     D: Dispatcher,
     F: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()>,
 {
-    core.transition_with(operation, || {
-        let transitions = ChildTransitions::new(core, operation);
-        let result = walk(&transitions);
-        transitions.finish(result)
+    core.transition_with(operation, || run_walk(core, operation, walk))
+}
+
+/// Runs `operation` on `core` and, after its hook, the walk closure, where
+/// the hook runs: on the background dispatcher for a component built with
+/// `background(true)`, otherwise on the calling thread (ADR-0203).
+fn walk_children_where_hook_runs<D, F>(
+    core: &ComponentCore<D>,
+    operation: LifecycleOperation,
+    walk: F,
+) -> VmxResult<()>
+where
+    D: Dispatcher,
+    F: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()> + Send + 'static,
+{
+    core.transition_with_walk(
+        operation,
+        Box::new(move |core| run_walk(core, operation, walk)),
+    )
+}
+
+/// A member walk stored on a [`ComponentVm`] (ADR-0203).
+type StoredWalk<D> = Arc<Mutex<dyn FnMut(&ChildTransitions<'_, D>) -> VmxResult<()> + Send>>;
+
+/// The stored construct and destruct member walks that clones of a
+/// [`ComponentVm`] share.
+struct MemberWalks<D: Dispatcher> {
+    construct: Mutex<Option<StoredWalk<D>>>,
+    destruct: Mutex<Option<StoredWalk<D>>>,
+}
+
+impl<D: Dispatcher> MemberWalks<D> {
+    fn new() -> Self {
+        Self {
+            construct: Mutex::new(None),
+            destruct: Mutex::new(None),
+        }
+    }
+
+    fn slot(&self, operation: LifecycleOperation) -> &Mutex<Option<StoredWalk<D>>> {
+        match operation {
+            LifecycleOperation::Destruct => &self.destruct,
+            _ => &self.construct,
+        }
+    }
+
+    fn get(&self, operation: LifecycleOperation) -> Option<StoredWalk<D>> {
+        lock(self.slot(operation)).clone()
+    }
+
+    fn set(&self, operation: LifecycleOperation, walk: StoredWalk<D>) {
+        // A replaced walk can hold the last handle to a member; drop it
+        // after the slot guard is released.
+        let replaced = lock(self.slot(operation)).replace(walk);
+        drop(replaced);
+    }
+}
+
+/// Runs a stored walk as a one-call walk.
+fn call_stored<D: Dispatcher>(
+    walk: Option<StoredWalk<D>>,
+) -> impl FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()> + Send + 'static {
+    move |transitions| walk.map_or(Ok(()), |walk| (lock(&walk))(transitions))
+}
+
+/// Runs a construct or destruct of a component with its stored walk, if any.
+fn transition_component<D: Dispatcher>(
+    core: &ComponentCore<D>,
+    walks: &MemberWalks<D>,
+    operation: LifecycleOperation,
+) -> VmxResult<()> {
+    match walks.get(operation) {
+        Some(walk) => walk_children_where_hook_runs(core, operation, call_stored(Some(walk))),
+        None => core.transition(operation),
+    }
+}
+
+/// Reconstructs a component: the hooks only, as one synchronous operation,
+/// when no walk is stored; otherwise like
+/// [`ComponentVm::reconstruct_with_children`] with the stored walks.
+fn reconstruct_component<D: Dispatcher>(
+    core: &ComponentCore<D>,
+    walks: &MemberWalks<D>,
+) -> VmxResult<()> {
+    core.admit_reconstruct()?;
+    let destruct = walks.get(LifecycleOperation::Destruct);
+    let construct = walks.get(LifecycleOperation::Construct);
+    if destruct.is_none() && construct.is_none() {
+        return core.reconstruct();
+    }
+    reconstruct_walking(core, call_stored(destruct), call_stored(construct))
+}
+
+/// The destruct walk, then the construct walk once the destruct reaches
+/// `Destructed` (spec/02 §6.1). Both run on the calling thread.
+fn reconstruct_walking<D, FD, FC>(
+    core: &ComponentCore<D>,
+    destruct: FD,
+    construct: FC,
+) -> VmxResult<()>
+where
+    D: Dispatcher,
+    FD: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()>,
+    FC: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()> + Send + 'static,
+{
+    walk_children(core, LifecycleOperation::Destruct, destruct)?;
+    core.construct_after_destruct(move |core| {
+        walk_children(core, LifecycleOperation::Construct, construct)
     })
 }
 
@@ -371,6 +492,7 @@ pub struct ComponentVm<M = (), D: Dispatcher = NullDispatcher> {
     on_model_changed: Option<ModelChangedCallback<M>>,
     view_model_type: ViewModelType,
     commands: ComponentCommands,
+    walks: Arc<MemberWalks<D>>,
 }
 
 impl ComponentVm<(), NullDispatcher> {
@@ -391,9 +513,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// Creates a modeled component with explicit services.
     pub fn with_model(name: impl Into<String>, model: M, hub: MessageHub, dispatcher: D) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
-        let command_core = core.clone();
+        let walks = Arc::new(MemberWalks::new());
+        let (command_core, command_walks) = (core.clone(), Arc::clone(&walks));
         let commands = ComponentCommands::new(&core, move || {
-            let _ = command_core.reconstruct();
+            let _ = reconstruct_component(&command_core, &command_walks);
         });
         Self {
             core,
@@ -403,6 +526,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
             on_model_changed: None,
             view_model_type: ViewModelType::Component,
             commands,
+            walks,
         }
     }
 
@@ -578,76 +702,93 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
             .set_hook(LifecycleOperation::Dispose, Arc::new(Mutex::new(hook)));
     }
 
+    /// Replaces the member walk that runs after the `on_construct` hook in
+    /// every construct of the component, including the construct phase of
+    /// [`Self::reconstruct`] and of [`Self::reconstruct_command`] (spec/02
+    /// §6.1, ADR-0203).
+    ///
+    /// See [`ChildTransitions`] for the walk contract. The walk runs where
+    /// the hook runs: on the background dispatcher for a construct of a
+    /// component built with `background(true)`, on the calling thread
+    /// otherwise and in a reconstruct (spec/11 §4). The component keeps the
+    /// walk until it is replaced, so the walk must not capture the component
+    /// or a value that holds it (#750); capture the members.
+    pub fn on_construct_children<F>(&self, walk: F)
+    where
+        F: FnMut(&ChildTransitions<'_, D>) -> VmxResult<()> + Send + 'static,
+    {
+        self.walks
+            .set(LifecycleOperation::Construct, Arc::new(Mutex::new(walk)));
+    }
+
+    /// Replaces the member walk that runs after the `on_destruct` hook in
+    /// every destruct of the component, including the destruct phase of
+    /// [`Self::reconstruct`] and of [`Self::reconstruct_command`], as
+    /// [`Self::on_construct_children`] does for a construct. Pass the members
+    /// in reverse for a reverse-order destruct.
+    pub fn on_destruct_children<F>(&self, walk: F)
+    where
+        F: FnMut(&ChildTransitions<'_, D>) -> VmxResult<()> + Send + 'static,
+    {
+        self.walks
+            .set(LifecycleOperation::Destruct, Arc::new(Mutex::new(walk)));
+    }
+
     /// Transitions the component to constructed state.
+    ///
+    /// After the `on_construct` hook, this runs the walk set with
+    /// [`Self::on_construct_children`], if any.
     pub fn construct(&self) -> VmxResult<()> {
-        self.core.transition(LifecycleOperation::Construct)
+        transition_component(&self.core, &self.walks, LifecycleOperation::Construct)
     }
 
     /// Constructs the component and, after its `on_construct` hook, runs
-    /// `walk` to construct its member view-models (spec/02 §6.1, ADR-0162).
+    /// `walk` in place of the stored construct walk to construct its member
+    /// view-models (spec/02 §6.1, ADR-0162, ADR-0203).
     ///
     /// See [`ChildTransitions`] for the walk contract: steps run in order,
     /// a background child keeps the component `Constructing` until it
     /// settles, and a failing step rolls the component back to `Destructed`.
     /// A component that is already `Constructed` returns `Ok(())` without
     /// running `walk`, and a rejected transition runs nothing. The hook and
-    /// `walk` run on the calling thread, as a container's own hook does.
-    ///
-    /// This is how a consumer type built around a `ComponentVm` implements
-    /// its own `construct`; [`Self::construct`] runs only the hook.
+    /// `walk` run on the calling thread, or on the background dispatcher for
+    /// a component built with `background(true)`: then this returns
+    /// `Ok(())` with the component `Constructing`, and a failure reaches
+    /// [`Self::background_errors`] (spec/11 §4).
     ///
     /// # Errors
     ///
-    /// [`VmxError::InvalidArgument`], with no transition started, when the
-    /// component was built with `background(true)`: the walk borrows the
-    /// caller's members, so it cannot move to the background dispatcher
-    /// (spec/11 §4). Build the component without background work; members
-    /// built with `background(true)` still run their own hooks in the
-    /// background, and the walk waits for them. Otherwise the transition's
-    /// own errors and the first failing step.
+    /// The transition's own errors and the first failing step.
     pub fn construct_with_children<F>(&self, walk: F) -> VmxResult<()>
     where
-        F: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()>,
+        F: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()> + Send + 'static,
     {
-        self.reject_background_walk("construct_with_children")?;
-        walk_children(&self.core, LifecycleOperation::Construct, walk)
+        walk_children_where_hook_runs(&self.core, LifecycleOperation::Construct, walk)
     }
 
     /// Destructs the component and, after its `on_destruct` hook, runs `walk`
-    /// to destruct its member view-models (spec/02 §6.1, ADR-0162).
+    /// in place of the stored destruct walk to destruct its member
+    /// view-models (spec/02 §6.1, ADR-0162, ADR-0203).
     ///
     /// See [`ChildTransitions`]. A failing step rolls the component back to
     /// `Constructed`. A component that is already `Destructed` returns
-    /// `Ok(())` without running `walk`. Pass the members in reverse for a
-    /// reverse-order destruct.
+    /// `Ok(())` without running `walk`. The walk runs where the hook runs,
+    /// as for [`Self::construct_with_children`]. Pass the members in reverse
+    /// for a reverse-order destruct.
     ///
     /// # Errors
     ///
-    /// [`VmxError::InvalidArgument`], with no transition started, when the
-    /// component was built with `background(true)`, as for
-    /// [`Self::construct_with_children`]. Otherwise the transition's own
-    /// errors and the first failing step.
+    /// The transition's own errors and the first failing step.
     pub fn destruct_with_children<F>(&self, walk: F) -> VmxResult<()>
     where
-        F: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()>,
+        F: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()> + Send + 'static,
     {
-        self.reject_background_walk("destruct_with_children")?;
-        walk_children(&self.core, LifecycleOperation::Destruct, walk)
-    }
-
-    /// The standalone walks cannot honor `background(true)` (spec/11 §4).
-    fn reject_background_walk(&self, method: &str) -> VmxResult<()> {
-        if self.core.is_background() {
-            return Err(VmxError::InvalidArgument(format!(
-                "{method} does not support a component built with background(true)"
-            )));
-        }
-        Ok(())
+        walk_children_where_hook_runs(&self.core, LifecycleOperation::Destruct, walk)
     }
 
     /// Destructs the component through `destruct`, then constructs it through
-    /// `construct` (spec/02 §6.1, ADR-0162). Admission matches
-    /// [`Self::reconstruct`].
+    /// `construct`, in place of the stored walks (spec/02 §6.1, ADR-0162).
+    /// Admission matches [`Self::reconstruct`].
     ///
     /// The construct walk starts once the destruct reaches `Destructed`: now
     /// when the destruct settled synchronously, otherwise when its last
@@ -657,23 +798,17 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// then, so it must not capture the component or a value that holds it
     /// (#750); capture the members.
     ///
-    /// Like [`Self::reconstruct`], this runs the component's own hooks on the
-    /// calling thread also for a component built with `background(true)`
-    /// (spec/11 §4); background members still settle in the background.
-    ///
-    /// [`Self::reconstruct`] and [`Self::reconstruct_command`] run only the
-    /// component's hooks and never a walk; a consumer type routes its own
-    /// reconstruct through this method.
+    /// Like [`Self::reconstruct`], this runs the component's own hooks and
+    /// both walks on the calling thread also for a component built with
+    /// `background(true)` (spec/11 §4); background members still settle in
+    /// the background.
     pub fn reconstruct_with_children<FD, FC>(&self, destruct: FD, construct: FC) -> VmxResult<()>
     where
         FD: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()>,
         FC: FnOnce(&ChildTransitions<'_, D>) -> VmxResult<()> + Send + 'static,
     {
         self.core.admit_reconstruct()?;
-        walk_children(&self.core, LifecycleOperation::Destruct, destruct)?;
-        self.core.construct_after_destruct(move |core| {
-            walk_children(core, LifecycleOperation::Construct, construct)
-        })
+        reconstruct_walking(&self.core, destruct, construct)
     }
 
     /// Registers `member` for depth-first disposal (spec/02 §7.1, ADR-0162).
@@ -685,8 +820,8 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// after that hook returns (spec/02 §2.4, LIFE-015). A member is not
     /// a container child: registration sets no parent link, adds no selection
     /// state, and does not construct it; transition members through
-    /// [`Self::construct_with_children`] and
-    /// [`Self::destruct_with_children`]. Clones of the component share the
+    /// [`Self::on_construct_children`] and [`Self::on_destruct_children`] or
+    /// the one-call walk methods. Clones of the component share the
     /// registrations, and the component keeps a clone of `member` until it is
     /// disposed, so a member must not hold the component (#750).
     ///
@@ -716,18 +851,23 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     }
 
     /// Transitions the component to destructed state.
+    ///
+    /// After the `on_destruct` hook, this runs the walk set with
+    /// [`Self::on_destruct_children`], if any.
     pub fn destruct(&self) -> VmxResult<()> {
-        self.core.transition(LifecycleOperation::Destruct)
+        transition_component(&self.core, &self.walks, LifecycleOperation::Destruct)
     }
 
-    /// Destructs and then constructs the component.
+    /// Destructs and then constructs the component, on the calling thread
+    /// also for a component built with `background(true)` (spec/11 §4).
     ///
-    /// This runs only the component's own hooks. It does not run a
-    /// [`ChildTransitions`] walk, so a consumer type that walks its members
-    /// reconstructs through [`Self::reconstruct_with_children`] instead.
+    /// Each phase runs its hook and then the stored walk of
+    /// [`Self::on_destruct_children`] or [`Self::on_construct_children`]
+    /// (spec/02 §6.1, ADR-0203). With a stored walk, the construct phase
+    /// starts once the destruct reaches `Destructed`, as in
+    /// [`Self::reconstruct_with_children`].
     pub fn reconstruct(&self) -> VmxResult<()> {
-        self.core.admit_reconstruct()?;
-        self.core.reconstruct()
+        reconstruct_component(&self.core, &self.walks)
     }
 
     /// Stops publishing on the injected hub. A wrapper whose hub contract
@@ -744,11 +884,11 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// destruct hook of the component running on another thread, the
     /// members are disposed first, before the component publishes `Disposed`
     /// (LIFE-018). While they are disposed, a `construct`, `destruct`, or
-    /// `reconstruct` of the component fails with [`VmxError::Disposed`], and
-    /// the component commits no status other than `Disposed` (spec/02 §7.2,
-    /// LIFE-021). With a hook running on another thread, the component
-    /// publishes `Disposed` first, and the members are disposed after that
-    /// hook returns.
+    /// `reconstruct` of the component fails as from `Disposed`
+    /// ([`VmxError::InvalidLifecycleTransition`]), and the component commits
+    /// no status other than `Disposed` (spec/02 §7.2, LIFE-021). With a hook
+    /// running on another thread, the component publishes `Disposed` first,
+    /// and the members are disposed after that hook returns.
     ///
     /// Every member is attempted; the first failure is returned after the
     /// component's own teardown. While the members are being disposed, any
@@ -869,10 +1009,8 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     /// Returns the stable command that destructs and reconstructs this component.
     ///
-    /// The command calls [`Self::reconstruct`], so it runs only the hooks and
-    /// no [`ChildTransitions`] walk. A consumer type that walks its members
-    /// exposes its own command that calls
-    /// [`Self::reconstruct_with_children`].
+    /// The command runs [`Self::reconstruct`], with the hooks and the stored
+    /// walks (ADR-0203).
     pub fn reconstruct_command(&self) -> RelayCommand {
         self.commands.reconstruct()
     }

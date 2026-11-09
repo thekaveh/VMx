@@ -337,7 +337,8 @@ Rust-specific items remain open:
   failure through their background-hook error path.
 - **No join of an in-flight child in aggregates.** When `AggregateVm1`–
   `AggregateVm6` construct a slot child that is already Constructing in the
-  background, Rust returns `ConcurrentOperation`. C# (`ConstructOrJoinAsync`),
+  background, Rust returns `InvalidLifecycleTransition` from `Constructing`.
+  C# (`ConstructOrJoinAsync`),
   Python, TypeScript, and Swift join the in-flight transition instead. The
   `CompositeVm`, `ModeledCompositeVm`, and `GroupVm` construct walks join such a
   child (#636).
@@ -365,8 +366,8 @@ It does not forward `is_current`, the selection methods and commands
 (`can_select`, `select`, `can_deselect`, `deselect`, `select_command`,
 `deselect_command`, `select_next_command`, `select_previous_command`,
 `reconstruct_command`), expansion (`expand`, `collapse`, `toggle_expansion`,
-`is_expanded`), the lifecycle hooks, `on_current_changed`, or
-`background_errors`. spec/09 §2 requires the same delegation as §1.
+`is_expanded`), `on_current_changed`, or `background_errors`. It forwards the
+lifecycle hooks (ADR-0203). spec/09 §2 requires the same delegation as §1.
 
 ## 12.9. Open Item: FormVm Approval Completion
 

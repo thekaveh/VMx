@@ -882,8 +882,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Attaches the children factory's result once (spec/07 §3, ADR-0204).
     /// It runs inside the admitted construct transition, so a concurrent or
-    /// re-entrant construct fails with [`VmxError::ConcurrentOperation`]
-    /// instead of running it again. The factory leaves its slot only when
+    /// re-entrant construct fails with
+    /// [`VmxError::InvalidLifecycleTransition`] from `Constructing` instead
+    /// of running it again. The factory leaves its slot only when
     /// the population commits.
     fn populate(&self) -> VmxResult<()> {
         if self.dispose_requested.load(Ordering::Acquire)

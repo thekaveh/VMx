@@ -277,6 +277,38 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
         self.inner.component.notify_property_changed(property_name);
     }
 
+    /// Replaces the hook invoked during construction (spec/02 §2.2,
+    /// ADR-0203).
+    ///
+    /// The hook runs once in the `Constructing` phase, before an eager node
+    /// constructs its children. An `Err` (or a panic) rolls the node back to
+    /// `Destructed`, as for [`ComponentVm::on_construct`]. The hook must not
+    /// capture this node or a value that holds it (#750).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_construct(hook);
+    }
+
+    /// Replaces the hook invoked during destruction (spec/02 §2.2,
+    /// ADR-0203). The hook must not capture this node (#750).
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_destruct(hook);
+    }
+
+    /// Replaces the hook invoked during disposal (spec/02 §2.2, ADR-0203).
+    /// The hook must not capture this node (#750).
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_dispose(hook);
+    }
+
     /// Returns this node's parent, when attached.
     pub fn parent(&self) -> Option<Self> {
         let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);

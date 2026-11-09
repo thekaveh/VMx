@@ -596,6 +596,31 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
         self.inner.batch_update(action);
     }
 
+    /// Replaces the wrapped composite's construction hook (spec/02 §2.2,
+    /// ADR-0203).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_construct(hook);
+    }
+
+    /// Replaces the wrapped composite's destruction hook.
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_destruct(hook);
+    }
+
+    /// Replaces the wrapped composite's disposal hook.
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_dispose(hook);
+    }
+
     /// Constructs the wrapped composite and its children.
     pub fn construct(&self) -> VmxResult<()> {
         self.inner.construct()

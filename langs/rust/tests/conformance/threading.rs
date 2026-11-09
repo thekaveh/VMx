@@ -92,7 +92,7 @@ fn rejected_background_admission_rolls_back_and_remains_recoverable() {
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
     assert!(!matches!(
         vm.construct(),
-        Err(vmx::VmxError::ConcurrentOperation)
+        Err(vmx::VmxError::InvalidLifecycleTransition { .. })
     ));
 }
 

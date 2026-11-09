@@ -1575,8 +1575,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Attaches the children factory's result once (spec/06 §1, ADR-0204).
     /// It runs inside the admitted construct transition, so a concurrent or
-    /// re-entrant construct fails with [`VmxError::ConcurrentOperation`]
-    /// instead of running it again. The factory leaves its slot only when
+    /// re-entrant construct fails with
+    /// [`VmxError::InvalidLifecycleTransition`] from `Constructing` instead
+    /// of running it again. The factory leaves its slot only when
     /// the population commits.
     fn populate(&self) -> VmxResult<()> {
         if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -2491,6 +2492,36 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         F: FnOnce() + Send + 'static,
     {
         self.inner.own(cleanup);
+    }
+
+    /// Replaces the hook invoked during construction, including the construct
+    /// phase of `reconstruct` (spec/02 §2.2, ADR-0203). It runs as
+    /// [`CompositeVm::on_construct`] does, after the children are
+    /// materialized. The hook must not capture this composite (#750).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_construct(hook);
+    }
+
+    /// Replaces the hook invoked during destruction, including the destruct
+    /// phase of `reconstruct` (spec/02 §2.2, ADR-0203). The hook must not
+    /// capture this composite (#750).
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_destruct(hook);
+    }
+
+    /// Replaces the hook invoked during disposal (spec/02 §2.2, ADR-0203).
+    /// The hook must not capture this composite (#750).
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_dispose(hook);
     }
 
     /// Registers `member` for depth-first disposal, as

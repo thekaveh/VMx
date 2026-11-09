@@ -1,6 +1,7 @@
 # ADR 0147 — Lifecycle, message-helper, derived-property, and dictionary prose names all five flavors
 
-- **Status:** Accepted
+- **Status:** Accepted (the Rust lifecycle error gap in §3 is closed by
+  ADR-0203)
 - **Date:** 2026-10-17
 - **Spec version:** 3.29.0
 - **Related:** [ADR-0009](0009-cross-flavor-divergence-catalogue.md)
