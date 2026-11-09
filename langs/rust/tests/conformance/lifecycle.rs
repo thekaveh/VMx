@@ -266,6 +266,106 @@ fn opposing_active_lifecycle_hooks_cross_dispose_without_deadlock() {
         .all(|vm| vm.status() == ConstructionStatus::Disposed));
 }
 
+/// Regression for #1297 (ADR-0200 §2.2): each container's admitted construct
+/// hook disposes the other container. The wait cycle defers one terminal
+/// cleanup to its hook's thread. That thread's `construct()` returns the
+/// deferred child failure, and the cycle-broken `dispose()` returns `Ok`.
+/// Each child failure is reported exactly once, whichever container defers.
+#[test]
+fn cycle_deferred_disposal_failure_is_returned_from_hook_threads_construct() {
+    let rendezvous = Arc::new(Barrier::new(2));
+    let containers: Arc<Mutex<Vec<CompositeVm<ComponentVm>>>> = Arc::new(Mutex::new(Vec::new()));
+    let caught = Arc::new(Mutex::new(Vec::<(usize, vmx::VmxResult<()>)>::new()));
+    let child_disposals = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+    let children = (0..2)
+        .map(|index| {
+            let child = ComponentVm::new(format!("child-{index}"));
+            let disposals = Arc::clone(&child_disposals);
+            child.on_dispose(move || {
+                disposals[index].fetch_add(1, Ordering::SeqCst);
+                Err(VmxError::Other(format!("child-{index} failed")))
+            });
+            child
+        })
+        .collect::<Vec<_>>();
+    let vms = (0..2)
+        .map(|index| {
+            let container = CompositeVm::<ComponentVm>::new(format!("container-{index}"));
+            container.add(children[index].clone()).unwrap();
+            let rendezvous = Arc::clone(&rendezvous);
+            let containers = Arc::clone(&containers);
+            let caught = Arc::clone(&caught);
+            container.on_construct(move || {
+                rendezvous.wait();
+                let other = containers.lock().unwrap()[1 - index].clone();
+                let result = other.dispose();
+                caught.lock().unwrap().push((index, result));
+                Ok(())
+            });
+            container
+        })
+        .collect::<Vec<_>>();
+    *containers.lock().unwrap() = vms.clone();
+
+    let (done_tx, done_rx) = mpsc::channel();
+    let threads = vms
+        .clone()
+        .into_iter()
+        .enumerate()
+        .map(|(index, vm)| {
+            let done_tx = done_tx.clone();
+            std::thread::spawn(move || done_tx.send((index, vm.construct())).unwrap())
+        })
+        .collect::<Vec<_>>();
+    let mut constructs = (0..2)
+        .map(|_| done_rx.recv_timeout(Duration::from_secs(3)).unwrap())
+        .collect::<Vec<_>>();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    constructs.sort_by_key(|(index, _)| *index);
+
+    let failing = constructs
+        .iter()
+        .filter(|(_, result)| result.is_err())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        failing.len(),
+        1,
+        "exactly one construct reports: {constructs:?}"
+    );
+    let deferred = failing[0].0;
+    assert_eq!(
+        failing[0].1,
+        Err(VmxError::Other(format!("child-{deferred} failed"))),
+        "the construct failure belongs to the container whose disposal deferred"
+    );
+
+    let caught = caught.lock().unwrap();
+    assert_eq!(caught.len(), 2);
+    let mut reported = constructs
+        .iter()
+        .filter_map(|(_, result)| result.clone().err())
+        .chain(caught.iter().filter_map(|(_, result)| result.clone().err()))
+        .map(|error| error.to_string())
+        .collect::<Vec<_>>();
+    reported.sort();
+    assert_eq!(reported, vec!["child-0 failed", "child-1 failed"]);
+    // The hook on the deferring container's thread broke the cycle, so the
+    // other container's dispose() call returned normally.
+    assert!(caught
+        .iter()
+        .any(|(index, result)| *index == 1 - deferred && result.is_ok()));
+
+    for (index, child) in children.iter().enumerate() {
+        assert_eq!(child.status(), ConstructionStatus::Disposed);
+        assert_eq!(child_disposals[index].load(Ordering::SeqCst), 1);
+    }
+    assert!(vms
+        .iter()
+        .all(|vm| vm.status() == ConstructionStatus::Disposed));
+}
+
 #[derive(Clone)]
 struct BlockingAdmissionNode {
     inner: ComponentVm,
