@@ -27,7 +27,14 @@ export class ScoredFilteredCompositeVM<VM extends ComponentVMBase> extends Filte
       ...(options.cursorPolicy === undefined ? {} : { cursorPolicy: options.cursorPolicy }),
     });
     this.#scorer = scorer;
-    this._recompute();
+    try {
+      this._recompute();
+    } catch (error) {
+      // Detach before the failure propagates, so the unreachable scorer
+      // never runs again (#1324).
+      this.dispose();
+      throw error;
+    }
   }
 
   protected override orderedVisible(): VM[] {

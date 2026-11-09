@@ -267,6 +267,14 @@ internal static class ComponentOwnership
     internal static IDisposable BeginReservationBatch(IEnumerable<IComponentVM> children)
         => new ReservationBatch(AcquireStates(children));
 
+    /// <summary>
+    /// True while an ownership transaction holds the identity of
+    /// <paramref name="child"/>. Read without the identity's gate, so a caller
+    /// never waits for that transaction.
+    /// </summary>
+    internal static bool IsInProgress(IComponentVM child)
+        => Volatile.Read(ref StateFor(child).InProgress);
+
     internal static IDisposable BeginExclusiveReservationBatch(
         IEnumerable<IComponentVM> children)
     {
@@ -291,15 +299,11 @@ internal static class ComponentOwnership
         IEnumerable<ParentTransferToken?> transfers,
         Action publish)
     {
-        Exception? firstError = null;
+        ExceptionDispatchInfo? firstError = null;
         foreach (var transfer in transfers)
-        {
-            try { transfer?.Commit(); }
-            catch (Exception error) { firstError ??= error; }
-        }
-        try { publish(); }
-        catch (Exception error) { firstError ??= error; }
-        if (firstError is not null) ExceptionDispatchInfo.Capture(firstError).Throw();
+            FirstFailure.Capture(ref firstError, transfer, static token => token?.Commit());
+        FirstFailure.Capture(ref firstError, publish);
+        firstError?.Throw();
     }
 
     internal static ParentTransferToken? BeginTransfer(
@@ -1693,15 +1697,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         ExceptionDispatchInfo? firstError = null;
         foreach (var child in children)
         {
-            if (child is null) continue;
-            try
-            {
-                child.Dispose();
-            }
-            catch (Exception error)
-            {
-                firstError ??= ExceptionDispatchInfo.Capture(error);
-            }
+            if (child is not null) FirstFailure.Capture(ref firstError, child.Dispose);
         }
 
         return firstError;
@@ -1782,8 +1778,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         if (cascadeFirst)
         {
             var cascadeError = cascade!();
-            try { DisposeAtHookBoundary(cascade: null, resumed: true); }
-            catch (Exception error) { cascadeError ??= ExceptionDispatchInfo.Capture(error); }
+            FirstFailure.Capture(ref cascadeError, () =>
+                DisposeAtHookBoundary(cascade: null, resumed: true));
             cascadeError?.Throw();
             return;
         }

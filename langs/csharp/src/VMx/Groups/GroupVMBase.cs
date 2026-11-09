@@ -107,7 +107,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         ChildOrder destructOrder)
         : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
     {
-        _batch = new ContainerBatch(DeliverCollectionChanged);
+        _batch = new ContainerBatch(DeliverCollectionChanged, CanPublishCollectionChange);
         _autoConstructOnAdd = autoConstructOnAdd;
         _destructOrder = destructOrder;
     }

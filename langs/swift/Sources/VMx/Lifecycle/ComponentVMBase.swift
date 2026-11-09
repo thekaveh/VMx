@@ -183,6 +183,15 @@ func withExclusiveOwnershipReservationBatch<T>(
     return try body()
 }
 
+/// True while an ownership transaction holds `child`'s identity. Never
+/// waits: a gate that another thread holds counts as in progress.
+func isOwnershipTransactionInProgress(_ child: ComponentVMBase) -> Bool {
+    let identity = child._ownershipIdentity
+    guard tryHoldOwnershipGate(identity) else { return true }
+    defer { releaseOwnershipGate(identity) }
+    return identity.ownershipInProgress
+}
+
 func beginParentTransfer(
     _ child: ComponentVMBase,
     to destination: OwnershipParentVM,

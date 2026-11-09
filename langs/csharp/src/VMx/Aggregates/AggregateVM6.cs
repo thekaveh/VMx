@@ -107,12 +107,14 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
     {
         lock (_aggregateParent)
         {
-            var next1 = _factory1();
-            var next2 = _factory2();
-            var next3 = _factory3();
-            var next4 = _factory4();
-            var next5 = _factory5();
-            var next6 = _factory6();
+            // A failed factory disposes the candidates built before it (#1324).
+            var built = new List<IComponentVM>(6);
+            var next1 = AggregateOwnership.Build(_aggregateParent, built, _factory1);
+            var next2 = AggregateOwnership.Build(_aggregateParent, built, _factory2);
+            var next3 = AggregateOwnership.Build(_aggregateParent, built, _factory3);
+            var next4 = AggregateOwnership.Build(_aggregateParent, built, _factory4);
+            var next5 = AggregateOwnership.Build(_aggregateParent, built, _factory5);
+            var next6 = AggregateOwnership.Build(_aggregateParent, built, _factory6);
             IComponentVM?[] previous = [_component1, _component2, _component3, _component4, _component5, _component6];
             // On Reconstruct, dispose previous slot instances before overwriting
             // so their hub subscriptions and command Subjects don't leak.

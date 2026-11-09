@@ -214,6 +214,26 @@ final class AggregateVMTests: XCTestCase {
         XCTAssertNil(aggregate.component1)
     }
 
+    /// #1324 — a refused population disposes the fresh candidates that
+    /// nobody owns and keeps the owned one untouched.
+    func testRefusedPopulationDisposesUnownedCandidates() throws {
+        let owned = leaf("owned")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite").withNullServices().children { [owned] }.build()
+        try composite.construct()
+        let fresh = leaf("fresh")
+        let aggregate = try AggregateVM2<ComponentVM, ComponentVM>.builder()
+            .name("aggregate").withNullServices()
+            .component1 { fresh }.component2 { owned }.build()
+
+        XCTAssertThrowsError(try aggregate.construct())
+        XCTAssertEqual(fresh.status, .disposed)
+        XCTAssertEqual(owned.status, .constructed)
+        XCTAssertTrue(owned._ownershipParent === composite)
+        XCTAssertNil(aggregate.component1)
+        XCTAssertNil(aggregate.component2)
+    }
+
     func testReconstructRejectsCurrentSlotWithoutDisposingIt() throws {
         let child = leaf("child")
         let aggregate = try AggregateVM1<ComponentVM>.builder()

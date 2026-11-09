@@ -100,13 +100,9 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        ExceptionDispatchInfo? firstError = null;
-        firstError = RaiseToHandlers();
+        ExceptionDispatchInfo? firstError = RaiseToHandlers();
         foreach (var subscription in _triggerSubscriptions)
-        {
-            try { subscription.Dispose(); }
-            catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
-        }
+            FirstFailure.Capture(ref firstError, subscription.Dispose);
         firstError?.Throw();
     }
 

@@ -1,6 +1,7 @@
 using System.Reactive;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -98,10 +99,7 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
         _disposed = true;
         ExceptionDispatchInfo? firstError = null;
         foreach (var disposable in _disposables)
-        {
-            try { disposable.Dispose(); }
-            catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
-        }
+            FirstFailure.Capture(ref firstError, disposable.Dispose);
         firstError?.Throw();
     }
 }

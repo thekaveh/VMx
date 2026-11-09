@@ -133,6 +133,11 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- An aggregate population that its ownership preflight refuses now disposes
+  the candidates it built (#1324). The old slots and parent links stay. A
+  candidate that has a parent, that another ownership transaction holds, or
+  that owns the aggregate is not disposed.
+
 - `attachMany` now indexes the materialized subtree of each attached item
   (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
   can name any node of that subtree as its parent; before, it became a

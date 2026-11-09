@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Reactive.Disposables;
 using System.Runtime.ExceptionServices;
+using VMx.Internal;
 using VMx.Messages;
 using VMx.Services;
 
@@ -179,8 +180,10 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         // 2. Publish to hub (if present).
         if (_hub is not null)
         {
-            try { _hub.Send(CollectionChangedMessage<T>.From(this, e)); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+            FirstFailure.Capture(
+                ref firstFailure,
+                (Owner: this, Hub: _hub, Args: e),
+                static state => state.Hub.Send(CollectionChangedMessage<T>.From(state.Owner, state.Args)));
         }
         firstFailure?.Throw();
     }

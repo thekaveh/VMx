@@ -25,9 +25,11 @@ import { disposeBestEffort } from "../components/disposal.js";
 import { emittedIndex } from "../collections/emittedIndex.js";
 import {
   constructWalk,
+  ContainerBatch,
   deliverCollectionChanged,
   destructWalk,
   maybeAutoConstruct,
+  requireChildOrder,
 } from "../components/vmContainer.js";
 import { ViewModelType } from "../components/types.js";
 import type { ChildOrder } from "../components/types.js";
@@ -65,8 +67,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #populated = false;
   /** Collects the children population started constructing (see `_onConstruct`). */
   #populationJoined: Set<ComponentVMBase> | null = null;
-  #batchDepth = 0;
-  #batchDirty = false;
+  readonly #batch = new ContainerBatch((event) => this.#deliverCollectionChanged(event));
   readonly #currentSelector: ((xs: Iterable<VM>) => VM | null) | null;
   readonly #onCurrentChanged: ((vm: VM | null) => void) | null;
   #disposeRequested = false;
@@ -103,7 +104,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     super(opts);
     this.#asyncSelection = opts.asyncSelection ?? false;
     this.#autoConstructOnAdd = opts.autoConstructOnAdd ?? false;
-    this.#destructOrder = opts.destructOrder ?? "insertion";
+    this.#destructOrder = requireChildOrder(opts.destructOrder ?? "insertion");
     this.#currentSelector = opts.currentSelector ?? null;
     this.#onCurrentChanged = opts.onCurrentChanged ?? null;
   }
@@ -587,24 +588,15 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   // ── Batch updates (spec v1.1) ─────────────────────────────────────────────
 
   batchUpdate(): BatchUpdateHandle {
-    this.#batchDepth++;
-    return new BatchUpdateHandle(this);
+    return this.#batch.enter(this);
   }
 
   _exitBatch(): void {
-    this.#batchDepth--;
-    if (this.#batchDepth === 0 && this.#batchDirty) {
-      this.#batchDirty = false;
-      this.#deliverCollectionChanged(makeCollectionChangedEvent("reset"));
-    }
+    this.#batch.exit();
   }
 
   protected _emitCollectionChanged(event: CollectionChangedEvent): void {
-    if (this.#batchDepth > 0) {
-      this.#batchDirty = true;
-      return;
-    }
-    this.#deliverCollectionChanged(event);
+    this.#batch.emit(event);
   }
 
   // Local subscribers first, then one hub message (see `deliverCollectionChanged`).

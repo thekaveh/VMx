@@ -9,6 +9,7 @@ import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
 import type { ChildOrder } from "../components/types.js";
+import { requireChildOrder } from "../components/vmContainer.js";
 
 const optionHub = Symbol("optionHub");
 const optionDispatcher = Symbol("optionDispatcher");
@@ -193,7 +194,7 @@ export class CompositeVMBuilder<VM extends ComponentVMBase> {
    */
   destructOrder(order: ChildOrder): CompositeVMBuilder<VM> {
     const b = new CompositeVMBuilder<VM>(this);
-    b.#destructOrder = order;
+    b.#destructOrder = requireChildOrder(order);
     return b;
   }
 

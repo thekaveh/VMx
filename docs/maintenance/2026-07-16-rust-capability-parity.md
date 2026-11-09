@@ -1,10 +1,11 @@
 # 12. Rust Parity Status
 
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Items found
-after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7.
+after closure: §12.7 to §12.13, plus the "Still open" notes in §12.4.7.
 §12.8, §12.10, §12.11 and §12.12 are now closed (ADR-0205, ADR-0197, ADR-0208
 and ADR-0207, in that order). §12.9 and the §12.4.7 notes are resolved
 (ADR-0210, and ADR-0207 with ADR-0210). §12.7 is a recorded difference.
+§12.13 is open.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -338,9 +339,9 @@ observable behavior covered by this review.
 The ADR-0120 sender representation in §12.2.1 and the ADR-0202 node-data
 parameter in §12.2.2 are the intentional flavor-specific shapes in this
 ledger. The §12.5 editorial note applies to all five flavors and is not a
-parity backlog. §12.7 to §12.12 record the items and differences found
-after closure; §12.8 to §12.12 are now closed or resolved, and §12.7 is a
-recorded difference. Future differences still require
+parity backlog. §12.7 to §12.13 record the items and differences found
+after closure; §12.8 to §12.12 are now closed or resolved, §12.7 is a
+recorded difference, and §12.13 is open. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
@@ -410,3 +411,22 @@ and `scored` keep `SnapToFirst`.
 Evidence: `constructor_cursor_policy_sets_the_initial_current_item` and
 `scored_constructor_cursor_policy_sets_the_initial_current_item` in the Rust
 `filtered_composite` conformance tests.
+
+## 12.13. Open Item: Aggregate Preflight Candidate Cleanup
+
+When a population fails before its commit, C#, Python, and TypeScript dispose
+the candidates that nobody owns (#1324). The population fails when a factory
+or projector throws, or when the reservation or validation preflight refuses
+it. Swift factories and projectors cannot throw, so Swift applies only the
+preflight part. The cleanup skips a candidate that has a parent, that another
+ownership transaction holds, or that owns the aggregate on its ancestor chain.
+It disposes each canonical identity once.
+
+Rust does not apply this cleanup. In `AggregateVm1` to `AggregateVm6`,
+`construct()` returns the `validate_fixed_aggregate_candidate` error before it
+disposes any candidate, and `reconstruct()` runs the same `construct()`. Only
+lazy slots produce fresh candidates, so only they need the cleanup. An eager
+slot keeps its existing value.
+
+Spec/08 §2 and §4 do not state the rule yet. #1324 stays open for the ADR, the
+spec/08 and spec/06 text, any conformance ID, and the Rust cleanup.

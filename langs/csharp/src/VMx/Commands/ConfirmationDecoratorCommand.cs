@@ -186,10 +186,8 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
         }
 
         ExceptionDispatchInfo? firstError = null;
-        try { _errors.OnCompleted(); }
-        catch (Exception error) { firstError = ExceptionDispatchInfo.Capture(error); }
-        try { _errors.Dispose(); }
-        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
+        FirstFailure.Capture(ref firstError, _errors.OnCompleted);
+        FirstFailure.Capture(ref firstError, _errors.Dispose);
         firstError?.Throw();
     }
 }

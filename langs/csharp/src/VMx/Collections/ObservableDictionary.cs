@@ -534,8 +534,10 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         firstFailure ??= collectionFailure;
         if (_hub is not null)
         {
-            try { _hub.Send(message()); }
-            catch (Exception error) { firstFailure ??= ExceptionDispatchInfo.Capture(error); }
+            FirstFailure.Capture(
+                ref firstFailure,
+                (Hub: _hub, Message: message),
+                static state => state.Hub.Send(state.Message()));
         }
         firstFailure?.Throw();
     }

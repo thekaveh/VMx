@@ -118,6 +118,18 @@ below for them.
 
 ### Fixed
 
+- A population that fails before its commit now disposes the candidates it
+  built (#1324). This covers a raising `AggregateVM2` to `AggregateVM6`
+  factory on `construct()` or `reconstruct()`, a refused aggregate preflight,
+  and a raising `CompositeVMOf` projector. The old slots and parent links
+  stay. A candidate that has a parent, that another ownership transaction
+  holds, or that owns the aggregate is not disposed. A `FilteredCompositeVM`
+  or `ScoredFilteredCompositeVM` whose first recompute raises now detaches
+  from its source before the error propagates.
+- `GroupVM`, `CompositeVM` and `CompositeVMOf`, their builders and the
+  `create` factories now raise `TypeError` for a `destruct_order` that is not
+  a `ChildOrder` member, such as the string `"reverse"` (#1397). Before, the
+  container walked its children in insertion order with no error.
 - `attach_many` now indexes the materialized subtree of each attached item
   (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
   can name any node of that subtree as its parent; before, it became a
