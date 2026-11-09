@@ -145,7 +145,7 @@ jobs:
                   start_new_session=True,
               )
               try:
-                  output, _ = process.communicate(timeout=120)
+                  output, _ = process.communicate(timeout=300)
               except subprocess.TimeoutExpired:
                   os.killpg(process.pid, signal.SIGKILL)
                   output, _ = process.communicate()

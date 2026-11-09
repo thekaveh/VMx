@@ -411,6 +411,47 @@ fn async_imperative_raise_while_in_flight_is_additive() {
     assert_eq!(fired.load(Ordering::SeqCst), 3);
 }
 
+/// CMD-020 — a fire-and-forget fault reaches `errors` after the completion notification
+#[test]
+fn fire_and_forget_fault_reaches_errors_after_the_completion_notification() {
+    #[derive(Debug, PartialEq)]
+    enum Entry {
+        Change,
+        Error(VmxError, bool),
+    }
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("task failed".into())));
+    let _changes = command.can_execute_changed().subscribe({
+        let log = log.clone();
+        move |_| log.lock().unwrap().push(Entry::Change)
+    });
+    let (delivered, deliveries) = mpsc::channel();
+    let _errors = command.error_stream().subscribe({
+        let log = log.clone();
+        let command = command.clone();
+        move |error| {
+            log.lock()
+                .unwrap()
+                .push(Entry::Error(error, command.is_executing()));
+            let _ = delivered.send(());
+        }
+    });
+
+    command.execute();
+
+    deliveries
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the fault reached the error stream");
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec![
+            Entry::Change,
+            Entry::Change,
+            Entry::Error(VmxError::Other("task failed".into()), false),
+        ]
+    );
+}
+
 #[test]
 fn async_predicate_cannot_reentrantly_admit_a_second_execution() {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -849,11 +890,14 @@ fn deprecated_errors_hub_still_announces_fire_and_forget_faults() {
     });
 
     command.execute();
-    while command.is_executing() {
+    // The fault follows the end of the execution (CMD-020), so wait for it.
+    let deadline = Instant::now() + ERROR_TIMEOUT;
+    while errors.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
         std::thread::yield_now();
     }
 
     assert_eq!(errors.load(Ordering::SeqCst), 1);
+    assert!(!command.is_executing());
 }
 
 #[test]

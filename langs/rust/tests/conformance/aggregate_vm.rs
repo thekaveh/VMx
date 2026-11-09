@@ -848,7 +848,7 @@ fn builders_require_every_field_and_remain_independent_when_cloned() {
         .build()
         .unwrap();
     assert_eq!(aggregate.name(), "aggregate");
-    assert_eq!(aggregate.hint(), Some(String::new()));
+    assert_eq!(aggregate.hint(), "");
 }
 
 #[test]

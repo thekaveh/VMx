@@ -22,6 +22,16 @@ fn push(log: &Log, label: &'static str) -> impl Fn() + Send + Sync + 'static {
     move || log.lock().unwrap().push(label)
 }
 
+/// A confirmation that stays pending until the test settles `decision`.
+///
+/// `execute()` never runs a confirmed command inside its own call (spec/04
+/// §8.3.1, CMDD-018). Settling the decision on the test thread after the call
+/// runs the confirmed command there, so the order stays deterministic.
+fn decided_by(decision: &AsyncValue<bool>) -> impl Fn() -> AsyncValue<bool> + Send + Sync {
+    let decision = decision.clone();
+    move || decision.clone()
+}
+
 fn relay(log: &Log, label: &'static str) -> RelayCommand {
     RelayCommand::new(push(log, label))
 }
@@ -33,8 +43,9 @@ fn entries(log: &Log) -> Vec<&'static str> {
 #[test]
 fn a_chain_starting_with_a_relay_command_continues_past_each_helper() {
     let log = log();
+    let decision = AsyncValue::pending();
     let command = relay(&log, "save")
-        .confirm(|| AsyncValue::ready(true))
+        .confirm(decided_by(&decision))
         .wrap_with(
             NO_PREDICATE,
             Some(push(&log, "pre")),
@@ -44,10 +55,13 @@ fn a_chain_starting_with_a_relay_command_continues_past_each_helper() {
         .precede_with(relay(&log, "validate"));
 
     command.execute();
+    decision.resolve(true);
 
+    // The confirmed command runs when the confirmation settles, after the
+    // chain's `execute()` has returned.
     assert_eq!(
         entries(&log),
-        vec!["validate", "pre", "save", "post", "audit"]
+        vec!["validate", "pre", "post", "audit", "save"]
     );
 }
 
@@ -55,6 +69,7 @@ fn a_chain_starting_with_a_relay_command_continues_past_each_helper() {
 fn a_chain_starting_with_a_composite_command_continues() {
     let log = log();
     let composite = CompositeCommand::from_commands(vec![relay(&log, "a"), relay(&log, "b")]);
+    let decision = AsyncValue::pending();
 
     composite
         .wrap_with(
@@ -62,8 +77,10 @@ fn a_chain_starting_with_a_composite_command_continues() {
             Some(push(&log, "pre")),
             Some(push(&log, "post")),
         )
-        .confirm(|| AsyncValue::ready(true))
+        .confirm(decided_by(&decision))
         .execute();
+    assert!(entries(&log).is_empty());
+    decision.resolve(true);
 
     assert_eq!(entries(&log), vec!["pre", "a", "b", "post"]);
 }
@@ -86,17 +103,19 @@ fn a_chain_starting_with_a_decorator_command_continues() {
 #[test]
 fn a_chain_starting_with_a_confirmation_decorator_continues() {
     let log = log();
+    let (confirmation, refusal) = (AsyncValue::pending(), AsyncValue::pending());
     let confirming =
-        ConfirmationDecoratorCommand::new(relay(&log, "delete"), || AsyncValue::ready(true));
-    let declined =
-        ConfirmationDecoratorCommand::new(relay(&log, "never"), || AsyncValue::ready(false));
+        ConfirmationDecoratorCommand::new(relay(&log, "delete"), decided_by(&confirmation));
+    let declined = ConfirmationDecoratorCommand::new(relay(&log, "never"), decided_by(&refusal));
 
     confirming.succeed_with(relay(&log, "refresh")).execute();
     declined
         .succeed_with(relay(&log, "still refreshes"))
         .execute();
+    confirmation.resolve(true);
+    refusal.resolve(false);
 
-    assert_eq!(entries(&log), vec!["delete", "refresh", "still refreshes"]);
+    assert_eq!(entries(&log), vec!["refresh", "still refreshes", "delete"]);
 }
 
 #[test]
@@ -138,7 +157,9 @@ fn a_custom_command_opts_in_through_an_arc_without_implementing_clone() {
         .wrap_with(Some(|| true), NO_HOOK, NO_HOOK)
         .execute();
     let dynamic: Arc<dyn Command> = counter.clone();
-    dynamic.confirm(|| AsyncValue::ready(true)).execute();
+    let decision = AsyncValue::pending();
+    dynamic.confirm(decided_by(&decision)).execute();
+    decision.resolve(true);
     counter
         .clone()
         .wrap_with(

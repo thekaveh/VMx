@@ -18,8 +18,6 @@ private enum LockOrderTestError: Error {
     case persist
 }
 
-/// Bound for each stress run to finish; a stall shows up as a timeout.
-private let lockOrderTimeout: TimeInterval = 10
 /// How long each stress loop runs.
 private let stressDuration: TimeInterval = 1.0
 /// How long each re-entrant stress loop runs (#1057).
@@ -103,7 +101,7 @@ final class FormVMCanExecuteLockOrderTests: XCTestCase {
     }
 
     /// Runs each loop on its own thread until `duration` elapses and fails
-    /// if any thread has not finished within `lockOrderTimeout`.
+    /// if any thread has not finished within `hangGuard`.
     private func race(
         _ loops: [(Int) -> Void],
         duration: TimeInterval = stressDuration,
@@ -123,7 +121,7 @@ final class FormVMCanExecuteLockOrderTests: XCTestCase {
                 done.leave()
             }.start()
         }
-        let result = done.wait(timeout: .now() + lockOrderTimeout)
+        let result = done.wait(timeout: .now() + hangGuard)
         XCTAssertEqual(result, .success, "a thread stalled: lock-order deadlock", file: file, line: line)
     }
 
@@ -219,7 +217,7 @@ final class FormVMCanExecuteLockOrderTests: XCTestCase {
                     try? await form.approveAsync()
                     settled.signal()
                 }
-                _ = settled.wait(timeout: .now() + lockOrderTimeout)
+                _ = settled.wait(timeout: .now() + hangGuard)
             },
             { iteration in form.setModel(iteration.isMultiple(of: 2) ? "" : "value \(iteration)") },
         ])
@@ -381,7 +379,7 @@ final class FormVMCanExecuteLockOrderTests: XCTestCase {
 
         form.setModel("trigger")
 
-        wait(for: [persisted], timeout: lockOrderTimeout)
+        wait(for: [persisted], timeout: hangGuard)
         lock.lock()
         let observed = events
         lock.unlock()

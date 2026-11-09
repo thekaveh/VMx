@@ -34,6 +34,9 @@ private final class BlockingOwnershipParent: ParentVM, OwnershipParentVM, @unche
     func containsIdentity(_ vm: ComponentVMBase) -> Bool { true }
     func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
         entered.signal()
+        // A window, not a hang guard: `dispose()` waits for this admission,
+        // and the test signals `release` only after `dispose()` returns, so
+        // this wait elapses on every passing run and the admission fails.
         guard release.wait(timeout: .now() + 2) == .success else {
             throw ContainerOwnershipError.inconsistentParent
         }
@@ -165,7 +168,7 @@ final class DisposalInvariantTests: XCTestCase {
             }
             compositeDone.fulfill()
         }
-        XCTAssertEqual(compositeBlocker.entered.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(compositeBlocker.entered.wait(timeout: .now() + hangGuard), .success)
         composite.dispose()
         compositeBlocker.release.signal()
 
@@ -184,11 +187,11 @@ final class DisposalInvariantTests: XCTestCase {
             }
             groupDone.fulfill()
         }
-        XCTAssertEqual(groupBlocker.entered.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(groupBlocker.entered.wait(timeout: .now() + hangGuard), .success)
         group.dispose()
         groupBlocker.release.signal()
 
-        wait(for: [compositeDone, groupDone], timeout: 2)
+        wait(for: [compositeDone, groupDone], timeout: hangGuard)
         XCTAssertTrue(composite.snapshot().isEmpty)
         XCTAssertTrue(group.snapshot().isEmpty)
     }
@@ -244,7 +247,7 @@ final class DisposalInvariantTests: XCTestCase {
             receiveValue: { _ in }
         ).store(in: &cancellables)
         let run = Task<Void, Error> { try await command.executeAsync() }
-        await fulfillment(of: [started], timeout: 2.0)
+        await fulfillment(of: [started], timeout: hangGuard)
 
         command.dispose()
         command.dispose()
@@ -289,7 +292,7 @@ final class DisposalInvariantTests: XCTestCase {
             }
         ).store(in: &cancellables)
         let pending = Task { await hub.post(notification) }
-        await fulfillment(of: [appeared], timeout: 2.0)
+        await fulfillment(of: [appeared], timeout: hangGuard)
 
         let disposed = expectation(description: "all disposers returned")
         disposed.expectedFulfillmentCount = 64
@@ -299,7 +302,7 @@ final class DisposalInvariantTests: XCTestCase {
                 disposed.fulfill()
             }
         }
-        await fulfillment(of: [disposed], timeout: 2.0)
+        await fulfillment(of: [disposed], timeout: hangGuard)
 
         let pendingResult = await pending.value
         XCTAssertEqual(pendingResult, .pending)

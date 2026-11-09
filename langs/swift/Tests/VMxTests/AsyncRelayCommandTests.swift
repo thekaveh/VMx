@@ -1,7 +1,7 @@
 //
-// AsyncRelayCommandTests — CMD-012, CMD-016, CMD-018, CMD-019.
+// AsyncRelayCommandTests — CMD-012, CMD-016, CMD-018, CMD-019, CMD-020.
 //
-// See spec/04-commands.md §10, ADR-0056.
+// See spec/04-commands.md §10, ADR-0056, and ADR-0195.
 //
 // Design notes:
 // - Each test starts the command's body in an unstructured Task (`run`).
@@ -109,7 +109,7 @@ private final class ReentrantAdmissionState: @unchecked Sendable {
             try? await nestedCommand.executeAsync()
             finished.signal()
         }
-        let result = finished.wait(timeout: .now() + 1)
+        let result = finished.wait(timeout: .now() + hangGuard)
         queue.sync { nestedFinished = result == .success }
         return true
     }
@@ -201,7 +201,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         let cancel = cmd.canExecuteChanged.sink { fires += 1 }
 
         let run = Task<Void, Error> { try await cmd.executeAsync() }
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
         XCTAssertEqual(fires, 1)
         cmd.raiseCanExecuteChanged()
         XCTAssertEqual(fires, 2)
@@ -257,7 +257,7 @@ final class AsyncRelayCommandTests: XCTestCase {
             try await cmd.executeAsync()
         }
 
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         // Body is now in flight — assert in-flight state.
         XCTAssertTrue(cmd.isExecuting,
@@ -302,7 +302,6 @@ final class AsyncRelayCommandTests: XCTestCase {
             description: "CMD-012 admission execution finished"
         )
         let bodyGate = AdmissionBodyReleaseGate()
-        let timeout: TimeInterval = 5.0
 
         let cmd = AsyncRelayCommand.builder()
             .task {
@@ -342,7 +341,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         }
 
         let admissionResult = await XCTWaiter.fulfillment(
-            of: [admissionCancelled], timeout: timeout
+            of: [admissionCancelled], timeout: hangGuard
         )
         XCTAssertEqual(
             admissionResult, .completed,
@@ -351,7 +350,7 @@ final class AsyncRelayCommandTests: XCTestCase {
 
         if admissionResult == .completed {
             let cancellationResult = await XCTWaiter.fulfillment(
-                of: [bodyObservedCancellation], timeout: timeout
+                of: [bodyObservedCancellation], timeout: hangGuard
             )
             XCTAssertEqual(
                 cancellationResult, .completed,
@@ -363,7 +362,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         // successful one, allowing the mutant's uncancelled body to finish.
         bodyGate.release()
         let completionResult = await XCTWaiter.fulfillment(
-            of: [runFinished], timeout: timeout
+            of: [runFinished], timeout: hangGuard
         )
         XCTAssertEqual(
             completionResult, .completed,
@@ -403,7 +402,7 @@ final class AsyncRelayCommandTests: XCTestCase {
             try await cmd.executeAsync()
         }
 
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         cmd.cancel()
 
@@ -446,7 +445,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         let run = Task<Void, Error> {
             try await cmd.executeAsync()
         }
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         run.cancel()
 
@@ -475,7 +474,7 @@ final class AsyncRelayCommandTests: XCTestCase {
             }
             .build()
         let run = Task<Void, Error> { try await cmd.executeAsync() }
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         run.cancel()
         await gate.waitUntilObserved()
@@ -503,7 +502,7 @@ final class AsyncRelayCommandTests: XCTestCase {
             }
             .build()
         let run = Task<Void, Error> { try await cmd.executeAsync() }
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
 
         cmd.cancel()
         await gate.waitUntilObserved()
@@ -539,7 +538,7 @@ final class AsyncRelayCommandTests: XCTestCase {
         let cancel = cmd.errors.sink { _ in noErrorExp.fulfill() }
 
         cmd.execute()
-        await fulfillment(of: [startedExp], timeout: 2.0)
+        await fulfillment(of: [startedExp], timeout: hangGuard)
         cmd.cancel()
         await fulfillment(of: [noErrorExp], timeout: 0.2)
 
@@ -561,5 +560,49 @@ final class AsyncRelayCommandTests: XCTestCase {
 
         XCTAssertFalse(cmd.canExecute())
         XCTAssertFalse(invoked)
+    }
+
+    /// CMD-020 — a fire-and-forget fault reaches `errors` after the completion
+    /// `canExecuteChanged`, and the `errors` subscriber reads `isExecuting == false`.
+    func testCmd020FaultReachesErrorsAfterCompletionNotification() async {
+        struct Failure: Error {}
+        final class Log: @unchecked Sendable {
+            private let lock = NSLock()
+            private var storage: [String] = []
+            func append(_ entry: String) {
+                lock.lock()
+                storage.append(entry)
+                lock.unlock()
+            }
+            var entries: [String] {
+                lock.lock()
+                defer { lock.unlock() }
+                return storage
+            }
+        }
+        let log = Log()
+        let failed = expectation(description: "CMD-020: error delivered")
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                await Task.yield()
+                throw Failure()
+            }
+            .build()
+        var cancellables = Set<AnyCancellable>()
+        cmd.canExecuteChanged.sink { log.append("change") }.store(in: &cancellables)
+        cmd.errors
+            .sink { error in
+                log.append("error(\(error is Failure), isExecuting: \(cmd.isExecuting))")
+                failed.fulfill()
+            }
+            .store(in: &cancellables)
+
+        cmd.execute()
+        await fulfillment(of: [failed], timeout: 2.0)
+
+        XCTAssertEqual(log.entries, ["change", "change", "error(true, isExecuting: false)"],
+                       "CMD-020: start, completion, then the fault")
+        cancellables.removeAll()
+        cmd.dispose()
     }
 }

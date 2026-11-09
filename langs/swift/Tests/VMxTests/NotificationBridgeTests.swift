@@ -88,7 +88,7 @@ final class NotificationBridgeTests: XCTestCase {
         }.store(in: &cancellables)
 
         let t = Task { await confirmReject() }
-        await fulfillment(of: [appeared], timeout: 2.0)
+        await fulfillment(of: [appeared], timeout: hangGuard)
 
         // Resolve outside the sink — safe, no recursive subject.send risk.
         if let n = recorder.notification {

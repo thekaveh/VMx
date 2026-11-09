@@ -15,8 +15,8 @@ fn child(name: &'static str) -> Child {
 #[test]
 fn forwarding_component_delegates_to_inner() {
     let inner = child("inner");
-    let forwarding = ForwardingComponentVm::new(inner.clone())
-        .with_model_hint(|model| Some(format!("model:{model}")));
+    let forwarding =
+        ForwardingComponentVm::new(inner.clone()).with_model_hint(|model| format!("model:{model}"));
     let lifecycle = Arc::new(Mutex::new(Vec::new()));
     let construct_lifecycle = Arc::clone(&lifecycle);
     forwarding.on_construct(move || {
@@ -40,7 +40,7 @@ fn forwarding_component_delegates_to_inner() {
     assert_eq!(forwarding.id(), inner.id());
     assert_eq!(forwarding.name(), inner.name());
     assert_eq!(forwarding.model(), "updated");
-    assert_eq!(forwarding.modeled_hint(), Some("model:updated".to_string()));
+    assert_eq!(forwarding.modeled_hint(), "model:updated");
     assert_eq!(forwarding.status(), ConstructionStatus::Constructed);
     assert_eq!(forwarding.can_select(), inner.can_select());
     assert_eq!(forwarding.can_deselect(), inner.can_deselect());
@@ -102,10 +102,10 @@ fn forwarding_component_transfers_one_underlying_owner() {
     let destination = vmx::CompositeVm::new("destination");
     old_parent.add(inner.clone()).unwrap();
     let forwarding = ForwardingComponentVm::new(inner.clone());
-    let first = forwarding.with_hint_override(|| Some("first".to_string()));
+    let first = forwarding.with_hint_override(|| "first".to_string());
     let nested_forwarding = ForwardingComponentVm::wrap(first);
 
-    assert_eq!(nested_forwarding.hint(), Some("first".to_string()));
+    assert_eq!(nested_forwarding.hint(), "first");
 
     group.add(nested_forwarding.clone()).unwrap();
 
@@ -139,15 +139,11 @@ fn selective_override_replaces_one_behavior() {
         .services(MessageHub::new(), NullDispatcher::new())
         .build()
         .unwrap();
-    let forwarding = ForwardingComponentVm::new(inner.clone())
-        .with_hint_override(|| Some("OVERRIDE".to_string()));
+    let forwarding =
+        ForwardingComponentVm::new(inner.clone()).with_hint_override(|| "OVERRIDE".to_string());
 
-    assert_eq!(forwarding.hint(), Some("OVERRIDE".to_string()));
-    assert_eq!(
-        inner.hint(),
-        Some("inner-hint".to_string()),
-        "the wrapped VM is unchanged"
-    );
+    assert_eq!(forwarding.hint(), "OVERRIDE");
+    assert_eq!(inner.hint(), "inner-hint", "the wrapped VM is unchanged");
 
     // Every other member still delegates to the wrapped VM.
     assert_eq!(forwarding.id(), inner.id());

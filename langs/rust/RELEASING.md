@@ -61,7 +61,18 @@ fallback after this migration.
 1. Update `version` and, when required, `rust-version` in `Cargo.toml`,
    `MIN_SPEC_VERSION` in `src/lib.rs`, and the compatibility matrix.
 
-1. Add a matching `## [X.Y.Z] — YYYY-MM-DD` changelog section.
+1. Correct the files that ship inside the package before the tag.
+   crates.io keeps the README and CHANGELOG of each version, and a published
+   version cannot be replaced. `langs/rust/README.md` is the crates.io page: it
+   must give the crates.io dependency, name the spec version without a tag
+   reference, and state the current library conformance ID count. The
+   `langs/rust/CHANGELOG.md` release section must describe the published
+   package.
+
+1. In the release-prep PR, immediately before the tag, replace
+   `unreleased source version` in the `## [X.Y.Z]` changelog heading with the
+   release date, so the heading reads `## [X.Y.Z] — YYYY-MM-DD` and the date
+   equals the tag date (`CONTRIBUTING.md` §4.3).
 
 1. From a clean checkout of current `origin/main`, run the release gates and
    prove the version and tag are unused:
@@ -124,9 +135,10 @@ gh release view rust-vX.Y.Z --repo thekaveh/VMx
 ```
 
 Inspect the crates.io version, docs.rs API page, owner list, workflow run, and
-GitHub Release through fresh requests. Only then update README, compatibility
-matrix, Rust README, installation guide, and Rust flavor page, as the release
-invariants describe, before marking the issue complete.
+GitHub Release through fresh requests. Only then update the root README,
+compatibility matrix, installation guide, and Rust flavor page, as the release
+invariants describe, before marking the issue complete. The Rust README already
+shipped in the package, so §2 corrects it before the tag.
 
 ## 5. Immutability, yank, and recovery
 

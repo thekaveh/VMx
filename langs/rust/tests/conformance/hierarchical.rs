@@ -1268,8 +1268,8 @@ fn hierarchical_builder_repeated_builds_are_distinct_equivalent() {
     assert_ne!(a.id(), b.id());
     assert_eq!(a.model(), "root");
     assert_eq!(b.model(), "root");
-    assert_eq!(a.hint(), Some("h".to_string()));
-    assert_eq!(b.hint(), Some("h".to_string()));
+    assert_eq!(a.hint(), "h");
+    assert_eq!(b.hint(), "h");
 
     // Eager children: constructing materializes each subtree without a
     // separate children access.
@@ -1298,7 +1298,7 @@ fn hierarchical_builder_defaults_are_lazy() {
         .build()
         .unwrap();
 
-    assert_eq!(node.hint(), Some(String::new()));
+    assert_eq!(node.hint(), "");
     assert_eq!(node.name(), "HierarchicalVm");
     // Lazy default: construction does not evaluate the children factory.
     node.construct().unwrap();
@@ -1526,4 +1526,23 @@ fn try_children_reports_factory_is_leaf_reentry_as_error() {
 
     *reenter.lock().unwrap() = false;
     assert_eq!(root.try_children().unwrap().len(), 1);
+}
+
+/// `HierarchicalVmBuilder::services` accepts any dispatcher, as the other
+/// builders do; the hierarchy keeps only the hub (#1268, ADR-0206).
+#[test]
+fn hierarchical_builder_accepts_any_dispatcher() {
+    let immediate = HierarchicalVm::<String>::builder()
+        .model("root".to_string())
+        .children_factory(|_| Vec::new())
+        .services(MessageHub::new(), vmx::ImmediateDispatcher::new())
+        .build();
+    let default = HierarchicalVm::<String>::builder()
+        .model("root".to_string())
+        .children_factory(|_| Vec::new())
+        .services(MessageHub::new(), vmx::DefaultDispatcher::new())
+        .build();
+
+    assert!(immediate.is_ok());
+    assert!(default.is_ok());
 }
