@@ -377,6 +377,8 @@ final class ForwardingTests: XCTestCase {
     }
 
     /// FWD-001 — a disposed wrapper does not change its parent's selection.
+    /// Disposing the current wrapper clears the parent's `current` once
+    /// (spec/06 §4.3 rule 9, ADR-0189); later selection calls stay inert.
     func testFWD001DisposedWrapperSelectionIsInert() throws {
         func inner(_ name: String) throws -> ComponentVMOf<String> {
             try ComponentVMOf<String>.builder().name(name).model("").withNullServices().build()
@@ -396,7 +398,9 @@ final class ForwardingTests: XCTestCase {
         wrapper.deselect()
         other.select()
 
-        XCTAssertTrue(parent.current === wrapper)
+        XCTAssertNil(parent.current)
+        XCTAssertFalse(wrapper.isCurrent)
+        XCTAssertFalse(other.isCurrent)
     }
 
     /// FWD-001 — a selected, destructed forwarding child can still be
