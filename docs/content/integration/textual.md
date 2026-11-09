@@ -18,7 +18,7 @@ never carries a `PropertyChangedMessage` for `status`.
 | ---------------------- | -------------------------------------------------- |
 | `reactive("value")`    | `vm.property_changed` (VM-local names)             |
 | `Binding` + `action_*` | `RelayCommand.execute()`                           |
-| `ListView` items       | `ObservableList[T]` + `CollectionChangedMessage`   |
+| `ListView` items       | `CompositeVM` children + `on_collection_changed`   |
 | `DataTable` rows       | a projection's items by key, selected by key       |
 | `post_message`         | thread-safe hand-off of a change to the App thread |
 
@@ -129,7 +129,8 @@ and is not part of `vmx`.
 
 ## 9.5.4. Grids With DataTable
 
-A `ListView` binds to a `CompositeVM`. A `DataTable` grid has a different
+A `ListView` binds to a `CompositeVM` through its `on_collection_changed`
+stream. A `DataTable` grid has a different
 shape: its rows usually come from a paged or filtered projection, such as
 `PagedComposition.items`, and its selection is a cursor coordinate rather than
 a child VM. Textual also moves that cursor itself. `clear()` resets it, the

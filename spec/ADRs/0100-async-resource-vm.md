@@ -1,6 +1,6 @@
 # ADR 0100 — Add a cancellable single-resource presentation viewmodel
 
-**Status:** Accepted (2026-07-12)
+**Status:** Accepted (2026-07-12; Extended by ADR-0199)
 **Spec version:** introduced in 3.20.0
 
 ## 1. Context

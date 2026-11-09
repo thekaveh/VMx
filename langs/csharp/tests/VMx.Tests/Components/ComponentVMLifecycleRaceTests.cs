@@ -119,6 +119,89 @@ public class ComponentVMLifecycleRaceTests
         second.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
+    [Fact]
+    public async Task Cycle_Deferred_Disposal_Failure_Is_Thrown_From_The_Hook_Threads_Construct()
+    {
+        // Each hook catches the other container's Dispose(). Whichever disposal
+        // defers, each child failure is reported exactly once (ADR-0200).
+        using var barrier = new Barrier(2);
+        var cleanupOrder = new ConcurrentQueue<string>();
+        var firstChild = new FailingHookDisposeVM("first child", cleanupOrder, () => { });
+        var secondChild = new FailingHookDisposeVM("second child", cleanupOrder, () => { });
+        var caught = new ConcurrentDictionary<string, Exception>();
+        var armed = false;
+        CompositeVM<FailingHookDisposeVM>? first = null;
+        CompositeVM<FailingHookDisposeVM>? second = null;
+        first = CompositeVM<FailingHookDisposeVM>.Builder()
+            .Name("first")
+            .Services(new TestHub(), new TestDispatcher())
+            .Children(() => [firstChild])
+            .OnConstruct(() =>
+            {
+                if (!armed) return;
+                barrier.SignalAndWait(HangGuard);
+                try { second!.Dispose(); }
+                catch (Exception error) { caught["first"] = error; }
+            })
+            .Build();
+        second = CompositeVM<FailingHookDisposeVM>.Builder()
+            .Name("second")
+            .Services(new TestHub(), new TestDispatcher())
+            .Children(() => [secondChild])
+            .OnConstruct(() =>
+            {
+                if (!armed) return;
+                barrier.SignalAndWait(HangGuard);
+                try { first.Dispose(); }
+                catch (Exception error) { caught["second"] = error; }
+            })
+            .Build();
+        // A first construct populates the children; the armed one cross-disposes.
+        first.Construct();
+        second.Construct();
+        first.Destruct();
+        second.Destruct();
+        armed = true;
+        var failures = new ConcurrentDictionary<string, Exception>();
+
+        void Run(string name, Action construct)
+        {
+            try { construct(); }
+            catch (Exception error) { failures[name] = error; }
+        }
+
+        var transitions = Task.WhenAll(
+            Task.Factory.StartNew(
+                () => Run("first", first.Construct),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default),
+            Task.Factory.StartNew(
+                () => Run("second", second.Construct),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default));
+        (await Task.WhenAny(transitions, Task.Delay(HangGuard)))
+            .Should().BeSameAs(transitions, "cross-disposal from admitted hooks must not deadlock");
+        await transitions;
+
+        // The container whose disposal deferred throws its own child's failure
+        // from Construct(); its hook caught the other container's child failure.
+        failures.Should().ContainSingle();
+        var deferred = failures.Single();
+        deferred.Value.Message.Should().Be($"dispose failure {deferred.Key} child");
+        caught.Should().ContainSingle();
+        caught.Single().Key.Should().Be(deferred.Key);
+        caught.Single().Value.Message.Should().NotBe(deferred.Value.Message);
+        failures.Values.Concat(caught.Values).Select(error => error.Message)
+            .Should().BeEquivalentTo(["dispose failure first child", "dispose failure second child"]);
+        cleanupOrder.Should().BeEquivalentTo(["first child", "second child"]);
+        firstChild.Status.Should().Be(ConstructionStatus.Disposed);
+        secondChild.Status.Should().Be(ConstructionStatus.Disposed);
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
     private static void RecordFailure(Action action, ConcurrentQueue<Exception> failures)
     {
         try { action(); }

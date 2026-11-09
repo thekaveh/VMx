@@ -270,10 +270,11 @@ released versions and the spec version each implements.
 
 ### 6.3 Conformance catalog
 
-`spec/` holds 24 chapters, 185 ADRs, 4 JSON fixtures, and the conformance
-catalog in `spec/12-conformance.md`. All five flavors implement its
-451 library conformance IDs, and the four UI-backed flagship apps cover
-5 additional THEME scenario IDs, for **456 total**. Rust has no UI scenario
+`spec/` holds 24 chapters, the ADRs indexed in
+[`spec/ADRs/README.md`](spec/ADRs/README.md), 4 JSON fixtures, and the
+conformance catalog in `spec/12-conformance.md`. All five flavors implement
+every library conformance ID in that catalog, and the four UI-backed flagship
+apps cover the additional `THEME-00x` scenario IDs. Rust has no UI scenario
 suite yet.
 `tools/check-conformance-coverage.py` enforces full catalog coverage, and
 [Specification & Conformance](docs/content/specification-conformance.md)
@@ -296,7 +297,7 @@ python3 tools/check-conformance-coverage.py
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0211)
+│   ├── ADRs/              architecture decision records (indexed in ADRs/README.md)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -346,8 +347,8 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 185 ADRs,
-  4 fixtures, and the 456-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, the ADRs,
+  4 fixtures, and the conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical
   documentation audit reports.
