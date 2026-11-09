@@ -2,8 +2,8 @@
 //! ADR-0190).
 
 use vmx::{
-    BatchAttachRejectionReason, HierarchicalVm, Message, MessageHub, MessageRecorder,
-    MissingParentPolicy, VmxError,
+    BatchAttachRejectionReason, ConstructionStatus, HierarchicalVm, Message, MessageHub,
+    MessageRecorder, MissingParentPolicy, VmxError,
 };
 
 type Node = HierarchicalVm<String>;
@@ -71,12 +71,13 @@ fn disposed_node_refuses_structural_calls() {
     r.add_child(a.clone()).unwrap();
     r.add_child(b.clone()).unwrap();
     a.add_child(aa.clone()).unwrap();
-    for materialized in [&r, &a, &b, &aa, &d] {
-        materialized.children();
+    for vm in [&r, &a, &b, &aa, &d] {
+        vm.construct().unwrap();
+        vm.children();
     }
-    r.construct().unwrap();
     let recorder = hub.record(1024);
 
+    assert_eq!(a.status(), ConstructionStatus::Constructed);
     a.dispose().unwrap();
     recorder.clear();
 
@@ -199,4 +200,34 @@ fn live_node_still_moves_a_disposed_child() {
     q.invalidate_children();
     assert!(!q.is_children_materialized());
     assert!(x.parent().is_none());
+}
+
+/// HIER-041 — a refused transfer out of a disposed parent leaves a lazy
+/// receiver unmaterialized: its factory does not run.
+#[test]
+fn refused_transfer_does_not_materialize_a_lazy_receiver() {
+    let hub = MessageHub::new();
+    let a = node(&hub, "a");
+    let aa = node(&hub, "aa");
+    a.add_child(aa.clone()).unwrap();
+    a.dispose().unwrap();
+    let factory_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let calls = factory_calls.clone();
+    let b: Node = HierarchicalVm::with_children_factory(
+        "b",
+        "b".to_string(),
+        move |_| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Vec::new()
+        },
+        false,
+        hub.clone(),
+    );
+
+    assert_eq!(b.add_child(aa.clone()), Err(VmxError::Disposed));
+    assert_eq!(b.reparent_child(&aa), Err(VmxError::Disposed));
+
+    assert_eq!(factory_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert!(!b.is_children_materialized());
+    assert!(aa.parent().as_ref() == Some(&a));
 }

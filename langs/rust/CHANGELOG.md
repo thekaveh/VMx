@@ -150,8 +150,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   #1318). A transfer out of a disposed parent refuses too. A refused call
   changes nothing and publishes nothing. `attach_many` rejects a candidate
   under a disposed parent, and `invalidate_subtree` skips a disposed
-  descendant. It returns `VmxError::Disposed`; `attach_many` rejects every
-  item and the invalidation methods return without a change.
+  descendant. A refused call returns `VmxError::Disposed`; `attach_many`
+  rejects every item and the invalidation methods return without a change.
 - A `CompositeVm` or `GroupVm` now sends no `CollectionChangedMessage` once its
   disposal is requested, also when the disposal is deferred (ADR-0190, spec/01
   §1.4, #1351). A local subscriber or `on_current_changed` callback that

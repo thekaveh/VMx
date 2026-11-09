@@ -281,6 +281,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     fn attach_child(&self, child: &Self, explicit_reparent: bool) -> VmxResult<()> {
+        // A disposed parent's child list is frozen, so a transfer out of it
+        // refuses before the receiver materializes (spec/18 §7.1).
+        if let Some(parent) = child.parent() {
+            parent.reject_if_disposed()?;
+        }
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
         let (reparented, index) = loop {
@@ -290,15 +295,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 if lock(&self.inner.children).is_none() {
                     None
                 } else {
-                    self.ensure_not_reparenting_cycle_unlocked(child)?;
                     let old_parent = child.parent_unlocked();
-                    // A disposed parent's child list is frozen (spec/18 §7.1).
-                    if old_parent
-                        .as_ref()
-                        .is_some_and(|parent| parent.status() == ConstructionStatus::Disposed)
-                    {
-                        return Err(VmxError::Disposed);
+                    // Check again: the parent can change during materialization.
+                    if let Some(parent) = &old_parent {
+                        parent.reject_if_disposed()?;
                     }
+                    self.ensure_not_reparenting_cycle_unlocked(child)?;
                     if old_parent.as_ref() == Some(self) {
                         return Ok(());
                     }
