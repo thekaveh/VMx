@@ -6,6 +6,7 @@ mod conformance {
     mod async_value;
     mod auto_construct_during_constructing;
     mod background_child_settle;
+    mod bounded_wait;
     mod builders;
     mod capabilities;
     mod child_transition_helper;

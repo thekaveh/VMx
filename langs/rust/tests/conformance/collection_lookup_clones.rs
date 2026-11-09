@@ -4,14 +4,17 @@
 //! made while a snapshot is held copies instead, and every displaced key or
 //! item still drops with no VMx mutex held.
 
+use super::bounded_wait::within_timeout;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::RecvTimeoutError;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use vmx::{
     KeyedServicedObservableCollection, MessageHub, ObservableDictionary, ObservableMultiDictionary,
     ServicedObservableCollection,
 };
+
+/// The bound on every wait in this file.
+const BOUND: Duration = Duration::from_secs(10);
 
 const SIZE: u32 = 1_000;
 
@@ -165,32 +168,6 @@ fn keyed_collection_remove_clones_no_stored_item() {
     assert!(!collection.contains_key(&0));
 }
 
-/// Runs `body` on a worker and fails if it does not finish in time, so a
-/// drop under an internal lock fails the test instead of hanging the suite.
-fn within_timeout<R: Send + 'static>(what: &str, body: impl FnOnce() -> R + Send + 'static) -> R {
-    let (tx, rx) = mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let _ = tx.send(body());
-    });
-    match rx.recv_timeout(Duration::from_secs(10)) {
-        Ok(value) => value,
-        Err(RecvTimeoutError::Timeout) => {
-            panic!("{what} deadlocked: user code ran under an internal lock")
-        }
-        Err(RecvTimeoutError::Disconnected) => {
-            let message = match worker.join() {
-                Ok(()) => "worker exited without a result".to_string(),
-                Err(payload) => payload
-                    .downcast_ref::<&str>()
-                    .map(|text| (*text).to_string())
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "non-string panic payload".to_string()),
-            };
-            panic!("{what} worker panicked: {message}")
-        }
-    }
-}
-
 type Hook = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
 
 fn hook() -> Hook {
@@ -292,7 +269,7 @@ fn dictionary_write_during_a_lookup_drops_the_displaced_keys_unlocked() {
     *on_drop.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.get(&Hooked::plain(2));
     }));
-    let value = within_timeout("ObservableDictionary::get", {
+    let value = within_timeout("ObservableDictionary::get", BOUND, {
         let dictionary = dictionary.clone();
         move || dictionary.get(&Hooked::plain(2))
     });
@@ -316,7 +293,7 @@ fn multi_dictionary_write_during_a_lookup_drops_the_displaced_keys_unlocked() {
     *on_drop.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.count();
     }));
-    let value = within_timeout("ObservableMultiDictionary::get", {
+    let value = within_timeout("ObservableMultiDictionary::get", BOUND, {
         let dictionary = dictionary.clone();
         move || dictionary.get(&Hooked::plain(2), &0)
     });
@@ -339,7 +316,7 @@ fn serviced_collection_write_during_remove_drops_the_displaced_items_unlocked() 
     *on_drop.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.len();
     }));
-    let removed = within_timeout("ServicedObservableCollection::remove", {
+    let removed = within_timeout("ServicedObservableCollection::remove", BOUND, {
         let collection = collection.clone();
         move || collection.remove(&Hooked::plain(2))
     });
@@ -362,7 +339,7 @@ fn keyed_collection_write_during_remove_drops_the_displaced_items_unlocked() {
     *on_drop.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.len();
     }));
-    let removed = within_timeout("KeyedServicedObservableCollection::remove", {
+    let removed = within_timeout("KeyedServicedObservableCollection::remove", BOUND, {
         let collection = collection.clone();
         move || collection.remove(&Hooked::plain(2))
     });
@@ -396,16 +373,20 @@ fn dictionary_keys_drop_unlocked_under_concurrent_lookups() {
         })
         .collect();
     let on_eq = hook();
-    within_timeout("ObservableDictionary writes under concurrent lookups", {
-        let dictionary = dictionary.clone();
-        let on_drop = Arc::clone(&on_drop);
-        move || {
-            for round in 0..2_000 {
-                dictionary.insert(Hooked::new(round, &on_eq, &on_drop), round);
-                let _ = dictionary.remove(&Hooked::plain(round));
+    within_timeout(
+        "ObservableDictionary writes under concurrent lookups",
+        BOUND,
+        {
+            let dictionary = dictionary.clone();
+            let on_drop = Arc::clone(&on_drop);
+            move || {
+                for round in 0..2_000 {
+                    dictionary.insert(Hooked::new(round, &on_eq, &on_drop), round);
+                    let _ = dictionary.remove(&Hooked::plain(round));
+                }
             }
-        }
-    });
+        },
+    );
     stop.store(true, Ordering::SeqCst);
     for reader in readers {
         reader.join().unwrap();
@@ -423,7 +404,7 @@ fn dictionary_insert_of_a_present_key_drops_the_argument_key_unlocked() {
     *on_drop.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.get(&Hooked::plain(1));
     }));
-    within_timeout("ObservableDictionary::insert", {
+    within_timeout("ObservableDictionary::insert", BOUND, {
         let dictionary = dictionary.clone();
         let (on_eq, on_drop) = (Arc::clone(&on_eq), Arc::clone(&on_drop));
         move || dictionary.insert(Hooked::new(1, &on_eq, &on_drop), "uno")
@@ -441,7 +422,7 @@ fn multi_dictionary_insert_of_a_present_key_drops_the_argument_keys_unlocked() {
     *on_drop.lock().unwrap() = Some(Arc::new(move || {
         let _ = reader.count();
     }));
-    within_timeout("ObservableMultiDictionary::insert", {
+    within_timeout("ObservableMultiDictionary::insert", BOUND, {
         let dictionary = dictionary.clone();
         let (on_eq, on_drop) = (Arc::clone(&on_eq), Arc::clone(&on_drop));
         move || dictionary.insert(Hooked::new(1, &on_eq, &on_drop), 0, "uno")
