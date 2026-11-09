@@ -156,6 +156,7 @@ from vmx.properties import (
 from vmx.services import (
     NULL_DISPATCHER,
     NULL_MESSAGE_HUB,
+    DelayedTask,
     Dispatcher,
     MessageHub,
     MessageHubProto,
@@ -233,6 +234,7 @@ __all__ = [
     "ConstructionStatus",
     "ConstructionStatusChangedMessage",
     "DecoratorCommand",
+    "DelayedTask",
     "DerivedProperty",
     "DialogService",
     "DiscriminatorVM",
