@@ -2713,6 +2713,14 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     fn lifecycle_publication_pending(&self) -> bool {
         false
     }
+    /// Returns the stream on which the node reports a failed fire-and-forget
+    /// background hook. A failed deferred compensation destruct of the node
+    /// goes there too (spec/06 §4.2, ADR-0218 rule 7). Wrapper nodes should
+    /// forward it. The default returns `None`, and that failure is dropped.
+    #[doc(hidden)]
+    fn background_failure_stream(&self) -> Option<LifecycleErrorStream> {
+        None
+    }
 }
 
 /// Continuation run after a node's in-flight lifecycle transition settles.
@@ -3002,13 +3010,13 @@ fn construct_started<N: VmNode>(child: &N) -> bool {
 /// Only a child that was `Destructed` before the change is compensated. A
 /// `Constructed` child is destructed now. A child whose construct is still
 /// in flight is not awaited: once it settles `Constructed` with no parent,
-/// its `destruct()` runs, and a failure of that call goes to `errors` while
-/// that stream is open. A child that settles elsewhere, or that has a parent
-/// by then, is left alone.
+/// its `destruct()` runs. A failure of that call goes to the child's own
+/// background-failure stream while that stream is open, never to the
+/// container. A child that settles elsewhere, or that has a parent by then,
+/// is left alone.
 pub(crate) fn compensate_auto_start<N: VmNode>(
     child: &N,
     original_status: ConstructionStatus,
-    errors: &LifecycleErrorStream,
 ) -> Option<VmxError> {
     if original_status != ConstructionStatus::Destructed {
         return None;
@@ -3017,12 +3025,13 @@ pub(crate) fn compensate_auto_start<N: VmNode>(
         child.status() == ConstructionStatus::Constructing || child.lifecycle_publication_pending();
     if in_flight {
         let settled = child.clone();
-        let errors = errors.clone();
         if child.when_lifecycle_settled(Box::new(move || {
             if let Some(error) = destruct_if_orphaned(&settled) {
-                if let Some(emission) = errors.begin_emission() {
-                    errors.send(error);
-                    drop(emission);
+                if let Some(errors) = settled.background_failure_stream() {
+                    if let Some(emission) = errors.begin_emission() {
+                        errors.send(error);
+                        drop(emission);
+                    }
                 }
             }
         })) {
@@ -6203,5 +6212,86 @@ mod message_recorder_tests {
 
         assert!(lock(&hub.inner.state).recorders.is_empty());
         assert!(!recorder.is_active());
+    }
+}
+
+// A deferred compensation destruct reports its failure on the child's own
+// background-failure stream, never on the container's (ADR-0218 rule 7).
+#[cfg(test)]
+mod deferred_compensation_tests {
+    use super::{
+        compensate_auto_start, lock, ConstructionStatus, LifecycleErrorStream,
+        LifecycleSettleCallback, VmNode, VmxError, VmxResult,
+    };
+    use std::sync::{Arc, Mutex};
+
+    /// A background child whose construct is in flight and whose destruct fails.
+    #[derive(Clone)]
+    struct Child {
+        status: Arc<Mutex<ConstructionStatus>>,
+        settle: Arc<Mutex<Option<LifecycleSettleCallback>>>,
+        errors: LifecycleErrorStream,
+    }
+
+    impl PartialEq for Child {
+        fn eq(&self, other: &Self) -> bool {
+            Arc::ptr_eq(&self.status, &other.status)
+        }
+    }
+
+    impl VmNode for Child {
+        fn id(&self) -> usize {
+            1
+        }
+        fn construct(&self) -> VmxResult<()> {
+            Ok(())
+        }
+        fn destruct(&self) -> VmxResult<()> {
+            Err(VmxError::Other("destruct failed".into()))
+        }
+        fn dispose(&self) -> VmxResult<()> {
+            Ok(())
+        }
+        fn status(&self) -> ConstructionStatus {
+            *lock(&self.status)
+        }
+        fn set_parent_id(&self, _parent_id: Option<usize>) {}
+        fn parent_id(&self) -> Option<usize> {
+            None
+        }
+        fn when_lifecycle_settled(&self, callback: LifecycleSettleCallback) -> bool {
+            *lock(&self.settle) = Some(callback);
+            true
+        }
+        fn background_failure_stream(&self) -> Option<LifecycleErrorStream> {
+            Some(self.errors.clone())
+        }
+    }
+
+    #[test]
+    fn deferred_destruct_failure_reaches_the_child_stream() {
+        let child = Child {
+            status: Arc::new(Mutex::new(ConstructionStatus::Constructing)),
+            settle: Arc::new(Mutex::new(None)),
+            errors: LifecycleErrorStream::new(),
+        };
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let _subscription = {
+            let received = received.clone();
+            child
+                .errors
+                .subscribe(move |error| lock(&received).push(error.to_string()))
+        };
+
+        assert!(compensate_auto_start(&child, ConstructionStatus::Destructed).is_none());
+        *lock(&child.status) = ConstructionStatus::Constructed;
+        let settle = lock(&child.settle)
+            .take()
+            .expect("the rollback defers the destruct");
+        settle();
+
+        let received = lock(&received);
+        assert_eq!(received.len(), 1);
+        assert!(received[0].contains("destruct failed"));
     }
 }

@@ -413,8 +413,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             // Destruct after releasing the gate: its messages can reach a
             // subscriber that disposes this container (#1066).
             drop(_gate);
-            let compensation_error =
-                compensate_auto_start(&item, original_status, &self.core.background_errors());
+            let compensation_error = compensate_auto_start(&item, original_status);
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
@@ -493,7 +492,6 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             }
             drop(_gate);
-            let errors = self.core.background_errors();
             for (child, original_status) in candidates
                 .iter()
                 .zip(&original_statuses)
@@ -508,7 +506,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 {
                     child.set_parent_handle(None);
                 }
-                if let Some(error) = compensate_auto_start(child, *original_status, &errors) {
+                if let Some(error) = compensate_auto_start(child, *original_status) {
                     compensation_error.get_or_insert(error);
                 }
             }
@@ -598,8 +596,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             // Destruct after releasing the gate: its messages can reach a
             // subscriber that disposes this container (#1066).
             drop(_gate);
-            let compensation_error =
-                compensate_auto_start(&item, original_status, &self.core.background_errors());
+            let compensation_error = compensate_auto_start(&item, original_status);
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
@@ -737,8 +734,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 item.set_parent_handle(None);
             }
             drop(_gate);
-            let compensation_error =
-                compensate_auto_start(&item, original_status, &self.core.background_errors());
+            let compensation_error = compensate_auto_start(&item, original_status);
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
@@ -1223,6 +1219,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for GroupVm<T, D> {
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.core.when_settled(callback)
+    }
+
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.core.background_errors())
     }
 
     fn lifecycle_publication_pending(&self) -> bool {

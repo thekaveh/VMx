@@ -601,6 +601,10 @@ impl<T1: VmNode, D: Dispatcher> VmNode for AggregateVm1<T1, D> {
         self.core.when_settled(callback)
     }
 
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.core.background_errors())
+    }
+
     fn is_current(&self) -> bool {
         self.core.is_selected()
     }
@@ -978,6 +982,10 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> VmNode for AggregateVm2<T1, T2, D> {
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.core.when_settled(callback)
+    }
+
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.core.background_errors())
     }
 
     fn is_current(&self) -> bool {
@@ -2517,6 +2525,10 @@ macro_rules! impl_fixed_aggregate_vm_node {
             }
             fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
                 self.core.when_settled(callback)
+            }
+
+            fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+                Some(self.core.background_errors())
             }
 
             fn is_current(&self) -> bool { self.core.is_selected() }

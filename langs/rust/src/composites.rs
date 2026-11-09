@@ -996,8 +996,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             // Destruct after releasing the gate: its messages can reach a
             // subscriber that disposes this container (#1066).
             drop(_gate);
-            let compensation_error =
-                compensate_auto_start(&item, original_status, &self.core.background_errors());
+            let compensation_error = compensate_auto_start(&item, original_status);
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
@@ -1087,7 +1086,6 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             staged.admit();
             drop(_gate);
-            let errors = self.core.background_errors();
             for (child, original_status) in candidates
                 .iter()
                 .zip(&original_statuses)
@@ -1102,7 +1100,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 {
                     child.set_parent_handle(None);
                 }
-                if let Some(error) = compensate_auto_start(child, *original_status, &errors) {
+                if let Some(error) = compensate_auto_start(child, *original_status) {
                     compensation_error.get_or_insert(error);
                 }
             }
@@ -1199,8 +1197,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             // Destruct after releasing the gate: its messages can reach a
             // subscriber that disposes this container (#1066).
             drop(_gate);
-            let compensation_error =
-                compensate_auto_start(&item, original_status, &self.core.background_errors());
+            let compensation_error = compensate_auto_start(&item, original_status);
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
@@ -1351,8 +1348,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             staged.admit();
             drop(_gate);
-            let compensation_error =
-                compensate_auto_start(&item, original_status, &self.core.background_errors());
+            let compensation_error = compensate_auto_start(&item, original_status);
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
@@ -1959,6 +1955,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.core.when_settled(callback)
+    }
+
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.core.background_errors())
     }
 
     fn lifecycle_publication_pending(&self) -> bool {
@@ -2863,6 +2863,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> VmN
 
     fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
         self.inner.core.when_settled(callback)
+    }
+
+    fn background_failure_stream(&self) -> Option<crate::LifecycleErrorStream> {
+        Some(self.inner.core.background_errors())
     }
 
     fn lifecycle_publication_pending(&self) -> bool {
