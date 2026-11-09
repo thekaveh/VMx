@@ -47,6 +47,7 @@ interface Container {
   readonly status: S;
   construct(): void;
   add(child: ComponentVM): void;
+  remove(child: ComponentVM): boolean;
 }
 
 function setup(kind: "composite" | "group", autoConstruct = true) {
@@ -152,6 +153,21 @@ describe.each(["composite", "group"] as const)(
       expect(() => { bg.runAll(); }).not.toThrow();
       expect(runs).toBe(1);
       expect(root.status).toBe(S.Destructed);
+    });
+
+    it("constructs when a removed child is disposed while the walk waits on it", () => {
+      // ADR-0186: a child that is no longer a member does not roll the root
+      // back, whatever its result, including disposal.
+      const { bg, first, root } = setup(kind);
+      root.construct();
+      expect(root.status).toBe(S.Constructing);
+      expect(root.remove(first)).toBe(true);
+
+      first.dispose();
+
+      expect(root.status).toBe(S.Constructed);
+      expect(() => { bg.runAll(); }).not.toThrow();
+      expect(root.status).toBe(S.Constructed);
     });
 
     it("leaves a child added during Constructing alone without auto-construct", () => {

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
+  membership change during another open membership transaction fails at once
+  and changes nothing. TypeScript already behaved this way.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -74,6 +77,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The construct walk of a composite or group now counts members only
+  (ADR-0186, spec/06 §5.1, #1313). It checks membership before it starts or
+  joins a child, and again after the child settles. A child that a removal or
+  a failed add takes out during the walk does not roll the container back, and
+  the walk does not construct a snapshot child removed before it reaches it.
+  `COMP-047` and `GRP-015` cover the four removal cases.
 - `TokenPagedComposition`: a load also checks `hasMore` when it starts, as in
   the other flavors (#1161, ADR-0169). Behavior does not change: the load body
   already starts in the admission turn.
