@@ -84,10 +84,16 @@ state are unchanged, and no notification is sent. A failure never becomes a
 validation error.
 
 Validators receive the candidate as their argument; reading the form's model
-from inside a validator returns the previous model. Updates stay serialized,
-so an edit from another thread waits for an update in progress. If a validator
-itself disposes the form or makes another edit, the interrupted update commits
-nothing and the newest edit stands.
+from inside a validator returns the previous model. The form holds no lock
+while an equality comparison, a validator, the snapshotter, or
+`resetOnApproved` runs (spec chapter 20 §5.4, ADR-0215). Reads from another
+thread return the committed state at once. An edit or `Dispose()` from another
+thread also does not wait for the callback. Commits stay serialized. When
+another thread commits first, the overtaken update runs again against the new
+state. A `Dispose()` from another thread returns at once, the preparing update
+commits nothing, and the teardown runs when that update returns. If a
+validator itself disposes the form or makes another edit, the interrupted
+update commits nothing and the newest edit stands.
 
 `SetModel` / `set_model` that begins after disposal is also a complete no-op.
 It returns before null or equality work, leaves the live model and snapshot
@@ -115,7 +121,10 @@ TypeScript, Swift, and Rust.
 
 The equality check uses the same configured or idiomatic equality as dirty
 tracking. An equal candidate is a complete no-op: VMx retains the current model
-and does not validate, invalidate commands, or publish. A re-entrant hub or
+and does not validate, invalidate commands, or publish. Only strict mode compares
+dirty state during an update (ADR-0216). A strict `SetModel` runs three
+equality comparisons and a strict deny two. A non-strict `SetModel` runs one,
+and a non-strict deny runs none. A re-entrant hub or
 `CanExecuteChanged` observer may assign another unequal value; each accepted
 call settles and publishes once before returning.
 
@@ -127,6 +136,11 @@ before it returns. An approval started from a validator calls its persister
 only after that, so do not block on it inside the callback. If the callback
 then disposes the form, the queued notifications are dropped and the persister
 is never called.
+
+If a send of the queued notifications fails, the outermost update sends no
+later notification and its scopes still close (ADR-0216). Each queued approval
+whose persister has not started is released: its persister is never called,
+and its awaiter completes normally. The send failure then reaches the caller.
 
 `DenyCommand` keeps its explicit ordered pair: one `FormRevertedMessage`, then
 one idiomatic model property message after the revert settles. A successful

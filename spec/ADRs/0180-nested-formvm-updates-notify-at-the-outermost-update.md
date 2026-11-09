@@ -1,6 +1,6 @@
 # ADR 0180 — Nested `FormVM` updates notify at the outermost update
 
-- **Status:** Accepted
+- **Status:** Accepted (Extended by ADR-0215 and ADR-0216)
 - **Date:** 2026-11-08
 - **Spec version:** 3.30.0 (chapter 20 §5.2, §5.3, §5.4, §5.5 and §10)
 - **Extends:** [ADR-0174](0174-formvm-queues-updates-during-approval-publication.md)

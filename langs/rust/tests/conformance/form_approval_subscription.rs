@@ -812,6 +812,8 @@ fn waits_in_the_graph<T>(handle: &JoinHandle<T>) -> bool {
 /// thread's settlement-deferred edit prepares and replays on that thread. A
 /// replay can no longer follow another thread's later edit, because that edit
 /// waits for the scope, so the final edit only checks that no state is left.
+/// A replay that the other thread's commit overtakes runs again on its own
+/// thread, so each edit validates at least twice (ADR-0215).
 #[cfg(feature = "test-seams")]
 #[test]
 fn another_threads_approval_waits_and_replays_only_its_own_deferred_edit() {
@@ -870,16 +872,12 @@ fn another_threads_approval_waits_and_replays_only_its_own_deferred_edit() {
     form.approve().unwrap();
 
     assert!(b_waited, "B's approval waits for A's publication");
-    assert_eq!(
-        validated_on(&validated, 7),
-        vec![a_id, a_id],
-        "A's deferred edit prepares and replays on A"
-    );
-    assert_eq!(
-        validated_on(&validated, 5),
-        vec![b_id, b_id],
-        "B's deferred edit prepares and replays on B"
-    );
+    let on = |value: i32, id: ThreadId| {
+        let threads = validated_on(&validated, value);
+        threads.len() >= 2 && threads.iter().all(|thread| *thread == id)
+    };
+    assert!(on(7, a_id), "A's deferred edit prepares and replays on A");
+    assert!(on(5, b_id), "B's deferred edit prepares and replays on B");
     assert_eq!(form.model(), 8, "the last edit stands");
     assert_eq!(form.snapshot(), 8);
     assert!(!form.is_dirty(), "no stale edit is replayed");
@@ -943,10 +941,11 @@ fn another_threads_approval_waits_until_the_approval_subscribers_have_run() {
     );
     assert_eq!(b_result, Ok(()));
     assert_eq!(form.model(), 9);
-    assert_eq!(
-        validated_on(&validated, 9),
-        vec![a_id, a_id],
-        "the edit to 9 prepares and replays on A, never on B"
+    // A replay that B's commit overtakes runs again on A (ADR-0215).
+    let on_a = validated_on(&validated, 9);
+    assert!(
+        on_a.len() >= 2 && on_a.iter().all(|thread| *thread == a_id),
+        "the edit to 9 prepares and replays on A, never on B: {on_a:?}"
     );
 }
 
@@ -1062,13 +1061,14 @@ fn another_threads_revert_waits_until_the_approval_subscribers_have_run() {
     assert_eq!(form.snapshot(), 2);
 }
 
-/// spec/20 §5.5 — a `set_model` made in this thread's pre-publication window
-/// still waits while another thread holds a publication scope. Thread Y's
-/// reset callback edits the form while thread X's `errors_changed` subscriber
-/// runs. Y's edit waits for X's update scope, and only then joins Y's queue.
+/// spec/20 §5.5 (ADR-0215, #1426) — a `set_model` made in this thread's
+/// pre-publication window does not wait while another thread holds a
+/// publication scope. Thread Y's reset callback edits the form while thread
+/// X's `errors_changed` subscriber runs. Y's edit joins Y's queue at once.
+/// Y's settlement then waits for X's update scope.
 #[cfg(feature = "test-seams")]
 #[test]
-fn a_pre_publication_edit_waits_for_another_threads_update_scope() {
+fn a_pre_publication_edit_does_not_wait_for_another_threads_update_scope() {
     type FormSlot = Arc<Mutex<Option<FormVm<i32>>>>;
     let slot: FormSlot = Arc::default();
     let (in_reset, in_reset_rx) = mpsc::channel::<()>();
@@ -1121,18 +1121,18 @@ fn a_pre_publication_edit_waits_for_another_threads_update_scope() {
     });
     x_entered_rx.recv_timeout(BOUND).unwrap();
     go.send(()).unwrap();
+    let returned_during_scope = eventually(|| y_edit_returned.load(Ordering::SeqCst));
     let y_waited = waits_in_the_graph(&y);
-    let returned_during_scope = y_edit_returned.load(Ordering::SeqCst);
     x_release.send(()).unwrap();
     let deadline = Instant::now() + BOUND;
     join_by(x, deadline, "X's set_model");
     join_by(y, deadline, "Y's approve()").unwrap();
 
     assert!(
-        !returned_during_scope,
-        "Y's edit does not return while X's errors_changed subscriber runs"
+        returned_during_scope,
+        "Y's edit returns while X's errors_changed subscriber runs"
     );
-    assert!(y_waited, "Y's edit waits in the wait-for graph");
+    assert!(y_waited, "Y's settlement waits in the wait-for graph");
     assert_eq!(form.snapshot(), 2, "Y's approval commits its reset");
     assert_eq!(
         form.model(),

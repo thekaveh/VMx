@@ -451,21 +451,20 @@ public class FormVMTests
         sut.Model.Should().Be(new Model("B", 2), "deny on a disposed form must not revert");
     }
 
+    // spec/20 §5.4 and §10 (ADR-0215): a Dispose() from another thread while
+    // a deny prepares returns at once, and the deny reverts nothing.
     [Fact]
-    public async Task Admitted_Deny_Finishes_Before_Concurrent_Dispose()
+    public async Task Concurrent_Dispose_During_A_Deny_Preparation_Returns_And_The_Deny_Reverts_Nothing()
     {
         using var releaseSnapshot = new ManualResetEventSlim();
         var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var disposeFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pauseSnapshot = false;
         Model Snapshotter(Model model)
         {
             if (pauseSnapshot)
             {
                 snapshotStarted.SetResult();
-                // The test thread owns releaseSnapshot.Set() below; wait without a
-                // fixed deadline so CI thread-pool starvation can't trip a spurious
-                // timeout here. The outer WhenAll(...).WaitAsync() bounds the test.
+                // The test sets releaseSnapshot in a finally block.
                 releaseSnapshot.Wait();
             }
 
@@ -480,21 +479,18 @@ public class FormVMTests
         pauseSnapshot = true;
 
         var denier = Task.Run(() => sut.DenyCommand.Execute(null));
-        await snapshotStarted.Task.WaitAsync(HangGuard);
-
-        var disposer = Task.Run(() =>
+        try
         {
-            sut.Dispose();
-            disposeFinished.SetResult();
-        });
-        var disposedDuringSnapshot = await Task.WhenAny(
-            disposeFinished.Task,
-            Task.Delay(TimeSpan.FromMilliseconds(100))) == disposeFinished.Task;
-        releaseSnapshot.Set();
+            await snapshotStarted.Task.WaitAsync(HangGuard);
+            await Task.Run(sut.Dispose).WaitAsync(HangGuard);
+        }
+        finally
+        {
+            releaseSnapshot.Set();
+        }
 
-        await Task.WhenAll(denier, disposer).WaitAsync(HangGuard);
-        disposedDuringSnapshot.Should().BeFalse();
-        sut.Model.Should().Be(new Model("A", 1));
+        await denier.WaitAsync(HangGuard);
+        sut.Model.Should().Be(new Model("B", 2), "a disposed form reverts nothing");
     }
 
     [Fact]

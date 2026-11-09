@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
+import enum
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import Future
 from functools import partial
@@ -81,6 +82,24 @@ class _NestedApproval:
         self.released = False
 
 
+class _Frame:
+    """One thread's update preparations on one form (spec/20 §5.4, ADR-0215).
+
+    ``depth`` counts the thread's ``set_model`` and deny frames that are
+    preparing. ``changes`` counts the commits and queued calls the thread
+    made while a frame was open, so a frame can tell that a callback on its
+    own thread made its preparation stale. ``pending`` holds the
+    notifications that nested calls queued for the outermost update.
+    """
+
+    __slots__ = ("changes", "depth", "pending")
+
+    def __init__(self) -> None:
+        self.depth = 0
+        self.changes = 0
+        self.pending = _Notices()
+
+
 class _Notice:
     """One queued notification. ``approval`` marks an admission notification."""
 
@@ -118,6 +137,19 @@ class _Notices:
     def mark_nested(self) -> None:
         for notice in (*self.errors, *self.after_scope):
             notice.nested = True
+
+
+class _Placement(enum.Enum):
+    """What a completed preparation does (spec/20 §5.4, ADR-0215)."""
+
+    STOP = enum.auto()
+    """The form was disposed, or a callback on the preparing thread made it stale."""
+    QUEUE = enum.auto()
+    """The call joins a publisher's queue."""
+    RETRY = enum.auto()
+    """Another thread overtook the preparation; the call runs again."""
+    COMMIT = enum.auto()
+    """The prepared result is committed."""
 
 
 def _resolve(future: asyncio.Future[bool], value: bool) -> None:
@@ -192,18 +224,15 @@ class FormVM(Generic[TM]):
         self._publication_scope = _PublicationScope()
         self._active_mutations = 0
         self._mutation_teardown_pending = False
-        # Update generation (spec/20 §5.4): advanced by every commit of model,
-        # snapshot, or errors, and by every queued update (§5.3), so an update
-        # whose callbacks re-entered the form can tell that its preparation
-        # went stale.
+        # Commit generation (spec/20 §5.4, ADR-0215): advanced by every commit
+        # of model, snapshot, or errors. An update whose preparation another
+        # thread's commit overtook runs again as a new call.
         self._generation = 0
-        # Nested updates (spec/20 §5.4, ADR-0180). set_model and deny hold the
-        # state lock across their preparation callbacks; this counts those
-        # frames. Only the lock owner touches it, and no wait releases the
-        # lock while it is non-zero. A call nested in such a frame queues its
-        # notifications in _pending_notices for the outermost frame.
-        self._preparation_depth = 0
-        self._pending_notices = _Notices()
+        # Preparation frames per thread (spec/20 §5.4, ADR-0180, ADR-0215).
+        # set_model and deny run their callbacks with no lock held, so each
+        # thread keeps its own nesting depth, own-change count, and the
+        # notifications its nested calls queued for its outermost update.
+        self._frames: dict[int, _Frame] = {}
         # The threads that send error maps inside their update scopes. An
         # update or admission made from such an errors_changed observer
         # queues its notifications in that thread's _scoped_notices entry.
@@ -268,9 +297,13 @@ class FormVM(Generic[TM]):
 
     @property
     def is_dirty(self) -> bool:
-        """``True`` when ``model`` is structurally not equal to ``snapshot``."""
+        """``True`` when ``model`` is structurally not equal to ``snapshot``.
+
+        The comparison runs after the state lock is released (spec/20 §5.4).
+        """
         with self._state_changed:
-            return self._model != self._snapshot
+            model, snapshot = self._model, self._snapshot
+        return model != snapshot
 
     @property
     def errors(self) -> dict[str, str]:
@@ -338,13 +371,20 @@ class FormVM(Generic[TM]):
         run on the candidate before anything is committed. If one raises, the
         exception propagates unchanged and the form keeps its model, snapshot,
         errors, and command state, with nothing published. If a callback
-        re-enters the form and another update commits, or the form is disposed,
-        this call commits and publishes nothing.
+        re-enters the form and another update commits or is queued, or the
+        form is disposed, this call commits and publishes nothing.
+
+        The callbacks run with no form lock held (spec/20 §5.4, ADR-0215).
+        Other threads' reads and calls do not wait for them. When another
+        thread commits while they run, this call runs again as a new call.
+        In non-strict mode only the candidate is compared with the live model
+        (spec/20 §5.2, ADR-0216).
 
         Inside an approval's pre-publication window on the approving thread
         (spec/20 §5.3, ADR-0174), the call prepares at call time, so a failing
         callback still raises here, and is then queued: it changes and
-        publishes nothing until it replays after ``on_approved``.
+        publishes nothing until it replays after ``on_approved``. Such a call
+        never waits for another thread's publication scope (§5.5).
 
         While another thread holds a publication scope (spec/20 §5.5), the
         call waits for it. When that wait would close a wait-for cycle, the
@@ -359,64 +399,71 @@ class FormVM(Generic[TM]):
         for another thread's publication scope; it takes the refused-wait
         result.
         """
+        while self._set_model_once(model):
+            pass
+
+    def _set_model_once(self, model: TM) -> bool:
+        """Run one ``set_model`` call. Return ``True`` when it must run again.
+
+        Admission and commit take the state lock; the preparation callbacks
+        run between them with no lock held (spec/20 §5.4, ADR-0215).
+        """
         caller = get_ident()
         admitted = False
         in_flight: BaseException | None = None
         delivery: _Notices | None = None
         try:
             with self._state_changed:
-                refused = self._wait_for_other_publication(caller)
+                refused = self._wait_for_admission(caller)
                 if self._disposed:
-                    return
+                    return False
                 if model is None:
                     # Reject before any deferral, so the caller sees the error.
                     raise ValueError("model must not be None")
                 queue = self._queue_for(caller, refused)
                 self._active_mutations += 1
                 admitted = True
-                own = _Notices()
-                self._preparation_depth += 1
-                try:
-                    # Prepare (spec/20 §5.4) without touching form state.
-                    # Callbacks run under the re-entrant state lock: one may
-                    # re-enter set_model, deny, or dispose on this thread,
-                    # while another thread's update or dispose waits for this
-                    # one. A call in the approval's pre-publication window runs
-                    # the same preparation and is then queued (§5.3 rule 2):
-                    # equality never skips the enqueue, because earlier queued
-                    # updates can change the live model before this one
-                    # replays. The replay prepares again.
-                    generation = self._generation
-                    current, snapshot = self._model, self._snapshot
-                    if current == model and queue is None:
-                        return
-                    was_dirty = current != snapshot
-                    was_valid = not self._errors
-                    next_errors = self._validate(model)
-                    is_dirty = model != snapshot
-                    # A re-entrant dispose, commit, or queued update made this
-                    # preparation stale.
-                    if self._disposed or self._generation != generation:
-                        return
-                    queue = self._live_queue(caller, queue)
-                    if queue is not None:
-                        self._queue_update(queue, partial(self.set_model, model))
-                        return
-                    if current == model:
-                        return
+                generation = self._generation
+                current, snapshot = self._model, self._snapshot
+                was_valid = not self._errors
+                frame = self._enter_frame(caller)
+                changes = frame.changes
+            own = _Notices()
+            try:
+                # Prepare (spec/20 §5.4) with no lock held. A call in the
+                # approval's pre-publication window runs the same preparation
+                # and is then queued (§5.3 rule 2): equality never skips the
+                # enqueue, because earlier queued updates can change the live
+                # model before this one replays. The replay prepares again.
+                # Only strict mode compares with the snapshot (§5.2).
+                unchanged = current == model
+                if unchanged and queue is None:
+                    return False
+                was_dirty = self._strict and current != snapshot
+                next_errors = self._validate(model)
+                is_dirty = self._strict and model != snapshot
+                with self._state_changed:
+                    placement, queue = self._place_locked(caller, frame, changes, generation, queue)
+                    if placement is _Placement.QUEUE:
+                        assert queue is not None
+                        self._queue_update(caller, queue, partial(self.set_model, model))
+                    if placement is not _Placement.COMMIT or unchanged:
+                        return placement is _Placement.RETRY
                     # Commit in one step, then queue the notifications.
                     errors_changed = next_errors != self._errors
                     self._model = model
                     self._errors = next_errors
-                    self._generation += 1
+                    self._note_commit(caller)
                     is_valid = not next_errors
                     if errors_changed:
                         self._queue_error_map(caller, own, next_errors)
                     if (self._strict and is_dirty != was_dirty) or is_valid != was_valid:
                         own.after_scope.append(_Notice(self._raise_can_execute))
                     own.after_scope.append(_Notice(partial(self._hub.send, self._model_message())))
-                finally:
-                    self._preparation_depth -= 1
+                    return False
+            finally:
+                with self._state_changed:
+                    frame.depth -= 1
                     delivery = self._take_notices_locked(caller, own)
         except BaseException as error:
             in_flight = error
@@ -448,23 +495,87 @@ class FormVM(Generic[TM]):
 
         Must be called holding the state lock.
         """
-        return self._preparation_depth > 0 or caller in self._error_delivery_threads
+        frame = self._frames.get(caller)
+        return (frame is not None and frame.depth > 0) or caller in self._error_delivery_threads
+
+    def _enter_frame(self, caller: int) -> _Frame:
+        """Open a preparation frame on *caller*. Call holding the state lock."""
+        frame = self._frames.get(caller)
+        if frame is None:
+            frame = self._frames[caller] = _Frame()
+        frame.depth += 1
+        return frame
+
+    def _note_change(self, caller: int) -> None:
+        """Record that *caller* committed or queued an update. Call holding the state lock.
+
+        A preparation open on *caller* is then stale (spec/20 §5.4).
+        """
+        frame = self._frames.get(caller)
+        if frame is not None:
+            frame.changes += 1
+
+    def _note_commit(self, caller: int) -> None:
+        """Advance the commit generation for a commit by *caller*. Call holding the state lock."""
+        self._generation += 1
+        self._note_change(caller)
+
+    def _wait_for_admission(self, caller: int) -> int | None:
+        """Wait before a ``set_model`` or deny is admitted. Call holding the state lock.
+
+        A call in its own thread's pre-publication window joins that thread's
+        queue, so it never waits for another thread's scope (spec/20 §5.5,
+        ADR-0215). Any other call waits as :meth:`_wait_for_other_publication`
+        states.
+        """
+        own = self._publications.get(caller)
+        if own is not None and own.in_pre_publication_window():
+            return None
+        return self._wait_for_other_publication(caller)
+
+    def _place_locked(
+        self,
+        caller: int,
+        frame: _Frame,
+        changes: int,
+        generation: int,
+        queue: _ThreadPublication | None,
+    ) -> tuple[_Placement, _ThreadPublication | None]:
+        """Decide what a completed preparation does. Call holding the state lock.
+
+        The cases apply in order (spec/20 §5.4, ADR-0215): a disposed form
+        stops the call; a commit or queued call by a callback on this thread
+        makes it stale; a call bound for a queue joins it; and a commit by
+        another thread since the preparation started, or another thread's
+        open scope, makes the call run again as a new call.
+        """
+        if self._disposed or frame.changes != changes:
+            return _Placement.STOP, None
+        queue = self._live_queue(caller, queue)
+        if queue is not None:
+            return _Placement.QUEUE, queue
+        if self._generation != generation or self._other_publisher(caller) is not None:
+            return _Placement.RETRY, None
+        return _Placement.COMMIT, None
 
     def _take_notices_locked(self, caller: int, own: _Notices) -> _Notices:
-        """Return the notifications *caller* sends once it releases the state lock.
+        """Return the notifications *caller* sends once it leaves its frame.
 
-        Must be called holding the state lock, by a frame about to release it.
-        A nested call queues *own* for the outermost update on its thread and
-        returns nothing (spec/20 §5.4, ADR-0180). The outermost update takes
-        the whole queue.
+        Must be called holding the state lock. A nested call queues *own* for
+        the outermost update on its thread and returns nothing (spec/20 §5.4,
+        ADR-0180). The outermost update takes the whole queue.
         """
         if self._in_nested_window(caller):
             own.mark_nested()
-        self._pending_notices.extend(own)
-        if self._preparation_depth > 0:
+        frame = self._frames.get(caller)
+        if frame is not None and frame.depth > 0:
+            frame.pending.extend(own)
             return _Notices()
-        delivery = self._pending_notices
-        self._pending_notices = _Notices()
+        delivery = own
+        if frame is not None:
+            del self._frames[caller]
+            frame.pending.extend(own)
+            delivery = frame.pending
         if caller in self._error_delivery_threads:
             self._scoped_notices.setdefault(caller, _Notices()).extend(delivery)
             return _Notices()
@@ -763,9 +874,10 @@ class FormVM(Generic[TM]):
                 return
             # Settlement step 1 opens the settlement scope.
             outer = self._enter_publication(caller, pre_publishing=True)
-            # The approval commit (snapshot advance or reset) supersedes any
-            # update still preparing on this thread (spec/20 §5.4).
-            self._generation += 1
+            # The approval commit (snapshot advance or reset) makes an update
+            # preparing on this thread stale, and one preparing on another
+            # thread runs again (spec/20 §5.4).
+            self._note_commit(caller)
             published_errors: dict[str, str] | None = None
             if reset_state is not None:
                 next_model, next_snapshot, next_errors = reset_state
@@ -871,8 +983,7 @@ class FormVM(Generic[TM]):
         named; the caller then takes its refused-wait result.
 
         A nested call (spec/20 §5.4, ADR-0180) never waits. It takes the
-        refused-wait result for any other thread's scope, so no wait releases
-        the state lock during a preparation callback.
+        refused-wait result for any other thread's scope.
         """
         if self._in_nested_window(caller):
             if stop_on_disposal and self._disposed:
@@ -1028,8 +1139,8 @@ class FormVM(Generic[TM]):
     ) -> _ThreadPublication | None:
         """Recheck the chosen queue after preparation. Call holding the state lock.
 
-        A preparation callback can release the lock while it waits, so the
-        publisher whose queue a refused call chose may have closed its scope.
+        The preparation runs with no lock held, so the publisher whose queue
+        a refused call chose may have closed its scope.
         The call then joins another thread's open scope, or commits when none
         remains.
         """
@@ -1038,14 +1149,17 @@ class FormVM(Generic[TM]):
         publisher = self._other_publisher(caller)
         return None if publisher is None else self._publications[publisher]
 
-    def _queue_update(self, queue: _ThreadPublication, replay: Callable[[], None]) -> None:
+    def _queue_update(
+        self, caller: int, queue: _ThreadPublication, replay: Callable[[], None]
+    ) -> None:
         """Queue a prepared update that is not stale (spec/20 §5.3 rule 2).
 
-        Must be called holding the state lock. Advancing the generation makes
-        any update still preparing on this thread stale, so the newest call
-        wins, as it does for a committed update.
+        Must be called holding the state lock. Any update still preparing on
+        this thread is then stale, so the newest call wins, as it does for a
+        committed update. A queued call commits nothing, so it does not make
+        another thread's preparation run again.
         """
-        self._generation += 1
+        self._note_change(caller)
         queue.queue.append(replay)
 
     def _drop_queue_after_disposal(self, caller: int) -> None:
@@ -1082,7 +1196,10 @@ class FormVM(Generic[TM]):
         Waits while another thread holds a publication scope (spec/20 §5.5).
         When that wait would close a wait-for cycle, the form is marked
         disposed at once and the publisher runs the teardown after its
-        outermost scope ends.
+        outermost scope ends. The calls that wait for a scope then wake at
+        once and find the form disposed (ADR-0215). A ``dispose()`` while
+        another thread's update prepares returns at once; the teardown runs
+        when that update returns (spec/20 §10).
         """
         # reactivex Subjects raise DisposedException on a second on_completed,
         # unlike rxjs (no-op) and the guarded C# FormVM — guard for parity.
@@ -1097,6 +1214,11 @@ class FormVM(Generic[TM]):
                 tear_down = True
             else:
                 self._mutation_teardown_pending = True
+            # Remove the edges that name this form's scope and wake every
+            # scope waiter (spec/20 §5.5, ADR-0215). A settlement, which
+            # disposal does not stop, records its wait again.
+            WAITS.release_waiters(self._publication_scope, ())
+            self._state_changed.notify_all()
         if tear_down:
             self._tear_down()
 
@@ -1145,46 +1267,55 @@ class FormVM(Generic[TM]):
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _deny(self) -> None:
+        while self._deny_once():
+            pass
+
+    def _deny_once(self) -> bool:
+        """Run one deny call. Return ``True`` when it must run again.
+
+        Admission and commit take the state lock; the preparation callbacks
+        run between them with no lock held (spec/20 §5.4, ADR-0215).
+        """
         caller = get_ident()
         admitted = False
         in_flight: BaseException | None = None
         delivery: _Notices | None = None
         try:
             with self._state_changed:
-                refused = self._wait_for_other_publication(caller)
+                refused = self._wait_for_admission(caller)
                 if self._disposed:
-                    return
+                    return False
                 queue = self._queue_for(caller, refused)
                 self._active_mutations += 1
                 admitted = True
-                own = _Notices()
-                self._preparation_depth += 1
-                try:
-                    # Prepare the revert (spec/20 §5.4): the snapshotter,
-                    # equality, and validators run before anything is
-                    # committed or published. Inside the approving thread's
-                    # pre-publication window the prepared revert is discarded
-                    # and the deny is queued (§5.3, ADR-0174); it replays as a
-                    # new call.
-                    generation = self._generation
-                    current, snapshot = self._model, self._snapshot
-                    was_dirty = current != snapshot
-                    was_valid = not self._errors
-                    next_model = self._snapshotter(snapshot)
-                    next_errors = self._validate(next_model)
-                    is_dirty = next_model != snapshot
-                    # A re-entrant dispose, commit, or queued update made this
-                    # preparation stale.
-                    if self._disposed or self._generation != generation:
-                        return
-                    queue = self._live_queue(caller, queue)
-                    if queue is not None:
-                        self._queue_update(queue, self._deny)
-                        return
+                generation = self._generation
+                current, snapshot = self._model, self._snapshot
+                was_valid = not self._errors
+                frame = self._enter_frame(caller)
+                changes = frame.changes
+            own = _Notices()
+            try:
+                # Prepare the revert (spec/20 §5.4) with no lock held: the
+                # snapshotter, the strict-mode equality (§5.2), and the
+                # validators run before anything is committed or published.
+                # Inside the approving thread's pre-publication window the
+                # prepared revert is discarded and the deny is queued (§5.3,
+                # ADR-0174); it replays as a new call.
+                was_dirty = self._strict and current != snapshot
+                next_model = self._snapshotter(snapshot)
+                next_errors = self._validate(next_model)
+                is_dirty = self._strict and next_model != snapshot
+                with self._state_changed:
+                    placement, queue = self._place_locked(caller, frame, changes, generation, queue)
+                    if placement is _Placement.QUEUE:
+                        assert queue is not None
+                        self._queue_update(caller, queue, self._deny)
+                    if placement is not _Placement.COMMIT:
+                        return placement is _Placement.RETRY
                     errors_changed = next_errors != self._errors
                     self._model = next_model
                     self._errors = next_errors
-                    self._generation += 1
+                    self._note_commit(caller)
                     is_valid = not next_errors
                     if errors_changed:
                         self._queue_error_map(caller, own, next_errors)
@@ -1193,8 +1324,10 @@ class FormVM(Generic[TM]):
                     own.after_scope.append(_Notice(partial(self._hub.send, self._model_message())))
                     if (self._strict and was_dirty != is_dirty) or is_valid != was_valid:
                         own.after_scope.append(_Notice(self._raise_can_execute))
-                finally:
-                    self._preparation_depth -= 1
+                    return False
+            finally:
+                with self._state_changed:
+                    frame.depth -= 1
                     delivery = self._take_notices_locked(caller, own)
         except BaseException as error:
             in_flight = error
@@ -1298,8 +1431,15 @@ class FormVM(Generic[TM]):
             self._end_mutation(failure)
 
     def _can_approve(self) -> bool:
-        """``approve_command`` predicate: validity, strict mode, and admission."""
+        """``approve_command`` predicate: validity, strict mode, and admission.
+
+        The strict comparison runs after the state lock is released (spec/20
+        §5.4).
+        """
         with self._state_changed:
             if self._errors or self._approval_in_flight:
                 return False
-            return not self._strict or self._model != self._snapshot
+            if not self._strict:
+                return True
+            model, snapshot = self._model, self._snapshot
+        return model != snapshot

@@ -142,10 +142,14 @@ async def test_form_030_set_model_publishes_one_settled_hub_message() -> None:
         subscription.dispose()
 
 
-def test_admitted_set_model_finishes_before_concurrent_dispose() -> None:
+def test_concurrent_dispose_during_preparation_returns_and_the_update_commits_nothing() -> None:
+    # A dispose() from another thread during a preparation marks the form
+    # disposed and returns. The update commits nothing, and the teardown runs
+    # when it returns (spec/20 §5.4, §10, ADR-0215).
     validation_started = Event()
     release_validation = Event()
     dispose_finished = Event()
+    completed: list[str] = []
 
     def validate(model: _Model) -> str | None:
         if model.value == "accepted":
@@ -159,6 +163,7 @@ def test_admitted_set_model_finishes_before_concurrent_dispose() -> None:
         snapshotter=lambda model: model,
         validators={"value": validate},
     )
+    form.errors_changed.subscribe(on_completed=lambda: completed.append("errors"))
 
     setter = Thread(target=lambda: form.set_model(_Model("accepted")), daemon=True)
     setter.start()
@@ -169,16 +174,20 @@ def test_admitted_set_model_finishes_before_concurrent_dispose() -> None:
         daemon=True,
     )
     disposer.start()
-    disposed_during_validation = dispose_finished.wait(0.1)
-    release_validation.set()
+    try:
+        assert wait_event(dispose_finished)
+        completed_during_validation = bool(completed)
+    finally:
+        release_validation.set()
 
     join_thread(setter)
     join_thread(disposer)
 
     assert not setter.is_alive()
     assert not disposer.is_alive()
-    assert not disposed_during_validation
-    assert form.model == _Model("accepted")
+    assert not completed_during_validation
+    assert completed == ["errors"]
+    assert form.model == _Model("initial")
 
 
 def test_validator_observes_the_previous_live_model() -> None:

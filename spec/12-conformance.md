@@ -4781,6 +4781,58 @@ admission
 
 > Spec: `20-form-vm.md §5.2/§5.3`, ADR-0196.
 
+### FORM-044 — a failed send stops the queue and releases unstarted nested approvals
+
+**Given** a valid, non-strict `FormVM<TM>` with model `x`, whose validators
+accept every model, and whose persister counts its calls
+**And** a hub that fails on the first model `PropertyChangedMessage` it
+receives, and records each model message it receives
+**And** a counter on `ApproveCommand.CanExecuteChanged`
+**And** a validator that, when it first sees `a`, calls
+`ApproveCommand.Execute()`, then `SetModel(b)`, then `SetModel(c)`
+**When** `SetModel(a)` is called
+**Then** the call fails with the hub's failure
+**And** the hub received one model message, for `b`, and none for `c`
+**And** `CanExecuteChanged` was raised twice: once for the admission and once
+for the release
+**And** after a bounded wait, the persister was never called
+**And** `ApproveCommand.CanExecute() == true`, and `Model == c`
+
+C#, Python, and TypeScript inject a hub whose `Send` throws. In Rust, a hub
+subscriber sends again on each message until the debug-build drain limit
+panics, and `set_model` resumes that panic. The Rust test runs in debug builds.
+Swift sinks and hubs cannot fail. The Swift test runs the same setup with a
+hub that does not fail: both model messages arrive, and the persister runs
+once after them.
+
+> Spec: `20-form-vm.md §5.4`, ADR-0216.
+
+### FORM-045 — an update runs the dirty comparisons only in strict mode
+
+**Given** a strict `FormVM<TM>` with model `x` whose equality counts its calls,
+and whose `Snapshot` is a separate copy of `x`
+**When** `SetModel(y)` is called
+**Then** the equality ran three times
+**When** the counter is reset and `DenyCommand.Execute()` is called
+**Then** the equality ran twice
+
+**Given** the same form in non-strict mode
+**When** `SetModel(y)` is called
+**Then** the equality ran once
+**When** the counter is reset and `DenyCommand.Execute()` is called
+**Then** the equality did not run
+
+**Given** a non-strict form whose equality fails when one operand is the
+`Snapshot` value, for example through a snapshotter that marks its copy
+**When** `SetModel(z)` is called
+**Then** the call returns normally, `Model == z`, and the model message is
+published
+
+The test reads no `IsDirty` and no `CanExecute()` between the calls it counts.
+Swift equality cannot fail, so the Swift test checks the call counts only.
+
+> Spec: `20-form-vm.md §5.2/§5.4`, ADR-0216.
+
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 
 ### DISC-001 — Initial active key and `IsActive`

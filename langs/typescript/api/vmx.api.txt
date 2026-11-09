@@ -1659,9 +1659,16 @@ declare class ForwardingComponentVM<M> extends ComponentVMBase implements ICompo
 }
 
 
-declare class ForwardingCompositeVM<VM extends ComponentVMBase> {
+declare class ForwardingCompositeVM<VM extends ComponentVMBase> extends ComponentVMBase {
     protected readonly _wrapped: CompositeVMBase<VM>;
     constructor(wrapped: CompositeVMBase<VM>);
+    get wrappedBase(): ComponentVMBase;
+    get _ownershipIdentity(): ComponentVMBase;
+    get _parent(): IOwningParentVM | null;
+    set _parent(parent: IOwningParentVM | null);
+    _setIsCurrent(value: boolean): void;
+    _commitIsCurrent(value: boolean): boolean;
+    _publishIsCurrent(): void;
     get name(): string;
     get hint(): string;
     get type(): ViewModelType;
@@ -1670,11 +1677,11 @@ declare class ForwardingCompositeVM<VM extends ComponentVMBase> {
     get status(): ConstructionStatus;
     get hub(): IMessageHub;
     get propertyChanged(): Observable<string>;
-    get selectCommand(): ICommand;
-    get deselectCommand(): ICommand;
-    get selectNextCommand(): ICommand;
-    get selectPreviousCommand(): ICommand;
-    get reconstructCommand(): ICommand;
+    get selectCommand(): RelayCommand;
+    get deselectCommand(): RelayCommand;
+    get selectNextCommand(): RelayCommand;
+    get selectPreviousCommand(): RelayCommand;
+    get reconstructCommand(): RelayCommand;
     canConstruct(): boolean;
     construct(): void;
     canDestruct(): boolean;
