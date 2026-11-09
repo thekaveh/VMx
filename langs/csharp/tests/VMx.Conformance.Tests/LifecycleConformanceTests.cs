@@ -10,7 +10,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// LIFE-001..021 — see spec/12-conformance.md. LIFE-015 lives in the container
+/// LIFE-001..022 — see spec/12-conformance.md. LIFE-015 lives in the container
 /// conformance files, LIFE-016..020 in LIFE_016_to_020_ChildTransitionHelper_Tests,
 /// and LIFE-021 in LIFE_021_InlineDisposeCascade_Tests.
 ///

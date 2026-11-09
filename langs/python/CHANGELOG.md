@@ -14,6 +14,11 @@ below for them.
 
 ### Added
 
+- `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
+  cancellation restores the saved stable state. Python already behaved this
+  way.
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `count` first. Then it updates each key
   view that changes, emits the dictionary events and sends the hub message.
@@ -78,6 +83,10 @@ below for them.
 - A non-strict `FormVM` update no longer compares the model with the snapshot
   (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict `set_model` runs
   the equality once, and a non-strict deny not at all.
+- A refused child `select()` or `deselect()` now changes nothing and raises
+  nothing (ADR-0188, spec/05 §6, #1424). Before, it raised inside the caller's
+  own uncommitted membership transaction and while disposal of the composite
+  was pending.
 
 ### Fixed
 
@@ -91,6 +100,24 @@ below for them.
 - A `dispose()` whose wait for a publication scope is refused now wakes the
   waiting calls at once, and they find the form disposed (ADR-0215, spec/20
   §5.5, #1426). Before, they woke when the publisher's scope closed.
+- A terminal cleanup that a wait cycle deferred to an admitted hook's thread
+  no longer loses its failure (ADR-0200, spec/02 §2.4 and §7, #1297). When the
+  hook succeeds, the hook's `construct()`, `destruct()` or `reconstruct()` call
+  now raises the cleanup's first failure, such as a failing child disposal. A
+  hook failure stays first. The cycle-broken `dispose()` call returns normally.
+- Disposing the current child of a composite now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `on_current_changed` with `None` once.
+  The disposed child reads `is_current` false. A disposed child can no longer
+  become current: the setter raises the non-member `ValueError`.
+- A composite, group or aggregate that holds a directly disposed child now
+  destructs, constructs and reconstructs (ADR-0189, #1383). Container walks
+  and the child-transition helper skip a disposed child. Before, every
+  `destruct()` failed and the container stayed `Constructed`.
+- A non-null selection while a composite is `Destructing` now changes nothing
+  and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
+  therefore return with no current child, also when an `on_current_changed`
+  callback or a child's destruct hook selects a child.
 - A `FormVM` call nested in a preparation callback or an `errors_changed`
   observer of `set_model` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,

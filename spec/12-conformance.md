@@ -1,8 +1,8 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 453 library IDs
-in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
+`XXX-NNN`. Each of the five language flavors MUST implement every library ID
+in `langs/<lang>/tests/conformance/` before it can be marked stable. The
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
 `tools/check-conformance-coverage.py` and the example suites verify THEME.
@@ -313,6 +313,31 @@ draining that scheduler from the member's dispose hook publishes no
 `Constructed`: after its `Constructing`, the leaf publishes only `Disposed`
 
 > Normatively defined in `02-lifecycle.md §7.2`. See ADR-0175.
+
+### LIFE-022 — A container walk skips a child that was disposed directly
+
+**Given** a container `box` (`CompositeVM`, `GroupVM` and `AggregateVM2`, each
+in turn) on an inline dispatcher, in `Constructed`, holding children (or slots)
+`a` and `b`
+**When** `b.dispose()` is called and then `box.destruct()`
+**Then** the call raises nothing, `box` and `a` are `Destructed`, and `b` is
+still `Disposed`
+**And** the composite and the group still hold `b` as a member
+**And** a following `box.construct()` raises nothing: the composite and the
+group reach `Constructed` with `a` `Constructed` and `b` `Disposed`, and the
+aggregate reaches `Constructed` with new slots from its factories
+**And** for the composite and the group, `b.dispose()` while `box` is
+`Destructed`, followed by `box.construct()`, gives the same result
+**And** `box.reconstruct()` from `Constructed`, with a `Disposed` child or
+slot, raises nothing and ends in `Constructed`
+**And** a leaf VM whose construct and destruct hooks walk members `m1` and `m2`
+with the child-transition helper skips a `Disposed` `m2` in both walks and
+reaches the target status
+**And** no lifecycle operation is called on a `Disposed` child: no
+`StatusTransitionError` / `StatusTransitionException` (or `VmxError` in Rust)
+is raised or recorded
+
+> Normatively defined in `02-lifecycle.md §6` and §6.1. See ADR-0189.
 
 ______________________________________________________________________
 
@@ -1883,11 +1908,13 @@ virtual time 0
 
 ______________________________________________________________________
 
-## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..046`)
+## 20. CompositeVM search/filter, modeled CRUD & builder hooks (`COMP-014..052`)
 
 Search/filter (COMP-014..018, see ADR-0014), modeled CRUD (COMP-019..024,
-see ADR-0016), builder hooks (COMP-025..026, see ADR-0042), and the destruct
-order option (COMP-046, see ADR-0161) additions to chapter 06.
+see ADR-0016), builder hooks (COMP-025..026, see ADR-0042), the destruct
+order option (COMP-046, see ADR-0161), and the `Disposed`-child,
+`Destructing` and child-`select()` rules (COMP-050..052, see ADR-0188 and
+ADR-0189) additions to chapter 06.
 
 ### COMP-014 — SearchableState defaults to empty search term
 
@@ -2214,6 +2241,75 @@ disposed
 **And** construct, including the construct phase of `reconstruct()`, settles
 the children in the same order as a composite built without the option
 **And** the modeled composite builder and the options form give the same order
+
+### COMP-050 — Disposing the current child clears `Current`
+
+**Given** a `CompositeVM<VM>` `p` in `Constructed` with children `a` and `b`
+and `Current = a`
+**And** an `OnCurrentChanged` recorder and a hub subscriber that records each
+`PropertyChangedMessage` from `p` and from `a`
+**When** `a.dispose()` is called
+**Then** when it returns, `p.Current` is null and `a.IsCurrent` is false
+**And** `p` published `PropertyChangedMessage("Current")` once, and
+`OnCurrentChanged` received null once
+**And** `a` published no `PropertyChangedMessage("IsCurrent")` after its
+`Disposed` message
+**And** `can_select_component(a)` is false, and `p.Current = a` raises the
+non-member error (Swift `setCurrent(_:)` throws `CompositeMembershipError`;
+Rust returns `VmxError::NonChild`) and leaves `Current` null
+**And** with `Current = b`, `p.dispose()` disposes `b` and publishes no
+`PropertyChangedMessage("Current")` from `p`
+
+> Normatively defined in `06-composite-vm.md §3` and §4.3 rules 2 and 9. See
+> ADR-0189.
+
+### COMP-051 — A selection while the composite is `Destructing` changes nothing
+
+**Given** a `CompositeVM<VM>` `p` in `Constructed` on an inline dispatcher,
+with children `a`, `b` and `c` in that order and `Current = a`
+**And** an `OnCurrentChanged` callback that, when it receives null while `p`
+is `Destructing`, sets `Current = b` and calls `p.select_component(b)` and
+`b.select()`, and records any error
+**And** a destruct hook on `b` that sets `Current = c`, calls `c.select()`,
+records `p.can_select_component(c)`, sets `Current = a` (already
+`Destructed`), and then sets `Current = null`, recording any error
+**When** `p.destruct()` is called
+**Then** it raises nothing, and no error is recorded
+**And** when it returns, `p` and every child are `Destructed`, and `Current`
+is null
+**And** the recorded `can_select_component(c)` is false
+**And** `p` published `PropertyChangedMessage("Current")` once, and
+`OnCurrentChanged` received null once
+**And** after `p.construct()` and `Current = a`, `p.reconstruct()` gives the
+same result for its destruct phase, and `p` ends in `Constructed` with
+`Current` null
+**And** Swift runs the setter cases through `setCurrent(_:)` and the `current`
+property setter; neither traps or throws
+
+> Normatively defined in `06-composite-vm.md §4.3` rule 8 and §5. See
+> ADR-0188.
+
+### COMP-052 — A refused child `select()` or `deselect()` changes nothing
+
+**Given** a `CompositeVM<VM>` `p` built with `AutoConstructOnAdd(true)`, in
+`Constructed`, with members `a` and `c` (`Constructed`) and `b`
+(`Destructed`), and `Current = null`
+**And** a hub subscriber that records each `PropertyChangedMessage("Current")`
+from `p`
+**When** `b.select()` is called
+**And** `a.deselect()` is called while `a` is not `Current`
+**And** `p.Add(d)` is called, and `d`'s construct hook calls `a.select()`
+inside the caller's own uncommitted membership transaction of `p`
+**And** `Current = c` is set, and the `OnCurrentChanged(c)` callback calls
+`p.dispose()`, which is deferred, and then `a.select()`
+**Then** no call raises
+**And** each refused call changes nothing: `Current` is null after the first
+three calls and `c` after the callback returns, and `p` publishes
+`PropertyChangedMessage("Current")` only for `Current = c`
+**And** the deferred disposal then disposes `p`
+
+> Normatively defined in `05-component-vm.md §6` and `06-composite-vm.md §3.1`.
+> See ADR-0188.
 
 ### SRCH-001 — source signal refreshes an unchanged search term
 
@@ -4894,3 +4990,24 @@ their host contract permits
 application callback occurs
 **And** a newly returned ownership unit is cleaned exactly once when cleanup is
 configured
+
+### ARES-012 — A loader's own cancellation restores the saved stable state
+
+**Given** a current loader that ends with its flavor's native cancellation
+signal, which the VM did not request: C# `OperationCanceledException` from
+another token, Python `asyncio.CancelledError`, a TypeScript rejection whose
+`name` is `"AbortError"`, Swift `CancellationError`, or Rust
+`Err(VmxError::Cancelled)`
+**When** this ends an initial load, a discard-mode reload from `Ready(oldValue)`,
+or a retained reload from `Ready(oldValue)`
+**Then** state returns to `Idle`, `Idle`, or `Ready(oldValue)`, as `Cancel`
+restores it
+**And** the awaitable intent completes normally, no `Error` state is installed,
+and no async-command error is emitted
+**And** the restored value is not cleaned, and the discarded value was cleaned
+exactly once at reload start
+**And** command eligibility matches the restored state
+**When** a superseded loader ends with the same signal after a newer operation
+became current
+**Then** the newer operation stays current, and the superseded completion
+causes no state or command notification

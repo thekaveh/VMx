@@ -707,6 +707,43 @@ before a persister starts prevents the persister call (`FORM-041`,
 
 See ADR-0180 and chapter 20 §5.4 and §10.
 
+v3.30.0 also states the outcome of a loader's own cancellation. A current
+`AsyncResourceVM` loader that ends with its flavor's native cancellation signal
+restores the operation's saved stable state, as `Cancel` does, even when the VM
+did not request it. A C# timeout stays a failure, and a superseded loader's
+cancellation is stale (`ARES-012`). The catalog now contains 452 library IDs
+plus 5 scenario IDs.
+
+See ADR-0199 and chapter 23 §5 and §7.
+
+v3.30.0 also gives each lifecycle failure one reporting route. The call that
+runs a cycle-deferred terminal cleanup reports the cleanup's first failure when
+it has no earlier failure. In a shared-scheduler flush, the first failure is
+thrown to the flush's caller, and every other failure goes to the flavor's
+unhandled-error route after the flush returns. A scheduler that cancels its
+queued work on purpose marks itself first, so VMx runs none of that work. No
+conformance ID is added.
+
+See ADR-0200 and chapter 02 §2.4, §6.1, and §7.
+
+v3.30.0 also makes two composite selection refusals silent. A refused child
+`select()` or `deselect()` changes nothing and raises nothing in every flavor.
+While a composite is `Destructing`, a non-null selection changes nothing and
+raises nothing, so `destruct()` always returns with `Current` null
+(`COMP-051`, `COMP-052`).
+
+See ADR-0188 and chapter 05 §6 and chapter 06 §3.1, §4.3 and §5.
+
+v3.30.0 also covers a child that is disposed while it is still a member.
+Container walks and the child-transition helper skip a `Disposed` child, so
+the container still destructs, constructs and reconstructs (`LIFE-022`). A
+`Disposed` child is not selectable. When the current child publishes
+`Disposed` from its own `dispose()`, the composite clears `Current`, and the
+child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 455
+library IDs plus 5 scenario IDs.
+
+See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
+
 v3.30.0 also lets `FormVM` callbacks run with no form lock held. The equality
 comparisons, the validators, the snapshotter, and `resetOnApproved` run with
 no lock, so another thread's reads and calls never wait for them. A
@@ -723,6 +760,6 @@ outermost update sends no later notification, releases each nested approval
 whose persister has not started, and propagates the failure after its
 replays (`FORM-044`). A Rust validator registration from a form callback is a
 nested call. An update runs its dirty comparisons only in strict mode
-(`FORM-045`). The catalog now contains 453 library IDs plus 5 scenario IDs.
+(`FORM-045`). The catalog now contains 458 library IDs plus 5 scenario IDs.
 
 See ADR-0216 and chapter 20 §5.2, §5.4, and §5.5.
