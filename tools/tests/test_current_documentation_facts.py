@@ -36,6 +36,8 @@ WRAPPED_COUNT = re.compile(
     r"|\b\d+(?:\s*/\s*\d+|\*{0,2}\s+of\s+\d+\*{0,2})?\s+library\s+(?:conformance\s+)?IDs?\b"
     r"|\b\d+\s+(?:normative\s+test\s+|conformance\s+|total\s+)IDs\b"
     r"|\b\d+\s+(?:additional\s+)?THEME\s+scenario\s+IDs\b"
+    # Spelled-out THEME counts; numeric "230 library + 5 THEME" history notes stay.
+    r"|\b(?i:one|two|three|four|five|six|seven|eight|nine|ten)\s+`?THEME\b"
     r"|\(0001\s*(?:\.\.|-|\u2013)\s*\d{4}\)"
     r"|\bADR-0001\s*(?:\.\.|-|\u2013|to)\s*(?:ADR-)?\d{4}\b"
 )
@@ -77,6 +79,8 @@ def test_copied_count_guard_rejects_known_count_shapes() -> None:
         "all **451 of 451** library conformance IDs",
         "456 normative test IDs",
         "5 additional THEME scenario IDs",
+        "the five `THEME-00x` scenarios",
+        "Four UI-backed examples cover the five THEME scenarios.",
         "Architecture Decision Records (0001-0204)",
     ):
         assert WRAPPED_COUNT.search(" ".join(sample.split())), sample

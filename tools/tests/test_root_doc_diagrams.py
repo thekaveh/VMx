@@ -117,6 +117,7 @@ def test_root_diagrams_render_no_adr_or_conformance_id_counts(tmp_path: Path) ->
     count = re.compile(
         r"\d+\s+(?:ADRs|(?:library\s+|THEME\s+scenario\s+)?(?:conformance\s+)?IDs)\b"
         r"|\d+\+\d+ parity|\b\d+ total\b"
+        r"|\b(?:\d+|(?i:one|two|three|four|five|six|seven|eight|nine|ten))\s+`?THEME\b"
     )
     assert count.search(output) is None, count.search(output)
 

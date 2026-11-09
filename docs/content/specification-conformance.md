@@ -96,7 +96,7 @@ report does not mark XCTest skips. The Swift conformance suite uses no
   every library ID in each flavor workflow.
 - The examples workflows enforce the separate flagship scenario contract. Two
   shared scenario files run in all four flagship suites: a Notes workspace
-  lifecycle (`examples/notes-showcase-scenario.json`) and the five `THEME-00x`
+  lifecycle (`examples/notes-showcase-scenario.json`) and the `THEME-00x`
   scenarios in order (`examples/notes-showcase-theme-scenario.json`). The shared scenarios
   compare semantic outcomes, not just test names, and add no catalog IDs.
 
