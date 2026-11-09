@@ -226,12 +226,11 @@ func beginParentTransfer(
 
 private struct ContainerOwnershipTransactionError: Error {}
 
-/// Records, under `container`'s gate, that the caller waits for `owner`'s open
-/// membership transaction. A container serializes another thread's open
-/// transaction unless that thread already waits for this one, directly or
-/// through others, including through a hub drain (#551, #703). Returns
-/// `false`, and records nothing, in that case. A C# group also waits; a C#
-/// composite, Python and Rust reject the transaction instead (#756).
+/// Records, under `container`'s gate, that a disposal waits for `owner`'s open
+/// membership transaction (ADR-0122, ADR-0153). Returns `false`, and records
+/// nothing, when `owner` already waits for the caller, directly or through
+/// others, including through a hub drain (#551, #703). A membership change
+/// never waits: it fails at once (ADR-0187).
 func beginMembershipWait(owner: UInt64, container: AnyObject) -> Bool {
     ThreadWaitGraph.shared.beginWait(
         caller: ThreadWaitGraph.currentThread,
@@ -476,14 +475,33 @@ struct LateChildSource {
     /// skipped here, never returned. The walk's scope stays open.
     let next: () -> (child: ComponentVMBase, record: LateChildStarts.Record)?
     /// The commit-time pull (spec/06 §5.1): under the container's membership
-    /// gate, the next late child with a start record, or `nil` once none is
-    /// left — then, in the same gate section, the container's state is
-    /// flipped to `.constructed` (unpublished) and the scope ends, so a later
-    /// add reads `.constructed` and follows the add-after-Constructed rule.
-    let seal: () -> (child: ComponentVMBase, record: LateChildStarts.Record)?
-    /// Test-only: runs as the commit-time seal starts each pull, before it
-    /// checks for cancellation.
+    /// gate, the next late child with a start record. Once none is left, the
+    /// same gate section is the commit step: it writes `.constructed`
+    /// (unpublished) and ends the scope, so a later add reads `.constructed`
+    /// and follows the add-after-Constructed rule. A walk that was abandoned
+    /// or stopped commits nothing (ADR-0186).
+    let seal: () -> LateChildSeal
+    /// Test-only: runs as the commit-time seal starts each pull, after its
+    /// cancellation check and before it takes the membership gate.
     var willSeal: (() -> Void)? = nil
+}
+
+/// Tells a construct walk whether a child is still a member of its container
+/// (spec/06 §5.1, ADR-0186). A struct, not a bare closure, so trailing-closure
+/// matching of `after` stays unambiguous.
+struct ChildMembership {
+    /// Whether `child` is a member of the container now.
+    let contains: (ComponentVMBase) -> Bool
+}
+
+/// One commit-time pull of a `LateChildSource`.
+enum LateChildSeal {
+    /// A late child to join before the commit step.
+    case late(ComponentVMBase, LateChildStarts.Record)
+    /// The commit step wrote `.constructed`.
+    case sealed
+    /// The walk was abandoned or stopped: the commit step wrote nothing.
+    case abandoned
 }
 
 /// The outcome of a construct walk's commit-time seal.
@@ -494,10 +512,9 @@ enum ChildWalkSeal {
     case pending(LifecycleDeferral)
     /// A late child did not reach `.constructed`, or the walk failed.
     case failed
-    /// An abandon or a disposal cancelled the walk. Like develop's abandon
-    /// path, the seal publishes no rollback: a walk that already finished
-    /// commits as it would have without the seal, and a cancelled join never
-    /// settles.
+    /// An abandon or a disposal cancelled the walk. The seal commits
+    /// nothing and publishes no rollback; the abandoner settles the
+    /// transition (ADR-0186). A cancelled join never settles.
     case abandoned
 }
 
@@ -525,6 +542,10 @@ final class ChildTransitionWalker {
     private let lateChild: LateChildSource?
     /// True once the walk's owner is disposed: the walk starts no further child.
     private let superseded: () -> Bool
+    /// Whether a child is still a member of the walk's container (spec/06
+    /// §5.1, ADR-0186). The walk skips a child that is not, and ignores how
+    /// such a child settles. `nil` counts every child.
+    private let membership: ChildMembership?
     private let target: ConstructionStatus
     private let transient: ConstructionStatus
     private var currentDeferral = LifecycleDeferral()
@@ -538,13 +559,15 @@ final class ChildTransitionWalker {
         after: (() throws -> Void)?,
         joined: [ComponentVMBase] = [],
         lateChild: LateChildSource? = nil,
-        superseded: @escaping () -> Bool = { false }
+        superseded: @escaping () -> Bool = { false },
+        membership: ChildMembership? = nil
     ) {
         self.children = children
         self.after = after
         self.joined = Set(joined.map(ObjectIdentifier.init))
         self.lateChild = lateChild
         self.superseded = superseded
+        self.membership = membership
         self.target = construct ? .constructed : .destructed
         self.transient = construct ? .constructing : .destructing
     }
@@ -592,7 +615,6 @@ final class ChildTransitionWalker {
     func seal() -> ChildWalkSeal {
         guard let lateChild else { return .sealed }
         while true {
-            lateChild.willSeal?()
             // A disposed owner joins no further late child (LIFE-015).
             let stopped = superseded()
             lock.lock()
@@ -601,7 +623,16 @@ final class ChildTransitionWalker {
                 return .abandoned
             }
             lock.unlock()
-            guard let (late, record) = lateChild.seal() else { return .sealed }
+            lateChild.willSeal?()
+            let late: ComponentVMBase
+            let record: LateChildStarts.Record
+            switch lateChild.seal() {
+            case .sealed: return .sealed
+            case .abandoned: return .abandoned
+            case .late(let child, let start):
+                late = child
+                record = start
+            }
             let fresh = LifecycleDeferral()
             lock.lock()
             if cancelled {
@@ -671,6 +702,15 @@ final class ChildTransitionWalker {
             let child = children[index]
             lock.unlock()
 
+            // A child that left the container is skipped: it neither starts
+            // nor joins, and it does not change the container (ADR-0186).
+            if !counts(child) {
+                lock.lock()
+                index += 1
+                lock.unlock()
+                continue
+            }
+
             // A late child is never started here: wait until its add's start
             // attempt is done, then join the child (spec/06 §5.1).
             if let record = lateRecords[ObjectIdentifier(child)], !record.isDone {
@@ -714,7 +754,7 @@ final class ChildTransitionWalker {
                 }
                 lock.unlock()
             }
-            guard child.status == target else {
+            guard child.status == target || !counts(child) else {
                 throw ChildTransitionError(
                     childName: child.name,
                     reason: "did not reach \(target)"
@@ -724,6 +764,12 @@ final class ChildTransitionWalker {
             index += 1
             lock.unlock()
         }
+    }
+
+    /// Whether `child` still counts for this walk: it is a member of the
+    /// container, or the walk has no membership predicate.
+    private func counts(_ child: ComponentVMBase) -> Bool {
+        membership?.contains(child) ?? true
     }
 
     /// A late child's add finished its start attempt: resume the walk,
@@ -753,8 +799,9 @@ final class ChildTransitionWalker {
         }
         self.waiting = nil
         lock.unlock()
-        // The child rolled back or was disposed: roll the parent back.
-        guard child.status == target else {
+        // The child rolled back or was disposed: roll the parent back, unless
+        // it left the container meanwhile (ADR-0186).
+        guard child.status == target || !counts(child) else {
             settle(false)
             return
         }
@@ -1447,9 +1494,9 @@ open class ComponentVMBase {
                 _completeTransition(.destructed, generation: generation)
                 return
             case .abandoned:
-                // The walk had finished; commit as develop's abandon path does.
-                // A disposal that already began makes the commit a no-op.
-                break
+                // A stopped or abandoned walk commits nothing (ADR-0186): the
+                // disposal or the raising hook settles the transition.
+                return
             }
             _clearSealWalker(walker)
         }
@@ -1503,16 +1550,22 @@ open class ComponentVMBase {
             && (_status == transient || (transient == .constructing && commitPending))
     }
 
-    /// A container's seal (call under its membership gate): flips the state
-    /// of the in-flight construct to `.constructed` without publishing it.
-    /// The transition's commit publishes `.constructed` once.
-    func _flipConstructedForSeal() {
+    /// A container's commit step (call under its membership gate): writes
+    /// `.constructed` for the in-flight construct and reserves its
+    /// publication. The transition's commit publishes `.constructed` once.
+    /// Returns `false`, and writes nothing, when the walk was abandoned or
+    /// disposal stopped it. The check runs under `lifecycleLock`, the lock of
+    /// the status write, and an abandon takes the seal walker under the same
+    /// lock (ADR-0186).
+    func _flipConstructedForSeal() -> Bool {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
         guard inFlight, !disposalRequested, !hookAdmissionClosed,
-              _status == .constructing else { return }
+              _status == .constructing,
+              let sealWalker, sealWalker.generation == transitionGeneration else { return false }
         _status = .constructed
         commitPending = true
+        return true
     }
 
     private func _sealWalker(_ generation: UInt64) -> ChildTransitionWalker? {
@@ -1620,12 +1673,17 @@ open class ComponentVMBase {
     /// the walk pulls each child `lateChild` returns (a child added while the
     /// walk runs) and joins it, until `lateChild` returns `nil`. The walk
     /// never starts a late child: it waits until the add's start attempt is
-    /// done, then joins the child (`LateChildStarts`, spec/06 §5.1).
+    /// done, then joins the child (`LateChildStarts`, spec/06 §5.1). A
+    /// construct walk with `membership` counts members only (ADR-0186): it
+    /// checks membership before it starts or joins a child and again after
+    /// the child settles, and a child that left the container does not
+    /// change this VM.
     func _transitionContainerChildren(
         _ children: [ComponentVMBase],
         construct: Bool,
         joined: [ComponentVMBase] = [],
         lateChild: LateChildSource? = nil,
+        membership: ChildMembership? = nil,
         after: (() throws -> Void)? = nil
     ) throws {
         let walker = ChildTransitionWalker(
@@ -1634,7 +1692,8 @@ open class ComponentVMBase {
             after: after,
             joined: joined,
             lateChild: lateChild,
-            superseded: { [weak self] in self?._isDisposalRequested() ?? true }
+            superseded: { [weak self] in self?._isDisposalRequested() ?? true },
+            membership: construct ? membership : nil
         )
         if construct, lateChild != nil {
             // Late children are sealed at commit time (spec/06 §5.1).

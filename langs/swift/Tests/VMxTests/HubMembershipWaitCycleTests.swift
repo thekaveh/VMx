@@ -457,43 +457,9 @@ final class HubMembershipWaitCycleTests: XCTestCase {
         return (ownerFinished, callerFinished)
     }
 
-    func testAddResultAfterReleasedDrainWaitsInsteadOfFailing() throws {
-        let hub = MessageHub()
-        let composite = try constructedComposite(hub)
-        let first = leaf(hub, "first"), second = leaf(hub, "second")
-        let result = Box<Result<Void, ContainerOwnershipError>?>(nil)
-
-        let outcome = runAfterReleasedDrain(
-            hub: hub,
-            ownerStep: { _ = composite.addResult(first) },
-            operation: { result.value = composite.addResult(second) }
-        )
-
-        XCTAssertTrue(outcome.ownerFinished && outcome.callerFinished)
-        XCTAssertNoThrow(try result.value?.get(), "no cycle exists, so the add must wait")
-        XCTAssertEqual(composite.snapshot().map(\.name), ["first", "second"])
-    }
-
     // A selection registers no membership wait (spec/06 §4.3 rule 1,
-    // ADR-0173), so it has no released-drain case.
-
-    func testRemoveAfterReleasedDrainWaitsInsteadOfRefusing() throws {
-        let hub = MessageHub()
-        let member = leaf(hub, "member")
-        let composite = try constructedComposite(hub, members: [member])
-        let added = leaf(hub, "added")
-        let removed = Box<Bool?>(nil)
-
-        let outcome = runAfterReleasedDrain(
-            hub: hub,
-            ownerStep: { _ = composite.addResult(added) },
-            operation: { removed.value = composite.remove(member) }
-        )
-
-        XCTAssertTrue(outcome.ownerFinished && outcome.callerFinished)
-        XCTAssertEqual(removed.value, true, "no cycle exists, so the removal must wait")
-        XCTAssertEqual(composite.snapshot().map(\.name), ["added"])
-    }
+    // ADR-0173), and an add or a removal fails at once during another
+    // thread's transaction (ADR-0187). Neither has a released-drain case.
 
     func testDisposeAfterReleasedDrainWaitsAndDisposesBeforeReturning() throws {
         let hub = MessageHub()

@@ -277,8 +277,9 @@ final class LateChildStartTests: XCTestCase {
     }
 
     /// A late child whose add-started construct fails while the walk waits on
-    /// it: the add fails and is undone, and the container rolls back.
-    func testFailedAddStartedLateChildFailsAddAndRollsBack() throws {
+    /// it: the add fails and is undone. The undo is a removal, so the
+    /// container still reaches Constructed (ADR-0186, #1313).
+    func testFailedAddStartedLateChildFailsAddAndContainerConstructs() throws {
         for kind in ["composite", "group"] {
             let harness = try makeHarness(kind)
             try harness.root.construct()
@@ -297,7 +298,7 @@ final class LateChildStartTests: XCTestCase {
             XCTAssertEqual(added, false, "\(kind): the add fails")
             XCTAssertFalse(harness.contains(late), "\(kind): the add is undone")
             XCTAssertEqual(late.status, .destructed, kind)
-            XCTAssertEqual(harness.root.status, .destructed, kind)
+            XCTAssertEqual(harness.root.status, .constructed, kind)
             XCTAssertEqual(runs.runs, 1, kind)
         }
     }
