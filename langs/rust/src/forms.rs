@@ -509,6 +509,126 @@ enum Placement<M> {
 /// A panic payload kept to resume after the queued updates replay.
 type PanicPayload = Box<dyn std::any::Any + Send>;
 
+/// The queued notifications of nested calls (spec/20 §5.4, ADR-0180).
+///
+/// A call is nested when it comes from a preparation callback of a
+/// `set_model` or `revert`, or from an `errors_changed` subscriber that the
+/// outermost update on its thread delivers. It sends nothing before it
+/// returns: it adds its notifications to the queue of the outermost update,
+/// which sends them with no form lock held.
+struct NestedUpdates<M> {
+    /// The `set_model` and `revert` frames that prepare on the thread holding
+    /// the update lock. Only that thread changes it.
+    preparation_depth: usize,
+    /// The notifications that nested frames queued for the outermost one.
+    pending: Notices<M>,
+    /// The threads that send the error maps of their outermost update, each
+    /// with the notifications that its `errors_changed` subscribers' calls
+    /// queued. Only the owning thread adds to or takes from an entry.
+    error_deliveries: Vec<(ThreadId, Notices<M>)>,
+}
+
+impl<M> NestedUpdates<M> {
+    fn new() -> Self {
+        Self {
+            preparation_depth: 0,
+            pending: Notices::default(),
+            error_deliveries: Vec::new(),
+        }
+    }
+
+    /// The queue of `thread`'s `errors_changed` delivery, when it makes one.
+    fn error_delivery(&mut self, thread: ThreadId) -> Option<&mut Notices<M>> {
+        self.error_deliveries
+            .iter_mut()
+            .rev()
+            .find(|(entry, _)| *entry == thread)
+            .map(|(_, notices)| notices)
+    }
+}
+
+/// Notifications that an update sends with no form lock held.
+struct Notices<M> {
+    /// The update scopes of commits that changed the errors, in commit order.
+    /// Each sends one `errors_changed` inside its scope (spec/20 §5.5).
+    errors: Vec<Publication<M>>,
+    /// The other notifications, in the order the calls committed or were
+    /// admitted.
+    after: Vec<Notice>,
+    /// The admitted nested approvals, whose persisters start after the
+    /// notifications (spec/20 §5.4 rule 4).
+    starts: Vec<(ApprovalFlight, M)>,
+}
+
+impl<M> Default for Notices<M> {
+    fn default() -> Self {
+        Self {
+            errors: Vec::new(),
+            after: Vec::new(),
+            starts: Vec::new(),
+        }
+    }
+}
+
+impl<M> Notices<M> {
+    fn is_empty(&self) -> bool {
+        self.errors.is_empty() && self.after.is_empty() && self.starts.is_empty()
+    }
+
+    fn append(&mut self, other: Self) {
+        self.errors.extend(other.errors);
+        self.after.extend(other.after);
+        self.starts.extend(other.starts);
+    }
+
+    /// Marks these notifications as queued by a nested call, so they are
+    /// dropped once the form is disposed (spec/20 §5.4 rule 6).
+    fn nested(mut self) -> Self {
+        for notice in &mut self.after {
+            if let Notice::Reverted { nested } = notice {
+                *nested = true;
+            }
+        }
+        self
+    }
+}
+
+/// A queued notification other than `errors_changed`. Every kind but
+/// [`Notice::Reverted`] already sends nothing on a disposed form.
+enum Notice {
+    /// The approve command's eligibility change of an update, when its gates
+    /// moved from the first value to the second.
+    Eligibility(bool, bool),
+    /// The `"model"` hub message.
+    Model,
+    /// The [`FormRevertedMessage`] of a revert. A nested one is dropped once
+    /// the form is disposed; the outermost update's own one is not.
+    Reverted { nested: bool },
+    /// The eligibility change of a nested approval's admission.
+    Admission,
+}
+
+/// What an update's preparation and commit hand to [`FormVm::run_update`].
+struct Step<M> {
+    /// The update's own notifications.
+    notices: Notices<M>,
+    /// The update to run again, because the publisher that refused its wait
+    /// ended its publications during the preparation.
+    retry: Option<QueuedUpdate<M>>,
+    /// An uncommitted preparation, dropped after the update lock is released.
+    discarded: Option<PreparedUpdate<M>>,
+}
+
+impl<M> Default for Step<M> {
+    fn default() -> Self {
+        Self {
+            notices: Notices::default(),
+            retry: None,
+            discarded: None,
+        }
+    }
+}
+
 /// The in-flight mark of the one admitted approval (spec/20 §5.3,
 /// ADR-0143).
 ///
@@ -668,6 +788,9 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     /// Serializes model updates, approval admission, approval commits, and
     /// disposal across threads (spec/20 §5.4, ADR-0144).
     update_lock: Arc<UpdateLock>,
+    /// The notifications that nested calls queue for the outermost update
+    /// (spec/20 §5.4, ADR-0180).
+    nested: Arc<Mutex<NestedUpdates<M>>>,
     /// Counts the commits of model, snapshot, and error state, each made
     /// under the update lock. Only a callback re-entering from the preparing
     /// thread can advance it during a preparation, which is then stale.
@@ -727,6 +850,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             publication: Arc::new(PublicationControl::new()),
             approval_in_flight: Arc::new(AtomicBool::new(false)),
             update_lock: Arc::new(UpdateLock::new()),
+            nested: Arc::new(Mutex::new(NestedUpdates::new())),
             commit_generation: Arc::new(AtomicU64::new(0)),
             revalidations: Arc::new(AtomicU64::new(0)),
             pair_version: Arc::new(AtomicU64::new(0)),
@@ -873,6 +997,16 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// at once, joins the publishing thread's queue, and returns before it
     /// takes effect; that thread replays it when its publication ends.
     ///
+    /// A call from a preparation callback of a `set_model` or
+    /// [`revert`](Self::revert), or from an `errors_changed` subscriber of
+    /// one, is nested (spec/20 §5.4, ADR-0180). It commits at once, but it
+    /// returns before its notifications. The outermost update on the thread
+    /// sends them before it returns, with no form lock held: every
+    /// `errors_changed` first, in commit order, then the other notifications.
+    /// Once the form is disposed, they are dropped. A nested call never waits
+    /// for another thread's publication scope: while one is open, it joins
+    /// that thread's queue at once.
+    ///
     /// ```
     /// use std::panic::{catch_unwind, AssertUnwindSafe};
     /// use vmx::FormVm;
@@ -897,13 +1031,15 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
-        let Some(Serialized {
-            guard: serialized,
-            refused_by,
-        }) = self.begin_update()
-        else {
+        let Some(Serialized { guard, refused_by }) = self.begin_update() else {
             return;
         };
+        self.run_update(guard, || self.assign(model, refused_by));
+    }
+
+    /// Prepares and commits a `set_model` under the update lock, and returns
+    /// its notifications.
+    fn assign(&self, model: M, refused_by: Option<ThreadId>) -> Step<M> {
         let (generation, queued_count) = self.preparation_marks();
         let queueing = refused_by.is_some() || self.pre_publishing_here();
         let live = self.model();
@@ -911,7 +1047,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         // queued updates can change the live model before it replays.
         let unchanged = live == model;
         if unchanged && !queueing {
-            return;
+            return Step::default();
         }
         let PreparedUpdate {
             generation,
@@ -927,17 +1063,18 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             refused_by,
         ) {
             Placement::Commit(QueuedUpdate::Assign(model)) => model,
-            Placement::Retry(QueuedUpdate::Assign(model)) => {
-                drop(serialized);
-                self.set_model(model);
-                return;
+            Placement::Retry(update) => {
+                return Step {
+                    retry: Some(update),
+                    ..Step::default()
+                }
             }
-            _ => return,
+            _ => return Step::default(),
         };
         // A queue that closed during the preparation leaves an equal
         // candidate with nothing to do.
         if unchanged {
-            return;
+            return Step::default();
         }
         let update = PreparedUpdate {
             generation,
@@ -947,20 +1084,243 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             eligible,
         };
         let Some(errors_changed) = self.commit_update(update) else {
-            return;
+            return Step::default();
         };
-        let mut publication = self.open_update_scope(errors_changed);
-        let delivery = Delivery::begin(&self.publication, &self.disposed);
-        drop(serialized);
+        self.committed(
+            errors_changed,
+            vec![Notice::Eligibility(was_eligible, eligible), Notice::Model],
+        )
+    }
+
+    /// The notifications of a committed update: `errors_changed` in a scope
+    /// opened now, when the errors changed, then `after`.
+    fn committed(&self, errors_changed: bool, after: Vec<Notice>) -> Step<M> {
+        Step {
+            notices: Notices {
+                errors: self.open_update_scope(errors_changed).into_iter().collect(),
+                after,
+                starts: Vec::new(),
+            },
+            ..Step::default()
+        }
+    }
+
+    /// Runs one `set_model` or `revert` frame that holds the update lock in
+    /// `guard` (spec/20 §5.4, ADR-0180). `update` prepares and commits.
+    ///
+    /// A frame nested in another frame's preparation, or in an outermost
+    /// update's `errors_changed` delivery, queues its notifications for the
+    /// outermost update and returns. The outermost frame releases the lock
+    /// and then sends the whole queue. A panic in `update` still lets the
+    /// notifications of the nested calls it made go out, and then resumes.
+    fn run_update(&self, guard: UpdateGuard<'_>, update: impl FnOnce() -> Step<M>) {
+        lock(&self.nested).preparation_depth += 1;
+        let prepared = catch_unwind(AssertUnwindSafe(update));
+        let (step, failure) = match prepared {
+            Ok(step) => (step, None),
+            Err(payload) => (Step::default(), Some(payload)),
+        };
+        let Step {
+            notices,
+            retry,
+            discarded,
+        } = step;
+        let notices = self.take_notices(notices);
+        // A `dispose()` on another thread defers its teardown until the
+        // notifications are sent (spec/20 §5.5).
+        let delivery = if notices.is_empty() {
+            None
+        } else {
+            Delivery::begin(&self.publication, &self.disposed)
+        };
+        drop(guard);
+        drop(discarded);
+        let notified = self.deliver(notices, delivery);
+        if let Some(payload) = failure {
+            drop(notified);
+            resume_unwind(payload);
+        }
+        match retry {
+            Some(QueuedUpdate::Assign(model)) => self.set_model(model),
+            Some(QueuedUpdate::Revert) => self.revert(),
+            Some(QueuedUpdate::Revalidate) => self.revalidate(),
+            None => {}
+        }
+        if let Some(payload) = notified {
+            resume_unwind(payload);
+        }
+    }
+
+    /// Ends a frame's preparation and returns what it must send: nothing for
+    /// a nested frame, which queues `own` for the outermost update, and the
+    /// whole queue for the outermost frame. The caller holds the update lock.
+    fn take_notices(&self, own: Notices<M>) -> Notices<M> {
+        let current = thread::current().id();
+        let mut state = lock(&self.nested);
+        state.preparation_depth -= 1;
+        if state.preparation_depth > 0 {
+            state.pending.append(own.nested());
+            return Notices::default();
+        }
+        let mut notices = std::mem::take(&mut state.pending);
+        if let Some(scoped) = state.error_delivery(current) {
+            scoped.append(notices);
+            scoped.append(own.nested());
+            return Notices::default();
+        }
+        notices.append(own);
+        notices
+    }
+
+    /// Queues the admission notification and the persister start of an
+    /// approval admitted from a nested call, and returns `None`. Returns the
+    /// approval when the call is not nested. The caller holds the update
+    /// lock.
+    fn queue_nested_approval(
+        &self,
+        flight: ApprovalFlight,
+        model: M,
+    ) -> Option<(ApprovalFlight, M)> {
+        let current = thread::current().id();
+        let mut state = lock(&self.nested);
+        let queue = if state.preparation_depth > 0 {
+            &mut state.pending
+        } else if let Some(scoped) = state.error_delivery(current) {
+            scoped
+        } else {
+            return Some((flight, model));
+        };
+        queue.after.push(Notice::Admission);
+        queue.starts.push((flight, model));
+        None
+    }
+
+    /// Reports whether a call on this thread is nested (spec/20 §5.4): it
+    /// comes from a preparation callback while this thread holds the update
+    /// lock, or from this thread's `errors_changed` delivery.
+    fn nested_here(&self, holds_update_lock: bool) -> bool {
+        let current = thread::current().id();
+        let mut state = lock(&self.nested);
+        (holds_update_lock && state.preparation_depth > 0)
+            || state.error_delivery(current).is_some()
+    }
+
+    /// Sends the notifications an outermost update took, with no form lock
+    /// held (spec/20 §5.4 and §5.5, ADR-0180), and ends `delivery`.
+    ///
+    /// Each `errors_changed` goes out in commit order, inside the update
+    /// scope its commit opened. An update made from one of those
+    /// subscribers queues its notifications here, and its error map follows
+    /// in a scope that is still open. The scopes then close, and the other
+    /// notifications follow in queue order. Nested approvals then start their
+    /// persisters, unless the form is disposed, and route a failure to
+    /// `approve_errors`. The thread's queue replays last. Returns the first
+    /// panic of the notifications, an approval, a replay, or the teardown.
+    fn deliver(&self, notices: Notices<M>, delivery: Option<Delivery<M>>) -> Option<PanicPayload> {
+        let current = thread::current().id();
+        let Notices {
+            errors: mut publications,
+            mut after,
+            mut starts,
+        } = notices;
+        let mut delivering_errors = false;
         let notified = catch_unwind(AssertUnwindSafe(|| {
-            if let Some(publication) = publication.as_mut() {
-                self.publish_validation_changed();
-                publication.close_scope();
+            if !publications.is_empty() {
+                lock(&self.nested)
+                    .error_deliveries
+                    .push((current, Notices::default()));
+                delivering_errors = true;
+                let mut sent = 0;
+                while sent < publications.len() {
+                    self.publish_validation_changed();
+                    sent += 1;
+                    if sent == publications.len() {
+                        let scoped = lock(&self.nested)
+                            .error_delivery(current)
+                            .map(std::mem::take)
+                            .unwrap_or_default();
+                        publications.extend(scoped.errors);
+                        after.extend(scoped.after);
+                        starts.extend(scoped.starts);
+                    }
+                }
+                delivering_errors = false;
+                self.end_error_delivery(current, &mut publications, &mut starts);
+                for publication in &mut publications {
+                    publication.close_scope();
+                }
             }
-            self.publish_eligibility_change(was_eligible, eligible);
-            self.publish_model_changed();
+            for notice in after.drain(..) {
+                match notice {
+                    Notice::Eligibility(was_eligible, eligible) => {
+                        self.publish_eligibility_change(was_eligible, eligible);
+                    }
+                    Notice::Model => self.publish_model_changed(),
+                    Notice::Reverted { nested } => {
+                        if !(nested && *lock(&self.disposed)) {
+                            self.hub.send(Message::FormReverted(FormRevertedMessage {
+                                sender_id: self.component.id(),
+                                sender_name: "FormVm".to_string(),
+                            }));
+                        }
+                    }
+                    Notice::Admission => self.raise_approve_can_execute_changed(),
+                }
+            }
         }));
-        self.finish_update(publication, delivery, notified);
+        // An unexpected unwind can leave the error delivery open.
+        if delivering_errors {
+            self.end_error_delivery(current, &mut publications, &mut starts);
+        }
+        let mut first_panic = notified.err();
+        for (flight, model) in starts {
+            // A disposal before the persister starts prevents the call, and
+            // the approval settles silently (spec/20 §10, ADR-0180).
+            if *lock(&self.disposed) {
+                drop(flight);
+                continue;
+            }
+            let approved = catch_unwind(AssertUnwindSafe(|| {
+                if let Err(error) = self.run_approval(flight, model) {
+                    self.publish_approve_error(&error);
+                }
+            }));
+            if let Err(payload) = approved {
+                first_panic.get_or_insert(payload);
+            }
+        }
+        for publication in publications {
+            if let Some(payload) = self.finish_publication(publication) {
+                first_panic.get_or_insert(payload);
+            }
+        }
+        let teardown_panic = delivery
+            .and_then(Delivery::end)
+            .and_then(|teardown| catch_unwind(AssertUnwindSafe(teardown)).err());
+        first_panic.or(teardown_panic)
+    }
+
+    /// Ends this thread's `errors_changed` delivery, when it is open, and
+    /// keeps the scopes and approvals that its subscribers' calls queued
+    /// after the last error map, so they still close and settle.
+    fn end_error_delivery(
+        &self,
+        current: ThreadId,
+        publications: &mut Vec<Publication<M>>,
+        starts: &mut Vec<(ApprovalFlight, M)>,
+    ) {
+        let rest = {
+            let mut state = lock(&self.nested);
+            let index = state
+                .error_deliveries
+                .iter()
+                .rposition(|(entry, _)| *entry == current);
+            index.map(|index| state.error_deliveries.remove(index).1)
+        };
+        if let Some(rest) = rest {
+            publications.extend(rest.errors);
+            starts.extend(rest.starts);
+        }
     }
 
     /// Returns a clone of the last approved or initial snapshot.
@@ -1064,6 +1424,16 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// resumes, unless the approval already carries a failure: a failed
     /// commit or a panicking subscriber wins.
     ///
+    /// A call from a preparation callback of [`set_model`](Self::set_model)
+    /// or [`revert`](Self::revert), or from an `errors_changed` subscriber of
+    /// one, is nested (spec/20 §5.4, ADR-0180). It is admitted at once and
+    /// returns `Ok(())`. Its eligibility change and its persister follow
+    /// after the outermost update on the thread has sent its notifications,
+    /// before that update returns. A failure then goes to
+    /// [`approve_errors`](Self::approve_errors), and a panic resumes from the
+    /// outermost update after its queued updates replay. A disposal before
+    /// the persister starts prevents the persister call (spec/20 §10).
+    ///
     /// ```
     /// use std::sync::{Arc, Mutex};
     /// use vmx::FormVm;
@@ -1101,6 +1471,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         let Some((flight, model)) = self.admit_approval() else {
             return Ok(());
         };
+        self.run_approval(flight, model)
+    }
+
+    /// Persists an admitted approval and settles it.
+    fn run_approval(&self, flight: ApprovalFlight, model: M) -> VmxResult<()> {
         // No lock is held while the persister runs. A panic is caught only to
         // settle the approval before it resumes. The pre-publication window
         // opens when the post-persist commit starts (spec/20 §5.3).
@@ -1145,6 +1520,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// Admission first waits until no other thread holds a publication scope
     /// (spec/20 §5.5). When that wait would close a wait-for cycle, the call
     /// is admitted without it, and its settlement waits instead.
+    ///
+    /// A nested call (spec/20 §5.4, ADR-0180) queues the admission
+    /// notification and the persister start for the outermost update, and
+    /// returns `None`.
     fn admit_approval(&self) -> Option<(ApprovalFlight, M)> {
         // Check validity, mark the flight and capture the model under the
         // update lock, so a `set_model` on another thread cannot commit an
@@ -1158,8 +1537,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 return None;
             }
             let flight = ApprovalFlight::admit(&self.approval_in_flight)?;
+            let (flight, model) = self.queue_nested_approval(flight, self.model())?;
             let delivery = Delivery::begin(&self.publication, &self.disposed)?;
-            (flight, self.model(), delivery)
+            (flight, model, delivery)
         };
         // The admission notification opens no publication scope, so another
         // thread's `dispose()` defers its teardown until it returns.
@@ -1420,51 +1800,47 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return;
         }
-        let Some(Serialized {
-            guard: serialized,
-            refused_by,
-        }) = self.begin_update()
-        else {
+        let Some(Serialized { guard, refused_by }) = self.begin_update() else {
             return;
         };
+        self.run_update(guard, || self.restore(refused_by));
+    }
+
+    /// Prepares and commits a revert under the update lock, and returns its
+    /// notifications.
+    fn restore(&self, refused_by: Option<ThreadId>) -> Step<M> {
         let (generation, queued_count) = self.preparation_marks();
         let snapshot = self.snapshot();
         let restored = (self.snapshotter)(&snapshot);
         let update = self.prepare_update(generation, None, Some(snapshot), restored);
         match self.place_prepared(generation, queued_count, QueuedUpdate::Revert, refused_by) {
             Placement::Commit(_) => {}
-            Placement::Retry(_) => {
-                drop(serialized);
-                drop(update);
-                self.revert();
-                return;
+            Placement::Retry(retry) => {
+                return Step {
+                    retry: Some(retry),
+                    discarded: Some(update),
+                    ..Step::default()
+                };
             }
             Placement::Done => {
-                drop(serialized);
-                drop(update);
-                return;
+                return Step {
+                    discarded: Some(update),
+                    ..Step::default()
+                };
             }
         }
         let (was_eligible, eligible) = (update.was_eligible, update.eligible);
         let Some(errors_changed) = self.commit_update(update) else {
-            return;
+            return Step::default();
         };
-        let mut publication = self.open_update_scope(errors_changed);
-        let delivery = Delivery::begin(&self.publication, &self.disposed);
-        drop(serialized);
-        let notified = catch_unwind(AssertUnwindSafe(|| {
-            if let Some(publication) = publication.as_mut() {
-                self.publish_validation_changed();
-                publication.close_scope();
-            }
-            self.hub.send(Message::FormReverted(FormRevertedMessage {
-                sender_id: self.component.id(),
-                sender_name: "FormVm".to_string(),
-            }));
-            self.publish_model_changed();
-            self.publish_eligibility_change(was_eligible, eligible);
-        }));
-        self.finish_update(publication, delivery, notified);
+        self.committed(
+            errors_changed,
+            vec![
+                Notice::Reverted { nested: false },
+                Notice::Model,
+                Notice::Eligibility(was_eligible, eligible),
+            ],
+        )
     }
 
     /// Returns the lazily created approval command.
@@ -1476,6 +1852,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// admitted and once when it settles. A settlement observer, such as an
     /// approval or `approve_errors` subscriber, may execute it again: that
     /// approval is admitted and runs before the observer's `execute` returns.
+    /// Executed from a preparation callback or an update's `errors_changed`
+    /// subscriber, it is nested, and the approval persists after the
+    /// outermost update's notifications, as [`approve`](Self::approve)
+    /// states.
     pub fn approve_command(&self) -> RelayCommand {
         self.approve_command
             .get_or_init(|| {
@@ -1822,14 +2202,21 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// A call made while this thread already holds the update lock, from a
     /// preparation callback, does not wait: waits for that lock are outside
     /// the wait-for graph (spec/20 §5.5 limitation).
+    ///
+    /// A nested call (spec/20 §5.4, ADR-0180) never waits for another
+    /// thread's scope. It takes the refused-wait result at once and reports a
+    /// publisher in [`Serialized::refused_by`].
     fn serialize(&self) -> Serialized<'_> {
-        if self.update_lock.is_held_by_current() {
-            return Serialized {
-                guard: self.update_lock.acquire(),
-                refused_by: None,
-            };
-        }
         let current = thread::current().id();
+        if self.update_lock.is_held_by_current() {
+            let guard = self.update_lock.acquire();
+            let refused_by = if self.nested_here(true) && !*lock(&self.disposed) {
+                lock(&self.publication.state).foreign_publisher(current)
+            } else {
+                None
+            };
+            return Serialized { guard, refused_by };
+        }
         loop {
             let guard = self.update_lock.acquire();
             let publisher = if *lock(&self.disposed) {
@@ -1843,6 +2230,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                     refused_by: None,
                 };
             };
+            if self.nested_here(false) {
+                return Serialized {
+                    guard,
+                    refused_by: Some(owner),
+                };
+            }
             // Never wait for a scope while holding the update lock: the
             // publisher may need it.
             drop(guard);
@@ -2286,6 +2679,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             publication: Arc::new(PublicationControl::new()),
             approval_in_flight: Arc::new(AtomicBool::new(false)),
             update_lock: Arc::new(UpdateLock::new()),
+            nested: Arc::new(Mutex::new(NestedUpdates::new())),
             commit_generation: Arc::new(AtomicU64::new(0)),
             revalidations: Arc::new(AtomicU64::new(0)),
             pair_version: Arc::new(AtomicU64::new(0)),
