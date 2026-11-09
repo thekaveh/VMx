@@ -1299,19 +1299,14 @@ class _ComponentVMBase(ABC):
             WAITS.acquire(lease, lease.owner_thread)
             # Each hook starts with a fresh deferral slot.
             self._deferred_lifecycle_future = None
+        hook_failed = False
+        deferred_failure: BaseException | None = None
         try:
             with _lifecycle_hook_scope(self):
                 hook()
         except BaseException:
-            # A hook that raises after deferring completion abandons the
-            # deferral, so the next transition starts clean. A child walk this
-            # VM created is cancelled: it takes no further step, but an
-            # ``after`` that has already started runs to its end (#745).
-            # A future the subclass supplied is only dropped, not cancelled,
-            # because its owner may still resolve it.
-            abandoned = self._take_deferred_lifecycle_future()
-            if abandoned is not None and abandoned in _CHILD_WALK_FUTURES:
-                abandoned.cancel()
+            hook_failed = True
+            self._abandon_deferred_lifecycle_future()
             raise
         finally:
             with self._lifecycle_lock:
@@ -1324,14 +1319,30 @@ class _ComponentVMBase(ABC):
             WAITS.release(lease)
             lease.completed.set()
             if deferred_disposal is not None:
-                # The cycle-broken dispose call has already returned. A deferred
-                # cleanup failure must not replace an exception propagating from
-                # the admitted hook that released this lease.
+                # The cycle-broken dispose call has already returned, so this
+                # call reports the cleanup's failure. A hook failure stays first
+                # (ADR-0126, ADR-0200 §2.2).
                 try:
                     deferred_disposal()
-                except BaseException:
-                    pass
+                except BaseException as error:
+                    if not hook_failed:
+                        deferred_failure = error
+        if deferred_failure is not None:
+            self._abandon_deferred_lifecycle_future()
+            raise deferred_failure
         return True
+
+    def _abandon_deferred_lifecycle_future(self) -> None:
+        """Drop the deferral of a hook call that fails.
+
+        The next transition then starts clean. A child walk this VM created is
+        cancelled: it takes no further step, but an ``after`` that has already
+        started runs to its end (#745). A future the subclass supplied is only
+        dropped, not cancelled, because its owner may still resolve it.
+        """
+        abandoned = self._take_deferred_lifecycle_future()
+        if abandoned is not None and abandoned in _CHILD_WALK_FUTURES:
+            abandoned.cancel()
 
     def _on_construct(self) -> None:
         """Called between Constructing and Constructed transitions.

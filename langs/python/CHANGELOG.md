@@ -14,6 +14,9 @@ below for them.
 
 ### Added
 
+- `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
+  cancellation restores the saved stable state. Python and Swift already
+  behaved this way.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `count` first. Then it updates each key
   view that changes, emits the dictionary events and sends the hub message.
@@ -69,6 +72,11 @@ below for them.
 
 ### Fixed
 
+- A terminal cleanup that a wait cycle deferred to an admitted hook's thread
+  no longer loses its failure (ADR-0200, spec/02 §2.4 and §7, #1297). When the
+  hook succeeds, the hook's `construct()`, `destruct()` or `reconstruct()` call
+  now raises the cleanup's first failure, such as a failing child disposal. A
+  hook failure stays first. The cycle-broken `dispose()` call returns normally.
 - A `FormVM` call nested in a preparation callback or an `errors_changed`
   observer of `set_model` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,
