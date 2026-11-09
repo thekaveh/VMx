@@ -354,7 +354,7 @@ def test_concurrent_dispose_during_a_deny_preparation_returns_and_the_deny_commi
     )
     disposer.start()
     try:
-        assert dispose_finished.wait(HANG_GUARD)
+        assert wait_event(dispose_finished, HANG_GUARD)
         completed_during_snapshot = bool(completed)
     finally:
         release_snapshot.set()
