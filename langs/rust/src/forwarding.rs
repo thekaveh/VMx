@@ -31,17 +31,17 @@ enum ForwardingComponentInner<M: Clone + PartialEq + Send + 'static, D: Dispatch
 ///     NullDispatcher::new(),
 /// );
 /// let first = ForwardingComponentVm::new(inner)
-///     .with_hint_override(|| Some("OVERRIDE".to_string()));
+///     .with_hint_override(|| "OVERRIDE".to_string());
 /// let forwarding = ForwardingComponentVm::wrap(first);
 ///
-/// assert_eq!(forwarding.hint().as_deref(), Some("OVERRIDE"));
+/// assert_eq!(forwarding.hint(), "OVERRIDE");
 /// ```
 pub struct ForwardingComponentVm<
     M: Clone + PartialEq + Send + 'static,
     D: Dispatcher = NullDispatcher,
 > {
     inner: ForwardingComponentInner<M, D>,
-    hint_override: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
+    hint_override: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm<M, D> {
@@ -65,7 +65,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     /// every forwarding layer.
     pub fn with_model_hint<F>(self, hint: F) -> Self
     where
-        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+        F: Fn(&M) -> String + Send + Sync + 'static,
     {
         let Self {
             inner,
@@ -88,7 +88,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     /// Overrides only the presentation hint for this decorator layer.
     pub fn with_hint_override<F>(mut self, override_hint: F) -> Self
     where
-        F: Fn() -> Option<String> + Send + Sync + 'static,
+        F: Fn() -> String + Send + Sync + 'static,
     {
         self.hint_override = Some(Arc::new(override_hint));
         self
@@ -124,7 +124,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     }
 
     /// Returns the wrapped component's static hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.hint_override.as_ref().map_or_else(
             || match &self.inner {
                 ForwardingComponentInner::Component(inner) => inner.hint(),
@@ -135,7 +135,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     }
 
     /// Returns the wrapped component's model-derived hint.
-    pub fn modeled_hint(&self) -> Option<String> {
+    pub fn modeled_hint(&self) -> String {
         match &self.inner {
             ForwardingComponentInner::Component(inner) => inner.modeled_hint(),
             ForwardingComponentInner::Forwarding(inner) => inner.modeled_hint(),
@@ -504,7 +504,7 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
     }
 
     /// Returns the wrapped composite's hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.inner.hint()
     }
 
@@ -594,6 +594,31 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
         F: FnOnce(),
     {
         self.inner.batch_update(action);
+    }
+
+    /// Replaces the wrapped composite's construction hook (spec/02 §2.2,
+    /// ADR-0203).
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_construct(hook);
+    }
+
+    /// Replaces the wrapped composite's destruction hook.
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_destruct(hook);
+    }
+
+    /// Replaces the wrapped composite's disposal hook.
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.on_dispose(hook);
     }
 
     /// Constructs the wrapped composite and its children.

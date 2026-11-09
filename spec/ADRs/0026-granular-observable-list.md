@@ -22,7 +22,8 @@ stream, enabling operators like `combineLatest` without a `where action == Add`
 filter.
 
 ADR-0025 depends on this ADR: `ObservableList<TKey>` is the type of each
-key-axis view in `ObservableDictionary`.
+key-axis view in `ObservableDictionary`. ADR-0193 later wrapped each view in a
+read-only `ReadOnlyObservableList<TKey>` facade over that list.
 
 ## 2. Options considered
 

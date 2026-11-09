@@ -1067,3 +1067,87 @@ fn post_after_dispose_keeps_a_stored_reaction() {
     assert_eq!(waiter.try_get(), Some(NotificationReaction::Pending));
     assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
 }
+
+/// Subscribes a handler to the `can_execute_changed` hub of each command in
+/// `observed`. Each handler records `can_execute()` of every command in
+/// `read`, then runs `then`.
+fn record_command_state(
+    observed: &[vmx::RelayCommand],
+    read: Vec<vmx::RelayCommand>,
+    then: impl Fn() + Send + Sync + Clone + 'static,
+) -> (
+    std::sync::Arc<std::sync::Mutex<Vec<bool>>>,
+    Vec<vmx::Subscription>,
+) {
+    let reads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let subscriptions = observed
+        .iter()
+        .map(|command| {
+            let reads = reads.clone();
+            let read = read.clone();
+            let then = then.clone();
+            command.can_execute_changed().subscribe(move |_| {
+                reads
+                    .lock()
+                    .unwrap()
+                    .extend(read.iter().map(Command::can_execute));
+                then();
+            })
+        })
+        .collect();
+    (reads, subscriptions)
+}
+
+/// NOTIF-018 — commands report `CanExecute == false` during VM disposal
+#[test]
+fn confirmation_commands_report_false_during_disposal() {
+    let hub = NotificationHub::new();
+    let (notification, waiter) = hub.post_with_waiter(NotificationType::Confirmation, "confirm?");
+    let vm = ConfirmationVm::with_hub(notification.clone(), hub.clone());
+    let commands = vec![
+        vm.dismiss_command(),
+        vm.approve_command(),
+        vm.reject_command(),
+    ];
+    let reject = vm.reject_command();
+    let (reads, _subscriptions) =
+        record_command_state(&commands, commands.clone(), move || reject.execute());
+
+    vm.dispose();
+
+    let first = reads.lock().unwrap().clone();
+    assert!(!first.is_empty(), "the handlers ran");
+    assert!(
+        first.iter().all(|can_execute| !can_execute),
+        "a command reported can_execute() during disposal: {first:?}"
+    );
+    assert!(!vm.is_resolved());
+    assert_eq!(hub.pending(), vec![notification.clone()]);
+    assert_eq!(waiter.try_get(), None, "the posted waiter has not resolved");
+
+    vm.dispose();
+
+    assert_eq!(
+        *reads.lock().unwrap(),
+        first,
+        "a second dispose runs no handler"
+    );
+    assert_eq!(hub.pending(), vec![notification]);
+    assert_eq!(waiter.try_get(), None);
+}
+
+/// NOTIF-018 — the dismiss command reports `CanExecute == false` during disposal
+#[test]
+fn notification_dismiss_command_reports_false_during_disposal() {
+    let hub = NotificationHub::new();
+    let notification = hub.post(NotificationType::Notification, "info");
+    let vm = NotificationVm::with_hub(notification, hub, 10_000);
+    let dismiss = vec![vm.dismiss_command()];
+    let (reads, _subscriptions) = record_command_state(&dismiss, dismiss.clone(), || {});
+
+    vm.dispose();
+
+    let reads = reads.lock().unwrap().clone();
+    assert!(!reads.is_empty(), "the handler ran");
+    assert!(reads.iter().all(|can_execute| !can_execute));
+}

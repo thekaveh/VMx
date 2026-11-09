@@ -82,8 +82,11 @@ export class NotificationVM {
     this.#emitsDecayTicks = this.#tickIntervalMs > 0 && this.#lifespanMs > 0;
     this.#startTime = scheduler.now();
 
+    // From the start of dispose() the command reports canExecute false, also
+    // inside disposal notifications (spec/16 §6.2, ADR-0196).
     this.dismissCommand = RelayCommand.builder()
       .task(() => this.#dismiss())
+      .predicate(() => !this.#disposed)
       .build();
 
     // Schedule auto-dismiss at lifespan expiry — unless a subclass opts out

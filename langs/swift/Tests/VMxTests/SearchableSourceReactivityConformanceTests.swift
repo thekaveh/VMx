@@ -150,7 +150,7 @@ final class SearchableSourceReactivityConformanceTests: XCTestCase {
                 pendingTerm.fulfill()
             }
             .store(in: &cancellables)
-        wait(for: [pendingTerm], timeout: 1)
+        wait(for: [pendingTerm], timeout: hangGuard)
         sut.dispose()
     }
 

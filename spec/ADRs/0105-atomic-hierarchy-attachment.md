@@ -1,6 +1,6 @@
 # ADR 0105 — Make hierarchy attachment atomic and non-owning
 
-**Status:** Accepted (2026-07-14)
+**Status:** Accepted (2026-07-14; extended by ADR-0127; clarified by ADR-0190)
 **Spec version:** introduced in 3.20.1
 
 ## 1. Context

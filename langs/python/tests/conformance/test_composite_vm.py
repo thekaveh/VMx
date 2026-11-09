@@ -18,7 +18,7 @@ from threading import Barrier, BrokenBarrierError, Event, Thread
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.collections import CollectionChangedEvent
 from vmx.components.base import _OWNERSHIP_TRANSACTION_GATE
 from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
@@ -927,18 +927,18 @@ def test_COMP_026_blocked_current_flag_notification_leaves_final_current_flag() 
     def block_first_publication(property_name: str) -> None:
         if property_name == "is_current" and not first.is_current:
             entered.set()
-            assert release.wait(timeout=2 * HANG_GUARD)
+            assert wait_event(release, 2 * HANG_GUARD)
 
     subscription = first.property_changed.subscribe(block_first_publication)
     first_thread = Thread(target=lambda: setattr(composite, "current", second), daemon=True)
     second_thread = Thread(target=lambda: setattr(composite, "current", third), daemon=True)
     first_thread.start()
-    assert entered.wait(timeout=HANG_GUARD)
+    assert wait_event(entered)
     second_thread.start()
-    second_thread.join(timeout=HANG_GUARD)
+    join_thread(second_thread)
     later_completed_while_blocked = not second_thread.is_alive()
     release.set()
-    first_thread.join(timeout=HANG_GUARD)
+    join_thread(first_thread)
     subscription.dispose()
 
     assert later_completed_while_blocked, "the later assignment must not wait on the blocked one"
@@ -1001,8 +1001,8 @@ def test_COMP_026_opposing_current_callbacks_do_not_deadlock() -> None:
     thread_b = Thread(target=lambda: composite_b.select_component(child_b), daemon=True)
     thread_a.start()
     thread_b.start()
-    thread_a.join(2 * HANG_GUARD)
-    thread_b.join(2 * HANG_GUARD)
+    join_thread(thread_a, 2 * HANG_GUARD)
+    join_thread(thread_b, 2 * HANG_GUARD)
 
     assert not thread_a.is_alive()
     assert not thread_b.is_alive()
@@ -1016,6 +1016,7 @@ def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
     """A collection callback cannot wait on a coordinator held by a disposer."""
     script = textwrap.dedent(
         """
+        import time
         from threading import Event, Thread
 
         from vmx.components.builders import ComponentVMBuilder
@@ -1024,6 +1025,14 @@ def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
         from vmx.services.message_hub import MessageHub
 
         dispatcher = RxDispatcher.immediate()
+
+        def wait_event(event, bound=HANG_GUARD):
+            # tests.liveness.wait_event: wait again until a monotonic deadline passes.
+            deadline = time.monotonic() + bound
+            while not event.wait(max(0.0, deadline - time.monotonic())):
+                if time.monotonic() >= deadline:
+                    return event.is_set()
+            return True
 
         def child(name):
             return ComponentVMBuilder().name(name).services(MessageHub(), dispatcher).build()
@@ -1042,7 +1051,7 @@ def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
 
         def on_a_current(_):
             a_callback_entered.set()
-            assert b_transaction_entered.wait(HANG_GUARD)
+            assert wait_event(b_transaction_entered)
             b.dispose()
 
         a_item = child("a-item")
@@ -1069,7 +1078,7 @@ def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
 
         thread_a = Thread(target=lambda: run(lambda: a.select_component(a_item)))
         thread_a.start()
-        assert a_callback_entered.wait(HANG_GUARD)
+        assert wait_event(a_callback_entered)
         thread_b = Thread(target=lambda: run(lambda: b.add(b_item)))
         thread_b.start()
         thread_a.join()
@@ -1829,7 +1838,7 @@ def test_COMP_040_concurrent_old_parent_disposal_waits_for_transfer_commit() -> 
 
     def block_construct() -> None:
         hook_entered.set()
-        assert release_hook.wait(HANG_GUARD)
+        assert wait_event(release_hook)
 
     child = (
         ComponentVMBuilder()
@@ -1854,15 +1863,15 @@ def test_COMP_040_concurrent_old_parent_disposal_waits_for_transfer_commit() -> 
 
     transfer_thread = Thread(target=transfer, daemon=True)
     transfer_thread.start()
-    assert hook_entered.wait(HANG_GUARD)
+    assert wait_event(hook_entered)
     disposal_thread = Thread(target=dispose, daemon=True)
     disposal_thread.start()
-    assert disposal_started.wait(HANG_GUARD)
+    assert wait_event(disposal_started)
     assert not disposal_done.wait(0.05)
 
     release_hook.set()
-    transfer_thread.join(HANG_GUARD)
-    disposal_thread.join(HANG_GUARD)
+    join_thread(transfer_thread)
+    join_thread(disposal_thread)
     assert not transfer_thread.is_alive()
     assert not disposal_thread.is_alive()
     assert errors == []
@@ -1890,7 +1899,7 @@ def test_LIFE_015_dispose_during_admitted_hook_defers_cleanup_once() -> None:
     def block_construct() -> None:
         hook_active.set()
         hook_entered.set()
-        assert release_hook.wait(HANG_GUARD)
+        assert wait_event(release_hook)
         hook_active.clear()
 
     def children() -> list[ComponentVM]:
@@ -1933,15 +1942,15 @@ def test_LIFE_015_dispose_during_admitted_hook_defers_cleanup_once() -> None:
 
     constructor = Thread(target=construct, daemon=True)
     constructor.start()
-    assert hook_entered.wait(HANG_GUARD)
+    assert wait_event(hook_entered)
     disposer = Thread(target=composite.dispose, daemon=True)
     disposer.start()
     disposer.join(0.05)
     assert cleanups == [], "terminal cleanup must not run while the hook holds its lease"
 
     release_hook.set()
-    constructor.join(HANG_GUARD)
-    disposer.join(HANG_GUARD)
+    join_thread(constructor)
+    join_thread(disposer)
     assert not constructor.is_alive()
     assert not disposer.is_alive()
     composite.dispose()
@@ -2001,7 +2010,7 @@ def test_LIFE_015_opposing_hook_disposals_do_not_deadlock() -> None:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(2 * HANG_GUARD)
+        join_thread(thread, 2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads)
     assert all(vm.status is ConstructionStatus.DISPOSED for vm in composites)
@@ -2047,7 +2056,7 @@ def test_LIFE_015_child_cascade_waits_for_admitted_composite_hook() -> None:
     def block_construct() -> None:
         log.append("hook-enter")
         hook_entered.set()
-        assert release_hook.wait(HANG_GUARD)
+        assert wait_event(release_hook)
         log.append("hook-exit")
 
     composite: CompositeVM[ComponentVM] = (
@@ -2078,7 +2087,7 @@ def test_LIFE_015_child_cascade_waits_for_admitted_composite_hook() -> None:
 
     constructor = Thread(target=construct, daemon=True)
     constructor.start()
-    assert hook_entered.wait(HANG_GUARD)
+    assert wait_event(hook_entered)
     disposer = Thread(target=dispose, daemon=True)
     disposer.start()
     disposer.join(0.1)
@@ -2087,8 +2096,8 @@ def test_LIFE_015_child_cascade_waits_for_admitted_composite_hook() -> None:
     )
 
     release_hook.set()
-    constructor.join(HANG_GUARD)
-    disposer.join(HANG_GUARD)
+    join_thread(constructor)
+    join_thread(disposer)
     assert not constructor.is_alive()
     assert not disposer.is_alive()
     composite.dispose()
@@ -2150,7 +2159,7 @@ def test_LIFE_015_opposing_composite_disposal_defers_child_cascade() -> None:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(2 * HANG_GUARD)
+        join_thread(thread, 2 * HANG_GUARD)
 
     assert all(not thread.is_alive() for thread in threads), "disposals must not deadlock"
     for index in range(2):
@@ -2316,13 +2325,13 @@ def test_bulk_transfer_remove_callback_does_not_retain_ownership_coordinator() -
         )
         workers.append(worker)
         worker.start()
-        callback_observed_progress.append(worker_done.wait(HANG_GUARD))
+        callback_observed_progress.append(wait_event(worker_done))
 
     old_parent.on_collection_changed.subscribe(on_old_collection)
 
     destination.construct()
 
-    workers[0].join(HANG_GUARD)
+    join_thread(workers[0])
     assert not workers[0].is_alive()
     assert callback_observed_progress == [True]
     assert list(unrelated_old) == []
@@ -2381,7 +2390,7 @@ def test_colliding_bulk_wait_does_not_block_unrelated_callback_transfer() -> Non
         bulk_thread = Thread(target=run_bulk, daemon=True)
         bulk_threads.append(bulk_thread)
         bulk_thread.start()
-        assert bulk_started.wait(HANG_GUARD)
+        assert wait_event(bulk_started)
 
         # Under the former implementation the colliding bulk worker retained
         # this gate while waiting for ``child``. Detect that deterministic
@@ -2401,14 +2410,14 @@ def test_colliding_bulk_wait_does_not_block_unrelated_callback_transfer() -> Non
             daemon=True,
         )
         worker.start()
-        callback_progress.append(unrelated_done.wait(HANG_GUARD))
-        worker.join(HANG_GUARD)
+        callback_progress.append(wait_event(unrelated_done))
+        join_thread(worker)
 
     old_parent.on_collection_changed.subscribe(on_old_collection)
 
     first_destination.add(child)
 
-    bulk_threads[0].join(HANG_GUARD)
+    join_thread(bulk_threads[0])
     assert not bulk_threads[0].is_alive()
     assert callback_progress == [True]
     assert bulk_errors == []

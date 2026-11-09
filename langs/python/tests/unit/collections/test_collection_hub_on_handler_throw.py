@@ -37,6 +37,16 @@ class _ThrowingHub:
         raise HubFailureError
 
 
+class _RecordingHub:
+    """A hub whose ``send`` records each message and does not raise."""
+
+    def __init__(self) -> None:
+        self.sent: list[object] = []
+
+    def send(self, message: object) -> None:
+        self.sent.append(message)
+
+
 def _raise_local(_: object) -> None:
     raise LocalFailureError
 
@@ -92,18 +102,33 @@ def test_no_hub_still_reraises_the_local_failure() -> None:
 
 
 def test_dictionary_add_index_is_read_after_local_delivery() -> None:
-    hub = _ThrowingHub()
+    # The subscriber removes the earlier entry, so the added entry moves from
+    # index 1 to index 0 during local delivery. A read before local delivery
+    # would report 1 (#1432). The removal also sends a hub message, so the
+    # hub records each message and does not raise.
+    hub = _RecordingHub()
     dictionary: ObservableDictionary[str, int, str] = ObservableDictionary(hub=hub)  # type: ignore[arg-type]
-    dictionary.on_item_added.subscribe(_raise_local)
+    dictionary.add("x", 0, "zero")
+    hub.sent.clear()
+
+    def remove_earlier_then_raise(_: object) -> None:
+        assert dictionary.remove("x", 0)
+        raise LocalFailureError
+
+    dictionary.on_item_added.subscribe(remove_earlier_then_raise)
 
     with pytest.raises(LocalFailureError):
         dictionary.add("a", 1, "one")
 
-    assert len(hub.sent) == 1
-    message = hub.sent[0]
-    assert isinstance(message, CollectionChangedMessage)
-    assert message.action == "add"
-    assert message.new_index == 0
+    assert list(dictionary.items()) == [("a", 1, "one")]
+    adds = [
+        message
+        for message in hub.sent
+        if isinstance(message, CollectionChangedMessage) and message.action == "add"
+    ]
+    assert len(adds) == 1
+    assert adds[0].new_items == (("a", 1, "one"),)
+    assert adds[0].new_index == 0
 
 
 def test_disposed_dictionary_publishes_nothing() -> None:

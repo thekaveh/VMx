@@ -1,6 +1,6 @@
 # ADR 0122 — Defer container disposal through membership transactions
 
-**Status:** Accepted (2026-07-18)
+**Status:** Accepted (2026-07-18; extended by ADR-0123)
 **Spec version:** clarified in 3.22.0
 **Extends:** [ADR-0118](0118-isolate-container-membership-transactions.md)
 

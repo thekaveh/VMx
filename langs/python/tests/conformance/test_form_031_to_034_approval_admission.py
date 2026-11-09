@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.forms import FormVM
 
 
@@ -214,7 +214,7 @@ def test_form_031_cross_thread_approval_is_refused_while_in_flight() -> None:
     async def persist(model: Model) -> None:
         calls.append(model)
         entered.set()
-        released = await asyncio.get_running_loop().run_in_executor(None, release.wait, HANG_GUARD)
+        released = await asyncio.get_running_loop().run_in_executor(None, wait_event, release)
         assert released
 
     form = FormVM(Model("initial"), persist)
@@ -231,7 +231,7 @@ def test_form_031_cross_thread_approval_is_refused_while_in_flight() -> None:
     approver = Thread(target=approve_on_own_loop, daemon=True)
     approver.start()
     try:
-        assert entered.wait(HANG_GUARD)
+        assert wait_event(entered)
         state = _state(form)
         refused: list[str] = []
 
@@ -245,7 +245,7 @@ def test_form_031_cross_thread_approval_is_refused_while_in_flight() -> None:
 
         contender = Thread(target=approve_again, daemon=True)
         contender.start()
-        contender.join(2 * HANG_GUARD)
+        join_thread(contender, 2 * HANG_GUARD)
 
         assert not contender.is_alive()
         assert refused == ["returned"]
@@ -255,7 +255,7 @@ def test_form_031_cross_thread_approval_is_refused_while_in_flight() -> None:
         assert signals.approved == []
     finally:
         release.set()
-        approver.join(HANG_GUARD)
+        join_thread(approver)
 
     assert not approver.is_alive()
     assert failures == []
@@ -664,7 +664,7 @@ def test_form_034_cross_thread_edits_are_not_blocked() -> None:
 
     async def persist(_: Model) -> None:
         entered.set()
-        released = await asyncio.get_running_loop().run_in_executor(None, release.wait, HANG_GUARD)
+        released = await asyncio.get_running_loop().run_in_executor(None, wait_event, release)
         assert released
 
     form = FormVM(Model("initial"), persist)
@@ -672,21 +672,21 @@ def test_form_034_cross_thread_edits_are_not_blocked() -> None:
     approver = Thread(target=lambda: asyncio.run(form.approve_async()), daemon=True)
     approver.start()
     try:
-        assert entered.wait(HANG_GUARD)
+        assert wait_event(entered)
         editor = Thread(target=lambda: form.set_model(Model("newer")), daemon=True)
         editor.start()
-        editor.join(HANG_GUARD)
+        join_thread(editor)
         assert not editor.is_alive()
         assert form.model == Model("newer")
 
         denier = Thread(target=form.deny_command.execute, daemon=True)
         denier.start()
-        denier.join(HANG_GUARD)
+        join_thread(denier)
         assert not denier.is_alive()
         assert form.model == Model("initial")
     finally:
         release.set()
-        approver.join(HANG_GUARD)
+        join_thread(approver)
 
     assert not approver.is_alive()
     assert form.snapshot == Model("captured")

@@ -119,12 +119,15 @@ filtered projection through the concrete reusable helper.
 
 **Resolved.** `ExpandableState` provides collapsed, explicitly initialized,
 and initially-expanded construction. It implements `Expandable`,
-`Collapsible`, and `ExpansionTogglable`; `dispose` completes the owned hub and
-makes later mutation inert.
+`Collapsible`, and `ExpansionTogglable`. Its typed `expansion_changes()`
+stream sends the new value once per effective change and does not replay the
+current value (spec/05 §8, ADR-0206, #1254). `dispose` completes the owned hub
+and the typed stream and makes later mutation inert.
 
 Evidence: the expandable-support suite covers construction variants,
 capability dispatch, completion, idempotent disposal, and post-dispose no-op
-behavior.
+behavior. EXP-002, EXP-003, `expansion_changes_does_not_replay_the_current_value`
+and the dispose test in `expandable.rs` cover the typed stream.
 
 ### 12.3.7. SearchableState Post-Dispose Read
 
@@ -334,7 +337,8 @@ Rust-specific items remain open:
   failure through their background-hook error path.
 - **No join of an in-flight child in aggregates.** When `AggregateVm1`–
   `AggregateVm6` construct a slot child that is already Constructing in the
-  background, Rust returns `ConcurrentOperation`. C# (`ConstructOrJoinAsync`),
+  background, Rust returns `InvalidLifecycleTransition` from `Constructing`.
+  C# (`ConstructOrJoinAsync`),
   Python, TypeScript, and Swift join the in-flight transition instead. The
   `CompositeVm`, `ModeledCompositeVm`, and `GroupVm` construct walks join such a
   child (#636).
@@ -362,8 +366,8 @@ It does not forward `is_current`, the selection methods and commands
 (`can_select`, `select`, `can_deselect`, `deselect`, `select_command`,
 `deselect_command`, `select_next_command`, `select_previous_command`,
 `reconstruct_command`), expansion (`expand`, `collapse`, `toggle_expansion`,
-`is_expanded`), the lifecycle hooks, `on_current_changed`, or
-`background_errors`. spec/09 §2 requires the same delegation as §1.
+`is_expanded`), `on_current_changed`, or `background_errors`. It forwards the
+lifecycle hooks (ADR-0203). spec/09 §2 requires the same delegation as §1.
 
 ## 12.9. Open Item: FormVm Approval Completion
 

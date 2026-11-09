@@ -74,8 +74,11 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         _emitsDecayTicks = _tickInterval > TimeSpan.Zero && _lifespan > TimeSpan.Zero;
         _start = _scheduler.Now;
 
+        // Every owned command reports CanExecute false from the start of
+        // Dispose() (spec/16 §6.2, ADR-0196).
         DismissCommand = RelayCommand.Builder()
             .Task(Dismiss)
+            .Predicate(() => !IsDisposed)
             .Build();
 
         // Schedule auto-dismiss at Lifespan expiry. The scheduler MUST be
@@ -203,6 +206,19 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         if (tickSub is not null) CaptureDisposalFailure(ref firstError, tickSub.Dispose);
         if (DismissCommand is IDisposable d) CaptureDisposalFailure(ref firstError, d.Dispose);
         firstError?.Throw();
+    }
+
+    /// <summary>
+    /// True from the start of <see cref="Dispose()"/>. The owned commands read it
+    /// in their predicates (spec/16 §6.2, ADR-0196).
+    /// </summary>
+    private protected bool IsDisposed
+    {
+        get
+        {
+            lock (_gate)
+                return _disposed;
+        }
     }
 
     /// <summary>Runs one teardown step, keeping the first failure for a later rethrow.</summary>

@@ -43,7 +43,9 @@ open class NotificationVM {
     private let propertyChangedSubject = PassthroughSubject<String, Never>()
 
     private var resolved = false
-    private var disposed = false
+    /// Set first by `dispose()`. The owned commands read it, so each reports
+    /// `canExecute() == false` from the start of disposal (spec/16 §6.2).
+    private(set) var disposed = false
     /// `remaining` kept from the first resolution or disposal (ADR-0197).
     private var keptRemaining: TimeInterval?
     /// Set when the lifespan timer fires; `remaining` is then 0 (ADR-0197).
@@ -81,6 +83,7 @@ open class NotificationVM {
         weak var weakSelf: NotificationVM?
         self.dismissCommand = RelayCommand.builder()
             .task { weakSelf?.dismiss() }
+            .predicate { !(weakSelf?.disposed ?? false) }
             .build()
         weakSelf = self  // self fully initialized — safe to use below
 
@@ -153,6 +156,8 @@ open class NotificationVM {
 
     /// Disposes resources: cancels the timer, the pending subscription, the
     /// decay tick, and the dismiss command, then completes `propertyChanged`.
+    /// Every owned command reports `canExecute() == false` from the start of
+    /// this call, also inside its disposal notifications (spec/16 §6.2).
     public func dispose() {
         if disposed { return }
         disposed = true

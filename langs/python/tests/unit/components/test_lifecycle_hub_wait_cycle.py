@@ -14,7 +14,7 @@ import threading
 from collections import Counter
 from typing import Any
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from tests.wait_graph_seams import wait_until_waiting
 from vmx.components.builders import ComponentVMOfBuilder
 from vmx.lifecycle.status import ConstructionStatus
@@ -47,12 +47,12 @@ class _Worker:
     @property
     def ident(self) -> int:
         """The thread's ident, once a peer thread has started it."""
-        if not self._started.wait(HANG_GUARD):
+        if not wait_event(self._started):
             raise TimeoutError(f"{self.thread.name} did not start")
         return self.thread.ident or 0
 
     def join(self) -> None:
-        self.thread.join(3 * HANG_GUARD)
+        join_thread(self.thread, 3 * HANG_GUARD)
         assert not self.thread.is_alive(), f"{self.thread.name} hung"
 
 
@@ -114,7 +114,7 @@ def test_a_hub_drainer_disposing_a_constructing_vm_does_not_hang() -> None:
 
     _on_trigger(hub, dispose_x_when_a_waits, errors)
     drainer = _Worker("B", lambda: hub.send(_trigger())).start()
-    assert draining.wait(HANG_GUARD)
+    assert wait_event(draining)
     constructor.start()
     drainer.join()
     constructor.join()
@@ -151,7 +151,7 @@ def test_a_lifecycle_drainer_sending_to_a_waiting_hub_drainer_does_not_hang() ->
     x.property_changed.subscribe(hold_until_b_waits)
     _on_trigger(hub, x.dispose, errors)
     constructor = _Worker("A", x.construct).start()
-    assert a_draining_x.wait(HANG_GUARD)
+    assert wait_event(a_draining_x)
     disposer.start()
     disposer.join()
     constructor.join()
@@ -187,7 +187,7 @@ def test_disposing_another_vm_keeps_the_construct_send_synchronous() -> None:
 
     _on_trigger(hub, dispose_other_when_a_waits, errors)
     drainer = _Worker("B", lambda: hub.send(_trigger())).start()
-    assert draining.wait(HANG_GUARD)
+    assert wait_event(draining)
     constructor.start()
     drainer.join()
     constructor.join()

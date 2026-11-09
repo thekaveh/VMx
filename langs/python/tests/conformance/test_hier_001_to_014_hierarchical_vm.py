@@ -525,7 +525,13 @@ def test_hier_013_searchable_state_composition() -> None:
 
     IExpandable.register(CollapsedNode)
 
-    apple = MyNode(model=MyModel("apple"), hub=hub, dispatcher=dispatcher)
+    # A grandchild that matches below an expanded node, so the search must
+    # cover deeper materialized nodes, not only the root's children (#1399).
+    pecan = MyNode(model=MyModel("pecan"), hub=hub, dispatcher=dispatcher)
+    apple = CollapsedNode(
+        model=MyModel("apple"), children_factory=lambda _: [pecan], hub=hub, dispatcher=dispatcher
+    )
+    apple.expand()
     banana = MyNode(model=MyModel("banana"), hub=hub, dispatcher=dispatcher)
     mango = MyNode(model=MyModel("mango"), hub=hub, dispatcher=dispatcher)
     # cherry has a lazy child behind a collapsed boundary that is never crossed.
@@ -542,7 +548,8 @@ def test_hier_013_searchable_state_composition() -> None:
     def materialized() -> list[MyNode]:
         # The materialized portion, produced by the LIBRARY's expand-aware walk:
         # walk_expanded descends through root (not IExpandable → expanded) and
-        # stops at the collapsed cherry without touching its lazy children.
+        # the expanded apple, and stops at the collapsed cherry without
+        # touching its lazy children.
         return [cast("MyNode", node) for node in walk_expanded(root) if node is not root]
 
     search: SearchableState[MyNode] = SearchableState(
@@ -566,8 +573,8 @@ def test_hier_013_searchable_state_composition() -> None:
     search.search()
 
     assert emissions >= 1
-    assert [n.model.value for n in result] == ["banana", "mango"], (
-        "exactly the matching materialized leaves, in source order"
+    assert [n.model.value for n in result] == ["pecan", "banana", "mango"], (
+        "exactly the matching materialized nodes, in walk order"
     )
     assert lazy_match not in result, "un-materialized lazy child must not appear"
     assert lazy_factory_calls == 0, "searching must not materialize lazy children"

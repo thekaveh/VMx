@@ -92,6 +92,37 @@ producers are serialized behind that scope and retain ordinary synchronous
 delivery on their own calling thread after it exits. Re-entrant sends are
 delivered iteratively on the current drainer's thread. See `03-messages.md §3.3`.
 
+### 3.1 Continuations after awaited work (spec v3.30, ADR-0195)
+
+Some VMx operations await work and then continue. A
+`ConfirmationDecoratorCommand` awaits `confirm()` and then runs the inner
+command (chapter 04 §8.3). An `AsyncRelayCommand` awaits its task and then
+raises its completion `CanExecuteChanged` and any `errors` emission (chapter
+04 §10). A `TokenPagedComposition` load or refresh awaits its fetch and then
+publishes its `CollectionChanged` and property notifications (chapter 21 §6).
+
+VMx does not marshal such a continuation. The continuation runs where the
+awaited work completes, not on the caller's thread and not on
+`IDispatcher.Foreground`. VMx makes no further thread guarantee for it:
+
+- **C#:** VMx awaits with `ConfigureAwait(false)`. The continuation can run on
+  a thread-pool thread, also when the caller has a `SynchronizationContext`.
+- **Python:** the continuation runs on the event loop that runs the operation.
+  That is the caller's running loop, or the VMx background loop when no loop
+  runs.
+- **TypeScript:** the continuation runs on the one JavaScript thread.
+- **Swift:** the continuation runs on the executor of the Swift task that VMx
+  starts. VMx starts these tasks from nonisolated code, so they do not run on
+  the main actor.
+- **Rust:** the continuation runs on the thread that settles the awaited value,
+  or on a VMx worker thread.
+
+A consumer that needs foreground delivery marshals the work itself. It
+subscribes through `ObserveOn(dispatcher.Foreground)` or the flavor
+equivalent, or it makes the inner command post its work to
+`IDispatcher.Foreground`. An inner command that mutates a composite must do
+so on the foreground (§3).
+
 ## 4. Background work
 
 VMs MAY perform construction and destruction work on `IDispatcher.Background`. The
@@ -111,12 +142,11 @@ does not turn parent orchestration into a synchronous wait for background-enable
 descendants; containers retain their existing child-cascade and failure routes.
 
 The child-transition helper of chapter 02 §6.1 runs inside the parent's hook,
-so a background-enabled parent runs it on `IDispatcher.Background` in C#,
-Python, TypeScript and Swift. Rust's walk methods run the component's
-transition on the calling thread, so `construct_with_children` and
-`destruct_with_children` reject a component built with `background(true)` and
-return `VmxError::InvalidArgument` before any transition starts.
-`reconstruct_with_children` follows the direct-reconstruct rule above and runs
+so a background-enabled parent runs it on `IDispatcher.Background`. In Rust,
+the walk of a `construct` or `destruct` of a component built with
+`background(true)` runs after the hook on the background dispatcher
+(ADR-0203). A reconstruct, with stored walks or through
+`reconstruct_with_children`, follows the direct-reconstruct rule above and runs
 synchronously for every component. Background children of the walk still run
 their own hooks on the background dispatcher, and the walk waits for them.
 

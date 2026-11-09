@@ -33,7 +33,8 @@ class NotificationVM:
       and keeps its value from the first resolution or disposal (ADR-0197)
     - :attr:`opacity` — derived ``remaining_time / lifespan`` in range [0.0, 1.0]
     - :attr:`is_resolved` — ``True`` once resolved
-    - :attr:`dismiss_command` — resolves with Approve and cancels the timer
+    - :attr:`dismiss_command` — resolves with Approve and cancels the timer;
+      reports ``can_execute() == False`` from the start of :meth:`dispose`
     - :attr:`property_changed` — INPC-style change-notification stream (VMX-135)
 
     Auto-dismiss: when ``remaining_time`` reaches zero the VM resolves the
@@ -93,7 +94,11 @@ class NotificationVM:
         self._property_changed_subject: Subject[str] = Subject()
         self._tick_sub: DisposableBase | None = None
         self._timer_sub: DisposableBase | None = None
-        self._dismiss_command = RelayCommand.builder().task(self._dismiss).build()
+        # From the start of dispose(), every owned command reports False
+        # (spec/16 §6.2, ADR-0196). The predicate reads _disposed lazily.
+        self._dismiss_command = (
+            RelayCommand.builder().task(self._dismiss).predicate(self._is_live).build()
+        )
         self._pending_sub: DisposableBase | None = None
         self._disposed = False
 
@@ -233,6 +238,10 @@ class NotificationVM:
         """Keep ``remaining_time`` from the first resolution or disposal (ADR-0197)."""
         if self._kept_remaining is None:
             self._kept_remaining = self._compute_remaining()
+
+    def _is_live(self) -> bool:
+        """Owned-command predicate: False from the start of :meth:`dispose`."""
+        return not self._disposed
 
     def _cancel_timers(self) -> None:
         """Dispose the lifespan timer and the decay-tick subscription."""
