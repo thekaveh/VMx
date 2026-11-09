@@ -37,7 +37,13 @@ public enum DerivedPropertyError: Error {
     /// `setValue` was called but the validator rejected the value, the
     /// property is read-only / default-built, or the property is disposed.
     case cannotSet
-    /// `fromSourcesResult` received an empty source list (ADR-0217).
+}
+
+/// The failure of `DerivedProperty.fromSourcesResult` (ADR-0217). It is a
+/// separate type, so `DerivedPropertyError` gains no case and an exhaustive
+/// consumer `switch` over it keeps compiling.
+public enum DerivedPropertySourcesError: Error, Equatable {
+    /// `fromSourcesResult` received an empty source list.
     case noSources
 }
 
@@ -276,7 +282,7 @@ public extension DerivedProperty where TValue: Equatable {
         _ transform: @escaping ([Any]) -> TValue,
         canSet: ((TValue) -> Bool)? = nil,
         setAction: ((TValue) -> Void)? = nil
-    ) -> Result<DerivedProperty, DerivedPropertyError> {
+    ) -> Result<DerivedProperty, DerivedPropertySourcesError> {
         guard !sources.isEmpty else { return .failure(.noSources) }
         return .success(fromSources(sources, transform, canSet: canSet, setAction: setAction))
     }

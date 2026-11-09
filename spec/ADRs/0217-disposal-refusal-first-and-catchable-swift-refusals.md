@@ -60,13 +60,13 @@ order.
 Each Swift operation gains a `Result` companion in the ADR-0107 pattern. The
 existing method keeps its signature, so no caller breaks.
 
-| Operation                            | Catchable form                                                                              | Failure                                         | Existing method                          |
-| ------------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------- |
-| `FilteredCompositeVM.setCurrent(_:)` | `setCurrentResult(_:) -> Result<Void, CompositeMembershipError>`                            | an error with the internal reason `.notVisible` | traps, as the `current` setter does      |
-| `CompositeVM.removeAt(_:)`           | `removeAtResult(_:) -> Result<Void, ContainerOwnershipError>`                               | `.attachmentFailed(VMCollectionIndexError)`     | discards the failure and changes nothing |
-| `GroupVM.removeAt(_:)`               | `removeAtResult(_:)`                                                                        | the same                                        | the same                                 |
-| `ForwardingCompositeVM.removeAt(_:)` | `removeAtResult(_:)`, forwarded to the wrapped composite                                    | the wrapped composite's failure                 | the same                                 |
-| `DerivedProperty.fromSources`        | `fromSourcesResult(_:_:canSet:setAction:) -> Result<DerivedProperty, DerivedPropertyError>` | the new case `.noSources`                       | traps                                    |
+| Operation                            | Catchable form                                                                                     | Failure                                               | Existing method                          |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------- |
+| `FilteredCompositeVM.setCurrent(_:)` | `setCurrentResult(_:) -> Result<Void, CompositeMembershipError>`                                   | an error with the internal reason `.notVisible`       | traps, as the `current` setter does      |
+| `CompositeVM.removeAt(_:)`           | `removeAtResult(_:) -> Result<Void, ContainerOwnershipError>`                                      | `.attachmentFailed(VMCollectionIndexError)`           | discards the failure and changes nothing |
+| `GroupVM.removeAt(_:)`               | `removeAtResult(_:)`                                                                               | the same                                              | the same                                 |
+| `ForwardingCompositeVM.removeAt(_:)` | `removeAtResult(_:)`, forwarded to the wrapped composite                                           | the wrapped composite's failure                       | the same                                 |
+| `DerivedProperty.fromSources`        | `fromSourcesResult(_:_:canSet:setAction:) -> Result<DerivedProperty, DerivedPropertySourcesError>` | `.noSources` of the new `DerivedPropertySourcesError` | traps                                    |
 
 - **Removal discards, as `insert` and `replace` do.** The `Void` `insert` and
   `replace(at:with:)` of `CompositeVM` and `GroupVM` already discard their
@@ -85,8 +85,8 @@ existing method keeps its signature, so no caller breaks.
   `docs/maintenance/2026-07-16-rust-capability-parity.md` owns any Rust
   change.
 
-ADR-0009 §2.35 lists the Swift traps that remain and the catchable form of
-each.
+The ADR-0009 section "Swift traps that remain" lists the Swift traps that
+remain and the catchable form of each.
 
 ## 3. Consequences
 
@@ -97,7 +97,9 @@ each.
 - `swift test` covers the order in
   `CompositeSelectionWithoutTransactionTests.testDeferredDisposalReportsTheDisposalRefusalForANonMember`
   and the companions in `CatchableRefusalTests`.
-- `DerivedPropertyError` gains `.noSources`. A consumer `switch` over
-  `DerivedPropertyError` with no `default` must add the case.
+- `fromSourcesResult` fails with the new `DerivedPropertySourcesError` type,
+  not with a new case of `DerivedPropertyError`. A consumer `switch` over
+  `DerivedPropertyError` keeps compiling, so the change is source compatible
+  and ships in a minor version.
 - No conformance ID changes. `COMP-009` keeps its non-member refusal when no
   disposal is pending.

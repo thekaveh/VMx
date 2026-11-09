@@ -15,10 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `ForwardingCompositeVM` returns `.attachmentFailed(VMCollectionIndexError)`
   for an index outside `[0, count)`. `DerivedProperty.fromSourcesResult`
   returns `.failure(.noSources)` for an empty source list, through the new
-  `DerivedPropertyError.noSources` case; a `switch` over
-  `DerivedPropertyError` with no `default` must add it.
+  `DerivedPropertySourcesError` type; `DerivedPropertyError` does not change.
   `FilteredCompositeVM.setCurrent(_:)`, its `current` setter and
-  `fromSources` still trap; ADR-0009 §2.35 lists the remaining Swift traps.
+  `fromSources` still trap; the ADR-0009 section "Swift traps that remain"
+  lists the remaining Swift traps.
 
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).

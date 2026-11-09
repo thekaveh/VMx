@@ -595,8 +595,9 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
     }
 
     /// Rule 3 applies before rule 2 (ADR-0217, #1423): while disposal is
-    /// deferred, a child that was never added gets the disposal refusal, not
-    /// the non-member refusal, as in C#, Python, TypeScript and Rust.
+    /// deferred, a child that was never added, and a disposed member, get the
+    /// disposal refusal, not the non-member refusal, as in C#, Python,
+    /// TypeScript and Rust.
     func testDeferredDisposalReportsTheDisposalRefusalForANonMember() throws {
         let a = try leaf("a")
         let b = try leaf("b")
@@ -605,6 +606,12 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
             .withNullServices().autoConstructOnAdd().children { [a, b] }.build()
         try composite.construct()
         try composite.setCurrent(a)
+        // A disposed member gets the non-member refusal while no disposal of
+        // the composite is pending.
+        b.dispose()
+        XCTAssertThrowsError(try composite.setCurrent(b)) { error in
+            XCTAssertEqual((error as? CompositeMembershipError)?.reason, .nonMember, "\(error)")
+        }
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
         let added = DispatchSemaphore(value: 0)
@@ -622,6 +629,11 @@ final class CompositeSelectionWithoutTransactionTests: XCTestCase {
 
         XCTAssertFalse(composite.canSetCurrent(stranger))
         XCTAssertThrowsError(try composite.setCurrent(stranger)) { error in
+            XCTAssertEqual((error as? CompositeMembershipError)?.reason, .disposing, "\(error)")
+        }
+        // A disposed member gets the disposal refusal too.
+        XCTAssertFalse(composite.canSetCurrent(b))
+        XCTAssertThrowsError(try composite.setCurrent(b)) { error in
             XCTAssertEqual((error as? CompositeMembershipError)?.reason, .disposing, "\(error)")
         }
         // The late child is attached but not admitted: a non-member too.
