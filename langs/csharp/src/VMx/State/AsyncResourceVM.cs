@@ -341,7 +341,9 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
                 operation.Dispose();
                 return;
             }
-            if (error is OperationCanceledException && operation.Cancellation.IsCancellationRequested)
+            // A current loader's own cancellation, from any token, restores the
+            // baseline as Cancel does. A timeout stays a failure (ADR-0199, ARES-012).
+            if (error is OperationCanceledException { InnerException: not TimeoutException })
             {
                 try { HandleCancellation(operation); }
                 finally { operation.Dispose(); }
