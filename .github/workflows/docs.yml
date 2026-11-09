@@ -91,6 +91,10 @@ jobs:
       - name: Audit docs dependencies
         run: python -m pip_audit --local
       - name: Check docs
+        # Includes tests/docs/test_new_adr_diagram_generation.py: on this
+        # ubuntu-24.04 runner, both diagram generators run in write mode on a
+        # copy of the tree with a new spec/ADRs/9999-test.md, and no unrelated
+        # PNG may change (#1477).
         run: make docs-check
       - name: Configure Pages
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
