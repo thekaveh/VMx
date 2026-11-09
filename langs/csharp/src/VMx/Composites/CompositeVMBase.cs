@@ -114,12 +114,12 @@ internal static class ContainerMembership
         where TContainer : ComponentVMBase
         where VM : class, IComponentVM
     {
-        // A throwing local handler must not suppress the hub message for the
-        // committed change (spec/01 §1.4, #723): send it, then rethrow.
-        // The first failure wins, as in NotifyPropertyChanged and Python.
-        ExceptionDispatchInfo? firstFailure = null;
-        try { handler?.Invoke(container, args); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
+        // A throwing local handler stops neither the later handlers nor the
+        // hub message for the committed change (spec/01 §1.4, spec/03 §3.6,
+        // #723, ADR-0191): send it, then rethrow. The first failure wins, as
+        // in NotifyPropertyChanged and Python.
+        ExceptionDispatchInfo? firstFailure =
+            FanOut.Raise(handler, h => h(container, args));
         if (canPublish(container))
         {
             try { container.Hub.Send(CollectionChangedMessage<VM>.From(container, args)); }

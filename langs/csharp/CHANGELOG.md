@@ -8,6 +8,19 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a failing subscriber no longer stops the delivery to the other
+  subscribers or detaches a subscription (ADR-0191, spec/03 §3.6, #1304,
+  #1311). This covers the hub helpers, `DerivedProperty` value changes,
+  `SearchableState`, command `CanExecuteChanged` handlers and triggers, and the
+  local collection and container channels. A failure from a stream-fed delivery
+  no longer reaches the upstream publisher; it follows the hub's
+  subscriber-error route. Collection, container and raise-call failures are
+  still rethrown, after every subscriber has run. A failing `SearchableState`
+  predicate keeps the last snapshot (`HUB-007`, `DPROP-013`, `SRCH-009`,
+  `CMD-021`, `COL-069`).
+- Fixed: `AggregateChangeStream` now delivers each envelope to its subscribers
+  in subscription order, for item, structural, final `Batch` and completion
+  delivery (ADR-0192, spec/21 §9.5, #1310, `AGCH-011`).
 - Added: `COL-067` conformance tests (#1176, ADR-0177). An
   `ObservableDictionary` mutation changes the entries and `Count` first. Then
   it updates each key view that changes, raises the dictionary events and

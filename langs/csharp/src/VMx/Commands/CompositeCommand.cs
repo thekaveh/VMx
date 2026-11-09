@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using VMx.Internal;
 
 namespace VMx.Commands;
 
@@ -40,7 +41,8 @@ public sealed class CompositeCommand : ICommand, IDisposable
         _inner = commands;
         foreach (var c in _inner)
         {
-            EventHandler handler = (sender, args) => CanExecuteChanged?.Invoke(this, args);
+            EventHandler handler = (sender, args) =>
+                FanOut.Raise(CanExecuteChanged, h => h(this, args))?.Throw();
             _innerHandlers.Add(handler);
             c.CanExecuteChanged += handler;
         }

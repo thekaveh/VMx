@@ -55,7 +55,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         _predicate = predicate;
         _throwOnCancel = throwOnCancel;
         foreach (var t in triggers)
-            _triggerSubscriptions.Add(t.Subscribe(_ => RaiseCanExecuteChanged()));
+            _triggerSubscriptions.Add(t.Subscribe(_ => RaiseFromTrigger()));
     }
 
     /// <inheritdoc/>
@@ -279,7 +279,9 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     /// <summary>
     /// Notifies subscribers that <see cref="CanExecute"/> may have changed without
     /// evaluating the predicate or invoking the task. A no-op after disposal and
-    /// valid both while idle and while an execution is in flight.
+    /// valid both while idle and while an execution is in flight. Every handler
+    /// runs, even when an earlier one throws; the first failure is then
+    /// rethrown (spec/03 §3.6, ADR-0191).
     /// </summary>
     public void RaiseCanExecuteChanged()
     {
@@ -287,7 +289,15 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         {
             if (_disposed) return;
         }
-        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        FanOut.Raise(CanExecuteChanged, handler => handler(this, EventArgs.Empty))?.Throw();
+    }
+
+    // A trigger emission is stream-fed: a handler failure is discarded so it
+    // never reaches the trigger publisher (spec/03 §3.6, ADR-0191).
+    private void RaiseFromTrigger()
+    {
+        try { RaiseCanExecuteChanged(); }
+        catch { /* stream-fed route: discard (spec/03 §3.6) */ }
     }
 
     /// <summary>Returns a new immutable builder for <see cref="AsyncRelayCommand"/>.</summary>

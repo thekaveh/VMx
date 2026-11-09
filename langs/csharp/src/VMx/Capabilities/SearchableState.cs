@@ -18,6 +18,7 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
     private readonly Func<TItem, string, bool> _predicate;
     private readonly BehaviorSubject<string> _termSubject = new("");
     private readonly BehaviorSubject<IReadOnlyList<TItem>> _filteredSubject;
+    private readonly IsolatedObservable<IReadOnlyList<TItem>> _filtered;
     private readonly Subject<Unit> _forceSearchSubject = new();
     private readonly IDisposable _subscription;
     private bool _disposed;
@@ -48,6 +49,7 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
         var actualScheduler = scheduler ?? DefaultScheduler.Instance;
 
         _filteredSubject = new BehaviorSubject<IReadOnlyList<TItem>>(ApplyFilter(""));
+        _filtered = new IsolatedObservable<IReadOnlyList<TItem>>(_filteredSubject, captureCompletionFailures: true);
 
         var debouncedTerm = actualDebounce > TimeSpan.Zero
             ? _termSubject.Throttle(actualDebounce, actualScheduler)
@@ -69,9 +71,23 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
             // callback on another thread). Post-dispose Subject.OnNext throws
             // ObjectDisposedException, so drop that fault — a disposed searchable
             // has no observers to notify (mirrors AsyncRelayCommand.EmitError).
+            // A failing predicate or item supplier stops this recompute only:
+            // Filtered keeps its last snapshot and the failure is discarded, so
+            // it never reaches the term setter, Search() or the debounce timer
+            // (spec/03 §3.6 and spec/06 §8.2, ADR-0191).
+            List<TItem> snapshot;
             try
             {
-                _filteredSubject.OnNext(ApplyFilter(term));
+                snapshot = ApplyFilter(term);
+            }
+            catch
+            {
+                return;
+            }
+
+            try
+            {
+                _filteredSubject.OnNext(snapshot);
             }
             catch (ObjectDisposedException)
             {
@@ -99,8 +115,10 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
         }
     }
 
-    /// <summary>Observable of the current filtered snapshot.</summary>
-    public IObservable<IReadOnlyList<TItem>> Filtered => _filteredSubject.AsObservable();
+    /// <summary>Observable of the current filtered snapshot. A subscriber that
+    /// throws stays attached, and its failure is discarded (spec/03 §3.6,
+    /// ADR-0191).</summary>
+    public IObservable<IReadOnlyList<TItem>> Filtered => _filtered;
 
     /// <inheritdoc/>
     public bool CanSearch() => _itemsSource().Any();
@@ -133,6 +151,7 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
         FirstFailure.Capture(ref firstError, _termSubject.OnCompleted);
         FirstFailure.Capture(ref firstError, _termSubject.Dispose);
         FirstFailure.Capture(ref firstError, _filteredSubject.OnCompleted);
+        firstError ??= _filtered.TakeCompletionFailure();
         FirstFailure.Capture(ref firstError, _filteredSubject.Dispose);
         FirstFailure.Capture(ref firstError, _forceSearchSubject.OnCompleted);
         FirstFailure.Capture(ref firstError, _forceSearchSubject.Dispose);

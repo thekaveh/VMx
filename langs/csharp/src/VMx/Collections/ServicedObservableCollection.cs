@@ -25,6 +25,13 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
 {
     private readonly IMessageHub? _hub;
 
+    // Each local handler is registered on the base event through a wrapper
+    // that records its failure, so a throwing handler does not stop the later
+    // ones (spec/03 §3.6, ADR-0191). The base event keeps one entry per
+    // handler, so ObservableCollection's reentrancy check is unchanged.
+    private readonly List<(NotifyCollectionChangedEventHandler Handler, NotifyCollectionChangedEventHandler Wrapper)> _localHandlers = [];
+    private ExceptionDispatchInfo? _deliveryFailure;
+
     /// <summary>
     /// Initializes a new instance, optionally wiring it to <paramref name="hub"/>.
     /// </summary>
@@ -32,6 +39,43 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
     public ServicedObservableCollection(IMessageHub? hub = null)
     {
         _hub = hub;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Every handler receives each change once, even when an earlier handler
+    /// throws. The mutation then rethrows the first failure after the hub send
+    /// (spec/03 §3.6, ADR-0171, ADR-0191).
+    /// </remarks>
+    public override event NotifyCollectionChangedEventHandler? CollectionChanged
+    {
+        add
+        {
+            if (value is null) return;
+            NotifyCollectionChangedEventHandler wrapper = (sender, args) =>
+            {
+                try { value(sender, args); }
+                catch (Exception error) { _deliveryFailure ??= ExceptionDispatchInfo.Capture(error); }
+            };
+            lock (_localHandlers) _localHandlers.Add((value, wrapper));
+            base.CollectionChanged += wrapper;
+        }
+        remove
+        {
+            if (value is null) return;
+            NotifyCollectionChangedEventHandler? wrapper = null;
+            lock (_localHandlers)
+            {
+                for (int i = _localHandlers.Count - 1; i >= 0; i--)
+                {
+                    if (_localHandlers[i].Handler != value) continue;
+                    wrapper = _localHandlers[i].Wrapper;
+                    _localHandlers.RemoveAt(i);
+                    break;
+                }
+            }
+            if (wrapper is not null) base.CollectionChanged -= wrapper;
+        }
     }
 
     /// <inheritdoc/>
@@ -103,11 +147,16 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
     protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
     {
         // 1. Raise the standard local event first. A throwing local handler
-        //    must not suppress the hub message for the committed change:
-        //    send it, then rethrow the first failure (spec/01 §1.4, ADR-0171).
-        ExceptionDispatchInfo? firstFailure = null;
+        //    stops neither the later handlers nor the hub message for the
+        //    committed change: send it, then rethrow the first failure
+        //    (spec/01 §1.4, spec/03 §3.6, ADR-0171, ADR-0191). A nested
+        //    delivery keeps its own first failure.
+        ExceptionDispatchInfo? outerFailure = _deliveryFailure;
+        _deliveryFailure = null;
         try { base.OnCollectionChanged(e); }
-        catch (Exception error) { firstFailure = ExceptionDispatchInfo.Capture(error); }
+        catch (Exception error) { _deliveryFailure ??= ExceptionDispatchInfo.Capture(error); }
+        ExceptionDispatchInfo? firstFailure = _deliveryFailure;
+        _deliveryFailure = outerFailure;
 
         // 2. Publish to hub (if present).
         if (_hub is not null)
