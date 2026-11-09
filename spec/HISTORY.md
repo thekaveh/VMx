@@ -707,6 +707,25 @@ before a persister starts prevents the persister call (`FORM-041`,
 
 See ADR-0180 and chapter 20 §5.4 and §10.
 
+v3.30.0 also states the outcome of a loader's own cancellation. A current
+`AsyncResourceVM` loader that ends with its flavor's native cancellation signal
+restores the operation's saved stable state, as `Cancel` does, even when the VM
+did not request it. A C# timeout stays a failure, and a superseded loader's
+cancellation is stale (`ARES-012`). The catalog now contains 452 library IDs
+plus 5 scenario IDs.
+
+See ADR-0199 and chapter 23 §5 and §7.
+
+v3.30.0 also gives each lifecycle failure one reporting route. The call that
+runs a cycle-deferred terminal cleanup reports the cleanup's first failure when
+it has no earlier failure. In a shared-scheduler flush, the first failure is
+thrown to the flush's caller, and every other failure goes to the flavor's
+unhandled-error route after the flush returns. A scheduler that cancels its
+queued work on purpose marks itself first, so VMx runs none of that work. No
+conformance ID is added.
+
+See ADR-0200 and chapter 02 §2.4, §6.1, and §7.
+
 v3.30.0 also makes the construct walk of a composite or group count members
 only. The walk checks membership before it starts or joins a child, and again
 after the child settles. A child that a removal or a failed add takes out
@@ -715,7 +734,7 @@ destructs, or disposes the child. The commit step writes `Constructed` and
 reserves its publication. An add between the two follows the
 add-after-`Constructed` rule. A walk that disposal stopped, or that a raising
 hook abandoned, commits nothing (`COMP-047`, `GRP-015`). The catalog now
-contains 453 library IDs plus 5 scenario IDs.
+contains 454 library IDs plus 5 scenario IDs.
 
 See ADR-0186 and chapter 06 §5.1, chapter 07 §4, and chapter 02 §2.4.
 
@@ -724,7 +743,7 @@ thread holds the container's membership transaction. This covers add, insert,
 index replacement, population, transfer detach, remove, `RemoveAt`, and
 `Clear`. Each change fails before mutation with the error of a re-entrant
 change. Only disposal still waits for the transaction. Rust `clear()` now
-returns `VmxResult<()>` (`COMP-048`, `GRP-016`). The catalog now contains 455
+returns `VmxResult<()>` (`COMP-048`, `GRP-016`). The catalog now contains 456
 library IDs plus 5 scenario IDs.
 
 See ADR-0187 and chapter 06 §4.2 and chapter 07 §1.1.
@@ -742,7 +761,7 @@ Container walks and the child-transition helper skip a `Disposed` child, so
 the container still destructs, constructs and reconstructs (`LIFE-022`). A
 `Disposed` child is not selectable. When the current child publishes
 `Disposed` from its own `dispose()`, the composite clears `Current`, and the
-child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 459
+child reads `IsCurrent == false` (`COMP-050`). The catalog now contains 460
 library IDs plus 5 scenario IDs.
 
 See ADR-0189 and chapter 02 §3, §6 and §6.1 and chapter 06 §4.3.
