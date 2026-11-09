@@ -4239,9 +4239,12 @@ or, on the command path, is emitted once on `ApproveErrors`
 failing `OnApproved` subscriber's failure is the one reported instead
 
 Swift callbacks cannot fail, so a Swift test covers only the call-time
-equality and replay-order clauses.
+equality and replay-order clauses. Rust's replay failure is a panic, so on
+both paths the first replay panic resumes from the call, `approve()` or
+`approve_command().execute()`, and nothing is emitted on `approve_errors`
+(ADR-0185).
 
-> Spec: `20-form-vm.md §5.3/§5.4`, ADR-0174.
+> Spec: `20-form-vm.md §5.3/§5.4`, ADR-0174, ADR-0185.
 
 ### FORM-041 — a nested update notifies after it returns
 
