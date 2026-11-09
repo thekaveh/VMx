@@ -168,6 +168,7 @@ Key exports:
 | `RxDispatcher`                  | Foreground/background scheduler pair             |
 | `NullDispatcher.INSTANCE`       | Null-object variant per ADR-0017                 |
 | `markSchedulerCancelled(scheduler)` | Opt-out for a custom scheduler that cancels its queued work (§4.7) |
+| `DelayedTask`                   | One replaceable delayed action on an injected scheduler (spec/11 §6.3) |
 | `ConstructionStatus`            | 5-state lifecycle enum                           |
 | `StatusTransitionError`         | Raised on illegal lifecycle operations           |
 | `BuilderValidationError`        | Raised when a builder is missing required fields |
