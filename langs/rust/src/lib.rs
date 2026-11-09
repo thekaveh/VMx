@@ -128,8 +128,8 @@ pub(crate) use runtime::{
 
 mod components;
 pub use components::{
-    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ReadonlyComponentVm,
-    ReadonlyComponentVmBuilder, ViewModelType,
+    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ModelChangedCallback,
+    ReadonlyComponentVm, ReadonlyComponentVmBuilder, ViewModelType,
 };
 
 mod commands;
@@ -141,8 +141,9 @@ pub use commands::{
 
 mod collections;
 pub use collections::{
+    EventStream, EventSubscription, ItemAddedEvent, ItemRemovedEvent, ItemReplacedEvent,
     KeyedServicedObservableCollection, ObservableDictionary, ObservableList,
-    ObservableMultiDictionary, ServicedObservableCollection,
+    ObservableMultiDictionary, ReadOnlyObservableList, ServicedObservableCollection,
 };
 
 mod composites;
@@ -161,7 +162,7 @@ mod searchable_state;
 pub use searchable_state::SearchableState;
 
 mod modeled_crud;
-pub use modeled_crud::ModeledCrudCommands;
+pub use modeled_crud::{ModeledCrudCommands, NO_CONFIRM};
 
 mod derived_property;
 pub use derived_property::DerivedProperty;

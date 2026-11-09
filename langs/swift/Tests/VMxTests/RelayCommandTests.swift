@@ -1,7 +1,7 @@
 //
 // RelayCommand conformance tests.
 //
-// Claimed IDs: CMD-001..004, CMD-006, CMD-014..016, plus BLD-005 (additive triggers on
+// Claimed IDs: CMD-001..004, CMD-006, CMD-014..016, CMD-021, plus BLD-005 (additive triggers on
 // the command builder). CMD-005 (parameterized RelayCommandOf) and CMD-007
 // (truth-table fixture) are covered by RelayCommandOfTests /
 // RelayCommandTruthTableTests (Phase 3 Inc 4).
@@ -102,11 +102,44 @@ final class RelayCommandTests: XCTestCase {
         cancel.cancel()
     }
 
+    /// CMD-021 — structural: `canExecuteChanged` has the failure type `Never`
+    /// and a Combine sink cannot throw, so no handler can fail. With a trigger
+    /// built through an operator, two handlers each see both trigger
+    /// notifications and the imperative raise.
+    func testCmd021CanExecuteChangedHandlersCannotFailAndAllReceive() {
+        let source = PassthroughSubject<Int, Never>()
+        let cmd = RelayCommand.builder()
+            .triggers(source.map { _ in () }.eraseToAnyPublisher())
+            .build()
+        XCTAssertTrue(failureType(of: cmd.canExecuteChanged) == Never.self)
+        var first = 0
+        var second = 0
+        let a = cmd.canExecuteChanged.sink { first += 1 }
+        let b = cmd.canExecuteChanged.sink { second += 1 }
+
+        source.send(1)
+        source.send(2)
+        XCTAssertEqual(first, 2)
+        XCTAssertEqual(second, 2)
+
+        cmd.raiseCanExecuteChanged()
+        XCTAssertEqual(first, 3)
+        XCTAssertEqual(second, 3)
+        a.cancel()
+        b.cancel()
+        cmd.dispose()
+    }
+
+    private func failureType<P: Publisher>(of _: P) -> Any.Type { P.Failure.self }
+
     /// CMD-016 — imperative raise after disposal is a no-op.
     func testCmd016ImperativeRaiseAfterDisposalIsNoOp() {
         let cmd = RelayCommand.builder().build()
-        // Subscribe before disposal: a later subscriber could never observe a
-        // stray emission, so the assertion below could not fail.
+        // Disposal finishes the change subject, and a finished subject drops
+        // later values. So the closed channel alone keeps a later raise from
+        // reaching this subscriber, with or without the disposed check.
+        // `testRaiseFromFinalDisposalNotificationPublishesNothingMore`
+        // observes the check itself.
         var fires = 0
         let cancel = cmd.canExecuteChanged.sink { fires += 1 }
         cmd.dispose()
@@ -115,6 +148,24 @@ final class RelayCommandTests: XCTestCase {
         cmd.raiseCanExecuteChanged()
 
         XCTAssertEqual(fires, 0)
+        cancel.cancel()
+    }
+
+    /// A raise from the final disposal notification publishes nothing more (#1341).
+    /// `dispose()` sets the disposed flag, sends one final value, then finishes
+    /// the subject. A raise from that value reaches the open subject, so only
+    /// the disposed check drops it.
+    func testRaiseFromFinalDisposalNotificationPublishesNothingMore() {
+        let cmd = RelayCommand.builder().build()
+        var fires = 0
+        let cancel = cmd.canExecuteChanged.sink { _ in
+            fires += 1
+            if fires == 1 { cmd.raiseCanExecuteChanged() }
+        }
+
+        cmd.dispose()
+
+        XCTAssertEqual(fires, 1)
         cancel.cancel()
     }
 

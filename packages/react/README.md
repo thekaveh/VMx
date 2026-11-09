@@ -15,11 +15,11 @@ Releases are published to
 [npm](https://www.npmjs.com/package/@thekaveh/vmx-react) from `react-v*` tags
 on `main`, with provenance.
 
-Compatibility for 0.1.x:
+Compatibility for 0.1.3 and later 0.1.x releases:
 
 | Dependency | Supported range |
 | --- | --- |
-| `@thekaveh/vmx` | `^3.24.1` |
+| `@thekaveh/vmx` | `^3.30.0` |
 | React | `^18.3.1` or `^19.0.0` |
 | RxJS | `^7.8.0` |
 | `use-sync-external-store` | `^1.6.0` |

@@ -569,34 +569,96 @@ def check_react_changelog_section(repo_root: Path) -> list[str]:
     return []
 
 
-def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
-    """Reject substantive notes left outside the immutable tagged section."""
+def _unreleased_notes(changelog: Path, package: str = "") -> tuple[list[str], bool]:
+    """Return parse issues and whether [Unreleased] (or its package part) has notes."""
     sections, parse_errors = _parse_changelog_sections(
         changelog, CSHARP_CHANGELOG_PACKAGES if package else ()
     )
     if parse_errors:
-        return parse_errors
+        return parse_errors, False
     if "Unreleased" not in sections:
-        return [f"  {changelog}: missing [Unreleased] section"]
+        return [f"  {changelog}: missing [Unreleased] section"], False
     unreleased = sections["Unreleased"]
     if package:
         headings = _top_level_headings(unreleased, 3)
         package_starts = [(start, end) for start, end, text in headings if text == package]
         if not package_starts:
-            return [f"  {changelog}: [Unreleased] missing {package} package section"]
+            return [f"  {changelog}: [Unreleased] missing {package} package section"], False
         if len(package_starts) != 1:
-            return [f"  {changelog}: [Unreleased] expected exactly one {package} package section"]
+            return [
+                f"  {changelog}: [Unreleased] expected exactly one {package} package section"
+            ], False
         package_start, package_body_start = package_starts[0]
         package_end = next(
             (start for start, _, _ in headings if start > package_start),
             len(unreleased),
         )
         unreleased = unreleased[package_body_start:package_end]
-    substantive = _has_substantive_markdown(unreleased)
+    return [], _has_substantive_markdown(unreleased)
+
+
+def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
+    """Reject substantive notes left outside the immutable tagged section."""
+    issues, substantive = _unreleased_notes(changelog, package)
+    if issues:
+        return issues
     if substantive:
         scope = f" {package}" if package else ""
         return [f"  {changelog}: [Unreleased]{scope} contains substantive notes at tag publication"]
     return []
+
+
+def check_unreleased_source_placement(
+    repo_root: Path, manifests: dict[str, dict[str, str]]
+) -> list[str]:
+    """Keep [Unreleased] empty while the current source version is unreleased.
+
+    CONTRIBUTING.md §4.3 records a change in the section of the package's
+    current source version. While that section is headed
+    ``unreleased source version``, the package's [Unreleased] notes (its
+    ``### <package>`` subsection in C#) must stay empty (#1337). The React
+    adapter changelog, versioned by ``packages/react/package.json``, follows
+    the same rule.
+    """
+    targets: list[tuple[str, Path, str, str]] = []
+    for flavor, info in sorted(manifests.items()):
+        version = info.get("version", "")
+        if not version:
+            continue
+        family = flavor.split("/", 1)[0]
+        package = info.get("package_id", "") if family == "csharp" else ""
+        heading = version if package in ("", "VMx") else f"{package} {version}"
+        targets.append((flavor, repo_root / "langs" / family / "CHANGELOG.md", heading, package))
+    react_package = repo_root / "packages" / "react" / "package.json"
+    if react_package.is_file():
+        react_version = str(
+            json.loads(react_package.read_text(encoding="utf-8")).get("version", "")
+        )
+        if react_version:
+            react_changelog = repo_root / "packages" / "react" / "CHANGELOG.md"
+            targets.append(("react", react_changelog, react_version, ""))
+
+    issues: list[str] = []
+    for label, changelog, heading, package in targets:
+        if not changelog.is_file():
+            continue
+        current = [
+            line
+            for line in changelog.read_text(encoding="utf-8").splitlines()
+            if (match := _CHANGELOG_HEADING_RE.fullmatch(line)) and match.group(1) == heading
+        ]
+        if not current or not current[0].rstrip().endswith("unreleased source version"):
+            continue
+        parse_issues, substantive = _unreleased_notes(changelog, package)
+        if parse_issues:
+            continue  # The changelog section checks already report parse errors.
+        if substantive:
+            scope = f" {package}" if package else ""
+            issues.append(
+                f"  {label}: [Unreleased]{scope} has notes, but [{heading}] is an unreleased "
+                "source version; record them in that section"
+            )
+    return issues
 
 
 def check_csharp_unreleased_structure(changelog: Path) -> list[str]:
@@ -1181,6 +1243,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     msv_issues.extend(check_min_spec_versions(spec_version, manifests))
     msv_issues.extend(check_changelog_sections(repo_root, manifests))
     msv_issues.extend(check_react_changelog_section(repo_root))
+    msv_issues.extend(check_unreleased_source_placement(repo_root, manifests))
     if any(
         flavor in manifests
         for flavor in (

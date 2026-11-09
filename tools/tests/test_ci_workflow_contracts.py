@@ -20,6 +20,61 @@ def test_every_workflow_job_has_a_hard_timeout() -> None:
             )
 
 
+# #1440: these workflows run on pull requests, and a superseded run holds
+# runners that the newer head needs.
+_PULL_REQUEST_CI_WORKFLOWS = (
+    "python",
+    "csharp",
+    "typescript",
+    "swift",
+    "rust",
+    "conformance",
+    "spec-discipline",
+    "security-audit",
+    "examples-contract-checks",
+)
+
+
+def workflow_concurrency(text: str) -> tuple[str, str] | None:
+    """The workflow-level concurrency (group, cancel-in-progress), whitespace-folded."""
+    header = text.split("\njobs:\n", maxsplit=1)[0]
+    match = re.search(r"(?ms)^concurrency:\n(?P<body>(?:  .*\n|\n)*)", header + "\n")
+    if match is None:
+        return None
+    body = match.group("body")
+    group = re.search(r"(?ms)^  group:(?P<value>.*?)(?=^  \S|\Z)", body)
+    cancel = re.search(r"(?m)^  cancel-in-progress:(?P<value>.*)$", body)
+    if group is None or cancel is None:
+        return None
+    return " ".join(group.group("value").replace(">-", "").split()), cancel.group("value").strip()
+
+
+def test_pull_request_runs_cancel_superseded_runs_and_branch_runs_never_share_a_group() -> None:
+    for name in _PULL_REQUEST_CI_WORKFLOWS:
+        concurrency = workflow_concurrency((WORKFLOWS / f"{name}.yml").read_text(encoding="utf-8"))
+        assert concurrency is not None, f"{name}.yml declares no workflow-level concurrency"
+        group, cancel = concurrency
+        # A pull_request run groups by workflow and pull-request number and
+        # cancels the older run of that pull request.
+        assert group.startswith("${{ github.event_name == 'pull_request' && "), name
+        assert "format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)" in group, (
+            name
+        )
+        assert cancel == "${{ github.event_name == 'pull_request' }}", name
+        # Every other event (push to develop or main, schedule,
+        # workflow_dispatch) gets a group of its own, so it is never cancelled
+        # or replaced as a pending run (#534).
+        assert group.endswith("|| format('{0}-run-{1}', github.workflow, github.run_id) }}"), name
+
+
+def test_concurrency_reader_rejects_a_workflow_without_a_group() -> None:
+    assert workflow_concurrency("name: x\non: push\njobs:\n  a:\n") is None
+    assert workflow_concurrency(
+        "name: x\nconcurrency:\n  group: x-${{ github.ref }}\n  cancel-in-progress: false\n"
+        "\njobs:\n  a:\n"
+    ) == ("x-${{ github.ref }}", "false")
+
+
 def test_recipe_suites_run_once_inside_the_package_test_steps() -> None:
     # #783: the C# Test step (VMx.sln) and both Swift package test steps already
     # run the recipe suites, so a filtered rerun step only repeats them.
@@ -84,11 +139,17 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
             "required: python",
             "needs: [build, examples, small-examples, inspector, nicegui, package]",
         ),
-        "rust.yml": ("required: rust", "needs: [audit, build, msrv, examples, package, coverage]"),
-        "swift.yml": ("required: swift", "needs: [build, platforms, examples, coverage]"),
+        "rust.yml": (
+            "required: rust",
+            "needs: [audit, build, msrv, examples, package, public-api, coverage]",
+        ),
+        "swift.yml": (
+            "required: swift",
+            "needs: [build, platforms, examples, public-api, coverage, thread-sanitizer]",
+        ),
         "typescript.yml": (
             "required: typescript",
-            "needs: [build, runtime-floor, react, package, examples]",
+            "needs: [build, runtime-floor, react, react-runtime-floor, package, examples]",
         ),
         "docs.yml": ("required: docs", "needs: [build]"),
         "examples-contract-checks.yml": ("required: examples", None),
@@ -399,3 +460,29 @@ def test_registry_publish_jobs_alone_hold_id_token_and_an_environment() -> None:
         publish = jobs[f"{flavor}-publish"]
         assert publish.count('npm publish "$TARBALL" --access public') == 2
     assert "smoke-rust-consumer.py" in jobs["rust-test"]
+
+
+def test_csharp_example_projects_are_format_checked_in_ci_and_pre_commit() -> None:
+    # #1384: the library format gate covers only VMx.sln.
+    jobs = _workflow_jobs((WORKFLOWS / "csharp.yml").read_text(encoding="utf-8"))
+    cases = {
+        "examples": (
+            "examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj",
+            "examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj",
+            "examples/csharp/console/HelloVMx/HelloVMx.csproj",
+        ),
+        "wpf-example": (
+            "examples/csharp/wpf/TodoApp/WpfTodoApp.csproj",
+            "examples/csharp/wpf/TodoAppHostCheck/TodoAppHostCheck.csproj",
+            "examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj",
+        ),
+    }
+    for name, projects in cases.items():
+        job = jobs[name]
+        check = job.index('dotnet format "$project" --verify-no-changes --no-restore')
+        for project in projects:
+            assert project in job[:check], (name, project)
+            assert job.index("dotnet restore") < check
+    hook = (REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert r"files: ^(langs|examples)/csharp/.*\.(cs|csproj|props)$" in hook
+    assert 'dotnet format "$project" --verify-no-changes --no-restore --include "$f"' in hook

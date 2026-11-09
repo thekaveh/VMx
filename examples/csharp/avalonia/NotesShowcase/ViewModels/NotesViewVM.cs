@@ -45,6 +45,7 @@ public sealed class NotesViewVM
     private readonly INoteRepository _repo;
     private readonly IDialogService? _dialogService;
     private readonly INotificationHub? _notificationHub;
+    private readonly Func<NoteVM, Task>? _saveNote;
     private readonly IMessageHub _hub;
     private readonly IDispatcher _dispatcher;
     private readonly IScheduler _searchScheduler;
@@ -59,6 +60,7 @@ public sealed class NotesViewVM
     private readonly System.Collections.ObjectModel.ObservableCollection<NoteVM> _visible = new();
     private readonly System.Collections.ObjectModel.ReadOnlyObservableCollection<NoteVM> _visibleView;
     private bool _syncingVisible;
+    private bool _reselecting;
     private bool _recomputing;
 
     private readonly BehaviorSubject<bool> _showStarredOnly = new(false);
@@ -215,14 +217,14 @@ public sealed class NotesViewVM
     /// <summary>Currently selected note (two-way bindable).</summary>
     public NoteVM? Current
     {
-        get => _current;
+        get => _reselecting ? null : _current;
         set
         {
             if (ReferenceEquals(_current, value)) return;
-            // A refilter never changes the selection (same as the other
-            // flavors): ignore the null a bound selector writes back while the
-            // visible slice is being synced and the current note drops out.
-            if (_syncingVisible && value is null) return;
+            // A refilter never changes the selection (ADR-0201 §2.1): ignore
+            // the null a bound selector writes back while the visible slice is
+            // being synced and the current note drops out.
+            if ((_syncingVisible || _reselecting) && value is null) return;
             _current = value;
             NotifyPropertyChanged(nameof(Current));
         }
@@ -320,7 +322,9 @@ public sealed class NotesViewVM
                 {
                     if (ReferenceEquals(Current, vm)) Current = null;
                 })
-                .OnSave(vm => _repo.SaveNoteAsync(vm.Model));
+                // ADR-0201 §2.3: the host's save-note hook decides what a note
+                // save persists; without one, the stored model is saved.
+                .OnSave(vm => _saveNote is not null ? _saveNote(vm) : _repo.SaveNoteAsync(vm.Model));
             if (_dialogService is not null)
             {
                 builder = builder.ConfirmDelete(n =>
@@ -417,12 +421,14 @@ public sealed class NotesViewVM
         TimeSpan searchDebounce,
         IScheduler? searchScheduler,
         IDialogService? dialogService,
-        INotificationHub? notificationHub)
+        INotificationHub? notificationHub,
+        Func<NoteVM, Task>? saveNote)
         : base(name, hint, hub, dispatcher, onConstruct: null, onDestruct: null)
     {
         _repo = repo;
         _dialogService = dialogService;
         _notificationHub = notificationHub;
+        _saveNote = saveNote;
         _hub = hub;
         _dispatcher = dispatcher;
         _searchScheduler = searchScheduler ?? ImmediateScheduler.Instance;
@@ -510,6 +516,8 @@ public sealed class NotesViewVM
         // is never removed (a bound selector keeps it selected).
         var target = _paged.Items.ToList();
         var keep = new HashSet<NoteVM>(target, ReferenceEqualityComparer.Instance);
+        var current = _current;
+        var currentWasVisible = current is not null && _visible.Any(n => ReferenceEquals(n, current));
         _syncingVisible = true;
         try
         {
@@ -530,6 +538,24 @@ public sealed class NotesViewVM
             _syncingVisible = false;
         }
         NotifyPropertyChanged(nameof(VisibleItems));
+        // ADR-0201 §2.1: when the current note goes back into the slice, a
+        // bound list must select its row again. Current itself did not change,
+        // so raise INPC only: a hub change would rebind the editor and discard
+        // the draft. An Avalonia binding skips a re-raise with the value it
+        // last read, so the getter reads null once and then the note again.
+        if (current is not null && !currentWasVisible && keep.Contains(current))
+        {
+            _reselecting = true;
+            try
+            {
+                RaisePropertyChanged(nameof(Current));
+            }
+            finally
+            {
+                _reselecting = false;
+            }
+            RaisePropertyChanged(nameof(Current));
+        }
     }
 
     private void ReleaseChildren()
@@ -596,6 +622,7 @@ public sealed class NotesViewVM
         private readonly IScheduler? _searchScheduler;
         private readonly IDialogService? _dialogService;
         private readonly INotificationHub? _notificationHub;
+        private readonly Func<NoteVM, Task>? _saveNote;
 
         internal static readonly NotesViewVMBuilder Empty = new();
         private NotesViewVMBuilder()
@@ -608,35 +635,37 @@ public sealed class NotesViewVM
             string? name, string hint,
             IMessageHub? hub, IDispatcher? dispatcher, INoteRepository? repo,
             int pageSize, TimeSpan searchDebounce, IScheduler? searchScheduler,
-            IDialogService? dialogService, INotificationHub? notificationHub)
+            IDialogService? dialogService, INotificationHub? notificationHub,
+            Func<NoteVM, Task>? saveNote)
         {
             _name = name; _hint = hint; _hub = hub; _dispatcher = dispatcher;
             _repo = repo; _pageSize = pageSize;
             _searchDebounce = searchDebounce; _searchScheduler = searchScheduler;
             _dialogService = dialogService; _notificationHub = notificationHub;
+            _saveNote = saveNote;
         }
 
         /// <summary>Sets the required Name.</summary>
         public NotesViewVMBuilder Name(string name)
-            => new(name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
+            => new(name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub, _saveNote);
         /// <summary>Sets the optional Hint.</summary>
         public NotesViewVMBuilder Hint(string hint)
-            => new(_name, hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
+            => new(_name, hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub, _saveNote);
         /// <summary>Sets the required Services.</summary>
         public NotesViewVMBuilder Services(IMessageHub hub, IDispatcher dispatcher)
-            => new(_name, _hint, hub, dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
+            => new(_name, _hint, hub, dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub, _saveNote);
         /// <summary>Sets the required Repository.</summary>
         public NotesViewVMBuilder Repository(INoteRepository repo)
-            => new(_name, _hint, _hub, _dispatcher, repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
+            => new(_name, _hint, _hub, _dispatcher, repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub, _saveNote);
         /// <summary>Overrides the optional page size (default 5 per plan §3.a.8).</summary>
         public NotesViewVMBuilder PageSize(int size)
-            => new(_name, _hint, _hub, _dispatcher, _repo, size, _searchDebounce, _searchScheduler, _dialogService, _notificationHub);
+            => new(_name, _hint, _hub, _dispatcher, _repo, size, _searchDebounce, _searchScheduler, _dialogService, _notificationHub, _saveNote);
         /// <summary>Overrides the optional search debounce (default 150 ms).</summary>
         public NotesViewVMBuilder SearchDebounce(TimeSpan debounce)
-            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, debounce, _searchScheduler, _dialogService, _notificationHub);
+            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, debounce, _searchScheduler, _dialogService, _notificationHub, _saveNote);
         /// <summary>Overrides the optional debounce scheduler (default Immediate).</summary>
         public NotesViewVMBuilder SearchScheduler(IScheduler scheduler)
-            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, scheduler, _dialogService, _notificationHub);
+            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, scheduler, _dialogService, _notificationHub, _saveNote);
         /// <summary>
         /// Sets the optional dialog service. When set, each <see cref="NoteVM"/>
         /// in the list wires its <see cref="NoteVM.DeleteCommand"/> through
@@ -644,13 +673,20 @@ public sealed class NotesViewVM
         /// <see cref="IDialogService.Confirm"/> before deletion (spec §5.2.8).
         /// </summary>
         public NotesViewVMBuilder DialogService(IDialogService dialogService)
-            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, dialogService, _notificationHub);
+            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, dialogService, _notificationHub, _saveNote);
         /// <summary>
         /// Sets the optional notification hub. When set, each successful
         /// note-delete publishes a "Note deleted" notification (spec §6.2).
         /// </summary>
         public NotesViewVMBuilder NotificationHub(INotificationHub notificationHub)
-            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, notificationHub);
+            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, notificationHub, _saveNote);
+        /// <summary>
+        /// Sets the optional save-note hook. When set, each <see cref="NoteVM"/>
+        /// save (<see cref="NoteVM.SaveCommand"/>, which the capability bar
+        /// projects) runs it instead of saving the stored model (ADR-0201 §2.3).
+        /// </summary>
+        public NotesViewVMBuilder SaveNote(Func<NoteVM, Task> saveNote)
+            => new(_name, _hint, _hub, _dispatcher, _repo, _pageSize, _searchDebounce, _searchScheduler, _dialogService, _notificationHub, saveNote);
 
         /// <summary>Builds the VM after validation.</summary>
         public NotesViewVM Build()
@@ -662,7 +698,7 @@ public sealed class NotesViewVM
             return new NotesViewVM(
                 _name!, _hint, _hub!, _dispatcher!, _repo!,
                 _pageSize, _searchDebounce, _searchScheduler,
-                _dialogService, _notificationHub);
+                _dialogService, _notificationHub, _saveNote);
         }
     }
 }

@@ -1398,8 +1398,20 @@ where
         !reconstruct_can_execute,
         "the reconstruct command is disabled"
     );
-    assert_eq!(second, Err(vmx::VmxError::ConcurrentOperation));
-    assert_eq!(destruct, Err(vmx::VmxError::ConcurrentOperation));
+    assert_eq!(
+        second,
+        Err(vmx::VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Constructing,
+            operation: "construct",
+        })
+    );
+    assert_eq!(
+        destruct,
+        Err(vmx::VmxError::InvalidLifecycleTransition {
+            from: ConstructionStatus::Constructing,
+            operation: "destruct",
+        })
+    );
     assert_eq!(
         Container::status(&container),
         ConstructionStatus::Constructed

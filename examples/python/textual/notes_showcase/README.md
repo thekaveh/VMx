@@ -73,7 +73,7 @@ examples/python/textual/notes_showcase/
 │       │   └── _hub_accessor.py
 │       ├── notebooks_tree.py, notes_list.py, note_form.py,
 │       │   status_bar.py, notifications.py, capability_actions.py,
-│       │   global_search.py
+│       │   global_search.py, theme_controls.py  ← theme strip (row 16)
 │       └── modals/{confirm_modal,save_file_modal,notify_modal}.py
 └── tests/{models,viewmodels,views}/
 ```
@@ -97,7 +97,7 @@ examples/python/textual/notes_showcase/
 | 13  | `IDialogService`                                         | `viewmodels/dialog_service.py`; `views/adapter/dialog.py` implements confirm / notify / save-file modals used by the scenario and returns the safe cancellation result for the unused open-file path                                                                  |
 | 14  | Capability-aware UI                                      | `viewmodels/capability_actions_vm.py` + `views/capability_actions.py`                                                                                                                                                                                                 |
 | 15  | `AggregateVM6` (ch. 8, ADR-0034)                         | `viewmodels/workspace_vm.py` (wraps an `AggregateVM6[…]` of the six children)                                                                                                                                                                                         |
-| 16  | `ThemeVM` scenario contract (THEME-001..005)             | `models/theme_model.py`, `viewmodels/theme_vm.py`, `messages/theme_changed.py`, `views/adapter/theme_adapter.py` (workspace-owned `ThemeVM` sibling bound through the Textual adapter; outside the `AggregateVM6` child list; see the parity matrix theme footnote) |
+| 16  | `ThemeVM` scenario contract (THEME-001..005)             | `models/theme_model.py`, `viewmodels/theme_vm.py`, `messages/theme_changed.py`, `views/adapter/theme_adapter.py`, `views/theme_controls.py` (the ADR-0201 §2.4 theme control strip; workspace-owned `ThemeVM` sibling bound through the Textual adapter; outside the `AggregateVM6` child list; see the parity matrix theme footnote) |
 | 17  | `TokenPagedComposition`                                  | `viewmodels/global_search_vm.py` + repository token-paged `search_notes`                                                                                                                                                                                              |
 | 18  | `DiscriminatorVM`                                        | `viewmodels/note_form_vm.py` edit/preview editor mode                                                                                                                                                                                                                 |
 | 19  | Tag autocomplete                                         | `viewmodels/note_form_vm.py` composes `SearchableState[str]` over workspace tags                                                                                                                                                                                      |
