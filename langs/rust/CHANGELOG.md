@@ -10,6 +10,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
+  and `find` report invalid children-factory output as a recoverable error,
+  assign no parent and retry the factory on the next walk; `find` returns a
+  match that it reaches before the failing node. A new test puts the failing
+  node below the root.
 - `own_member` on `CompositeVm`, `ModeledCompositeVm`, `GroupVm` and
   `AggregateVm1` to `AggregateVm6` (#1289, ADR-0204). It follows the
   `ComponentVm::own_member` contract and rejects the container itself with
@@ -175,6 +180,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `attach_many` now indexes the materialized subtree of each attached item
+  (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
+  can name any node of that subtree as its parent; before, it became a
+  `MissingParent` orphan. A descendant key that is already in the tree, or that
+  an earlier item in the batch claimed, rejects the item as
+  `DuplicateExistingKey` or `DuplicateBatchKey`, so a batch no longer adds a
+  second node for a key. A parent key that names the item's own descendant
+  is now a `Cycle` rejection instead of a parked orphan. Children that
+  `add_child` materializes from a lazy factory join the index in the next
+  batch.
 - Breaking: a `CompositeVm` or `GroupVm` from the builder or from
   `create(options)` has no children until its first `construct()` (#1255,
   ADR-0204, spec/06 §1, spec/07 §3). That construct calls the `children`

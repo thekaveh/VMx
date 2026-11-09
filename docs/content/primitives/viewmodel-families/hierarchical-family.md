@@ -160,6 +160,13 @@ the active nodes to a fixpoint: a parent added later in the input unlocks its
 earlier children on the next pass, while sibling order remains the original
 input order.
 
+A batch item can carry a prebuilt subtree. When the item attaches, its
+materialized descendants join the index too, so a later item can name any of
+them as its parent. If a descendant key is already in the tree or claimed
+earlier in the batch, the whole item is a duplicate and stays detached.
+Children that a lazy parent's factory creates during the batch join the index
+on the next call (ADR-0212).
+
 The result separates `added`, `duplicates`, `orphans`, and typed `rejections`.
 Same-key nodes never replace an existing VM. `park` retains only genuine
 missing-parent items for the next call; `reject` returns them without retaining

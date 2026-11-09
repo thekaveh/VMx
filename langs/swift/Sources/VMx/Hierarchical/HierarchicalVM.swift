@@ -88,6 +88,9 @@ private struct BatchAttachCandidate<TVM, Key: Hashable> {
     let key: Key
     let parentKey: Key?
     let retainIfMissing: Bool
+    /// Keys and nodes of the candidate's materialized descendants, in
+    /// pre-order (spec/18 §6, ADR-0212). They join the index on attach.
+    let subtree: [(key: Key, node: TVM)]
 }
 
 /// Abstract recursive tree ViewModel. Concrete subclasses follow the CRTP
@@ -520,12 +523,55 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
                 rejections.append(BatchAttachRejection(item: item, reason: .alreadyAttached))
                 continue
             }
-            candidateKeys.insert(key)
+            // The candidate also claims every key of its materialized subtree
+            // (spec/18 §6, ADR-0212); the first claim of a key stays
+            // authoritative.
+            var subtree: [(key: Key, node: TVM)] = []
+            var claimed: Set<Key> = [key]
+            var subtreeRejection: BatchAttachRejectionReason?
+            var subtreeDetail: String?
+            for descendant in node(item).materializedSubtree().dropFirst() {
+                let descendantKey: Key
+                do {
+                    descendantKey = try keyOf(descendant)
+                } catch {
+                    subtreeRejection = .selectorFailed
+                    subtreeDetail = String(describing: error)
+                    break
+                }
+                if existing[descendantKey] != nil {
+                    subtreeRejection = .duplicateExistingKey
+                    break
+                }
+                if candidateKeys.contains(descendantKey)
+                    || !claimed.insert(descendantKey).inserted {
+                    subtreeRejection = .duplicateBatchKey
+                    break
+                }
+                subtree.append((key: descendantKey, node: descendant))
+            }
+            if subtreeRejection == .selectorFailed {
+                if wasParked { root.parkedAttachItems.append(item) }
+                rejections.append(BatchAttachRejection(
+                    item: item,
+                    reason: .selectorFailed,
+                    detail: subtreeDetail
+                ))
+                continue
+            }
+            if let duplicateReason = subtreeRejection {
+                duplicates.append(item)
+                rejections.append(BatchAttachRejection(item: item, reason: duplicateReason))
+                continue
+            }
+
+            candidateKeys.formUnion(claimed)
             candidates.append(BatchAttachCandidate(
                 item: item,
                 key: key,
                 parentKey: parentKey,
-                retainIfMissing: wasParked || onMissingParent == .park
+                retainIfMissing: wasParked || onMissingParent == .park,
+                subtree: subtree
             ))
         }
 
@@ -556,6 +602,7 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
                     continue
                 }
                 existing[candidate.key] = candidate.item
+                for claim in candidate.subtree { existing[claim.key] = claim.node }
                 added.append(candidate.item)
                 progressed = true
             }
@@ -563,7 +610,13 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             if !progressed { break }
         }
 
-        let unresolvedByKey = Dictionary(uniqueKeysWithValues: unresolved.map { ($0.key, $0) })
+        // A subtree key maps to the candidate that claims it, so a parent key
+        // that names the candidate's own descendant is a cycle (ADR-0212).
+        var unresolvedByKey: [Key: BatchAttachCandidate<TVM, Key>] = [:]
+        for candidate in unresolved {
+            unresolvedByKey[candidate.key] = candidate
+            for claim in candidate.subtree { unresolvedByKey[claim.key] = candidate }
+        }
         for candidate in unresolved {
             let isCycle = batchParentChainCycles(candidate, unresolved: unresolvedByKey)
             let reason: BatchAttachRejectionReason = isCycle ? .cycle : .missingParent

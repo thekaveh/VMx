@@ -8,8 +8,10 @@ import {
   AggregateVM3,
   AggregateVM6,
   ComponentVMBase,
+  HierarchicalVM,
   ViewModelType,
   walk,
+  walkExpanded,
   find,
 } from "../../src/index.js";
 import type { IDispatcher } from "../../src/index.js";
@@ -231,5 +233,50 @@ describe("VMX-023", () => {
       "c6",
       "c7",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UTIL-004
+// ---------------------------------------------------------------------------
+
+class WalkNode extends HierarchicalVM<string, WalkNode> {
+  constructor(name: string, factory: (self: WalkNode) => Iterable<WalkNode> = () => []) {
+    super({ model: name, childrenFactory: factory, name });
+  }
+
+  override get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+}
+
+describe("UTIL-004", () => {
+  it("walks report invalid factory output, assign no parent and stay retryable", () => {
+    const a = new WalkNode("a");
+    const c = new WalkNode("c");
+    const d = new WalkNode("d");
+    let snapshot: WalkNode[] = [c, c];
+    let calls = 0;
+    const b = new WalkNode("b", () => {
+      calls += 1;
+      return snapshot;
+    });
+    const root = new WalkNode("root", () => [a, b]);
+    // Identity checks only: a deep equality on a node iterates its children.
+    expect(root.children.length).toBe(2);
+    expect(root.children[0]).toBe(a);
+    expect(root.children[1]).toBe(b);
+
+    expect(() => [...walk(root)]).toThrow(Error);
+    expect(() => [...walkExpanded(root)]).toThrow(Error);
+    expect(() => find(root, () => false)).toThrow(Error);
+    expect(calls).toBe(3);
+    expect(c.parent).toBeNull();
+
+    expect(find(root, (node) => node === a)).toBe(a);
+    expect(calls).toBe(3);
+
+    snapshot = [c, d];
+    expect([...walk(root)].map((node) => node.name)).toEqual(["root", "a", "b", "c", "d"]);
   });
 });

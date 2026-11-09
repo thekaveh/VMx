@@ -192,11 +192,30 @@ Later same-key items are returned in `duplicates` with
 authoritative node. An item already attached outside the indexed tree is
 rejected as `AlreadyAttached` and its original links remain unchanged.
 
+An active candidate also claims the key of every node in its own materialized
+subtree: the descendants that the candidate's already-materialized child lists
+reach. Reading these keys MUST NOT invoke a children factory. The claims follow
+the candidate's own key, in depth-first pre-order. If a descendant key is in the
+index, the candidate is rejected as `DuplicateExistingKey`. If a descendant key
+equals an earlier claim in the batch, including one from the same subtree, the
+candidate is rejected as `DuplicateBatchKey`. A rejected candidate is returned
+in `duplicates`, is not attached, and keeps its subtree unchanged. A `keyOf`
+failure on a descendant rejects the candidate as `SelectorFailed`, and a parked
+candidate stays parked, as for its own selectors (ADR-0212).
+
 Candidates are scanned repeatedly in input order. A candidate attaches when
-its parent is in the materialized/added index; each successful node immediately
-joins that index. Scanning stops at a fixpoint. This resolves arbitrary
-child-before-parent chains and preserves relative input order among siblings.
-Previously parked items precede new input in the active scan.
+its parent is in the index. When it attaches, the candidate and every node of
+its materialized subtree join the index at once, so a later candidate can name
+any of them as its parent. Scanning stops at a fixpoint. This resolves
+arbitrary child-before-parent chains and preserves relative input order among
+siblings. Previously parked items precede new input in the active scan.
+
+`AddChild` reads the children of the target parent before it appends the
+candidate, so a lazy parent runs its factory (§4). Those factory children do not
+join the index during that batch. A candidate whose parent key names one of
+them stays unresolved, and the next batch, which indexes them as materialized
+descendants, can resolve it. A key that a factory child shares with a candidate
+is not detected, as for every unmaterialized subtree (ADR-0212).
 
 The structured result contains:
 
@@ -215,8 +234,10 @@ BatchAttachRejection<TVM>:
 ```
 
 Every non-added active item has one rejection entry. `Orphans` contains only
-items whose parent key is absent at the fixpoint. Parent-key cycles are reported
-as `Cycle`, are not orphans, and are never retained.
+items whose parent key is absent from the index at the fixpoint. Parent-key
+cycles are reported as `Cycle`, are not orphans, and are never retained. A
+candidate whose parent-key chain reaches a node of its own materialized subtree
+is in a cycle.
 
 With `park`, new missing-parent items are retained in a structural-root-owned
 pending list and retried before the next batch. With `reject`, they are returned
@@ -492,3 +513,12 @@ hub message. A host maps `Current` to a route or a detail view.
   and publishes no hub message.
 - `HIER-040` — A disposed `TreeSelection` completes its stream, reads null and
   ignores later calls and tree changes.
+- `HIER-042` — An attached candidate's materialized subtree joins the batch
+  index, so a later candidate can attach below any node of it; a parent key
+  that names the candidate's own descendant is a `Cycle` (ADR-0212).
+- `HIER-043` — A descendant key of a candidate that equals a key in the index
+  or an earlier claim in the batch rejects the candidate as
+  `DuplicateExistingKey` or `DuplicateBatchKey` without attaching it.
+- `HIER-044` — Children that `AddChild` materializes from a lazy factory do not
+  join the index during that batch; the next batch resolves a candidate aimed
+  at one of them.

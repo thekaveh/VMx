@@ -80,6 +80,9 @@ struct BatchAttachCandidate<N, K> {
     key: K,
     parent_key: Option<K>,
     retain_if_missing: bool,
+    /// Keys and nodes of the candidate's materialized descendants, in
+    /// pre-order (spec/18 §6, ADR-0212). They join the index on attach.
+    subtree: Vec<(K, N)>,
 }
 
 #[derive(Default)]
@@ -516,12 +519,67 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                 });
                 continue;
             }
-            candidate_keys.insert(key.clone());
+            // The candidate also claims every key of its materialized subtree
+            // (spec/18 §6, ADR-0212); the first claim of a key stays
+            // authoritative.
+            let mut subtree = Vec::new();
+            let mut claimed = HashSet::from([key.clone()]);
+            let mut subtree_rejection = None;
+            for descendant in item.materialized_subtree().into_iter().skip(1) {
+                let descendant_key = match key_of(&descendant) {
+                    Ok(descendant_key) => descendant_key,
+                    Err(error) => {
+                        subtree_rejection = Some((
+                            BatchAttachRejectionReason::SelectorFailed,
+                            Some(error.to_string()),
+                        ));
+                        break;
+                    }
+                };
+                if existing.contains_key(&descendant_key) {
+                    subtree_rejection =
+                        Some((BatchAttachRejectionReason::DuplicateExistingKey, None));
+                    break;
+                }
+                if candidate_keys.contains(&descendant_key)
+                    || !claimed.insert(descendant_key.clone())
+                {
+                    subtree_rejection = Some((BatchAttachRejectionReason::DuplicateBatchKey, None));
+                    break;
+                }
+                subtree.push((descendant_key, descendant));
+            }
+            match subtree_rejection {
+                Some((BatchAttachRejectionReason::SelectorFailed, detail)) => {
+                    if was_parked {
+                        lock(&root.inner.parked_attach_items).push(item.clone());
+                    }
+                    rejections.push(BatchAttachRejection {
+                        item,
+                        reason: BatchAttachRejectionReason::SelectorFailed,
+                        detail,
+                    });
+                    continue;
+                }
+                Some((reason, detail)) => {
+                    duplicates.push(item.clone());
+                    rejections.push(BatchAttachRejection {
+                        item,
+                        reason,
+                        detail,
+                    });
+                    continue;
+                }
+                None => {}
+            }
+
+            candidate_keys.extend(claimed);
             candidates.push(BatchAttachCandidate {
                 item,
                 key,
                 parent_key,
                 retain_if_missing: was_parked || on_missing_parent == MissingParentPolicy::Park,
+                subtree,
             });
         }
 
@@ -552,6 +610,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
                     continue;
                 }
                 existing.insert(candidate.key, candidate.item.clone());
+                existing.extend(candidate.subtree);
                 added.push(candidate.item);
                 progressed = true;
             }
@@ -561,10 +620,15 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, N: Send + Sync + 'static> Hie
             }
         }
 
-        let unresolved_by_key = unresolved
-            .iter()
-            .map(|candidate| (candidate.key.clone(), candidate.parent_key.clone()))
-            .collect::<HashMap<_, _>>();
+        // A subtree key leads to the candidate that claims it, so a parent key
+        // that names the candidate's own descendant is a cycle (ADR-0212).
+        let mut unresolved_by_key = HashMap::new();
+        for candidate in &unresolved {
+            unresolved_by_key.insert(candidate.key.clone(), candidate.parent_key.clone());
+            for (subtree_key, _) in &candidate.subtree {
+                unresolved_by_key.insert(subtree_key.clone(), Some(candidate.key.clone()));
+            }
+        }
         for candidate in unresolved {
             let is_cycle = Self::batch_parent_chain_cycles(&candidate, &unresolved_by_key);
             let reason = if is_cycle {

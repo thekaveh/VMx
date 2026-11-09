@@ -706,3 +706,15 @@ before a persister starts prevents the persister call (`FORM-041`,
 `FORM-042`). The catalog now contains 451 library IDs plus 5 scenario IDs.
 
 See ADR-0180 and chapter 20 §5.4 and §10.
+
+v3.30.0 also makes `attachMany` index the materialized subtree of each attached
+item. A later item in the same batch can name any node of that subtree as its
+parent. A descendant key that is in the tree, or that an earlier item claimed,
+rejects the item as a duplicate. A parent key that names the item's own
+descendant is a `Cycle`. Children that `AddChild` materializes from a lazy
+factory join the index in the next batch (`HIER-042`..`HIER-044`). Python tree
+walks stop catching a `TypeError` from `iter(node)`, and `UTIL-004` pins the
+chapter 13 §6.1 walk failure rule. The catalog now contains 455 library IDs
+plus 5 scenario IDs.
+
+See ADR-0212, chapter 13 §6.1, and chapter 18 §6.

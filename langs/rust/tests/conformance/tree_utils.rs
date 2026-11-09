@@ -153,3 +153,58 @@ fn walks_return_invalid_factory_output_error_and_stay_retryable() {
     let wanted = other.clone();
     assert!(find(&root, move |node| *node == wanted).unwrap() == Some(other.clone()));
 }
+
+/// UTIL-004 — tree walks report invalid factory output as a recoverable error
+///
+/// The failing node sits below the root: `find` returns a match that it reaches
+/// before that node, and each walk retries the factory (spec/13 §6.1, ADR-0170).
+#[test]
+fn walks_report_invalid_factory_output_below_the_root() {
+    let a = leaf("a");
+    let c = leaf("c");
+    let d = leaf("d");
+    let snapshot = Arc::new(Mutex::new(vec![c.clone(), c.clone()]));
+    let captured = Arc::clone(&snapshot);
+    let calls = Arc::new(Mutex::new(0_usize));
+    let counted = Arc::clone(&calls);
+    let b = HierarchicalVm::with_children_factory(
+        "b",
+        "b".to_string(),
+        move |_| {
+            *counted.lock().unwrap() += 1;
+            captured.lock().unwrap().clone()
+        },
+        false,
+        MessageHub::new(),
+    );
+    let root = leaf("root");
+    root.add_child(a.clone()).unwrap();
+    root.add_child(b.clone()).unwrap();
+    let is_factory_error = |error: &VmxError| matches!(error, VmxError::InvalidArgument(message) if message.contains("factory"));
+
+    assert!(walk(&root).is_err_and(|error| is_factory_error(&error)));
+    assert!(walk_expanded(&root).is_err_and(|error| is_factory_error(&error)));
+    assert!(find(&root, |_| false).is_err_and(|error| is_factory_error(&error)));
+    assert_eq!(*calls.lock().unwrap(), 3, "each walk retries the factory");
+    assert!(
+        c.parent().is_none(),
+        "a rejected snapshot assigns no parent"
+    );
+    assert!(!b.is_children_materialized());
+
+    let wanted = a.clone();
+    assert!(find(&root, move |node| *node == wanted).unwrap() == Some(a.clone()));
+    assert_eq!(
+        *calls.lock().unwrap(),
+        3,
+        "find returns a match before the failing node"
+    );
+
+    *snapshot.lock().unwrap() = vec![c.clone(), d.clone()];
+    let names = walk(&root)
+        .unwrap()
+        .into_iter()
+        .map(|node| node.model())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["root", "a", "b", "c", "d"]);
+}

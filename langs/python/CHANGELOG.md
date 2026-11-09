@@ -6,6 +6,34 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+### Added
+
+- `UTIL-004` conformance tests (#1435, ADR-0212). `walk`, the expanded walk
+  and `find` report invalid children-factory output as a recoverable error,
+  assign no parent and retry the factory on the next walk; `find` returns a
+  match that it reaches before the failing node. Python follows the rule
+  after the `TypeError` fix below.
+
+### Fixed
+
+- `attach_many` now indexes the materialized subtree of each attached item
+  (#1320, ADR-0212, `HIER-042`..`HIER-044`). A later item in the same batch
+  can name any node of that subtree as its parent; before, it became a
+  `MISSING_PARENT` orphan. A descendant key that is already in the tree, or that
+  an earlier item in the batch claimed, rejects the item as
+  `DUPLICATE_EXISTING_KEY` or `DUPLICATE_BATCH_KEY`, so a batch no longer adds a
+  second node for a key. A parent key that names the item's own descendant
+  is now a `CYCLE` rejection instead of a parked orphan. Children that
+  `add_child` materializes from a lazy factory join the index in the next
+  batch.
+- `walk`, `walk_expanded` and `find` no longer catch a `TypeError` from
+  `iter(node)` (#1434, ADR-0212, spec/13 §6.1). A `HierarchicalVM` whose
+  children factory returned `None` or raised `TypeError` became a leaf, and the
+  caller got no error. The error now propagates, as from a direct `children`
+  read, and a later walk calls the factory again. A custom node whose
+  `__iter__` raises `TypeError` is no longer walked through its `components()`
+  slots instead.
+
 ## [3.30.0] — 2026-11-07
 
 First PyPI release since 3.23.0. The 3.23.1 tag never reached PyPI, and 3.23.2

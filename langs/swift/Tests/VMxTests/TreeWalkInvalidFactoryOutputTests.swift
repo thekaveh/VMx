@@ -34,6 +34,49 @@ final class TreeWalkInvalidFactoryOutputTests: XCTestCase {
         }
     }
 
+    /// UTIL-004 — tree walks report invalid factory output as a recoverable
+    /// error, assign no parent, retry the factory, and `find` returns a match
+    /// before the failing node.
+    func testUtil004WalksReportInvalidFactoryOutputBelowRoot() throws {
+        let a = leaf("a")
+        let c = leaf("c")
+        let d = leaf("d")
+        var snapshot = [c, c]
+        var calls = 0
+        let b = WalkNode(
+            model: "b",
+            childrenFactory: { _ in
+                calls += 1
+                return snapshot
+            },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            name: "b"
+        )
+        let root = WalkNode(
+            model: "root",
+            childrenFactory: { _ in [a, b] },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            name: "root"
+        )
+        XCTAssertEqual(root.children.count, 2)
+
+        assertInvalidFactoryOutput(try walk(root), "walk")
+        assertInvalidFactoryOutput(try walkExpanded(root), "walkExpanded")
+        assertInvalidFactoryOutput(try find(root) { _ in false }, "find")
+        XCTAssertEqual(calls, 3, "each walk retries the factory")
+        XCTAssertNil(c.parent, "a rejected snapshot assigns no parent")
+
+        XCTAssertTrue(try find(root) { $0 === a } === a)
+        XCTAssertEqual(calls, 3, "find returns a match before the failing node")
+
+        snapshot = [c, d]
+        XCTAssertEqual(try walk(root).count, 5)
+        XCTAssertTrue(try walk(root)[3] === c)
+        XCTAssertTrue(try walk(root)[4] === d)
+    }
+
     /// `walk`, `walkExpanded` and `find` throw on a duplicate child identity,
     /// change nothing, and succeed once the factory returns valid output.
     func testWalksThrowOnInvalidFactoryOutputAndStayRetryable() throws {
