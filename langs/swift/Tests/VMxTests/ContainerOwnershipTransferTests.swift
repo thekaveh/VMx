@@ -399,6 +399,13 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             disposal.run()
             group.leave()
         }
+        // Release the previous slot only once the foreign disposal request has
+        // landed, so it lands after the first check and before the final one.
+        let requestDeadline = Date().addingTimeInterval(hangGuard)
+        while !aggregate._isDisposalRequested() && Date() < requestDeadline {
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        XCTAssertTrue(aggregate._isDisposalRequested(), "the foreign disposal was never requested")
         XCTAssertEqual(disposalCompleted.wait(timeout: .now() + 0.05), .timedOut)
         releaseDisposal.signal()
 
@@ -407,6 +414,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(results.errors.isEmpty)
         XCTAssertEqual(aggregate.status, .disposed)
         XCTAssertEqual(candidate.status, .disposed)
+        XCTAssertFalse(aggregate.component1 === candidate, "the candidate was committed to the slot")
     }
 
     /// COMP-038 — Adding an owned child transfers it between composite/group parents.
