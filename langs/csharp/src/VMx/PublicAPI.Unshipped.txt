@@ -12,3 +12,4 @@ VMx.Collections.ReadOnlyObservableList<T>.PropertyChanged -> System.ComponentMod
 VMx.Collections.ReadOnlyObservableList<T>.Reset -> System.EventHandler?
 VMx.Collections.ReadOnlyObservableList<T>.this[int index].get -> T
 VMx.Messages.CollectionChangedMessage<T>.SenderName.init -> void
+override VMx.Collections.ServicedObservableCollection<T>.CollectionChanged -> System.Collections.Specialized.NotifyCollectionChangedEventHandler?

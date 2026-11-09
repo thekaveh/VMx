@@ -1,11 +1,11 @@
-// Conformance tests: DPROP-001..012 — derived properties.
-// See spec/15-derived-properties.md and ADR-0011.
+// Conformance tests: DPROP-001..013 — derived properties.
+// See spec/15-derived-properties.md, ADR-0011 and ADR-0191.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { BehaviorSubject } from "rxjs";
+import { BehaviorSubject, config } from "rxjs";
 import { describe, expect, it } from "vitest";
 
 import { fromSources } from "../../src/properties/index.js";
@@ -221,5 +221,71 @@ describe("DPROP-012", () => {
       expect(actuals).toEqual(scenario.expected_values);
       dp.dispose();
     }
+  });
+});
+
+/** Runs `act` with rxjs unhandled-error reports recorded, then drains them. */
+async function withUnhandledErrors(act: () => void): Promise<unknown[]> {
+  const unhandled: unknown[] = [];
+  const previous = config.onUnhandledError;
+  config.onUnhandledError = (error) => unhandled.push(error);
+  try {
+    act();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    config.onUnhandledError = previous;
+  }
+  return unhandled;
+}
+
+describe("DPROP-013", () => {
+  it("a failing valueChanged subscriber stops neither the property nor the other subscribers (one source)", async () => {
+    const s1 = new BehaviorSubject<number>(0);
+    const dp = fromSources<number>([s1], (...vs) => (vs[0] as number) * 10);
+    const a: number[] = [];
+    const b: number[] = [];
+    dp.valueChanged.subscribe((v) => {
+      a.push(v);
+      throw new Error("subscriber A failed");
+    });
+    dp.valueChanged.subscribe((v) => b.push(v));
+
+    const unhandled = await withUnhandledErrors(() => {
+      expect(() => s1.next(1)).not.toThrow();
+      expect(() => s1.next(2)).not.toThrow();
+    });
+
+    expect(dp.value).toBe(20);
+    expect(a).toEqual([10, 20]);
+    expect(b).toEqual([10, 20]);
+    expect(unhandled).toHaveLength(2);
+    dp.dispose();
+  });
+
+  it("a failing valueChanged subscriber stops neither the property nor the other subscribers (two sources)", async () => {
+    const s1 = new BehaviorSubject<number>(1);
+    const s2 = new BehaviorSubject<number>(2);
+    const dp = fromSources<number>(
+      [s1, s2],
+      (x, y) => (x as number) + (y as number),
+    );
+    const a: number[] = [];
+    const b: number[] = [];
+    dp.valueChanged.subscribe((v) => {
+      a.push(v);
+      throw new Error("subscriber A failed");
+    });
+    dp.valueChanged.subscribe((v) => b.push(v));
+
+    const unhandled = await withUnhandledErrors(() => {
+      expect(() => s1.next(10)).not.toThrow();
+      expect(() => s2.next(20)).not.toThrow();
+    });
+
+    expect(dp.value).toBe(30);
+    expect(a).toEqual([12, 30]);
+    expect(b).toEqual([12, 30]);
+    expect(unhandled).toHaveLength(2);
+    dp.dispose();
   });
 });

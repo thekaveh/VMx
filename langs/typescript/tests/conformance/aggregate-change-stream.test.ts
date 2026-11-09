@@ -651,3 +651,49 @@ describe("AGCH-010", () => {
     expect(owned.changes.unsubscribeCount).toBe(1);
   });
 });
+
+describe("AGCH-011", () => {
+  it("delivers each envelope to its subscribers in subscription order", () => {
+    const source = new TestSource(new Item("first"));
+    const sut = aggregate(source);
+    const order: Array<readonly [string, number]> = [];
+    for (let label = 0; label < 5; label++) {
+      sut.observe().subscribe({
+        next: (change) => order.push([change.reason, label]),
+        complete: () => order.push(["completed", label]),
+      });
+    }
+    const labels = [0, 1, 2, 3, 4];
+
+    source.add(new Item("plain"));
+    expect(order).toEqual(labels.map((label) => [AggregateChangeReason.Membership, label]));
+
+    order.length = 0;
+    sut.withBatch(() => source.add(new Item("batched")));
+    expect(order).toEqual(labels.map((label) => [AggregateChangeReason.Batch, label]));
+
+    order.length = 0;
+    sut.dispose();
+    expect(order).toEqual(labels.map((label) => ["completed", label]));
+  });
+
+  it("delivers to a resubscription last", () => {
+    const source = new TestSource(new Item("first"));
+    const sut = aggregate(source);
+    const order: number[] = [];
+    const subscriptions = [0, 1, 2, 3, 4].map((label) =>
+      sut.observe().subscribe(() => order.push(label)),
+    );
+
+    subscriptions[1]!.unsubscribe();
+    sut.observe().subscribe(() => order.push(1));
+
+    source.add(new Item("plain"));
+    expect(order).toEqual([0, 2, 3, 4, 1]);
+
+    order.length = 0;
+    sut.withBatch(() => source.add(new Item("batched")));
+    expect(order).toEqual([0, 2, 3, 4, 1]);
+    sut.dispose();
+  });
+});

@@ -269,6 +269,11 @@ rules (chapter 03). The rule covers the local collection-change channel and the
 dictionary's granular events. It does not cover C# `PropertyChanged` handlers or
 subscribers of the dictionary's key views.
 
+A failing local subscriber also does not stop the delivery to the later local
+subscribers of the same channel. Each of them receives the change once, the
+failing subscriber stays attached, and the first failure is rethrown only after
+the hub send (chapter 03 §3.6, ADR-0191, `COL-069`).
+
 Publication happens **on the same thread as the mutation**. The collection does
 not marshal to any scheduler and does not observe any `IDispatcher`. Consumers
 wanting foreground delivery subscribe via `ObserveOn(dispatcher.Foreground)`
@@ -290,8 +295,8 @@ Consumers that need lifecycle-cascading VM ownership should use `CompositeVM` /
 
 ### 2.7 Conformance
 
-`COL-001` through `COL-004`, `COL-048` through `COL-055`, and `COL-066` in
-`12-conformance.md`.
+`COL-001` through `COL-004`, `COL-048` through `COL-055`, `COL-066`, and
+`COL-069` in `12-conformance.md`.
 
 ### 2.8 `KeyedServicedObservableCollection<TKey, TItem>` shape
 
@@ -534,8 +539,8 @@ caller-owned lifecycle rule in §2.6.
 `COL-056` through `COL-064` in `12-conformance.md` cover captured lookup,
 uniqueness and failure atomicity, upsert, keyed deletion, synchronization and
 explicit rekeying, whole-list replacement, move/clear/ownership, delivery and
-hub transactions, and reentrant consistency. `COL-066` covers a failing local
-subscriber.
+hub transactions, and reentrant consistency. `COL-066` and `COL-069` cover a
+failing local subscriber.
 
 ## 3. `ObservableList<T>`
 
@@ -831,8 +836,8 @@ positions.
 
 ### 4.8 Conformance
 
-`COL-010` through `COL-015`, `COL-022`, `COL-066`, `COL-067`, `COL-068`, and
-`COL-070` in `12-conformance.md`.
+`COL-010` through `COL-015`, `COL-022`, `COL-066`, `COL-067`, `COL-068`,
+`COL-069`, and `COL-070` in `12-conformance.md`.
 
 ## 5. Paging: `PagedComposition<TVM>`
 
@@ -1129,11 +1134,11 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-067` and `AGCH-001` through `AGCH-010` in
+`COL-001` through `COL-067`, `COL-069`, and `AGCH-001` through `AGCH-011` in
 `12-conformance.md`. Applicable ADRs:
-ADR-0024, ADR-0096, ADR-0097, and ADR-0171 (§2), ADR-0026 and ADR-0089 (§3),
-ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 and ADR-0202 (§6), and ADR-0085
-(shared Move semantics), and ADR-0098 (§9).
+ADR-0024, ADR-0096, ADR-0097, ADR-0171, and ADR-0191 (§2), ADR-0026 and
+ADR-0089 (§3), ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 and ADR-0202
+(§6), and ADR-0085 (shared Move semantics), and ADR-0098 and ADR-0192 (§9).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public
 collection, paging, batch, aggregate, and projection helpers that expose
@@ -1334,7 +1339,15 @@ aggregate event, no failure of the aggregate, and no effect on other members.
 Subscriber failures follow the established host reactive primitive. They MUST
 NOT corrupt membership bookkeeping or detach unrelated item subscriptions
 beyond host-library behavior; message-hub subscriber isolation is not promised
-for this local stream.
+for this local stream. Chapter 03 §3.6 does not apply to it (ADR-0191).
+
+**Subscriber order (spec v3.30, ADR-0192).** The subscribers of one envelope
+receive it in subscription order: the order of their subscribe calls on the
+aggregate. The rule applies to item, structural, final `Batch` and completion
+delivery. A subscriber that cancels and subscribes again is a new
+subscription, last in the order. Each envelope reaches all of its recipients
+before the next envelope starts. The rule does not order the subscribers of the
+hub or of any other stream.
 
 ### 9.6 Explicit batching and hub composition
 
@@ -1349,7 +1362,8 @@ admission. Outermost exit offers the final `Batch` only to that union, after
 discarding subscriptions cancelled before delivery. A subscriber joining after
 all dirtying changes receives no historical `Batch`; if another change is
 admitted after it joins but before exit, it becomes eligible for that final
-envelope.
+envelope. The final `Batch` reaches that union in subscription order (§9.5),
+not in the order in which subscribers joined the union.
 
 If a body admits a change and then fails, outermost cleanup emits the one
 `Batch` and rethrows the original failure. Cleanup MUST NOT replace the body
@@ -1378,7 +1392,8 @@ controls only aggregate output.
 The aggregate owns only its structural and selected-item subscriptions.
 Explicit disposal is idempotent, detaches all of them, completes aggregate
 output where the host convention supports completion, and makes later source
-activity inert. It never constructs, destructs, disposes, reparents, removes,
+activity inert. Completion reaches the subscribers in subscription order
+(§9.5). It never constructs, destructs, disposes, reparents, removes,
 or otherwise manages a source item.
 
 The supported source families expose no common source-completion signal.
@@ -1386,9 +1401,9 @@ Source lifetime therefore does not replace explicit aggregate disposal.
 
 ### 9.8 Conformance
 
-`AGCH-001` through `AGCH-010` in `12-conformance.md` cover atomic
+`AGCH-001` through `AGCH-011` in `12-conformance.md` cover atomic
 subscriber-local initial delivery, committed membership resynchronization,
 item provenance, zero-refcount and terminal-epoch silence, Reset, duplicate
 refcounts, nested exceptional batching, empty batches and Move stability,
 reentrant FIFO and stale epochs, transactional failure, disposal, ownership,
-and subscriber isolation.
+subscriber isolation, and subscriber order.

@@ -397,6 +397,8 @@ subscription on the first message
 **And** subscriber B whose handler records every message
 **When** `hub.Send(message1)` then `hub.Send(message2)` is called
 **Then** subscriber B observes both `message1` and `message2`
+**And** subscriber A stays attached: its handler runs for both `message1` and
+`message2` (spec v3.30, ADR-0191)
 **And** no exception propagates to the caller of `Send`
 
 ### HUB-008 — Nested transactions defer and preserve every message
@@ -709,6 +711,25 @@ and `e`, in that order
 **And** the `errors` subscriber read `IsExecuting == false`
 
 > Spec: `04-commands.md §10.2/§10.4`, ADR-0195.
+
+### CMD-021 — a failing `CanExecuteChanged` handler stops neither other handlers nor a trigger
+
+**Given** a `RelayCommand` with one trigger built through an operator, such as
+a mapped stream
+**And** two `CanExecuteChanged` handlers, A then B, where A fails on every
+notification
+**When** the trigger emits twice
+**Then** A and B each observe two notifications
+**And** no failure reaches the code that made the trigger emit
+**When** the imperative raise method is called once
+**Then** A and B each observe one more notification
+**And** C# and Python rethrow A's failure from the raise call after B has run,
+while TypeScript and Rust return normally
+**And** Rust, whose triggers are hubs, uses a hub trigger, and the operator
+form does not apply
+**And** Swift, whose handlers cannot fail, asserts that structure
+
+> Spec: `04-commands.md` §4 and §4.3, `03-messages.md` §3.6, ADR-0191.
 
 ______________________________________________________________________
 
@@ -1563,6 +1584,23 @@ to `ValueChanged` that records completion
 named transform is resolved, and the mutation sequence is replayed
 **Then** the sequence of `Value` reads (one initial, one after each mutation)
 matches `expected_values` exactly
+
+### DPROP-013 — a failing `ValueChanged` subscriber stops neither the property nor the other subscribers
+
+**Given** a `DerivedProperty` over one source
+**And** two `ValueChanged` subscribers, A then B, where A records each value
+and then fails on every delivery
+**When** the source emits two values whose transforms differ from each other
+and from the current value
+**Then** `Value` equals the second transformed value
+**And** A and B each record both changed values, once each
+**And** no failure reaches the code that made the source emit (C# discards it,
+Python logs it, TypeScript reports it through rxjs, and Rust catches the
+panic)
+**And** Swift, whose `ValueChanged` has the failure type `Never`, asserts that
+structure and the delivery to both subscribers
+
+> Spec: `15-derived-properties.md` §4.1, `03-messages.md` §3.6, ADR-0191.
 
 ______________________________________________________________________
 
@@ -2504,6 +2542,25 @@ output delivers only its initial value on subscribe; ADR-0198)
 **When** a new term is set
 **Then** one filtered notification occurs after its debounce window
 (synchronously in Rust, which has no debounce)
+
+### SRCH-009 — a failing predicate or `Filtered` subscriber keeps the helper live
+
+**Given** a `SearchableState` with no debounce over `["apple", "banana"]`
+**And** a predicate that fails for the term `"boom"` and otherwise matches
+items that contain the term
+**And** two `Filtered` subscribers, A then B, where A fails on every delivery
+**When** the search term is set to `"boom"`
+**Then** the call returns normally, and `Filtered` emits nothing
+**When** the search term is set to `"an"`
+**Then** A and B each receive `["banana"]` once
+**When** `search()` is called
+**Then** A and B each receive `["banana"]` again
+**And** Rust, which is pull-based, instead checks that `filtered()` panics
+while the term is `"boom"` and returns `["banana"]` after the term is `"an"`
+**And** Swift, whose predicate and subscribers cannot fail, asserts that
+structure
+
+> Spec: `06-composite-vm.md` §8.2, `03-messages.md` §3.6, ADR-0191.
 
 ______________________________________________________________________
 
@@ -3469,6 +3526,25 @@ runtime check for an absent member
 **And** Rust binds each view to the declared `ReadOnlyObservableList` type,
 which has no mutator, and checks that an edit to a `to_vec()` snapshot leaves
 `keys1()`, `keys2()`, and `entries()` unchanged
+
+### COL-069 — a failing local subscriber does not stop the later local subscribers
+
+**Given** a `ServicedObservableCollection<T>`, a keyed serviced collection, or
+an `ObservableDictionary` with a hub
+**And** two local collection-change subscribers, A then B, where A fails on
+every delivery
+**When** two effective mutations occur
+**Then** B receives each change exactly once
+**And** A stays attached and receives both changes
+**And** the hub receives exactly one `CollectionChangedMessage` for each change
+**And** C# and Python rethrow A's failure after the hub send, while
+TypeScript and Rust return normally
+**And** in the dictionary, the same holds for two handlers of one granular
+event
+**And** Swift, whose local subscribers cannot fail, asserts that structure
+
+> Spec: `21-collections.md` §2.5, `01-concepts.md` §1.4, `03-messages.md` §3.6,
+> ADR-0191.
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
@@ -5049,6 +5125,21 @@ otherwise owned by the aggregate
 **Then** membership bookkeeping and unrelated item subscriptions remain valid
 beyond only the host reactive primitive's documented subscriber behavior
 **And** message-hub subscriber isolation is not implied
+
+### AGCH-011 — the subscribers of one envelope receive it in subscription order
+
+**Given** an `AggregateChangeStream` and five output subscribers, labelled 0
+to 4 in subscription order
+**When** a member is added outside a batch
+**Then** the five subscribers receive that change in the order 0, 1, 2, 3, 4
+**When** a member is added inside an explicit batch
+**Then** the five subscribers receive the final `Batch` in the order 0, 1, 2,
+3, 4
+**When** the aggregate is disposed
+**Then** the five subscribers complete in the order 0, 1, 2, 3, 4, where the
+host convention supports completion
+
+> Spec: `21-collections.md` §9.5, §9.6, and §9.7, ADR-0192.
 
 ## 32. Async resource viewmodel (`ARES-NNN`) — spec v3.20
 

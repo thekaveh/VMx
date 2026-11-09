@@ -294,8 +294,7 @@ npm test
 ```bash
 # From this directory
 npm ci
-npm run sync-fixtures   # copy spec/fixtures/*.json → src/fixtures/
-npm run typecheck
+npm run typecheck       # pre-script copies spec/fixtures/*.json → src/fixtures/
 npm run typecheck:tests
 npm run lint
 npm run build
