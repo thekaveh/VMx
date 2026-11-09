@@ -1,6 +1,6 @@
 # ADR 0172 — One wait-for graph per flavor; borrowed hub scopes are wait-for owners
 
-- **Status:** Accepted (Extended by ADR-0176 and ADR-0209)
+- **Status:** Accepted (Extended by ADR-0176 and ADR-0209; clarified by ADR-0184)
 - **Date:** 2026-11-08
 - **Spec version:** 3.30.0 (chapter 02 §2.4; chapter 03 §4, §4.1 and §4.2)
 - **Extends:** [ADR-0166](0166-python-container-disposal-checks-the-wait-for-graph.md)

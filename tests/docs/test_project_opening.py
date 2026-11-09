@@ -62,19 +62,23 @@ def _section(markdown: str, heading: re.Pattern[str]) -> str:
     return "".join(lines)
 
 
-@pytest.mark.parametrize(
-    ("relative_path", "heading"),
-    [
-        ("README.md", r"^## 2\. Availability$"),
-        ("docs/content/index.md", r"^## 1\.1\. Availability$"),
-    ],
-)
-def test_entry_pages_keep_package_availability_in_its_own_section(
-    relative_path: str, heading: str
-) -> None:
-    markdown = (ROOT / relative_path).read_text(encoding="utf-8")
-    availability = _section(markdown, re.compile(heading, re.MULTILINE))
-    rows = {
+AVAILABILITY_PAGES = {
+    "README.md": re.compile(r"^## 2\. Availability$", re.MULTILINE),
+    "docs/content/index.md": re.compile(r"^## 1\.1\. Availability$", re.MULTILINE),
+}
+PUBLISHED_PACKAGES = {
+    "Python": ("vmx", "PyPI"),
+    "Swift": ("VMx", "SwiftPM"),
+    "TypeScript": ("@thekaveh/vmx", "npm"),
+    "React adapter": ("@thekaveh/vmx-react", "npm"),
+}
+_PUBLISHED_VERSION = re.compile(r"`([^`]+)` ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\b")
+
+
+def _availability_rows(markdown: str, heading: re.Pattern[str]) -> dict[str, str]:
+    """Return the Public package cell of each Availability table row, by flavor."""
+    availability = _section(markdown, heading)
+    return {
         cells[0]: cells[1]
         for line in availability.splitlines()
         if line.startswith("| ")
@@ -83,15 +87,83 @@ def test_entry_pages_keep_package_availability_in_its_own_section(
         and not set(cells[0]) <= {"-"}
     }
 
+
+def _published_version(cell: str) -> tuple[str, str] | None:
+    """Return the package name and version that a Public package cell names."""
+    match = _PUBLISHED_VERSION.search(cell)
+    return (match.group(1), match.group(2)) if match else None
+
+
+def availability_mismatches(readme: str, site: str) -> list[str]:
+    """Require the site index to name the README's published version of each flavor."""
+    readme_rows = _availability_rows(readme, AVAILABILITY_PAGES["README.md"])
+    site_rows = _availability_rows(site, AVAILABILITY_PAGES["docs/content/index.md"])
+    mismatches: list[str] = []
+    for flavor in PUBLISHED_PACKAGES:
+        expected = _published_version(readme_rows.get(flavor, ""))
+        actual = _published_version(site_rows.get(flavor, ""))
+        if expected is None or actual != expected:
+            mismatches.append(
+                f"{flavor} row: README.md names {expected}, docs/content/index.md names {actual}"
+            )
+    return mismatches
+
+
+@pytest.mark.parametrize("relative_path", sorted(AVAILABILITY_PAGES))
+def test_entry_pages_keep_package_availability_in_its_own_section(relative_path: str) -> None:
+    markdown = (ROOT / relative_path).read_text(encoding="utf-8")
+    rows = _availability_rows(markdown, AVAILABILITY_PAGES[relative_path])
+
     assert set(rows) == {"Python", "Swift", "C#", "TypeScript", "React adapter", "Rust"}
-    assert "PyPI" in rows["Python"]
-    assert "SwiftPM" in rows["Swift"]
-    assert "`@thekaveh/vmx` 3.30.0" in rows["TypeScript"]
-    assert "npm" in rows["TypeScript"]
-    assert "`@thekaveh/vmx-react` 0.1.1" in rows["React adapter"]
-    assert "npm" in rows["React adapter"]
+    for flavor, (package, registry) in PUBLISHED_PACKAGES.items():
+        published = _published_version(rows[flavor])
+        assert published is not None, flavor
+        assert published[0] == package, flavor
+        assert registry in rows[flavor], flavor
     for flavor in ("C#", "Rust"):
         assert "Not yet published" in rows[flavor], flavor
+
+
+def test_entry_pages_name_the_same_published_versions() -> None:
+    # #1336: README.md is the source; the site index must name the same versions.
+    assert (
+        availability_mismatches(
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+            (ROOT / "docs/content/index.md").read_text(encoding="utf-8"),
+        )
+        == []
+    )
+
+
+def _synthetic_availability(heading: str, typescript: str) -> str:
+    return (
+        f"{heading}\n\n"
+        "| Flavor | Public package | Source line |\n"
+        "| --- | --- | --- |\n"
+        "| Python | `vmx` 3.23.0 on PyPI | 3.30.0 |\n"
+        "| Swift | `VMx` 3.24.0 through SwiftPM | 3.31.0 |\n"
+        f"| TypeScript | `@thekaveh/vmx` {typescript} on npm | 3.31.0 |\n"
+        "| React adapter | `@thekaveh/vmx-react` 0.1.2 on npm | 0.1.3 |\n"
+        "| C# | Not yet published to NuGet | 3.30.0 |\n"
+        "| Rust | Not yet published to crates.io | 0.36.0 |\n"
+    )
+
+
+def test_availability_check_names_a_differing_typescript_row() -> None:
+    readme = _synthetic_availability("## 2. Availability", "3.31.0")
+    site = _synthetic_availability("## 1.1. Availability", "3.30.0")
+
+    assert availability_mismatches(readme, site) == [
+        "TypeScript row: README.md names ('@thekaveh/vmx', '3.31.0'), "
+        "docs/content/index.md names ('@thekaveh/vmx', '3.30.0')"
+    ]
+
+
+def test_availability_check_accepts_matching_versions() -> None:
+    readme = _synthetic_availability("## 2. Availability", "3.31.0")
+    site = _synthetic_availability("## 1.1. Availability", "3.31.0")
+
+    assert availability_mismatches(readme, site) == []
 
 
 def test_readme_reaches_install_and_first_steps_before_reference_catalogs() -> None:

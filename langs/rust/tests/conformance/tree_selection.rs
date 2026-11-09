@@ -330,3 +330,43 @@ fn a_disposed_tree_selection_is_inert() {
     assert_ne!(root.status(), ConstructionStatus::Disposed);
     assert_ne!(b.status(), ConstructionStatus::Disposed);
 }
+
+/// Consumer node data for a selection over a typed tree (ADR-0202).
+struct FolderData {
+    size: u64,
+}
+
+type Folder = HierarchicalVm<String, FolderData>;
+
+fn folder(name: &str, size: u64) -> Folder {
+    HierarchicalVm::with_node_data(
+        name,
+        name.to_string(),
+        FolderData { size },
+        |_| Vec::new(),
+        false,
+        MessageHub::new(),
+    )
+}
+
+#[test]
+fn tree_selection_tracks_node_data_nodes() {
+    let [root, a, aa] = [folder("root", 1), folder("a", 2), folder("aa", 3)];
+    root.add_child(a.clone()).unwrap();
+    a.add_child(aa.clone()).unwrap();
+    let selection: TreeSelection<String, FolderData> = TreeSelection::new(&root);
+    let seen = Arc::new(Mutex::new(Vec::<Option<u64>>::new()));
+    let sink = Arc::clone(&seen);
+    let _subscription = selection
+        .current_changed()
+        .subscribe(move |node: Option<Folder>| {
+            sink.lock()
+                .unwrap()
+                .push(node.map(|node| node.node_data().size));
+        });
+
+    selection.select(&aa).unwrap();
+
+    assert_eq!(selection.current().unwrap().node_data().size, 3);
+    assert_eq!(seen.lock().unwrap().last().copied(), Some(Some(3)));
+}
