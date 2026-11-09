@@ -25,6 +25,13 @@ public protocol ParentVM: AnyObject {
     func deselectChild(_ vm: ComponentVMBase)
 }
 
+/// A parent that reacts when a child publishes Disposed from its own
+/// `dispose()`. `CompositeVM` clears `current` for it (spec/06 §4.3 rule 9,
+/// ADR-0189).
+protocol ChildDisposalObserver: AnyObject {
+    func childDisposed(_ vm: ComponentVMBase)
+}
+
 /// Typed failure for exclusive container ownership operations.
 public enum ContainerOwnershipError: Error {
     case duplicate
@@ -731,6 +738,14 @@ final class ChildTransitionWalker {
             }
 
             let status = child.status
+            // A Disposed child does not count: skip it, and call no lifecycle
+            // operation on it (spec/02 §6, ADR-0189).
+            if Self.isDisposed(child) {
+                lock.lock()
+                index += 1
+                lock.unlock()
+                continue
+            }
             if status != target && status != transient
                 && !joined.contains(ObjectIdentifier(child)) {
                 if target == .constructed { try child.construct() } else { try child.destruct() }
@@ -754,7 +769,7 @@ final class ChildTransitionWalker {
                 }
                 lock.unlock()
             }
-            guard child.status == target || !counts(child) else {
+            guard child.status == target || Self.isDisposed(child) || !counts(child) else {
                 throw ChildTransitionError(
                     childName: child.name,
                     reason: "did not reach \(target)"
@@ -770,6 +785,17 @@ final class ChildTransitionWalker {
     /// container, or the walk has no membership predicate.
     private func counts(_ child: ComponentVMBase) -> Bool {
         membership?.contains(child) ?? true
+    }
+
+    /// Whether the walk treats `child` as Disposed: its status is Disposed, or
+    /// its disposal is committed (a forwarding decorator answers for the VM
+    /// it wraps). Swift commits a disposal under `lifecycleLock` but can apply
+    /// the queued `.disposed` status later, while another thread drains the
+    /// child's lifecycle publications. During the inline dispose cascade
+    /// neither holds, so the walk does not skip the child, and a walk call on
+    /// it fails under LIFE-021, as in the other flavors.
+    private static func isDisposed(_ child: ComponentVMBase) -> Bool {
+        child.status == .disposed || child._ownershipIdentity._isDisposalRequested()
     }
 
     /// A late child's add finished its start attempt: resume the walk,
@@ -799,9 +825,10 @@ final class ChildTransitionWalker {
         }
         self.waiting = nil
         lock.unlock()
-        // The child rolled back or was disposed: roll the parent back, unless
-        // it left the container meanwhile (ADR-0186).
-        guard child.status == target || !counts(child) else {
+        // The child rolled back: roll the parent back, unless it left the
+        // container meanwhile (ADR-0186). A child that reached Disposed during
+        // the wait ends the wait as a success (ADR-0189).
+        guard child.status == target || Self.isDisposed(child) || !counts(child) else {
             settle(false)
             return
         }
@@ -1076,11 +1103,17 @@ open class ComponentVMBase {
 
     /// Commits the flag and reserves its paired notification without invoking
     /// consumer code. Composite selection uses this phase for atomic state.
+    /// Once disposal is requested, a commit to `false` still clears the flag
+    /// and reports no change to publish, and a commit to `true` changes
+    /// nothing (spec/02 §3 invariant 3, ADR-0189).
     func _commitIsCurrent(_ value: Bool) -> Bool {
         lifecycleLock.lock()
-        guard !disposalRequested,
-              _status != .disposed,
-              _isCurrent != value else {
+        if disposalRequested || _status == .disposed {
+            if !value { _isCurrent = false }
+            lifecycleLock.unlock()
+            return false
+        }
+        guard _isCurrent != value else {
             lifecycleLock.unlock()
             return false
         }
@@ -1615,12 +1648,14 @@ open class ComponentVMBase {
     /// - It walks `children` in the given order and starts a child only after
     ///   the previous child settled. For reverse-order destruct, pass the
     ///   reversed list.
-    /// - It skips a child that is already at the target status. It joins a
-    ///   child that is already `.constructing` (construct) or `.destructing`
-    ///   (destruct) and does not start it again.
+    /// - It skips a child that is already at the target status, and a child
+    ///   that is `.disposed`. It joins a child that is already `.constructing`
+    ///   (construct) or `.destructing` (destruct) and does not start it again.
     /// - A child that stays in its transient status (a background child)
     ///   defers this VM's terminal status. This VM stays `.constructing` or
     ///   `.destructing` until the child settles, and then the walk continues.
+    /// - A child that reaches `.disposed` while the walk waits for it ends
+    ///   the wait as a success (spec/02 §6, ADR-0189).
     /// - A child that settles at any other status fails the walk. This VM
     ///   rolls back to its prior settled status. A synchronous failure is
     ///   thrown from this call and then from `construct()`, `destruct()` or
@@ -1840,12 +1875,20 @@ open class ComponentVMBase {
                 self?._scheduleDisposalFinish(waitingFor: hookLease)
             }
         )
+        // The parent that holds this VM: its own, or, for a VM wrapped by a
+        // parented forwarding decorator, the decorator's (FWD-001).
+        let holder: ParentVM? = _parent
+            ?? (_forwardingOwner !== self ? _forwardingOwner?._parent : nil)
         lifecycleLock.unlock()
         walker?.cancel()
         sealing?.cancel()
         _publishLifecycle(publication)
-        // A parent waiting on this VM observes Disposed and rolls back.
+        // A parent walk waiting on this VM observes Disposed and stops
+        // waiting for it (spec/02 §6, ADR-0189).
         for waiter in waiters { waiter.callback() }
+        // The dispose clear runs after Disposed, in both disposal orders, and
+        // before `dispose()` returns (spec/06 §4.3 rule 9, ADR-0189).
+        (holder as? ChildDisposalObserver)?.childDisposed(self)
     }
 
     // ── Selection ───────────────────────────────────────────────────────

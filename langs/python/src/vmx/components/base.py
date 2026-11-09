@@ -321,6 +321,13 @@ class _ParentCompositeVM(ABC):
     @abstractmethod
     def deselect_child(self, vm: _ComponentVMBase) -> None: ...
 
+    def _child_disposed(self, vm: _ComponentVMBase) -> None:  # noqa: B027
+        """Called once after *vm* published Disposed from its own ``dispose()``.
+
+        A composite clears ``current`` while *vm* is still current (spec/06
+        §4.3 rule 9, ADR-0189). Other parents keep this no-op.
+        """
+
     @abstractmethod
     def contains_child(self, vm: _ComponentVMBase) -> bool: ...
 
@@ -566,11 +573,14 @@ class _ComponentVMBase(ABC):
     def _commit_is_current(self, value: bool) -> bool:
         """Commit the current flag without invoking consumer notification code."""
         # Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
-        # selection change on an already-disposed VM is a silent no-op (no
+        # selection change on an already-disposed VM publishes nothing (no
         # property_changed emit, no hub PropertyChangedMessage), mirroring Swift
-        # (VMX-006). Reads the terminal state under the same lock the
-        # lifecycle-race guards use.
+        # (VMX-006). Only a change to False still sets the flag, when the
+        # composite stops making this VM current (ADR-0189). Reads the
+        # terminal state under the same lock the lifecycle-race guards use.
         if self._is_disposed():
+            if not value:
+                self._is_current = False
             return False
         if self._is_current == value:
             return False
@@ -1188,6 +1198,13 @@ class _ComponentVMBase(ABC):
             return
 
         attempt(lambda: self._await_lifecycle_publication(publication, should_drain))
+        # After Disposed is published, in both disposal orders, a composite
+        # parent clears this VM as current before dispose() returns (spec/06
+        # §4.3 rule 9, ADR-0189). The parent skips the clear during its own
+        # dispose cascade.
+        parent = self._parent
+        if parent is not None:
+            attempt(lambda: parent._child_disposed(self))
 
         def finish_disposal() -> None:
             nonlocal first_error
@@ -1270,7 +1287,11 @@ class _ComponentVMBase(ABC):
         )
 
     def select(self) -> None:
-        """Select this VM in its parent composite (a no-op once disposed)."""
+        """Select this VM in its parent composite (a no-op once disposed).
+
+        A refusal by the parent changes nothing and raises nothing
+        (spec/05 §6, ADR-0188).
+        """
         if self._status is ConstructionStatus.DISPOSED:
             return
         if self._parent is not None:
@@ -1285,7 +1306,11 @@ class _ComponentVMBase(ABC):
         )
 
     def deselect(self) -> None:
-        """Deselect this VM in its parent composite (a no-op once disposed)."""
+        """Deselect this VM in its parent composite (a no-op once disposed).
+
+        A refusal by the parent changes nothing and raises nothing
+        (spec/05 §6, ADR-0188).
+        """
         if self._status is ConstructionStatus.DISPOSED:
             return
         if self._parent is not None:
@@ -1430,11 +1455,13 @@ class _ComponentVMBase(ABC):
           after the previous child settled. For a reverse-order destruct, pass
           the reversed list.
         - It skips a child that is already at the target status
-          (``Constructed`` for ``construct=True``, ``Destructed`` otherwise).
-          It joins a child that is already ``Constructing`` / ``Destructing``
-          and does not start it again.
+          (``Constructed`` for ``construct=True``, ``Destructed`` otherwise)
+          and a child that is ``Disposed`` (ADR-0189). It joins a child that
+          is already ``Constructing`` / ``Destructing`` and does not start it
+          again.
         - It waits for a background child: the future stays pending until
-          the child settles, then the walk continues.
+          the child settles, then the walk continues. A child that reaches
+          ``Disposed`` meanwhile settles the wait as a success.
         - A child that settles at any other status fails the walk with the
           child's error (or a ``RuntimeError``). The walk starts no later
           child, and it does not undo children that already reached the
@@ -1579,6 +1606,9 @@ class _ComponentVMBase(ABC):
 
                 if stopped():
                     return
+                if child.status is ConstructionStatus.DISPOSED:
+                    # No lifecycle call on a Disposed child (spec/02 §6, ADR-0189).
+                    continue
                 try:
                     if is_member is not None and not is_member(child):
                         continue
@@ -1611,6 +1641,10 @@ class _ComponentVMBase(ABC):
                     completed: Future[None],
                     current: ComponentVMProto = child,
                 ) -> bool:
+                    # A child that reached Disposed during the wait is skipped
+                    # as a success (spec/02 §6, ADR-0189).
+                    if current.status is ConstructionStatus.DISPOSED:
+                        return True
                     try:
                         completed.result()
                         if current.status is not expected:
@@ -1798,7 +1832,10 @@ class _ComponentVMBase(ABC):
             # A container whose Constructed state is committed but not yet
             # published is still in flight (spec/06 §5.1).
             committing = self._construct_publication_pending
-            if self._status is ConstructionStatus.CONSTRUCTED and not committing:
+            # A walk skips a Disposed child (spec/02 §6, ADR-0189).
+            if (
+                self._status is ConstructionStatus.CONSTRUCTED and not committing
+            ) or self._status is ConstructionStatus.DISPOSED:
                 completed: Future[None] = Future()
                 completed.set_result(None)
                 return completed
@@ -1857,7 +1894,8 @@ class _ComponentVMBase(ABC):
             if status is transient or committing:
                 self._lifecycle_waiters.append(joined)
                 return joined
-        if status is expected:
+        if status is expected or status is ConstructionStatus.DISPOSED:
+            # A walk skips a Disposed child (spec/02 §6, ADR-0189).
             joined.set_result(None)
         else:
             joined.set_exception(RuntimeError(f"child '{self.name}' did not reach {expected.name}"))
@@ -1865,7 +1903,8 @@ class _ComponentVMBase(ABC):
 
     def _destruct_future(self) -> Future[None]:
         with self._lifecycle_lock:
-            if self._status is ConstructionStatus.DESTRUCTED:
+            # A walk skips a Disposed child (spec/02 §6, ADR-0189).
+            if self._status in (ConstructionStatus.DESTRUCTED, ConstructionStatus.DISPOSED):
                 completed: Future[None] = Future()
                 completed.set_result(None)
                 return completed

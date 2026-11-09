@@ -17,6 +17,8 @@ below for them.
 - `COMP-048` and `GRP-016` conformance tests (ADR-0187, #1314). A container
   membership change during another open membership transaction fails at once
   and changes nothing. Python already behaved this way.
+- `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
+  (ADR-0188, ADR-0189).
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `count` first. Then it updates each key
   view that changes, emits the dictionary events and sends the hub message.
@@ -78,6 +80,10 @@ below for them.
   a failed add takes out during the walk does not roll the container back, and
   the walk does not construct a snapshot child removed before it reaches it.
   `COMP-047` and `GRP-015` cover the four removal cases.
+- A refused child `select()` or `deselect()` now changes nothing and raises
+  nothing (ADR-0188, spec/05 §6, #1424). Before, it raised inside the caller's
+  own uncommitted membership transaction and while disposal of the composite
+  was pending.
 
 ### Fixed
 
@@ -87,6 +93,19 @@ below for them.
   walk under the lock that writes the status. The check is bound to the
   hook that started the walk, so a stale walk never commits a later
   `construct()`.
+- Disposing the current child of a composite now clears the composite's
+  `current` before `dispose()` returns (ADR-0189, #1317). The composite
+  publishes the change once and calls `on_current_changed` with `None` once.
+  The disposed child reads `is_current` false. A disposed child can no longer
+  become current: the setter raises the non-member `ValueError`.
+- A composite, group or aggregate that holds a directly disposed child now
+  destructs, constructs and reconstructs (ADR-0189, #1383). Container walks
+  and the child-transition helper skip a disposed child. Before, every
+  `destruct()` failed and the container stayed `Constructed`.
+- A non-null selection while a composite is `Destructing` now changes nothing
+  and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
+  therefore return with no current child, also when an `on_current_changed`
+  callback or a child's destruct hook selects a child.
 - A `FormVM` call nested in a preparation callback or an `errors_changed`
   observer of `set_model` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, deny,

@@ -64,8 +64,9 @@ it, with the errors that chapter 06 §4.2 lists (ADR-0187, `GRP-016`).
 ## 2. Children construction orchestration
 
 Identical to `CompositeVM`: `construct()` waits for every child to reach
-`Constructed`; `destruct()` waits for every child to reach `Destructed`. The
-order in which children are visited is unspecified by default.
+`Constructed`; `destruct()` waits for every child to reach `Destructed`. Both
+walks skip a child that is `Disposed` (chapter 02 §6, ADR-0189). The order in
+which children are visited is unspecified by default.
 
 A group built with `DestructOrder(ChildOrder.Reverse)` (spec v3.30, ADR-0161)
 destructs and disposes its children in reverse child order, last child first,
