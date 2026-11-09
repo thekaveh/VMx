@@ -109,6 +109,7 @@ jobs:
         project:
           - langs/typescript
           - packages/react
+          - packages/react-18-deps
           - examples/typescript/console/hello-vmx
           - examples/typescript/react/notes-showcase
           - examples/typescript/integration-recipes

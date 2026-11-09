@@ -31,7 +31,8 @@ release tarball:
 - A published `@thekaveh/vmx` satisfies the adapter's `@thekaveh/vmx` peer
   range. The job does not require the `langs/typescript` source version on npm.
 - `npm audit --omit=dev --audit-level=low` passes. Dev-only advisories cannot
-  reach consumers. The full lockfile is still audited on every pull request by
+  reach consumers. The full lockfile, and the React 18 lockfile in
+  `packages/react-18-deps`, are still audited on every pull request by
   `typescript.yml` and every week by `security-audit.yml`.
 - Type-check, lint, tests, build, the package check, and packed React 18.3.1
   and 19.2.8 consumers pass.

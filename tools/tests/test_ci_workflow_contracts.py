@@ -143,7 +143,7 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
         "swift.yml": ("required: swift", "needs: [build, platforms, examples, coverage]"),
         "typescript.yml": (
             "required: typescript",
-            "needs: [build, runtime-floor, react, package, examples]",
+            "needs: [build, runtime-floor, react, react-runtime-floor, package, examples]",
         ),
         "docs.yml": ("required: docs", "needs: [build]"),
         "examples-contract-checks.yml": ("required: examples", None),

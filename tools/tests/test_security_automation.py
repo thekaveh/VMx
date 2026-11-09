@@ -22,6 +22,7 @@ def test_dependabot_covers_every_committed_dependency_ecosystem() -> None:
         "npm": {
             "/langs/typescript",
             "/packages/react",
+            "/packages/react-18-deps",
             "/examples/typescript/console/hello-vmx",
             "/examples/typescript/react/notes-showcase",
             "/examples/typescript/integration-recipes",

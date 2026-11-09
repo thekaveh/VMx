@@ -12,6 +12,8 @@ updates:
     directories:
       - /langs/typescript
       - /packages/react
+      # The React 18 dependency tree of the adapter's CI matrix (#1334).
+      - /packages/react-18-deps
       - /examples/typescript/console/hello-vmx
       - /examples/typescript/react/notes-showcase
       - /examples/typescript/integration-recipes
@@ -20,6 +22,16 @@ updates:
     ignore:
       - dependency-name: jsdom
         versions: [">=30.0.0"]
+      # packages/react-18-deps stays on React 18. A new React major is a
+      # deliberate adapter change, so no update proposes one.
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         patterns: ["*"]
