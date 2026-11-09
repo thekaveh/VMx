@@ -556,6 +556,11 @@ Behavior:
   debounce is **1 second**; consumers may override via builder/constructor. No
   flavor exposes the debounced term as a public stream; consumers observe
   `Filtered`.
+- Construction starts no debounce, whatever the debounce length. The initial
+  empty term is not a new value. After construction, `Filtered` emits only
+  for a term change after its debounce, a `search()` call, or a source signal
+  (ADR-0198). A replay of the current value to a new subscriber is not a new
+  emission.
 - After the debounce, the helper recomputes `Filtered` by applying
   `Predicate(item, search_term)` to each item in `Items` and emitting the
   list of matches.
@@ -667,7 +672,7 @@ forces a recompute when external score state changes.
 modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, and
 the builder hooks `COMP-025` and `COMP-026` (see below), plus filtered/scored
 view IDs `COMP-028` through `COMP-037`, plus source-reactivity IDs `SRCH-001`
-through `SRCH-007`, in
+through `SRCH-008`, in
 `12-conformance.md` cover:
 
 - collection-change events on add/remove
@@ -687,6 +692,8 @@ through `SRCH-007`, in
 - scored filtering with stable score ordering
 - optional source-change refresh, independent debounce timing, termination,
   batching transparency, and subscription-only ownership
+- no term debounce and no filtered emission from construction (`SRCH-008`,
+  ADR-0198)
 
 Hub publication of collection changes (chapter 01 §1.4, ADR-0142) is covered by:
 

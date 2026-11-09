@@ -70,20 +70,6 @@ constructed. The spec does not say whether it should.
 
 ## 2. Small spec gaps
 
-### 2.1. Notification opacity after resolution
-
-`spec/16-notifications.md` says opacity decays toward 0. It does not say what a
-read returns after resolution. C#, Python, TypeScript and Swift compute it from
-the clock, so it keeps decreasing. Rust freezes it at resolution.
-
-### 2.2. Initial debounced search refresh
-
-C#, Python, TypeScript and Swift seed the search term with `""` and debounce it,
-so one filtered emission arrives after construction without a request. With a
-zero debounce, C#, Python and TypeScript emit it inside the constructor, where
-no subscriber can see it. Every SRCH-007 test uses a zero debounce, so no test
-exposes it. Rust is pull-based and does not emit it.
-
 ### 2.3. Duplicate dictionary key error
 
 `spec/21-collections.md` §4 names no error for a duplicate key.

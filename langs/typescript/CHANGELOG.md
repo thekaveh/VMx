@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `NOTIF-020` conformance tests (#1476, ADR-0197). A `pending` subscription
+  made after hub disposal receives completion only. TypeScript already behaved
+  this way.
 - `COMP-049` conformance tests (ADR-0190, #1351). A container whose disposal is
   requested during a change sends no hub message for it. TypeScript already
   behaved this way.
@@ -155,6 +158,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `HierarchicalVMBuilder`. `@thekaveh/vmx` 4.0 requires them (ADR-0009, #665).
 
 ### Fixed
+
+- `NotificationVM` and `ConfirmationVM` keep `remainingMs` and `opacity` from
+  their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306). Before,
+  both values kept decaying with the scheduler clock after resolution or
+  `dispose()`, and no change notification reported the new values.
+  After auto-dismiss both values are 0, even when the expiry timer fires while
+  the clock still reads a little before expiry.
+
+- `SearchableState` construction no longer starts a term debounce (ADR-0198,
+  `SRCH-008`, #1307). Before, the seeded empty term emitted one filtered
+  snapshot one debounce window after construction, with no term change or
+  `search()` call.
 
 - A disposed `HierarchicalVM` node now refuses `addChild`, `removeChild`,
   `reparentChild`, `invalidateChildren`, `invalidateSubtree` and

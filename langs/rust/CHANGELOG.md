@@ -15,6 +15,13 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
 
 ### Added
 
+- `NOTIF-019` conformance tests (#1306, ADR-0197). `remaining_time_ms()` and
+  `opacity()` keep their values from the first resolution or disposal. Rust
+  already behaved this way.
+
+- `SRCH-008` conformance tests (#1307, ADR-0198). Construction sends no
+  `filtered_changed` notification. Rust already behaved this way.
+
 - `FilteredCompositeVm::changed()`, a hot `ValueStream<()>` (#1259,
   ADR-0207, spec/06 §9). It sends once after each source membership change,
   `set_predicate`, `refresh` and `refresh_scores`, and once when
@@ -471,6 +478,12 @@ the 0.1.0 to 0.35.0 sections of `langs/rust/CHANGELOG.md`. It implements spec
   is the snapshot that is current at subscription.
 
 ### Fixed
+
+- `NotificationHub::dispose()` sends no final empty snapshot (ADR-0197,
+  #1476). It sends no value on `pending_stream()` and no `pending` message on
+  `pending_changed()` before completion. A `pending_stream()` subscription
+  made after dispose completes at once with no replay (`NOTIF-020`). Before,
+  it replayed the final empty snapshot.
 
 - `TreeSelection::dispose` resets the value that `current_changed()` retains
   to `None` before it completes the stream (#1286, ADR-0207). A kept stream

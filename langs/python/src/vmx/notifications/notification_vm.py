@@ -30,6 +30,7 @@ class NotificationVM:
     - :attr:`notification` — the consumed datum
     - :attr:`lifespan` — configured lifespan (default 60 s)
     - :attr:`remaining_time` — decays toward ``timedelta(0)`` via *scheduler*
+      and keeps its value from the first resolution or disposal (ADR-0197)
     - :attr:`opacity` — derived ``remaining_time / lifespan`` in range [0.0, 1.0]
     - :attr:`is_resolved` — ``True`` once resolved
     - :attr:`dismiss_command` — resolves with Approve and cancels the timer;
@@ -84,6 +85,10 @@ class NotificationVM:
         ) and self._lifespan > timedelta(0)
         self._start = scheduler.now
         self._is_resolved = False
+        # Render state kept from the first resolution or disposal (ADR-0197).
+        self._kept_remaining: timedelta | None = None
+        # Set when the lifespan timer fires; the remaining time is then zero.
+        self._expired = False
 
         # INPC-style change-notification stream (VMX-079/135).
         self._property_changed_subject: Subject[str] = Subject()
@@ -117,7 +122,7 @@ class NotificationVM:
             ops.take(1),
         ).subscribe(on_next=lambda _: self._notify_external_resolve())
 
-        timer = scheduler.schedule_relative(self._lifespan, lambda sched, _state: self._on_expire())
+        timer = scheduler.schedule_relative(self._lifespan, lambda sched, _state: self._expire())
         if self._disposed or self._is_resolved:
             timer.dispose()
         else:
@@ -154,10 +159,14 @@ class NotificationVM:
 
     @property
     def remaining_time(self) -> timedelta:
-        """Time remaining until auto-dismiss. Decays to ``timedelta(0)``."""
-        elapsed = self._scheduler.now - self._start
-        remaining = self._lifespan - elapsed
-        return remaining if remaining > timedelta(0) else timedelta(0)
+        """Time remaining until auto-dismiss. Decays to ``timedelta(0)``.
+
+        Keeps its value from the first resolution or disposal (ADR-0197,
+        NOTIF-019), so a bound view and a poll read the same value.
+        """
+        if self._kept_remaining is not None:
+            return self._kept_remaining
+        return self._compute_remaining()
 
     @property
     def opacity(self) -> float:
@@ -198,6 +207,7 @@ class NotificationVM:
         if self._disposed:
             return
         self._disposed = True
+        self._keep_render_state()
         _run_disposal_steps(*self._teardown_steps())
 
     def _teardown_steps(self) -> list[Callable[[], None]]:
@@ -212,6 +222,22 @@ class NotificationVM:
         ]
 
     # ── Internal ──────────────────────────────────────────────────────────────
+
+    def _compute_remaining(self) -> timedelta:
+        """Remaining lifespan by the scheduler clock, clamped at zero.
+
+        Returns zero once the timer has fired, because a real timer can fire
+        before the clock reaches expiry (ADR-0197).
+        """
+        if self._expired:
+            return timedelta(0)
+        remaining = self._lifespan - (self._scheduler.now - self._start)
+        return remaining if remaining > timedelta(0) else timedelta(0)
+
+    def _keep_render_state(self) -> None:
+        """Keep ``remaining_time`` from the first resolution or disposal (ADR-0197)."""
+        if self._kept_remaining is None:
+            self._kept_remaining = self._compute_remaining()
 
     def _is_live(self) -> bool:
         """Owned-command predicate: False from the start of :meth:`dispose`."""
@@ -256,6 +282,11 @@ class NotificationVM:
         self._raise_property_changed("remaining_time")
         self._raise_property_changed("opacity")
 
+    def _expire(self) -> None:
+        """Mark the lifespan as spent, then run the :meth:`_on_expire` hook."""
+        self._expired = True
+        self._on_expire()
+
     def _on_expire(self) -> None:
         """Called when the lifespan timer fires.
 
@@ -269,6 +300,7 @@ class NotificationVM:
         if self._disposed or self._is_resolved:
             return
         self._is_resolved = True
+        self._keep_render_state()
         self._cancel_timers()
         self._hub.resolve(self._notification, NotificationReaction.APPROVE)
         self._raise_resolved_changes()
@@ -282,6 +314,7 @@ class NotificationVM:
         if self._disposed or self._is_resolved:
             return
         self._is_resolved = True
+        self._keep_render_state()
         self._cancel_timers()
         self._hub.resolve(self._notification, reaction)
         self._raise_resolved_changes()
@@ -291,5 +324,6 @@ class NotificationVM:
         if self._disposed or self._is_resolved:
             return
         self._is_resolved = True
+        self._keep_render_state()
         self._cancel_timers()
         self._raise_resolved_changes()

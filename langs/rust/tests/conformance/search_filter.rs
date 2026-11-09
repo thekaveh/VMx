@@ -406,3 +406,31 @@ fn omitted_signal_preserves_explicit_refresh_and_item_ownership() {
     first.vm.dispose().unwrap();
     assert_eq!(first.dispose_count.load(Ordering::SeqCst), 1);
 }
+
+/// SRCH-008 — construction starts no term debounce
+///
+/// Rust has no term debounce: a term change notifies synchronously, and
+/// construction sends no `filtered_changed` notification (ADR-0198).
+#[test]
+fn construction_starts_no_term_debounce() {
+    let items = Arc::new(Mutex::new(vec!["one"]));
+    let source = items.clone();
+    let state = SearchableState::from_items(move || source.lock().unwrap().clone(), contains);
+    let recorder = state.filtered_changed().record(16);
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    let seen = snapshots.clone();
+    let observed = state.clone();
+    let _subscription = state.filtered_changed().subscribe(move |_| {
+        seen.lock().unwrap().push(observed.filtered());
+    });
+
+    items.lock().unwrap().push("two");
+    assert!(recorder.is_empty(), "construction sends no notification");
+
+    assert_eq!(state.search(), vec!["one", "two"]);
+    assert_eq!(recorder.len(), 1);
+    assert_eq!(snapshots.lock().unwrap().as_slice(), &[vec!["one", "two"]]);
+
+    state.set_search_term("o");
+    assert_eq!(recorder.len(), 2);
+}

@@ -1,10 +1,10 @@
 //
-// NotificationVMTests.swift — NOTIF-011..016 and NOTIF-018 conformance.
+// NotificationVMTests.swift — NOTIF-011..016, NOTIF-018 and NOTIF-019 conformance.
 //
 // Claimed IDs: NOTIF-011, NOTIF-012, NOTIF-013, NOTIF-014, NOTIF-015,
-//              NOTIF-016, NOTIF-018.
+//              NOTIF-016, NOTIF-018, NOTIF-019.
 //
-// See spec/16-notifications.md §6-7, ADR-0031.
+// See spec/16-notifications.md §6-7, ADR-0031, ADR-0197.
 //
 // Virtual time is driven by `VirtualTimeScheduler` (Sources/VMx/Services):
 // `scheduler.advance(toSeconds:)` moves the virtual clock and runs every
@@ -279,6 +279,134 @@ final class NotificationVMTests: XCTestCase {
                        "NOTIF-016: auto-dismiss fires exactly once")
 
         cancellables.removeAll()
+        sut.dispose()
+    }
+
+    // MARK: NOTIF-019
+
+    /// NOTIF-019 — `remaining` and `opacity` keep their values from the first
+    /// resolution or disposal (ADR-0197).
+    func testNotif019RenderStateStopsAtResolutionOrDisposal() async {
+        // Dismissed at 0 s, then 10 s pass.
+        let schedulerA = VirtualTimeScheduler()
+        let hubA = NotificationHub()
+        let nA = Notif(type: .notification, message: "dismissed")
+        _ = await post(hubA, nA)
+        let sutA = NotificationVM(notification: nA, hub: hubA, scheduler: schedulerA, lifespan: 10)
+        sutA.dismissCommand.execute()
+        schedulerA.advance(by: .seconds(10))
+        XCTAssertEqual(sutA.remaining, 10, accuracy: 0.001,
+                       "NOTIF-019: remaining keeps its value from dismissal")
+        XCTAssertEqual(sutA.opacity, 1.0, accuracy: 0.001,
+                       "NOTIF-019: opacity keeps its value from dismissal")
+        sutA.dispose()
+
+        // Disposed at 0 s, then 10 s pass.
+        let schedulerB = VirtualTimeScheduler()
+        let hubB = NotificationHub()
+        let nB = Notif(type: .notification, message: "disposed")
+        _ = await post(hubB, nB)
+        let sutB = NotificationVM(notification: nB, hub: hubB, scheduler: schedulerB, lifespan: 10)
+        sutB.dispose()
+        schedulerB.advance(by: .seconds(10))
+        XCTAssertEqual(sutB.remaining, 10, accuracy: 0.001,
+                       "NOTIF-019: remaining keeps its value from disposal")
+        XCTAssertEqual(sutB.opacity, 1.0, accuracy: 0.001,
+                       "NOTIF-019: opacity keeps its value from disposal")
+        hubB.dispose()
+
+        // 4 s pass, dismissed, then 6 s more pass.
+        let schedulerC = VirtualTimeScheduler()
+        let hubC = NotificationHub()
+        let nC = Notif(type: .notification, message: "late dismiss")
+        _ = await post(hubC, nC)
+        let sutC = NotificationVM(notification: nC, hub: hubC, scheduler: schedulerC, lifespan: 10)
+        schedulerC.advance(by: .seconds(4))
+        sutC.dismissCommand.execute()
+        schedulerC.advance(by: .seconds(6))
+        XCTAssertEqual(sutC.remaining, 6, accuracy: 0.001,
+                       "NOTIF-019: remaining keeps its value from a later dismissal")
+        XCTAssertEqual(sutC.opacity, 0.6, accuracy: 0.01,
+                       "NOTIF-019: opacity keeps its value from a later dismissal")
+        sutC.dispose()
+    }
+
+    /// An approved `ConfirmationVM` keeps the opacity it had at approval.
+    func testConfirmationApprovalKeepsOpacity() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .confirmation, message: "confirm?")
+        _ = await post(hub, n)
+        let sut = ConfirmationVM(notification: n, hub: hub, scheduler: scheduler)
+
+        scheduler.advance(by: .seconds(60))
+        sut.approveCommand.execute()
+        scheduler.advance(by: .seconds(240))
+
+        XCTAssertEqual(sut.remaining, 240, accuracy: 0.001)
+        XCTAssertEqual(sut.opacity, 0.8, accuracy: 0.001)
+        sut.dispose()
+    }
+
+    /// An observed hub resolution keeps the remaining time it had then.
+    func testExternalResolveKeepsRemaining() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "hub resolves")
+        _ = await post(hub, n)
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
+
+        scheduler.advance(by: .seconds(3))
+        hub.resolve(n, .approve)
+        XCTAssertTrue(sut.isResolved)
+        scheduler.advance(by: .seconds(5))
+
+        XCTAssertEqual(sut.remaining, 7, accuracy: 0.001)
+        XCTAssertEqual(sut.opacity, 0.7, accuracy: 0.001)
+        sut.dispose()
+    }
+
+    /// Auto-dismiss keeps exactly 0 even when the clock at expiry reads a
+    /// little before `start + lifespan`. Here `(0.7 + 0.1) - 0.7` rounds
+    /// below 0.1 in `Double` (ADR-0197).
+    func testAutoDismissKeepsZeroWhenTheClockReadsBeforeExpiry() async {
+        let scheduler = VirtualTimeScheduler(now: 0.7)
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "early")
+        _ = await post(hub, n)
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 0.1)
+
+        scheduler.advance(by: .seconds(0.1))
+
+        XCTAssertTrue(sut.isResolved)
+        XCTAssertEqual(sut.remaining, 0)
+        XCTAssertEqual(sut.opacity, 0)
+        sut.dispose()
+    }
+
+    /// A `NotificationVM` over a disposed hub constructs normally, and
+    /// `dismiss` resolves the VM without changing the hub (ADR-0197).
+    func testVMOverDisposedHubConstructsAndDismisses() {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        hub.dispose()
+        let n = Notif(type: .notification, message: "after dispose")
+
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
+        XCTAssertFalse(sut.isResolved)
+
+        sut.dismissCommand.execute()
+        XCTAssertTrue(sut.isResolved)
+
+        var values: [[Notif]] = []
+        var completions = 0
+        let cancellable = hub.pending.sink(
+            receiveCompletion: { _ in completions += 1 },
+            receiveValue: { values.append($0) }
+        )
+        XCTAssertTrue(values.isEmpty, "a disposed hub sends no pending value")
+        XCTAssertEqual(completions, 1)
+        cancellable.cancel()
         sut.dispose()
     }
 

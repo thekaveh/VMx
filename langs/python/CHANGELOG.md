@@ -98,6 +98,20 @@ below for them.
 
 ### Fixed
 
+- `NotificationVM` and `ConfirmationVM` keep `remaining_time` and `opacity`
+  from their first resolution or disposal (ADR-0197, `NOTIF-019`, #1306).
+  Before, both values kept decaying with the scheduler clock after resolution
+  or `dispose()`, and no change notification reported the new values.
+  After auto-dismiss both values are 0, even when the expiry timer fires while
+  the clock still reads a little before expiry.
+- A `pending` subscription made after `NotificationHub` disposal receives
+  completion only, with no snapshot and no error (ADR-0197, `NOTIF-020`,
+  #1476). Before, it received `DisposedException`, and a `NotificationVM`
+  built over a disposed hub raised.
+- `SearchableState` construction no longer starts a term debounce (ADR-0198,
+  `SRCH-008`, #1307). Before, the seeded empty term emitted one filtered
+  snapshot one debounce window after construction, with no term change or
+  `search()` call.
 - A disposed `HierarchicalVM` node now refuses `add_child`, `remove_child`,
   `reparent_child`, `invalidate_children`, `invalidate_subtree` and
   `attach_many`, also where the call would do nothing (ADR-0190, spec/18

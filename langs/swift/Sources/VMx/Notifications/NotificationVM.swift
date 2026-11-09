@@ -13,6 +13,8 @@
 //   - `dismissCommand` resolves `.approve` and cancels the timer (NOTIF-014).
 //   - an external `hub.resolve(...)` is observed via `hub.pending` and flips
 //     `isResolved` + cancels the timer (NOTIF-015).
+//   - `remaining` and `opacity` keep their values from the first resolution
+//     or disposal (NOTIF-019, ADR-0197).
 //
 // Time unit: SECONDS (`TimeInterval`) throughout — `lifespan`, `remaining`, and
 // the scheduler all measure seconds, so a `lifespan` of 10 advanced to 5 yields
@@ -44,6 +46,10 @@ open class NotificationVM {
     /// Set first by `dispose()`. The owned commands read it, so each reports
     /// `canExecute() == false` from the start of disposal (spec/16 §6.2).
     private(set) var disposed = false
+    /// `remaining` kept from the first resolution or disposal (ADR-0197).
+    private var keptRemaining: TimeInterval?
+    /// Set when the lifespan timer fires; `remaining` is then 0 (ADR-0197).
+    private var expired = false
     private var timerCancellable: AnyCancellable?
     private var tickCancellable: AnyCancellable?
     private var pendingCancellable: AnyCancellable?
@@ -87,7 +93,7 @@ open class NotificationVM {
         if armsExpiryTimer() {
             let expireAt = scheduler.now.advanced(by: .seconds(lifespan))
             self.timerCancellable = scheduler.schedule(at: expireAt) { [weak self] in
-                self?.onExpire()
+                self?.expire()
             }
         }
 
@@ -120,7 +126,16 @@ open class NotificationVM {
     }
 
     /// Remaining time in seconds, decaying toward 0 via the injected scheduler.
+    /// Keeps its value from the first resolution or disposal (NOTIF-019).
     public var remaining: TimeInterval {
+        keptRemaining ?? computeRemaining()
+    }
+
+    /// Reads the remaining time from the scheduler clock. Returns 0 once the
+    /// timer has fired, because the clock can read a little before expiry
+    /// (ADR-0197).
+    private func computeRemaining() -> TimeInterval {
+        if expired { return 0 }
         let elapsed = scheduler.now.seconds - startTime
         let r = lifespan - elapsed
         return r > 0 ? r : 0
@@ -146,6 +161,7 @@ open class NotificationVM {
     public func dispose() {
         if disposed { return }
         disposed = true
+        keepRemaining()
         timerCancellable?.cancel(); timerCancellable = nil
         tickCancellable?.cancel(); tickCancellable = nil
         pendingCancellable?.cancel(); pendingCancellable = nil
@@ -177,6 +193,12 @@ open class NotificationVM {
 
     // ── Private ──────────────────────────────────────────────────────────────
 
+    /// Marks the lifespan as spent, then runs the `onExpire()` hook.
+    private func expire() {
+        expired = true
+        onExpire()
+    }
+
     /// Observed external resolution: flip `isResolved` and cancel the timer
     /// WITHOUT re-notifying the hub (it already resolved). Idempotent.
     private func notifyExternalResolve() {
@@ -191,12 +213,19 @@ open class NotificationVM {
         // A disposed VM's later resolution paths are inert (DISP-004).
         if resolved || disposed { return }
         resolved = true
+        keepRemaining()
         timerCancellable?.cancel(); timerCancellable = nil
         tickCancellable?.cancel(); tickCancellable = nil
         if notifyHub, let reaction {
             hub.resolve(notificationRef, reaction)
         }
         raiseResolvedChanges()
+    }
+
+    /// Keeps `remaining` (and so `opacity`) from the first resolution or
+    /// disposal; later calls are no-ops (ADR-0197).
+    private func keepRemaining() {
+        if keptRemaining == nil { keptRemaining = computeRemaining() }
     }
 
     private func scheduleDecayTick() {

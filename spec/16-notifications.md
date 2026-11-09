@@ -112,6 +112,13 @@ returns an empty list; a caller subscribes to `pending_stream()` instead
 - New subscribers immediately receive the current snapshot (BehaviorSubject-like).
 - Implementations MAY emit an immutable copy of the list, or a stable
   reference; consumers MUST NOT mutate the emitted list.
+- Dispose sends no snapshot of its own. Snapshots queued before dispose are
+  delivered in order, and then `Pending` completes once (§9).
+- A subscription made after `dispose` returns receives completion only. It
+  receives no snapshot and no error, and the subscribe call does not raise. A
+  subscription that races a dispose on another thread MAY first receive the
+  current snapshot (ADR-0197). Rust applies both rules to `pending_stream()`.
+  Rust dispose also sends no `pending` message on `pending_changed()`.
 
 ## 3. Null variant — `NullNotificationHub`
 
@@ -186,6 +193,17 @@ Scheduler is injected at construction. Production code passes the default
 system scheduler; tests pass a `TestScheduler` / fake clock for deterministic
 time advancement.
 
+Resolution and disposal stop the clock (ADR-0197). The VM stops it at the first
+of these steps: its own resolution, an observed hub resolution, or its
+disposal. Its own resolution includes `DismissCommand` and auto-dismiss. From
+that step on, `RemainingTime` and `Opacity` keep the values that they had at
+that step, and a later clock advance does not change them. After auto-dismiss
+they are 0 and 0.0. A real timer can fire while the clock still reads a little
+before expiry. The VM then stores 0 and 0.0 too, and does not read the clock.
+
+A `NotificationVM` built over a disposed hub constructs normally. Its pending
+subscription completes at once, and the hub ignores its resolve call.
+
 ### 6.1 Lifespan timeline
 
 ```mermaid
@@ -230,6 +248,10 @@ externally.
 
 `DismissCommand` (inherited) still resolves with `Approve` and cancels the
 timer if the consumer provides a dismiss affordance.
+
+`ApproveCommand`, `RejectCommand` and `DismissCommand` stop the clock as §6
+describes, and so do an observed hub resolution and disposal. A confirmation
+that expires without a decision is not resolved; its `RemainingTime` stays 0.
 
 ### 7.1 Lifespan comparison
 
@@ -305,10 +327,15 @@ the command-decorator bridge.
 
 `NOTIF-017` (added in v2.5.0 via ADR-0037) covers hub disposal: disposing the
 hub resolves every in-flight `Post` awaitable with
-`NotificationReaction.Pending`, completes the `Pending` observable, turns
-subsequent `Post` calls into immediately-`Pending` results that do not
-enqueue, makes subsequent `Resolve` calls no-ops, and is idempotent. These
-were previously C#-only shutdown semantics; all flavors now share them.
+`NotificationReaction.Pending`, completes the `Pending` observable with no
+final snapshot (ADR-0197), turns subsequent `Post` calls into
+immediately-`Pending` results that do not enqueue, makes subsequent `Resolve`
+calls no-ops, and is idempotent. These were previously C#-only shutdown
+semantics; all flavors now share them.
+
+`NOTIF-019` covers the render state after resolution or disposal (§6), and
+`NOTIF-020` covers a `Pending` subscription made after dispose (§2.3). Both
+were added in v3.30.0 via ADR-0197.
 
 `NOTIF-018` (added in v3.30.0 via ADR-0196) covers the commands of a rendering
 VM during its disposal (§6.2).

@@ -14,6 +14,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [3.30.0] — unreleased source version
 
+- Fixed: `SearchableState` construction no longer starts a term debounce
+  (ADR-0198, `SRCH-008`, #1307). Before, the seeded empty term emitted one
+  filtered snapshot one debounce window after construction, with no term
+  change or `Search()` call.
+
 - Fixed: a disposed `HierarchicalVM` node now refuses `AddChild`,
   `RemoveChild`, `ReparentChild`, `InvalidateChildren`, `InvalidateSubtree`
   and `AttachMany`, also where the call would do nothing (ADR-0190, spec/18
@@ -757,6 +762,17 @@ All notable changes to the C# flavor are documented here. The format is based on
   §6.2, #1458, `NOTIF-018`). Before, a command that was not yet disposed
   reported true inside a disposal `CanExecuteChanged` notification, while its
   `Execute` did nothing.
+- Fixed: `NotificationVM` and `ConfirmationVM` keep `RemainingTime` and
+  `Opacity` from their first resolution or disposal (ADR-0197, `NOTIF-019`,
+  #1306). Before, both values kept decaying with the scheduler clock after
+  resolution or `Dispose()`, and no change notification reported the new
+  values.
+  After auto-dismiss both values are 0, even when the expiry timer fires while
+  the clock still reads a little before expiry.
+- Fixed: a `Pending` subscription made after `NotificationHub` disposal
+  receives completion only, with no snapshot and no error (ADR-0197,
+  `NOTIF-020`, #1476). Before, it received `ObjectDisposedException`, and a
+  `NotificationVM` built over a disposed hub threw.
 - Fixed: when a `Pending` subscriber disposes the hub and then throws, the
   queued completion still runs, so `Pending` completes and its subject is
   disposed before any waiting thread wakes. Before, the abandoned queue
