@@ -617,14 +617,18 @@ describe("ADR-0201 §2.3 — the action-bar Save is the editor Save", () => {
  */
 class WriteFirstRepository extends InMemoryNoteRepository {
   readonly held: (() => void)[] = [];
+  /** Indexes of the saves that throw when released, before they write. */
+  readonly failing = new Set<number>();
 
   constructor() {
     super(buildSeed(), { loadAllDelayMs: 0, loadNotesDelayMs: 0, saveNoteDelayMs: 0 });
   }
 
   override async saveNote(note: NoteModel): Promise<void> {
-    await super.saveNote(note);
+    const index = this.held.length;
+    if (!this.failing.has(index)) await super.saveNote(note);
     await new Promise<void>((resolve) => this.held.push(resolve));
+    if (this.failing.has(index)) throw new Error("disk full");
   }
 }
 
@@ -682,6 +686,48 @@ describe("WorkspaceVM save order", () => {
     const stored = (await repo.loadAll()).notes.find((n) => n.id === noteId);
     expect(stored?.title).toBe("Newer title");
     expect(stored?.body).toBe("Body after both saves");
+    ws.dispose();
+  });
+
+  it.each([
+    ["the older save settles first", true],
+    ["the newer save fails first", false],
+  ])("an older save shows when the newer save fails: %s (#1379)", async (_name, olderSettlesFirst) => {
+    const repo = new WriteFirstRepository();
+    repo.failing.add(1);
+    const ws = WorkspaceVM.builder()
+      .repository(repo)
+      .dialogService(NullDialogService.INSTANCE)
+      .build();
+    await ws.constructAsync();
+    const [note, other] = ws.notesView.inner;
+    const noteId = note!.model.id;
+    const form = ws.noteForm;
+
+    ws.notesView.current = note!;
+    form.draft = { ...form.draft, title: "Older title" };
+    const saveA = form.approveAsync().catch(() => undefined);
+    await waitFor(() => repo.held.length === 1);
+    ws.notesView.current = other!;
+    ws.notesView.current = note!;
+    form.draft = { ...form.draft, title: "Newer title" };
+    const saveB = form.approveAsync().catch(() => undefined);
+    await waitFor(() => repo.held.length === 2);
+
+    const order: [number, Promise<unknown>][] = olderSettlesFirst
+      ? [[0, saveA], [1, saveB]]
+      : [[1, saveB], [0, saveA]];
+    for (const [index, save] of order) {
+      repo.held[index]!();
+      await save;
+    }
+
+    const stored = (await repo.loadAll()).notes.find((n) => n.id === noteId);
+    expect(stored?.title).toBe("Older title");
+    const row = ws.notesView.inner.find((n) => n.model.id === noteId);
+    expect(row?.title).toBe("Older title");
+    // The failed save keeps its unsaved edits in the editor.
+    expect(form.draft.title).toBe("Newer title");
     ws.dispose();
   });
 });

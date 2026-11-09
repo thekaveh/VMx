@@ -458,6 +458,66 @@ public sealed class WorkspaceVMTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task An_older_save_shows_when_the_newer_save_fails(bool olderSettlesFirst)
+    {
+        // #1379: the newer save of a note fails and the older one succeeds.
+        // The list row shows the older save's values, which the repository keeps.
+        var repo = new WriteFirstRepository();
+        repo.Failing.Add(1);
+        var ws = WorkspaceVM.Builder().Repository(repo).Build();
+        await ws.ConstructAsync();
+        try
+        {
+            var note = ws.NotesView.Inner[0];
+            var other = ws.NotesView.Inner[1];
+            var noteId = note.Model.Id;
+            var form = ws.NoteForm;
+
+            ws.NotesView.Current = note;
+            form.Title = "Older title";
+            var saveA = IgnoreFailure(form.ApproveAsync());
+            await TestWait.WaitUntilAsync(() => repo.HeldCount == 1);
+            ws.NotesView.Current = other;
+            ws.NotesView.Current = note;
+            form.Title = "Newer title";
+            var saveB = IgnoreFailure(form.ApproveAsync());
+            await TestWait.WaitUntilAsync(() => repo.HeldCount == 2);
+
+            var order = olderSettlesFirst
+                ? new[] { (0, saveA), (1, saveB) }
+                : new[] { (1, saveB), (0, saveA) };
+            foreach (var (index, save) in order)
+            {
+                repo.Release(index);
+                await save;
+            }
+
+            var (_, notes) = await repo.LoadAllAsync();
+            Assert.Equal("Older title", notes.First(n => n.Id == noteId).Title);
+            Assert.Equal("Older title", ws.NotesView.Inner.First(n => n.Model.Id == noteId).Title);
+            // The failed save keeps its unsaved edits in the editor.
+            Assert.Equal("Newer title", form.Title);
+        }
+        finally
+        {
+            ws.Dispose();
+        }
+
+        static async Task IgnoreFailure(Task save)
+        {
+            try
+            {
+                await save;
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     /// <summary>
     /// Writes each save when it starts, then holds its answer until the test
     /// releases that save, so saves can settle out of order.
@@ -471,6 +531,9 @@ public sealed class WorkspaceVMTests
             saveNoteDelay: TimeSpan.Zero,
             addNotebookDelay: TimeSpan.Zero);
         private readonly List<TaskCompletionSource> _held = new();
+
+        /// <summary>Indexes of the saves that throw when released, before they write.</summary>
+        public HashSet<int> Failing { get; } = new();
 
         public int HeldCount
         {
@@ -490,10 +553,14 @@ public sealed class WorkspaceVMTests
             => _inner.SearchNotesAsync(term, token, pageSize, ct);
         public async Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
         {
-            await _inner.SaveNoteAsync(note, ct).ConfigureAwait(false);
+            int index;
+            lock (_held) index = _held.Count;
+            var fails = Failing.Contains(index);
+            if (!fails) await _inner.SaveNoteAsync(note, ct).ConfigureAwait(false);
             var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             lock (_held) _held.Add(release);
             await release.Task.ConfigureAwait(false);
+            if (fails) throw new IOException("disk full");
         }
         public Task DeleteNoteAsync(string id, CancellationToken ct = default)
             => _inner.DeleteNoteAsync(id, ct);

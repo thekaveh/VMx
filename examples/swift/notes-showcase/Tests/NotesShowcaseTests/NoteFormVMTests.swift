@@ -107,6 +107,8 @@ private actor PendingSaveRepository: NoteRepository {
     }
 }
 
+private struct SaveFailure: Error {}
+
 /// Writes each save when it starts, then holds its answer until the test
 /// releases that save, so saves can settle out of order (#1379).
 private actor WriteFirstRepository: NoteRepository {
@@ -117,8 +119,12 @@ private actor WriteFirstRepository: NoteRepository {
         saveNoteDelay: 0
     )
     private var held: [CheckedContinuation<Void, Never>?] = []
+    /// Indexes of the saves that throw when released, before they write.
+    private var failing: Set<Int> = []
 
     var heldCount: Int { held.count }
+
+    func fail(_ index: Int) { failing.insert(index) }
 
     func release(_ index: Int) {
         let continuation = held[index]
@@ -127,8 +133,11 @@ private actor WriteFirstRepository: NoteRepository {
     }
 
     func saveNote(_ note: NoteModel) async throws {
-        try await store.saveNote(note)
+        let index = held.count
+        let fails = failing.contains(index)
+        if !fails { try await store.saveNote(note) }
         await withCheckedContinuation { held.append($0) }
+        if fails { throw SaveFailure() }
     }
 
     func loadAll() async throws -> (notebooks: [NotebookModel], notes: [NoteModel]) {
@@ -516,6 +525,53 @@ final class NoteFormVMTests: XCTestCase {
         let stored = try await repo.loadAll().notes.first { $0.id == noteId }
         XCTAssertEqual("Newer title", stored?.title)
         XCTAssertEqual("Body after both saves", stored?.body)
+    }
+
+    func testAnOlderSave_showsWhenTheNewerSaveFails() async throws {
+        // The newer save fails and the older one succeeds, in both settle
+        // orders. The list row shows the older save's values, which the
+        // repository keeps.
+        for olderSettlesFirst in [true, false] {
+            try await assertAnOlderSaveShowsWhenTheNewerSaveFails(olderSettlesFirst: olderSettlesFirst)
+        }
+    }
+
+    private func assertAnOlderSaveShowsWhenTheNewerSaveFails(olderSettlesFirst: Bool) async throws {
+        let repo = WriteFirstRepository()
+        await repo.fail(1)
+        let ws = try WorkspaceVM.builder().repository(repo).build()
+        try await ws.constructAsync()
+        defer { ws.dispose() }
+        let note = try XCTUnwrap(ws.notesView.visibleItems.first)
+        let other = try XCTUnwrap(ws.notesView.visibleItems.first { $0 !== note })
+        let noteId = note.model.id
+        let form = ws.noteForm
+
+        ws.notesView.current = note
+        form.title = "Older title"
+        let saveA = Task { try? await form.approveAsync() }
+        await waitUntilAsync { await repo.heldCount == 1 }
+        ws.notesView.current = other
+        ws.notesView.current = note
+        form.title = "Newer title"
+        let saveB = Task { try? await form.approveAsync() }
+        await waitUntilAsync { await repo.heldCount == 2 }
+
+        let order = olderSettlesFirst ? [(0, saveA), (1, saveB)] : [(1, saveB), (0, saveA)]
+        for (index, save) in order {
+            await repo.release(index)
+            await save.value
+        }
+
+        let stored = try await repo.loadAll().notes.first { $0.id == noteId }
+        XCTAssertEqual("Older title", stored?.title, "olderSettlesFirst: \(olderSettlesFirst)")
+        await waitUntil { note.model.title == "Older title" }
+        XCTAssertEqual(
+            "Older title", note.model.title,
+            "the list row shows the older save; olderSettlesFirst: \(olderSettlesFirst)"
+        )
+        // The failed save keeps its unsaved edits in the editor.
+        XCTAssertEqual("Newer title", form.title)
     }
 
     func testASaveAdoptedOnADeferredForeground_showsOnlyAfterTheForegroundRuns() async throws {

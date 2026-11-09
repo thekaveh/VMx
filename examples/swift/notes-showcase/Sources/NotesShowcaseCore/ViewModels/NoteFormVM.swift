@@ -42,15 +42,17 @@ public final class NoteFormVM: ComponentVMBase {
     private var _pendingApprovals: [ObjectIdentifier: Int] = [:]
     private var _retiredForms: [ObjectIdentifier: (FormVM<NoteModel>, AnyCancellable?)] = [:]
     private let _retireLock = NSLock()
-    /// Save order (#1379): the number of the save each bound form runs, keyed
-    /// by that form's `SaveSlot`, and the number of the latest save started
-    /// for each note id. Only the latest save of a note refreshes its list
-    /// row and rebinds the editor, so an older save that settles last never
-    /// shows the older values. Guarded by `_saveOrderLock`: the persister and
-    /// `onApproved` run on the saving task's thread.
+    /// Save order (#1379): the note id and number of the save each bound
+    /// form runs, keyed by that form's `SaveSlot`, and the save-order state of
+    /// each note id with a save running. A successful save refreshes its list
+    /// row and rebinds the editor only when no newer save of that note is
+    /// running or shown. So an older save that settles last never shows the
+    /// older values, and an older save is still shown when every newer save
+    /// fails. Guarded by `_saveOrderLock`: the persister and `onApproved` run
+    /// on the saving task's thread.
     private var _savesStarted = 0
-    private var _formSaves: [ObjectIdentifier: Int] = [:]
-    private var _latestSaves: [String: Int] = [:]
+    private var _formSaves: [ObjectIdentifier: (noteId: String, save: Int)] = [:]
+    private var _noteSaves: [String: NoteSaves] = [:]
     private let _saveOrderLock = NSLock()
     private let _editorMode = DiscriminatorVM<String>(initial: "edit")
     private var _editorModeCancellable: AnyCancellable?
@@ -321,14 +323,12 @@ public final class NoteFormVM: ComponentVMBase {
                 guard let self else { return }
                 // The form calls its persister only for an admitted approval.
                 self._admissionLock.withLock { self._admissions += 1 }
-                self.beginSave(in: slot, of: n.id)
+                let save = self.beginSave(in: slot, of: n.id)
                 do {
                     try await self._repo.saveNote(n)
                 } catch {
-                    // A failed save never settles, so it has no entry to keep.
-                    self._saveOrderLock.withLock {
-                        _ = self._formSaves.removeValue(forKey: ObjectIdentifier(slot))
-                    }
+                    // A failed save never settles; an older held save may show now.
+                    self.failSave(in: slot, of: n.id, save)
                     throw error
                 }
             },
@@ -346,38 +346,85 @@ public final class NoteFormVM: ComponentVMBase {
         _approvedCancellable = form.onApproved
             .sink { [weak self, weak form] model in
                 guard let self, let form else { return }
-                // A newer save of this note started after this one. Its values
-                // are the ones the repository keeps, so this one shows nothing.
-                guard self.settleSave(in: slot, of: model.id) else { return }
-                self._onSaved.send(model)
-                // `onApproved` can arrive off the UI thread; `bindTo` emits
-                // property changes, so adopt the save on the foreground.
-                self.dispatcher.scheduleForeground { [weak self] in
-                    self?.adoptSaved(from: form, model)
-                }
+                // A newer save of this note is running or shown. This save is
+                // held, and shown only if every newer save fails.
+                guard self.settleSave(in: slot, from: form, model) else { return }
+                self.showSaved(from: form, model)
             }
         emitDraftChanges()
     }
 
-    private func beginSave(in slot: SaveSlot, of noteId: String) {
-        _saveOrderLock.withLock {
-            _savesStarted += 1
-            _formSaves[ObjectIdentifier(slot)] = _savesStarted
-            _latestSaves[noteId] = _savesStarted
+    private func showSaved(from source: FormVM<NoteModel>, _ saved: NoteModel) {
+        _onSaved.send(saved)
+        // `onApproved` can arrive off the UI thread; `bindTo` emits property
+        // changes, so adopt the save on the foreground.
+        dispatcher.scheduleForeground { [weak self] in
+            self?.adoptSaved(from: source, saved)
         }
     }
 
-    /// Returns `true` when the form of `slot` ran the latest save started for
-    /// `noteId`, and forgets that save once it settles.
-    private func settleSave(in slot: SaveSlot, of noteId: String) -> Bool {
+    private func beginSave(in slot: SaveSlot, of noteId: String) -> Int {
         _saveOrderLock.withLock {
-            guard let save = _formSaves.removeValue(forKey: ObjectIdentifier(slot)) else {
-                return true
-            }
-            guard _latestSaves[noteId] == save else { return false }
-            _latestSaves.removeValue(forKey: noteId)
-            return true
+            _savesStarted += 1
+            let save = _savesStarted
+            _formSaves[ObjectIdentifier(slot)] = (noteId, save)
+            _noteSaves[noteId, default: NoteSaves()].running.insert(save)
+            return save
         }
+    }
+
+    /// Settles the successful save of the form of `slot`. Returns `true` when
+    /// no newer save of its note is running or shown; otherwise holds it.
+    private func settleSave(
+        in slot: SaveSlot,
+        from source: FormVM<NoteModel>,
+        _ saved: NoteModel
+    ) -> Bool {
+        _saveOrderLock.withLock {
+            guard let entry = _formSaves.removeValue(forKey: ObjectIdentifier(slot)),
+                  var saves = _noteSaves[entry.noteId]
+            else { return true }
+            let save = entry.save
+            saves.running.remove(save)
+            let show = save > saves.shown && saves.running.allSatisfy { save > $0 }
+            if show {
+                saves.shown = save
+                saves.held = nil
+            } else if (saves.held?.save ?? 0) < save {
+                saves.held = (save, source, saved)
+            }
+            storeSaves(saves, of: entry.noteId)
+            return show
+        }
+    }
+
+    /// Forgets a failed save. Shows the held save of its note when no newer
+    /// save is running or shown.
+    private func failSave(in slot: SaveSlot, of noteId: String, _ save: Int) {
+        let release: (source: FormVM<NoteModel>, saved: NoteModel)? = _saveOrderLock.withLock {
+            let key = ObjectIdentifier(slot)
+            if let entry = _formSaves[key], entry.noteId == noteId, entry.save == save {
+                _formSaves.removeValue(forKey: key)
+            }
+            guard var saves = _noteSaves[noteId] else { return nil }
+            saves.running.remove(save)
+            var release: (source: FormVM<NoteModel>, saved: NoteModel)?
+            if let held = saves.held, held.save > saves.shown,
+               saves.running.allSatisfy({ held.save > $0 }) {
+                saves.shown = held.save
+                saves.held = nil
+                release = (held.source, held.saved)
+            }
+            storeSaves(saves, of: noteId)
+            return release
+        }
+        if let release { showSaved(from: release.source, release.saved) }
+    }
+
+    /// Stores `saves` for `noteId`. With no save running, a later save
+    /// outnumbers every earlier one, so the state is dropped.
+    private func storeSaves(_ saves: NoteSaves, of noteId: String) {
+        _noteSaves[noteId] = saves.running.isEmpty ? nil : saves
     }
 
     /// A save on a retired form settled (#761). If the user returned to that
@@ -749,3 +796,13 @@ public final class NoteFormVM: ComponentVMBase {
 
 /// Identifies the saves of one bound form for the save-order check (#1379).
 private final class SaveSlot: Sendable {}
+
+/// Save-order state of one note id (#1379). `running` holds the numbers of the
+/// saves that started and have not settled. `shown` is the number of the
+/// newest save shown. `held` is the newest save that succeeded while a newer
+/// save was running; it is shown if every newer save fails.
+private struct NoteSaves {
+    var running: Set<Int> = []
+    var shown = 0
+    var held: (save: Int, source: FormVM<NoteModel>, saved: NoteModel)?
+}

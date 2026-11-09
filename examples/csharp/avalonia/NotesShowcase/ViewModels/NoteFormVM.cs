@@ -55,14 +55,16 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     private readonly object _retireGate = new();
     private readonly Dictionary<FormVM<NoteModel>, int> _pendingApprovals = new();
     private readonly Dictionary<FormVM<NoteModel>, IDisposable?> _retiredForms = new();
-    // Save order (#1379): the number of the save each form runs, and the
-    // number of the latest save started for each note id. Only the latest
-    // save of a note refreshes its list row and rebinds the editor, so an
-    // older save that settles last never shows the older values.
+    // Save order (#1379): the note id and number of the save each form
+    // runs, and the save-order state of each note id with a save running. A
+    // successful save refreshes its list row and rebinds the editor only when
+    // no newer save of that note is running or shown. So an older save that
+    // settles last never shows the older values, and an older save is still
+    // shown when every newer save fails.
     private readonly object _saveOrderGate = new();
     private long _savesStarted;
-    private readonly Dictionary<FormVM<NoteModel>, long> _formSaves = new();
-    private readonly Dictionary<string, long> _latestSaves = new(StringComparer.Ordinal);
+    private readonly Dictionary<FormVM<NoteModel>, (string NoteId, long Save)> _formSaves = new();
+    private readonly Dictionary<string, NoteSaves> _noteSaves = new(StringComparer.Ordinal);
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Component;
@@ -236,14 +238,19 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         var form = _form;
         _approvedSub = form.OnApproved.Subscribe(m =>
         {
-            // A newer save of this note started after this one. Its values
-            // are the ones the repository keeps, so this one shows nothing.
-            if (!SettleSave(form, m.Id)) return;
-            _onSaved.OnNext(m);
-            // OnApproved can arrive off the UI thread; BindTo raises INPC.
-            _dispatcher.Foreground.Schedule(() => AdoptSaved(form, m));
+            // A newer save of this note is running or shown. This save is
+            // held, and shown only if every newer save fails.
+            if (!SettleSave(form, m)) return;
+            ShowSaved(form, m);
         });
         EmitDraftChanges();
+    }
+
+    private void ShowSaved(FormVM<NoteModel> source, NoteModel saved)
+    {
+        _onSaved.OnNext(saved);
+        // OnApproved can arrive off the UI thread; BindTo raises INPC.
+        _dispatcher.Foreground.Schedule(() => AdoptSaved(source, saved));
     }
 
     /// <summary>
@@ -426,38 +433,104 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     {
         // The form calls its persister only for an admitted approval.
         Interlocked.Increment(ref _admissions);
-        lock (_saveOrderGate)
-        {
-            _savesStarted++;
-            _formSaves[form] = _savesStarted;
-            _latestSaves[note.Id] = _savesStarted;
-        }
+        var save = BeginSave(form, note.Id);
         try
         {
             await _repo.SaveNoteAsync(note).ConfigureAwait(false);
         }
         catch
         {
-            // A failed save never settles, so it has no entry to keep.
-            lock (_saveOrderGate) _formSaves.Remove(form);
+            // A failed save never settles; an older held save may show now.
+            FailSave(form, note.Id, save);
             throw;
         }
     }
 
-    /// <summary>
-    /// Returns <c>true</c> when <paramref name="source"/> ran the latest save
-    /// started for <paramref name="noteId"/>, and forgets that save once it
-    /// settles.
-    /// </summary>
-    private bool SettleSave(FormVM<NoteModel> source, string noteId)
+    private long BeginSave(FormVM<NoteModel> form, string noteId)
     {
         lock (_saveOrderGate)
         {
-            if (!_formSaves.Remove(source, out var save)) return true;
-            if (!_latestSaves.TryGetValue(noteId, out var latest) || latest != save) return false;
-            _latestSaves.Remove(noteId);
-            return true;
+            var save = ++_savesStarted;
+            _formSaves[form] = (noteId, save);
+            if (!_noteSaves.TryGetValue(noteId, out var saves))
+            {
+                saves = new NoteSaves();
+                _noteSaves[noteId] = saves;
+            }
+            saves.Running.Add(save);
+            return save;
         }
+    }
+
+    /// <summary>
+    /// Settles the successful save of <paramref name="source"/>. Returns
+    /// <c>true</c> when no newer save of its note is running or shown;
+    /// otherwise holds it.
+    /// </summary>
+    private bool SettleSave(FormVM<NoteModel> source, NoteModel saved)
+    {
+        lock (_saveOrderGate)
+        {
+            if (!_formSaves.Remove(source, out var entry)) return true;
+            if (!_noteSaves.TryGetValue(entry.NoteId, out var saves)) return true;
+            var save = entry.Save;
+            saves.Running.Remove(save);
+            var show = save > saves.Shown && saves.Running.All(other => save > other);
+            if (show)
+            {
+                saves.Shown = save;
+                saves.Held = null;
+            }
+            else if (saves.Held is not { } held || held.Save < save)
+            {
+                saves.Held = (save, source, saved);
+            }
+            ForgetSettled(entry.NoteId, saves);
+            return show;
+        }
+    }
+
+    /// <summary>
+    /// Forgets a failed save. Shows the held save of its note when no newer
+    /// save is running or shown.
+    /// </summary>
+    private void FailSave(FormVM<NoteModel> form, string noteId, long save)
+    {
+        (long Save, FormVM<NoteModel> Source, NoteModel Saved)? shown = null;
+        lock (_saveOrderGate)
+        {
+            if (_formSaves.TryGetValue(form, out var entry) && entry == (noteId, save)) _formSaves.Remove(form);
+            if (!_noteSaves.TryGetValue(noteId, out var saves)) return;
+            saves.Running.Remove(save);
+            if (saves.Held is { } held && held.Save > saves.Shown && saves.Running.All(other => held.Save > other))
+            {
+                saves.Shown = held.Save;
+                saves.Held = null;
+                shown = held;
+            }
+            ForgetSettled(noteId, saves);
+        }
+        if (shown is { } release) ShowSaved(release.Source, release.Saved);
+    }
+
+    private void ForgetSettled(string noteId, NoteSaves saves)
+    {
+        // With no save running, a later save outnumbers every earlier one.
+        if (saves.Running.Count == 0) _noteSaves.Remove(noteId);
+    }
+
+    /// <summary>
+    /// Save-order state of one note id (#1379). <see cref="Running"/> holds
+    /// the numbers of the saves that started and have not settled.
+    /// <see cref="Shown"/> is the number of the newest save shown.
+    /// <see cref="Held"/> is the newest save that succeeded while a newer save
+    /// was running; it is shown if every newer save fails.
+    /// </summary>
+    private sealed class NoteSaves
+    {
+        public HashSet<long> Running { get; } = new();
+        public long Shown { get; set; }
+        public (long Save, FormVM<NoteModel> Source, NoteModel Saved)? Held { get; set; }
     }
 
     private void AddTag()

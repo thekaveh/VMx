@@ -697,12 +697,18 @@ class _WriteFirstRepository(InMemoryNoteRepository):
             save_note_delay=0.0,
         )
         self.held: list[asyncio.Event] = []
+        # Indexes of the saves that raise when released, before they write.
+        self.failing: set[int] = set()
 
     async def save_note(self, note: NoteModel) -> None:
-        await super().save_note(note)
+        index = len(self.held)
+        if index not in self.failing:
+            await super().save_note(note)
         release = asyncio.Event()
         self.held.append(release)
         await release.wait()
+        if index in self.failing:
+            raise OSError("disk full")
 
 
 async def _wait_for(condition: Callable[[], bool]) -> None:
@@ -767,4 +773,51 @@ async def test_an_older_save_that_settles_last_keeps_the_newer_values() -> None:
     saved = next(n for n in stored if n.id == note_id)
     assert saved.title == "Newer title"
     assert saved.body == "Body after both saves"
+    ws.dispose()
+
+
+@pytest.mark.parametrize("older_settles_first", [True, False])
+async def test_an_older_save_shows_when_the_newer_save_fails(older_settles_first: bool) -> None:
+    """The newer save of a note fails and the older one succeeds. The list row
+    shows the older save's values, which the repository keeps (#1379)."""
+    repo = _WriteFirstRepository()
+    repo.failing.add(1)
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    ws = (
+        WorkspaceVM.builder()
+        .name("workspace")
+        .repository(repo)
+        .message_hub(MessageHub[Message]())
+        .dispatcher(dispatcher)
+        .notification_hub(NotificationHub())
+        .build()
+    )
+    await ws.construct_async()
+    notes = ws.notes_view.inner
+    note, other = notes[0], notes[1]
+    note_id = note.model.id
+    form = ws.note_form
+
+    ws.notes_view.current = note
+    form.title = "Older title"
+    save_a = asyncio.create_task(form.approve_async())
+    await _wait_for(lambda: len(repo.held) == 1)
+    ws.notes_view.current = other
+    ws.notes_view.current = note
+    form.title = "Newer title"
+    save_b = asyncio.create_task(form.approve_async())
+    await _wait_for(lambda: len(repo.held) == 2)
+
+    order = [(0, save_a), (1, save_b)] if older_settles_first else [(1, save_b), (0, save_a)]
+    for index, save in order:
+        repo.held[index].set()
+        await asyncio.wait_for(asyncio.gather(save, return_exceptions=True), timeout=1)
+    await asyncio.sleep(0.01)
+
+    _notebooks, stored = await repo.load_all()
+    assert next(n for n in stored if n.id == note_id).title == "Older title"
+    row = next(n for n in ws.notes_view.inner if n.model.id == note_id)
+    assert row.title == "Older title"
+    # The failed save keeps its unsaved edits in the editor.
+    assert form.title == "Newer title"
     ws.dispose()
