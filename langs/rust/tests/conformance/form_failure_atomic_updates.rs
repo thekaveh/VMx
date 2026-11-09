@@ -908,7 +908,7 @@ impl HeldForm {
     }
 
     /// Starts `set_model(3)` on a worker and returns once its validator is
-    /// held, with the update lock taken.
+    /// held.
     fn edit_held_in_validator(&self) -> Receiver<()> {
         self.hold_validate.store(true, Ordering::SeqCst);
         let edit = on_worker({
@@ -928,12 +928,12 @@ impl HeldForm {
     }
 }
 
-// spec/20 §5.4: updates are serialized. An approval commit waits for an edit
-// another thread is preparing, and both complete: the edit is installed, not
-// dropped as stale, and the snapshot advances to the captured model. The
-// persister runs with edits unblocked (§5.3).
+// spec/20 §5.4 (ADR-0215): no lock is held while a callback runs. An
+// approval commit does not wait for an edit another thread is preparing. The
+// commit overtakes the edit, which then runs again as a new call and stands,
+// and the snapshot advances to the captured model.
 #[test]
-fn an_approval_commit_waits_for_an_edit_preparing_on_another_thread() {
+fn an_approval_commit_overtakes_an_edit_preparing_on_another_thread() {
     let held = HeldForm::new();
     let trace = Trace::observe(&held.form);
 
@@ -943,19 +943,18 @@ fn an_approval_commit_waits_for_an_edit_preparing_on_another_thread() {
         move || form.approve()
     });
     held.persist.arrived();
-    // The edit takes the update lock while the approval persists.
     let edit = held.edit_held_in_validator();
     held.persist.release();
     assert_eq!(held.snapshotted(), 2);
 
-    // The approval has prepared its snapshot and waits to commit it.
-    assert_blocked(&approval);
-    assert_eq!(held.form.snapshot(), 1);
+    // The approval commits and settles while the edit prepares.
+    assert_eq!(finished(&approval), Ok(()));
+    assert_eq!(held.form.snapshot(), 2);
     assert_eq!(held.form.model(), 2);
+    assert_blocked(&edit);
 
     held.validate.release();
     finished(&edit);
-    assert_eq!(finished(&approval), Ok(()));
 
     assert_eq!(held.form.model(), 3);
     assert_eq!(held.form.snapshot(), 2);
@@ -966,10 +965,11 @@ fn an_approval_commit_waits_for_an_edit_preparing_on_another_thread() {
     assert_eq!(events, ["can_execute", "can_execute", "model 3"]);
 }
 
-// spec/20 §5.4: another thread's set_model waits for an edit in preparation,
-// and each edit commits and publishes in turn.
+// spec/20 §5.4 (ADR-0215): another thread's set_model commits while an edit
+// prepares. The overtaken edit then runs again as a new call, and each edit
+// publishes in turn.
 #[test]
-fn an_edit_on_another_thread_waits_for_an_edit_in_preparation() {
+fn an_edit_on_another_thread_overtakes_an_edit_in_preparation() {
     let held = HeldForm::new();
     let trace = Trace::observe(&held.form);
     let first = held.edit_held_in_validator();
@@ -978,15 +978,15 @@ fn an_edit_on_another_thread_waits_for_an_edit_in_preparation() {
         let form = held.form.clone();
         move || form.set_model(-4)
     });
-    assert_blocked(&second);
-    assert_eq!(held.form.model(), 2);
+    finished(&second);
+    assert_eq!(held.form.model(), -4);
+    assert_blocked(&first);
 
     held.validate.release();
     finished(&first);
-    finished(&second);
 
-    assert_eq!(held.form.model(), -4);
-    assert_eq!(held.form.error_map(), errors(&[("value", "negative")]));
+    assert_eq!(held.form.model(), 3);
+    assert!(held.form.error_map().is_empty());
     let events = trace.take();
     assert_eq!(
         events
@@ -998,10 +998,11 @@ fn an_edit_on_another_thread_waits_for_an_edit_in_preparation() {
     );
 }
 
-// spec/20 §5.4 and chapter 02 §7: disposal on another thread waits for an
-// edit in preparation, which completes normally.
+// spec/20 §5.4 and §10 (ADR-0215): disposal on another thread during an
+// edit's preparation marks the form disposed and returns. The edit commits
+// nothing.
 #[test]
-fn disposal_on_another_thread_waits_for_an_edit_in_preparation() {
+fn disposal_on_another_thread_during_an_edit_in_preparation_returns_at_once() {
     let held = HeldForm::new();
     let edit = held.edit_held_in_validator();
 
@@ -1009,15 +1010,13 @@ fn disposal_on_another_thread_waits_for_an_edit_in_preparation() {
         let form = held.form.clone();
         move || form.dispose()
     });
-    assert_blocked(&disposal);
-    assert!(held.form.can_approve());
+    finished(&disposal);
+    assert!(!held.form.can_approve());
 
     held.validate.release();
     finished(&edit);
-    finished(&disposal);
 
-    assert_eq!(held.form.model(), 3);
-    assert!(!held.form.can_approve());
+    assert_eq!(held.form.model(), 2);
     held.form.set_model(4);
-    assert_eq!(held.form.model(), 3);
+    assert_eq!(held.form.model(), 2);
 }

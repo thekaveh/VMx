@@ -1,6 +1,6 @@
 # ADR 0144 — FormVM model updates are failure-atomic
 
-- **Status:** Accepted
+- **Status:** Accepted (Extended by ADR-0215 and ADR-0216)
 - **Date:** 2026-10-12
 - **Spec version:** 3.28.0
 - **Related:** [ADR-0092](0092-form-model-hub-publication.md) (model assignment

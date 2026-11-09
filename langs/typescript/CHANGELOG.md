@@ -127,6 +127,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `dispatcher` in the context object, or build the node with
   `HierarchicalVMBuilder`.
 
+- A non-strict `FormVM` update no longer compares the model with the
+  snapshot (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict
+  `setModel` runs the equality once, and a non-strict deny not at all.
+
 - A shared-scheduler flush no longer drops a lifecycle failure (ADR-0200,
   spec/02 §6.1, #1481). The first failure to leave the flush is still thrown.
   Every other failure of the flush, including a failure of recovered work
@@ -237,6 +241,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   changes nothing and publishes nothing. `attachMany` rejects a candidate
   under a disposed parent, and `invalidateSubtree` skips a disposed
   descendant. A refused call throws `Error`.
+
+- When a send of the outermost `FormVM` update's notifications fails, the
+  later notifications are no longer sent. An approval started from a
+  preparation callback or an `errorsChanged` observer is released without
+  calling its persister (ADR-0216, spec/20 §5.4, `FORM-044`, #1415). Before,
+  every later notification was sent and the persister ran.
 
 - A current `AsyncResourceVM` loader that ends with its own cancellation now
   restores the saved stable state, as `cancel()` does, instead of installing

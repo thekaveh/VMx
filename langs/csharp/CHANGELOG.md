@@ -182,6 +182,27 @@ All notable changes to the C# flavor are documented here. The format is based on
   refused-wait result. Queued notifications are dropped once the form is
   disposed.
 
+- Fixed: `FormVM` no longer holds a lock while its equality, validators,
+  snapshotter or `resetOnApproved` run (ADR-0215, spec/20 §5.4, #1427). A
+  callback that waited for another thread that called the same form
+  deadlocked. Another thread's reads now return the committed state at once,
+  and its calls no longer wait for the callback. An update that another
+  thread's commit overtakes runs again as a new call. A `Dispose()` from
+  another thread during a preparation returns at once, and the update commits
+  nothing.
+
+- Changed: a `SetModel` or deny made in the caller's own approval
+  pre-publication window no longer waits for another thread's publication
+  scope. It is queued at once (ADR-0215, spec/20 §5.5, #1426).
+
+- Added: `FORM-044` conformance tests (#1415, ADR-0216). A failed send of an
+  update's queue stops the later sends and releases a nested approval without
+  calling its persister. C# already behaved this way.
+
+- Changed: a non-strict `FormVM` update no longer compares the model with the
+  snapshot (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict
+  `SetModel` runs the equality once, and a non-strict deny not at all.
+
 - Fixed: `TokenPagedComposition`: a load that finds a terminal token when it
   starts now fetches nothing (#1161, ADR-0169). A refresh or another load could
   commit a terminal token after the load command was admitted. The load then

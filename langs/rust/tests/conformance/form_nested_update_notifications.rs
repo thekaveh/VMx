@@ -237,6 +237,80 @@ fn an_update_from_an_errors_changed_subscriber_notifies_in_commit_order() {
     assert!(form.is_valid());
 }
 
+/// #1290 — a validator registration from a validator returns before its notifications
+///
+/// The registration is a nested call (spec/20 §5.4, ADR-0216). Its
+/// revalidation commits at once and makes the interrupted `set_model` stale,
+/// so the registration's state stands. Its notifications arrive before the
+/// outer `set_model` returns.
+#[test]
+fn a_registration_from_a_validator_notifies_after_it_returns() {
+    let (slot, log) = (Slot::default(), Log::default());
+    let nested = once({
+        let (slot, log) = (slot.clone(), log.clone());
+        move || {
+            slot.form()
+                .with_field_validator("extra", |_: &Model| Some("extra".to_string()));
+            log.push("registration returned");
+        }
+    });
+    let form = builder("i", "x", move |model| {
+        if *model == "a" {
+            nested();
+        }
+    })
+    .build()
+    .unwrap();
+    slot.fill(&form);
+    let _observers = observe(&form, &log);
+
+    form.set_model("a");
+    log.push("outer returned");
+
+    assert_eq!(
+        log.take(),
+        [
+            "registration returned",
+            "errors {\"extra\": \"extra\"}",
+            "can_execute",
+            "outer returned",
+        ]
+    );
+    assert_eq!(form.model(), "i");
+}
+
+/// #1290 — a validator registration from an errors_changed subscriber returns before its error map
+#[test]
+fn a_registration_from_an_errors_changed_subscriber_notifies_in_commit_order() {
+    let log = Log::default();
+    let form = builder("i", "a", |_| {}).build().unwrap();
+    let nested = once({
+        let (form, log) = (form.clone(), log.clone());
+        move || {
+            form.with_field_validator("extra", |_: &Model| Some("extra".to_string()));
+            log.push("registration returned");
+        }
+    });
+    let _observers = observe(&form, &log);
+    let _nested = form.errors_changed().subscribe(move |_| nested());
+
+    form.set_model("a");
+    log.push("outer returned");
+
+    assert_eq!(
+        log.take(),
+        [
+            error_map("a"),
+            "registration returned".to_string(),
+            "errors {\"extra\": \"extra\", \"value\": \"rejects a\"}".to_string(),
+            "can_execute".to_string(),
+            "model".to_string(),
+            "outer returned".to_string(),
+        ]
+    );
+    assert_eq!(form.model(), "a");
+}
+
 /// FORM-041 — a nested approve() returns Ok once admitted and persists after the outer update's notifications
 #[test]
 fn a_nested_approval_persists_after_the_outer_notifications() {

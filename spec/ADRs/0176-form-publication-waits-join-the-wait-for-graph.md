@@ -1,6 +1,6 @@
 # ADR 0176 — `FormVM` publication waits join the wait-for graph
 
-- **Status:** Accepted (Extended by ADR-0180)
+- **Status:** Accepted (Extended by ADR-0180 and ADR-0215)
 - **Date:** 2026-11-08
 - **Spec version:** 3.30.0 (chapter 20 §5.3, §5.4 and §5.5; chapter 03 §4.1)
 - **Extends:** [ADR-0172](0172-one-wait-for-graph-per-flavor.md) and

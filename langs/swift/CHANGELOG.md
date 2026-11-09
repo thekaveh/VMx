@@ -33,6 +33,10 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   this way.
 - `HierarchyError.disposed` (ADR-0190, #1318). An exhaustive `switch` over
   `HierarchyError` must now handle `.disposed`.
+- `FORM-044` conformance tests (#1415, ADR-0216). A failed send of an
+  update's queue stops the later sends and releases a nested approval
+  without calling its persister. Swift sinks cannot fail, so the test checks
+  the path without a failure.
 - `ARES-012` conformance tests (ADR-0199, #1353). A loader's own
   cancellation restores the saved stable state. Swift already behaved this
   way.
@@ -121,6 +125,11 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   node keeps no children cache, and a later walk retries the factory. The
   `children` accessor and `isLeaf` still trap on such output. Migration: write
   `try` at each call site, and handle or propagate the error.
+- `setModel` and deny open an update publication scope only when the commit
+  changes the error map (ADR-0215, spec/20 §5.5, #1426).
+- A non-strict `FormVM` update no longer compares the model with the
+  snapshot (ADR-0216, spec/20 §5.2, `FORM-045`, #1355). A non-strict
+  `setModel` runs the equality once, and a non-strict deny not at all.
 
 ### Fixed
 
@@ -174,6 +183,22 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   that disposes the container now suppresses the hub message of that change.
   In a transfer whose old container disposes itself, the hub receives only
   the new container's `Add`.
+
+- `FormVM` no longer holds a lock while its equality, validators,
+  snapshotter or `resetOnApproved` run (ADR-0215, spec/20 §5.4, #1427). A
+  callback that waited for another thread that called the same form
+  deadlocked. Another thread's reads now return the committed state at once,
+  and its calls no longer wait for the callback. An update that another
+  thread's commit overtakes runs again as a new call.
+
+- A `setModel` or deny from another thread while an approval runs its
+  post-persist callbacks now commits at once, and a configured reset
+  overwrites it (ADR-0215, spec/20 §5.3, #1452). Before, it committed after
+  `onApproved`, and its model stood.
+
+- A `dispose()` whose wait for a publication scope is refused now wakes the
+  waiting calls at once, and they find the form disposed (ADR-0215, spec/20
+  §5.5, #1426). Before, they woke when the publisher's scope closed.
 
 - Disposing the current child of a composite now clears the composite's
   `current` before `dispose()` returns (ADR-0189, #1317). The composite

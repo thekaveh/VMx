@@ -322,11 +322,16 @@ def test_deny_after_dispose_is_noop() -> None:
     assert sut.model == Model("B", 2)
 
 
-def test_admitted_deny_finishes_before_concurrent_dispose() -> None:
+def test_concurrent_dispose_during_a_deny_preparation_returns_and_the_deny_commits_nothing() -> (
+    None
+):
+    # spec/20 §5.4, §10, ADR-0215: a dispose() from another thread during the
+    # preparation returns at once; the teardown runs when the deny returns.
     snapshot_started = Event()
     release_snapshot = Event()
     dispose_finished = Event()
     pause_snapshot = False
+    completed: list[str] = []
 
     def snapshotter(model: Model) -> Model:
         if pause_snapshot:
@@ -336,6 +341,7 @@ def test_admitted_deny_finishes_before_concurrent_dispose() -> None:
 
     sut = FormVM(Model("A", 1), _noop, snapshotter=snapshotter)
     sut.set_model(Model("B", 2))
+    sut.errors_changed.subscribe(on_completed=lambda: completed.append("errors"))
     pause_snapshot = True
 
     denier = Thread(target=sut.deny_command.execute, daemon=True)
@@ -347,16 +353,20 @@ def test_admitted_deny_finishes_before_concurrent_dispose() -> None:
         daemon=True,
     )
     disposer.start()
-    disposed_during_snapshot = dispose_finished.wait(0.1)
-    release_snapshot.set()
+    try:
+        assert dispose_finished.wait(HANG_GUARD)
+        completed_during_snapshot = bool(completed)
+    finally:
+        release_snapshot.set()
 
     join_thread(denier)
     join_thread(disposer)
 
     assert not denier.is_alive()
     assert not disposer.is_alive()
-    assert not disposed_during_snapshot
-    assert sut.model == Model("A", 1)
+    assert not completed_during_snapshot
+    assert completed == ["errors"]
+    assert sut.model == Model("B", 2)
 
 
 async def test_approve_after_dispose_does_not_invoke_persister() -> None:
