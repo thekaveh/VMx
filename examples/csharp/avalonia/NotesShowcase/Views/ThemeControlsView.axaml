@@ -1,0 +1,44 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:NotesShowcase.ViewModels"
+             xmlns:adapter="clr-namespace:NotesShowcase.Views.Adapter"
+             x:Class="NotesShowcase.Views.ThemeControlsView"
+             x:DataType="vm:ThemeVM">
+    <!--
+      Theme control strip (ADR-0201 §2.4), the same strip as the Swift
+      ThemeControlsView: one button per preset, a high-contrast toggle, and
+      font-size decrease / increase buttons. A-/A+ pass the current factor
+      minus / plus 0.1 to SetFontScale, which clamps it. Model raises INPC on
+      every change, so the converted parameters stay current.
+    -->
+    <UserControl.Resources>
+        <adapter:FontScaleStepConverter x:Key="FontScaleStep" />
+    </UserControl.Resources>
+    <StackPanel Orientation="Horizontal" Spacing="6">
+        <ItemsControl ItemsSource="{Binding Presets}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="6" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Content="{Binding Name}"
+                            Command="{Binding $parent[ItemsControl].DataContext.SetThemeCommand}"
+                            CommandParameter="{Binding Name}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Content="HC"
+                AutomationProperties.Name="Toggle high contrast"
+                Command="{Binding ToggleHighContrast}" />
+        <Button Content="A-"
+                AutomationProperties.Name="Decrease font size"
+                Command="{Binding SetFontScale}"
+                CommandParameter="{Binding Model.FontScaleFactor, Converter={StaticResource FontScaleStep}, ConverterParameter=-0.1}" />
+        <Button Content="A+"
+                AutomationProperties.Name="Increase font size"
+                Command="{Binding SetFontScale}"
+                CommandParameter="{Binding Model.FontScaleFactor, Converter={StaticResource FontScaleStep}, ConverterParameter=0.1}" />
+    </StackPanel>
+</UserControl>

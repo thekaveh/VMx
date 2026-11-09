@@ -76,6 +76,7 @@ Key bindings:
 - `/`: apply the sample `vmx` note search
 - `x`: clear note search
 - `n` / `p`: next or previous notes page
+- `j` / `k`: select the next or previous note on the page
 - `m`: toggle edit/preview mode
 - `d`: request delete confirmation
 - `y` / `r`: approve or reject pending delete

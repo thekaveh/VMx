@@ -163,8 +163,8 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 
 - Rust parity backlog: [Rust parity status](2026-07-16-rust-capability-parity.md),
   §12.4.7 and §12.7–§12.12.
-- The remaining Notes Showcase UX policies stay with the owner and are not
-  listed here.
+- ADR-0201 decides the Notes Showcase selection, unsaved-edit, Save and theme
+  policies (#1331).
 
 ## 6. Closed items
 
