@@ -126,7 +126,9 @@ The crate uses idiomatic Rust naming and error handling:
   after validation and approve-command state settle.
 - `HierarchicalVm::attach_many(...)` resolves out-of-order tree windows with
   consumer keys, non-replacing dedupe, and a park/reject orphan policy.
-- `TreeSelection<M>` keeps one current node for the tree under a root
+- `HierarchicalVm<M, N>` keeps consumer per-node state in a node-data type
+  `N`, which `node_data()` returns (ADR-0202).
+- `TreeSelection<M, N = ()>` keeps one current node for the tree under a root
   `HierarchicalVm` and clears it when the node leaves that tree.
 - `ObservableList::replace_all(...)` emits one reset with a
   cardinality-correct `Count` notification.
