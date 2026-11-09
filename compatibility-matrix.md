@@ -6,7 +6,7 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.30.x | 3.30.0[^current] <!-- x-release-please-version --> | 3.30.0[^current] | 3.31.0[^current] | 3.31.0[^current] | 0.36.0[^rust] |
+| 3.30.x | 3.30.0[^current] <!-- x-release-please-version --> | 3.30.0[^current] | 3.31.0[^current] | 4.0.0[^current] | 0.36.0[^rust] |
 | 3.29.x | —[^source-3-29] | —[^source-3-29] | 3.30.0[^typescript-3-30] | —[^source-3-29] | 0.35.0[^source-3-29] |
 | 3.28.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.34.0[^source-3-24-28] |
 | 3.27.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.33.0[^source-3-24-28] |
@@ -49,8 +49,9 @@ Python, and TypeScript. Rust's remaining public-surface and behavior gaps are
 the open items and recorded differences in §12.4.7, §12.7 and §12.9–§12.12 in
 `docs/maintenance/2026-07-16-rust-capability-parity.md`.
 
-[^current]: C# 3.30.0, Python 3.30.0, TypeScript 3.31.0, and Swift 3.31.0 are
-the unreleased source lines implementing spec 3.30.0. Python 3.23.0 is publicly
+[^current]: C# 3.30.0, Python 3.30.0, TypeScript 3.31.0, and Swift 4.0.0 are
+the unreleased source lines implementing spec 3.30.0. Swift 4.0.0 is a major
+version because its tree walks now throw; the Swift CHANGELOG records why. Python 3.23.0 is publicly
 installable from PyPI, Swift 3.24.0 through SwiftPM, and TypeScript 3.30.0 from
 npm. The C# public package remains pending; its release job refuses to
 green-skip a publish without configured credentials.
@@ -120,6 +121,7 @@ a namespace future specification releases reuse.
 
 | Adapter | VMx TypeScript | React | RxJS | Registry status |
 | --- | --- | --- | --- | --- |
+| 0.1.3 | ^3.30.0 | ^18.3.1 or ^19.0.0 | ^7.8.0 | source version, not yet published |
 | 0.1.1 | ^3.24.1 | ^18.3.1 or ^19.0.0 | ^7.8.0 | published on npm (`react-v0.1.1`, 2026-10-16) |
 
 `@thekaveh/vmx-react` uses independent SemVer and `react-v*` release tags. A

@@ -296,7 +296,8 @@ another thread (an aggregate is constructed once first, so that `c1` exists)
 **When** `box.dispose()` is called
 **Then** the recorded error is the one that the same call raises on a
 `Disposed` VM: a `StatusTransitionError` / `StatusTransitionException` that
-names `Disposed` and the attempted operation, or `VmxError::Disposed` in Rust
+names `Disposed` and the attempted operation, or
+`VmxError::InvalidLifecycleTransition` from `Disposed` in Rust
 **And** no construct or destruct hook of `box` runs, and the aggregate's slot
 factory is not called again
 **And** the subscriber records only `Disposed` for `box`
@@ -694,6 +695,20 @@ cannot double-run)
 imperative raise, and completion
 
 > Spec: `04-commands.md §4.3` and §10.2, ADR-0086.
+
+### CMD-020 — a fire-and-forget fault reaches `errors` after the completion notification
+
+**Given** an `AsyncRelayCommand` whose task fails with error `e`
+**And** a `CanExecuteChanged` subscriber that appends each notification to a
+shared log
+**And** an `errors` subscriber that appends `e` and the current `IsExecuting`
+value to the same log
+**When** `Execute()` is called and the test waits a bounded time for `e`
+**Then** the log holds the start notification, the completion notification,
+and `e`, in that order
+**And** the `errors` subscriber read `IsExecuting == false`
+
+> Spec: `04-commands.md §10.2/§10.4`, ADR-0195.
 
 ______________________________________________________________________
 
@@ -1759,6 +1774,21 @@ body ran exactly once
 **When** a decorator is disposed while its confirmation is pending
 **Then** resolving the confirmation `true` starts no inner work
 
+### CMDD-018 — `Execute()` never runs the inner command inside its own call
+
+Per spec/04-commands.md §8.3.1 and ADR-0195.
+
+**Given** a `ConfirmationDecoratorCommand` over a synchronous inner command
+**And** a `confirm` delegate that returns a `true` result that is already
+complete
+**And** the test marks its own thread as inside `Execute()` for the duration
+of the call (a thread-local mark where the flavor has threads)
+**When** `Execute()` is called and the test then waits a bounded time for the
+inner command
+**Then** the inner command ran exactly once
+**And** the inner command did not see the mark, so it did not run inside the
+`Execute()` call
+
 ______________________________________________________________________
 
 ## 19. Notification sub-package (`NOTIF-NNN`) — spec v2.0 / v2.1
@@ -1905,6 +1935,28 @@ virtual time 0
 **And** a subsequent `Post` resolves immediately with `Pending` and does not enqueue
 **And** a subsequent `Resolve` is a no-op
 **And** disposing again is a no-op (idempotent)
+
+### NOTIF-018 — commands report `CanExecute == false` during VM disposal
+
+**Given** a posted confirmation and a `ConfirmationVM` for it
+**And** a handler on the `CanExecuteChanged` of each of `DismissCommand`,
+`ApproveCommand`, and `RejectCommand`
+**And** each handler reads `CanExecute()` of all three commands and then calls
+`RejectCommand.Execute()`
+**When** `Dispose()` is called
+**Then** the handlers ran at least once
+**And** every read returned `false`
+**And** the notification is still pending in the hub, and the awaitable that
+`Post` returned has not resolved
+**When** `Dispose()` is called again
+**Then** no handler runs, and the notification is still pending
+
+**Given** a `NotificationVM` with a handler on `DismissCommand.CanExecuteChanged`
+that reads `DismissCommand.CanExecute()`
+**When** `Dispose()` is called
+**Then** every read returned `false`
+
+> Spec: `16-notifications.md §6.2`, ADR-0196.
 
 ______________________________________________________________________
 
@@ -2186,12 +2238,14 @@ observes a membership event
 
 ### COMP-042 — Composite collection changes publish on the hub
 
-**Given** a composite `p` with hub `H`, a recorder of `CollectionChangedMessage`
+**Given** a composite `p` named `people` with hub `H`, a recorder of
+`CollectionChangedMessage`
 on `H`, and a local collection-change recorder on `p`
 **When** `p` adds, inserts, removes, removes by index, replaces, moves, and
 clears children, one effective mutation at a time
 **Then** each local event is followed by exactly one `CollectionChangedMessage`
 on `H` whose sender is `p`
+**And** each message's sender name equals `p`'s `Name` (ADR-0194)
 **And** each message carries the local event's action, positions, and (in typed
 flavors) items, with replacement keeping the flavor's local decomposition
 **And** the local event is delivered before its hub message, and both observe
@@ -2424,11 +2478,13 @@ window elapses
 
 ### GRP-012 — Group collection changes publish on the hub
 
-**Given** a group `g` with hub `H` and a recorder of `CollectionChangedMessage`
+**Given** a group `g` named `team` with hub `H` and a recorder of
+`CollectionChangedMessage`
 on `H`
 **When** `g` adds, inserts, removes, replaces, moves, and clears children
 **Then** each local event is followed by exactly one message on `H` whose sender
 is `g`, carrying the local event's action and positions
+**And** each message's sender name equals `g`'s `Name` (ADR-0194)
 **And** the local event is delivered first
 **And** a mutation that raises no local event, and any mutation after `g` is
 disposed, publishes nothing
@@ -2584,8 +2640,8 @@ Each COL-NNN test verifies a collection primitive from `spec/21-collections.md`.
 See ADR-0024 (`ServicedObservableCollection<T>`), ADR-0025 (`ObservableDictionary`),
 ADR-0026 (`ObservableList<T>`), ADR-0023 (`PagedComposition<TVM>`), and
 ADR-0096 (serviced collection parity), ADR-0097 (keyed serviced
-collection), ADR-0171 (failing local subscribers), and ADR-0177 (dictionary
-key-view order).
+collection), ADR-0171 (failing local subscribers), ADR-0177 (dictionary
+key-view order), and ADR-0193 (read-only key views and dictionary positions).
 
 ### COL-001 — `ServicedObservableCollection<T>` publishes to hub after local event on add
 
@@ -3289,22 +3345,62 @@ is sent after the local delivery
 TypeScript, Swift, and Rust return normally (Swift subscribers cannot fail;
 Swift asserts this structurally)
 
-### COL-067 — dictionary events and the hub message follow both key-view updates
+### COL-067 — dictionary events and the hub message follow the key-view updates
 
 **Given** an `ObservableDictionary` with a hub and the entries `("a", 1)` and
 `("b", 2)`
 **And** subscribers on `Keys1`, `Keys2`, the dictionary's own events, and the
 hub, each of which records the entries, `Count`, `Keys1`, and `Keys2`
-**When** `Add`, an indexer or `set` insert, `Remove`, or `Clear` occurs
-**Then** each key-view subscriber sees the updated entries, the updated
-`Count`, and its own updated view
-**And** the dictionary events and the hub message arrive after both key-view
-notifications
+**When** one of these mutations occurs:
+
+- `Add`, an indexer or `set` insert of `("c", 3)`, `Remove` of `("a", 1)`, or
+  `Clear`, each of which changes both key views
+- `Add` of `("a", 3)`, which changes only `Keys2`
+- `Remove` of `("a", 1)` when the dictionary also holds `("a", 3)`, which
+  changes only `Keys2`
+- `Add` of `("a", 2)`, which changes no key view
+
+**Then** only the key views that change notify, and each key-view subscriber
+sees the updated entries, the updated `Count`, and its own updated view
+**And** the dictionary events and the hub message arrive after the
+notification of each key view that changes
 **And** the dictionary-event and hub subscribers see the updated entries,
-`Count`, `Keys1`, and `Keys2`
-**And** the test does not check the order of the two key-view notifications
+`Count`, `Keys1`, and `Keys2`, and a key view that does not change keeps its
+content
+**And** the test does not check the order of two key-view notifications
 **And** Rust, whose `keys1()` and `keys2()` return snapshots and which has no
-local event, checks the hub subscriber only
+local event, checks the hub subscriber only, with one copy of each key in
+each snapshot
+
+### COL-068 — dictionary Remove and Replace hub messages carry the entry position
+
+**Given** an `ObservableDictionary` with a hub and the entries `("a", 1)`,
+`("b", 2)`, and `("c", 3)`, inserted in that order
+**And** a hub subscriber that records each `CollectionChangedMessage`
+**When** the value of `("c", 3)` is replaced through the indexer or `set`
+**Then** the message has action Replace, and `Index`, `OldIndex`, and
+`NewIndex` all equal 2
+**When** `("b", 2)` is then removed
+**Then** the message has action Remove, `Index` and `OldIndex` equal 1, and
+`NewIndex` equals -1
+**And** Rust, for `ObservableMultiDictionary`, checks Replace as
+`old_index == Some(2)` and `new_index == Some(2)`, and Remove as
+`old_index == Some(1)` and `new_index == None`
+
+### COL-070 — dictionary key views give callers no mutator
+
+**Given** an `ObservableDictionary` with the entries `("a", 1)` and `("b", 2)`
+**When** a caller reads `Keys1` and `Keys2`
+**Then** each view lists the distinct keys in first-appearance order
+**And** the view's type is `ReadOnlyObservableList<T>`, which has no add,
+insert, remove, replace, clear, or batch member: C# checks the type by
+reflection, TypeScript with `@ts-expect-error` lines, and Python by the absence
+of each attribute; Swift binds each view to the declared type and has no
+runtime check for an absent member
+**And** in C#, the view cannot be cast to `ObservableList<T>`, and its
+`CollectionChanged` sender is the view itself
+**And** Rust, whose `keys1()` and `keys2()` return `Vec` snapshots, checks that
+an edit to a snapshot leaves `keys1()`, `keys2()`, and `entries()` unchanged
 
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
@@ -4413,6 +4509,29 @@ scheduled task. Their test calls `Dispose()` before that task runs, so
 with the task start held back until `dispose()` returns.
 
 > Spec: `20-form-vm.md §5.3/§5.4/§10`, ADR-0180.
+
+### FORM-043 — an update raises the approve notification when its gates change
+
+**Given** a strict `FormVM<TM>` with a validator that rejects model `bad`, a
+counter on `ApproveCommand.CanExecuteChanged`, and the dirty, invalid model
+`bad`
+**When** `SetModel` sets a valid model equal to `Snapshot`
+**Then** the counter rose by exactly one
+**And** `ApproveCommand.CanExecute()` returns `false`
+**When** `SetModel` sets a valid model `a` that differs from `Snapshot`
+**Then** the counter rose by exactly one
+**And** `ApproveCommand.CanExecute()` returns `true`
+**When** `SetModel` sets another valid model `b` that differs from `Snapshot`
+**Then** the counter did not change
+
+**Given** a valid, non-strict form with the same validator and counter
+**And** a persister that calls `SetModel(bad)` and then reads the counter
+**When** `ApproveAsync()` is awaited
+**Then** the persister's read is exactly one more than the count after
+admission
+**And** the approval settles with exactly one more `CanExecuteChanged`
+
+> Spec: `20-form-vm.md §5.2/§5.3`, ADR-0196.
 
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 

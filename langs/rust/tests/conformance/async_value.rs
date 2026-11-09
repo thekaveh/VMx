@@ -415,6 +415,11 @@ fn fire_and_forget_confirmation_reports_a_panicked_confirmation_mapper() {
 
     command.execute();
 
+    // A settled confirmation continues on a VMx worker (CMDD-018).
+    let deadline = std::time::Instant::now() + SETTLE_TIMEOUT;
+    while errors.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
     assert_eq!(
         *errors.lock().unwrap(),
         vec![vmx::VmxError::Other(

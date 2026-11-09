@@ -1,4 +1,4 @@
-"""Conformance tests: NOTIF-001..016 — notification sub-package.
+"""Conformance tests: NOTIF-001..018 — notification sub-package.
 
 Per spec/16-notifications.md, ADR-0013, ADR-0031.
 """
@@ -12,7 +12,7 @@ from threading import Barrier, Thread
 import pytest
 from reactivex.testing import TestScheduler
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread
 from vmx.notifications import (
     ConfirmationVM,
     Notification,
@@ -425,7 +425,7 @@ async def test_resolve_is_thread_safe() -> None:
     t.start()
 
     result = await asyncio.wait_for(future, HANG_GUARD)
-    t.join(timeout=HANG_GUARD)
+    join_thread(t)
     assert result == NotificationReaction.APPROVE
 
 
@@ -460,7 +460,7 @@ def test_opposing_notification_hub_callbacks_do_not_deadlock() -> None:
     for sender in senders:
         sender.start()
     for sender in senders:
-        sender.join(timeout=2 * HANG_GUARD)
+        join_thread(sender, 2 * HANG_GUARD)
 
     assert all(not sender.is_alive() for sender in senders)
 
@@ -492,4 +492,67 @@ async def test_NOTIF_017_dispose_resolves_inflight_waiters_with_pending() -> Non
 
     # Subsequent resolve is a no-op; second dispose is a no-op.
     hub.resolve(Notification(NotificationType.NOTIFICATION, "ghost"), NotificationReaction.APPROVE)
+    hub.dispose()
+
+
+# ---------------------------------------------------------------------------
+# NOTIF-018 — commands report can_execute False during VM disposal
+# ---------------------------------------------------------------------------
+
+
+def _pending(hub: NotificationHub) -> list[Notification]:
+    snapshot: list[list[Notification]] = []
+    hub.pending.subscribe(snapshot.append).dispose()
+    return snapshot[-1]
+
+
+@pytest.mark.conformance("NOTIF-018")
+async def test_NOTIF_018_confirmation_commands_are_disabled_during_dispose() -> None:
+    hub = NotificationHub()
+    notification = Notification(NotificationType.CONFIRMATION, "dispose me")
+    posted = hub.post(notification)
+    sut = ConfirmationVM(notification=notification, hub=hub, scheduler=TestScheduler())
+    commands = (sut.dismiss_command, sut.approve_command, sut.reject_command)
+    calls: list[int] = []
+    reads: list[bool] = []
+
+    def _on_change(_: object) -> None:
+        calls.append(1)
+        reads.extend(command.can_execute() for command in commands)
+        sut.reject_command.execute()
+
+    for command in commands:
+        command.can_execute_changed.subscribe(_on_change)
+
+    sut.dispose()
+
+    assert calls, "a disposal CanExecuteChanged handler ran"
+    assert reads and not any(reads), "every read during dispose() returns False"
+    assert not sut.is_resolved
+    assert _pending(hub) == [notification], "the notification is still pending"
+    assert not posted.done(), "the posted awaitable has not resolved"
+
+    calls.clear()
+    sut.dispose()
+
+    assert calls == [], "a second dispose() raises no CanExecuteChanged"
+    assert _pending(hub) == [notification]
+    hub.dispose()
+
+
+@pytest.mark.conformance("NOTIF-018")
+async def test_NOTIF_018_dismiss_command_is_disabled_during_dispose() -> None:
+    hub = NotificationHub()
+    notification = Notification(NotificationType.NOTIFICATION, "dispose me")
+    hub.post(notification)
+    sut = NotificationVM(notification=notification, hub=hub, scheduler=TestScheduler())
+    reads: list[bool] = []
+    sut.dismiss_command.can_execute_changed.subscribe(
+        lambda _: reads.append(sut.dismiss_command.can_execute())
+    )
+
+    sut.dispose()
+
+    assert reads and not any(reads), "every read during dispose() returns False"
+    assert not sut.is_resolved
     hub.dispose()

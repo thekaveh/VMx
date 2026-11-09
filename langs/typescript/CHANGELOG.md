@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.31.0] — unreleased source version
+
 ### Added
 
 - `markSchedulerCancelled(scheduler)` (ADR-0200, #1481). A custom scheduler
@@ -13,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   hook and publishes no status for that work.
 - `COMP-050`, `COMP-051`, `COMP-052` and `LIFE-022` conformance tests
   (ADR-0188, ADR-0189).
+- `CMD-020`, `CMDD-018` and `FORM-043` conformance tests (ADR-0195,
+  ADR-0196, #1327). TypeScript already behaved this way.
 - `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
   mutation changes the entries and `size` first. Then it updates each key view
   that changes, emits the dictionary events and sends the hub message. The
@@ -70,8 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - An opt-in reverse child order for container teardown (ADR-0161, #662).
   `GroupVM`, `CompositeVM` and `CompositeVMOf` builders gain
   `.destructOrder(order)`, and `GroupVM.create` and `CompositeVM.create` accept
-  a `destructOrder` field. The new `ChildOrder` type is `"insertion" |
-  "reverse"`. With `"reverse"`, destruct, the destruct phase of `reconstruct()`
+  a `destructOrder` field. The new `ChildOrder` type is `"insertion" | "reverse"`. With `"reverse"`, destruct, the destruct phase of `reconstruct()`
   and `dispose()` walk the children last child first. The default
   `"insertion"` keeps today's order. Construct order does not change, and
   every child is still disposed before its container (LIFE-013). Covered by
@@ -79,21 +82,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Source-breaking:** `HierarchicalVMConstructionContext`, which the builder
+  passes to `vmFactory`, now types `hub` and `dispatcher` as required (#665,
+  #1354). In 3.30.0 it was an alias for `HierarchicalVMOptions`, where both are
+  optional. `build()` always supplies both, so a `super(context)` call binds the
+  constructor overload with services instead of the deprecated one. Code that
+  builds its own context object without both services no longer compiles. This
+  includes a call to a subclass constructor that declares the context type.
+  ADR-0009 records this change as a 3.x exception to the TypeScript
+  major-version deferral: the builder is the only producer of the type, and the
+  C# context also requires both services. Migration: pass `hub` and
+  `dispatcher` in the context object, or build the node with
+  `HierarchicalVMBuilder`.
+
 - A shared-scheduler flush no longer drops a lifecycle failure (ADR-0200,
   spec/02 §6.1, #1481). The first failure to leave the flush is still thrown.
   Every other failure of the flush, including a failure of recovered work
   (#1052), is reported once through rxjs `config.onUnhandledError` after the
   flush returns.
+
 - A pending lifecycle-failure throw that any foreground scheduler unsubscribes
   before it runs is now reported through rxjs `config.onUnhandledError`
   (ADR-0200 §2.3). Before, the failure was dropped. This covers a separate
   scheduler and a cancelled scheduler, such as `ManualDispatcher.dispose()`.
   With no `config.onUnhandledError` handler, rxjs rethrows the report on a
   timer. In Node, that is an uncaught exception.
+
 - A refused child `select()` or `deselect()` now changes nothing and raises
   nothing (ADR-0188, #1424). Before, it raised inside the caller's own
   uncommitted membership transaction and while disposal of the composite was
   pending.
+
+- **Source-breaking:** `ObservableDictionary.keys1` and `keys2` now return a
+  read-only `ReadOnlyObservableList<TKey>` (#1316, ADR-0193, `COL-070`). The
+  view reads and notifies as before, but it has no mutator and no batch
+  member. Before, it was the backing `ObservableList`, and a caller edit made
+  it disagree with the entries. `ReadOnlyObservableList` is exported from the
+  package root, and `recordObservableList` accepts it. Migration: change an
+  `ObservableList<TKey>` annotation on a key view to
+  `ReadOnlyObservableList<TKey>`. Change keys through the dictionary.
+
+- A `CollectionChangedMessage` from a `CompositeVM` or `GroupVM` now carries
+  the container's `name` as its `senderName` (#1309, ADR-0194). Before, it
+  carried the runtime type name, such as `CompositeVM`. A hub filter on that
+  type name must use the container's name or sender identity instead. Plain
+  collections and dictionaries keep their type name. `senderName` is now a
+  stored field, and each factory takes an optional trailing `senderName`. The
+  DevTools action type now shows the container's name.
+
 - `TokenPagedComposition`: a load also checks `hasMore` when it starts, as in
   the other flavors (#1161, ADR-0169). Behavior does not change: the load body
   already starts in the admission turn.
@@ -103,6 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (`npm:typescript@^7.0.2`). `typescript` stays at `^6.0.3`, because
   TypeScript 7 has no JavaScript compiler API, which `@typescript-eslint` and
   the `tsup` declaration build need. The published package does not change.
+
 - `dispose()` re-entered while the VM is disposing is now a no-op (#661,
   ADR-0162). The first call finishes the work: it disposes the registered
   members, then publishes `Disposed`.
@@ -113,10 +150,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   raw constructor then falls back to a private hub that no application observer
   sees. That overload is `@deprecated`; pass both, or build through
   `HierarchicalVMBuilder`. `@thekaveh/vmx` 4.0 requires them (ADR-0009, #665).
-  `HierarchicalVMConstructionContext`, which the builder passes to `vmFactory`,
-  now types `hub` and `dispatcher` as required, since `build()` always
-  supplies both. A `super(context)` call therefore binds the overload with
-  services. Code that builds its own context object must supply both.
 
 ### Fixed
 
@@ -126,20 +159,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   from any source, such as a shared request that another owner cancels. A
   superseded loader's cancellation changes nothing. The signal is a rejection
   whose `name` is `"AbortError"`.
+
 - Disposing the current child of a composite now clears the composite's
   `current` before `dispose()` returns (ADR-0189, #1317). The composite
   publishes the change once and calls `onCurrentChanged(null)` once. The
   disposed child reads `isCurrent` false. A disposed child can no longer
   become current: the setter throws the non-member error.
+
 - A composite, group or aggregate that holds a directly disposed child now
   destructs, constructs and reconstructs (ADR-0189, #1383). Container walks and
   `_transitionChildren` skip a disposed child. A walk that waits for a child
   that is disposed meanwhile now settles at its target. Before, every
   `destruct()` failed and the container stayed `Constructed`.
+
 - A non-null selection while a composite is `Destructing` now changes nothing
   and raises nothing (ADR-0188, #1425). `destruct()` and `reconstruct()`
   therefore return with no current child, also when an `onCurrentChanged`
   callback or a child's destruct hook selects a child.
+
+- Every command of a disposing `NotificationVM` or `ConfirmationVM` now
+  reports `canExecute()` false from the start of `dispose()` (ADR-0196,
+  spec/16 §6.2, #1458, `NOTIF-018`). Before, a command that was not yet
+  disposed reported true inside a disposal `canExecuteChanged` notification,
+  while its `execute()` did nothing.
+
+- `ObservableDictionary` Remove and Replace hub messages now carry the entry's
+  position in enumeration order (#1316, ADR-0193, `COL-068`). Remove sets
+  `index` and `oldIndex` to the position before the removal, and `newIndex` to
+  -1. Replace sets all three to the entry's position when the message is sent,
+  as Add does (#733). If a local subscriber removed the entry first, Replace
+  sends -1. Before, both sent -1.
+
 - A `FormVM` call nested in a preparation callback or an `errorsChanged`
   observer of `setModel` or deny now returns before its notifications
   (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,
@@ -147,6 +197,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   them before it returns: error maps first, in commit order, then the other
   notifications. A nested approval calls its persister after that. Queued
   notifications are dropped once the form is disposed.
+
 - `setAt` keeps the replaced child owned until the commit (#1219). The
   commit now frees the child and clears `current` in one step. Before,
   `setAt` freed the child first and cleared `current` only at the commit. A
@@ -156,12 +207,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   adopted the child and then failed left it in both composites. Now the
   adoption fails while the replacement is in progress. A failed replacement
   still restores the child and `current` with no notification.
+
 - An `asyncSelection(true)` delivery of `selectComponent` now checks
   `Constructed` again (spec/06 §3.1, #1220). Before, a child destructed
   between the call and the delivery became `current`. Now the delivery does
   nothing. `selectComponent` no longer goes through the `current` setter, as
   in C# and Swift. A subclass that overrides that setter no longer sees these
   selections.
+
 - A child's `select()` no longer makes a member current that is not
   `Constructed` (spec/05 §6, spec/06 §3.1, #1229). Before, `selectChild`
   checked only membership, so `select()` on a `Destructed` member selected it.
@@ -171,9 +224,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `asyncSelection(true)` delivery checks `Constructed` again and drops such a
   child. The check runs before the disposing check. So while the composite
   disposes, the call no longer throws the disposing error, as in Swift.
+
 - A lifecycle call during the inline dispose cascade now fails (#1174,
   #1167, ADR-0175, LIFE-021). A container disposes its children, and a leaf
   its members, before it publishes `Disposed`.
+
   - A `construct()`, `destruct()` or `reconstruct()` call that starts in that
     window throws `StatusTransitionError(Disposed, op)`, the error of the same
     call on a `Disposed` VM. This holds for `CompositeVM`, `GroupVM`,
@@ -187,6 +242,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     background `Constructed` or `Destructed` commit, a rollback or a queued
     background hook that a dispose hook drains from the scheduler publishes
     nothing, and the call returns as one that disposal superseded.
+
 - `FormVM` now queues every `setModel` and deny made during an approval's
   post-persist commit and settlement, and replays them after `onApproved`
   (#1168, #1050, ADR-0174, FORM-039, FORM-040). The queue now opens when the
@@ -204,9 +260,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the last replay. A failed reset commit still wins over it. Calls queued
   before a failed reset commit replay before that failure is routed. Each
   queued call runs its validators once more, at call time.
+
 - `CompositeVM` and `CompositeVMOf` selection now follows spec/06 §4.3
   (#1149, ADR-0165, ADR-0173). No selection path opens a membership
   transaction.
+
   - The construct walk's `Current(selector)` assignment no longer fails the
     construct when the walk resumes inside an add or while disposal is
     pending. It is a silent no-op before the add commits, while disposal is
@@ -238,6 +296,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     parent, the destination admits it after the old parent's detach commit,
     as in every flavor (`COMP-006`). During the old parent's commit
     callbacks, the destination no longer offers the child for selection.
+
 - A background VM that waits on a child now rolls back and clears its in-flight
   guard when that wait fails (#1053). The wait can fail in a deferred
   `_transitionChildren` walk, a member hook, a `CompositeVM` selector or a
@@ -250,10 +309,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   still throws on the background (#842). A foreground action throws any other
   failure after the queued lifecycle actions have run. #726 fixed the first
   level of this drop for a throwing background hook.
+
 - A background VM now settles when non-VMx work throws in the same scheduler
   flush (#1052). VMx runs its lifecycle actions that the flush error dropped;
   `ManualDispatcher.dispose()` still cancels them. A flush surfaces one error
   (#1053 rule); a failure of recovered work is reported (ADR-0200).
+
 - `observeHub` now labels a tree message from a second package copy as
   `TreeStructureChangedMessage` (#1079). It classifies tree messages with
   `isTreeStructureChanged`, which matches by class and then by shape (ADR-0163).
@@ -262,16 +323,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   filters and grouping by `messageType` then missed it. An application message
   class with the same shape now gets this label too. Use `mapAction` to keep a
   custom name.
+
 - `ObservableDictionary`: `delete` and `clear` now update `keys2` before
   `keys1`, as `add` does (#1075). A `keys1` subscriber now sees the updated
   `keys2`. Before, an entry that a `keys1` subscriber added during `clear` was
   missing from `keys2`. A later add with the same key2 did not list it either.
   If a `keys2` subscriber changes the entries, `keys1` then lists only the keys
   that the entries use.
+
 - The locked ESLint dependency graph now uses `minimatch` 11.0.3 through an
   `overrides` entry. This removes the glob-pattern denial-of-service advisory
   GHSA-g3hv-75wg-m249. ESLint and typescript-eslint still declare `minimatch`
   `^10`, and no 10.x release has the fix.
+
 - `CompositeVM` and `GroupVM` `add`, `insert` and `setAt` throw
   `Error("child must not be null")` for a `null` or `undefined` child and
   leave the children unchanged. Before, they threw `TypeError` after they
@@ -301,19 +365,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (`removeAt`, `replace`, `setAt`, `move`) now emit `+0`. After
   `replace(-0, …)`, a later keyed `upsert` or `delete` also emits `+0`. The
   `PagedComposition.currentPageIndex` setter also stores `+0` (#769).
+
 - The default `FormVM` dirty comparison (`deepEquals`) checks the four boxed
   primitive constructors directly instead of in a loop. The loop almost
   doubled the cost of comparing most object pairs. On a 2,000-row model one
   comparison now takes about 1.05x its cost before #636, against 1.69x (#767).
+
 - `ConfirmationVM.dispose()` runs the base teardown before it disposes
   `approveCommand` and `rejectCommand`. An observer of a command's final
   `canExecuteChanged` value can no longer resolve the hub during disposal
   (#753).
+
 - The default `FormVM` equality compares a `DOMException` by its `name` and
   `message`, which its clone keeps on Node 22 and later (ADR-0152). Before, any two `DOMException`
   values compared equal, so `setModel` dropped an edit that replaced one with
   a different one. A value that only inherits `DOMException.prototype` no
   longer makes the comparator throw (#734).
+
 - A background VM whose `onConstruct` or `onDestruct` throws now rolls back
   to `Destructed` or `Constructed` and releases its in-flight guard on
   `RxDispatcher.immediate()` and `NullDispatcher`. Each of these uses rxjs
@@ -323,6 +391,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   or `destruct()` now throws the hook error after the flush drains, so work
   that rollback observers queue also runs; inside an outer flush, the error
   reaches that flush's caller (#726).
+
 - A container that waits on a busy child now checks the child's status when
   it acts on it, as in C#, Python, and Swift (spec/02 §6). Before, a container
   whose `destruct()` joined a reconstructing child reported `Destructed` while
@@ -331,11 +400,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   transition guard, such as mid-reconstruct, stayed `Destructing`, and its
   next lifecycle call threw `StatusTransitionError` from `Destructing`. In both
   cases the container now rolls back to `Constructed` (#722).
+
 - `FormVM.setModel(null)` called during approval settlement now throws to its
   caller and changes nothing, as in C# and Python (spec/20 §5.2). Before, the
   call returned and queued the `null`, whose replay then rejected the
   approval that had already persisted and been reported, and dropped later
   queued models (#721).
+
 - `CompositeVM` and `GroupVM` with auto-construct-on-add construct a child
   added while the container is still `Constructing` (waiting on a background
   child) and wait for it before reaching `Constructed` (spec/02 §6, spec/06
@@ -344,25 +415,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   runs once. Before, the add skipped auto-construction until the container was
   `Constructed` and the walk used a snapshot taken before the add, so the
   container reached `Constructed` with the added child still `Destructed`.
+
 - `CompositeVM` and `GroupVM` join the background children that factory
   population starts and never construct them again. A later child that fails
   while the container waits on an earlier one rolls the container back, and
   its construct hook runs once (spec/02 §6, LIFE-014). Before, the child walk
   restarted the failed child and ran its hook a second time.
+
 - Aggregates, `CompositeVM`, `GroupVM`, and eager `HierarchicalVM` reach
   `Constructed` only after every child settles; aggregates, composites, and
   groups also wait for every child before `Destructed` (spec/02 §6, spec/08
   §2-§3). Before, with a `.background(true)` child, an aggregate
   reported `Constructed` while the child was still `Constructing`, and a
   composite or group threw `StatusTransitionError` from `construct()`.
+
 - A container rolls back when a background child rolls back or is disposed.
   The composite's initial-current selector and the composite and group
   `onDestruct` callbacks run after the children settle. Children that settle
   synchronously keep the whole transition synchronous.
+
 - A waiting container continues only after the child publishes its terminal
   status and releases its in-flight guard. A background VM therefore rejects a
   reentrant transition from an observer of its terminal status, as a
   synchronous VM does.
+
 - When a container's deferred continuation fails, the container rolls back
   (VMX-049). Examples: a throwing `current` selector, or a synchronous sibling
   whose construct throws after a background child. The error follows the #1053
@@ -374,56 +450,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   inside the background work that settled the child. Before, rxjs reported the
   error as an unhandled subscriber error. A container whose children are all
   synchronous still throws from `construct()`.
+
 - `FilteredCompositeVM.setPredicate` restores the previous predicate when the
   new one throws, so later source changes keep using the working predicate.
+
 - `CompositeVM` and `GroupVM` `insert`/`removeAt`/`setAt` reject a
   `NaN` or fractional index with a `RangeError` before any change, like `move`.
   Before, `removeAt(NaN)` removed a child, then threw and left the membership
   transaction open, so every later mutation failed (spec/06 §4, spec/07 §4).
+
 - `FormVM`'s default deep equality compares boxed `Number`, `Boolean`,
   `String`, and `BigInt` values by value (with `+0` equal to `-0` and `NaN`
   equal to `NaN`, as for primitives), so `setModel` no longer drops a change to
   one of them (spec/20 §4).
+
 - `AsyncResourceVM` treats a loader result that is not a promise as a failed
   load: the state becomes `Error` and `load()` completes, instead of staying
   in `Loading` and rejecting with a `TypeError` (spec/23 §7, ARES-003). A
   non-native thenable is adopted, and one whose `then` throws fails the load.
+
 - `PagedComposition` declares the `IPageable` capability, so
   `hasCapability(paged, "IPageable")` returns true, as for the other
   capability types (spec/14 §2.10).
+
 - `ConfirmationDecoratorCommand.canExecute` re-checks disposal after the inner
   predicate, which may dispose the wrapper, as the other wrappers do
   (spec/04 §8.4).
+
 - `TokenPagedComposition` stops auto-constructing page items once a hook
   disposes it or starts a newer operation (spec/21 §6).
+
 - A disposed view model's `select` and `deselect` are silent no-ops and
   `canDeselect` returns false, so a disposed child no longer changes its live
   parent's selection (spec/02 §3).
+
 - A disposed `DerivedProperty` rejects writes: `canSet` returns false and
   `setValue` raises instead of running the write-back action (spec/15 §4).
+
 - A disposed `NotificationVM` ignores its internal resolution paths.
+
 - A disposed `FilteredCompositeVM` ignores `setPredicate`, `setCurrent`, and
   the visible navigation methods, so it stays frozen as the disposal contract
   states (DISP-006).
+
 - `ObservableDictionary`: the add index is captured before `keys1`/`keys2`
   update and the local event fires, so a key-view or local subscriber that adds
   another entry no longer shifts the first entry's reported hub index. If such
   a subscriber deletes an entry or clears the dictionary, the hub message
   reports the key pair's current index, or -1 when the key pair is gone (#733).
+
 - `CompositeVM.removeAt`, `clear`, and `setAt` emit their collection events
   even when `onCurrentChanged` throws, then rethrow. Before, the committed
   change reached no observer.
+
 - `ServicedObservableCollection.splice` resolves a fractional or `NaN` start
   like `Array.prototype.splice` before it reports the Remove index. Before, it
   could report `2.5` or `NaN`.
+
 - `NullDialogService.present` returns the result of a modal that was already
   dismissed, because the first result wins. Before, it returned the
   cancellation result (spec/19 §3, DIA-012).
+
 - A disposed `CompositeVM` or `GroupVM` no longer sends a `CollectionChangedMessage`
   on the hub when a batch it was disposed inside closes, or when a local
   `collectionChanged` subscriber disposes it (ADR-0142, COMP-045, GRP-012).
+
 - `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
   command's `canExecute` predicate disposes the decorator (spec/04 §8.4).
+
+- `own()` on a `ForwardingComponentVM` subclass registers the resource on the
+  wrapped component. The resource is released, in LIFO order with the wrapped
+  component's other resources, when that component is disposed through any
+  decorator or directly, and at once if it is already disposed. Before, the
+  decorator kept the resource and never released it, even when it was
+  registered after disposal (`FWD-005`, ADR-0151, spec 3.30.0) (#650).
+
+- A decorator that wraps a component not derived from `ComponentVMBase` throws
+  a `TypeError` from `own()`. The error message, which container membership
+  also uses, now names both uses.
 
 ### Documentation
 
@@ -433,20 +537,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `reactive()` or `data()` works. It requires `setup()` or an effect scope,
   releases its subscription when that scope stops, and subscribes just before
   the first render, so a server render leaves no subscription (#651).
-
-## [3.31.0] — unreleased source version
-
-### Fixed
-
-- `own()` on a `ForwardingComponentVM` subclass registers the resource on the
-  wrapped component. The resource is released, in LIFO order with the wrapped
-  component's other resources, when that component is disposed through any
-  decorator or directly, and at once if it is already disposed. Before, the
-  decorator kept the resource and never released it, even when it was
-  registered after disposal (`FWD-005`, ADR-0151, spec 3.30.0) (#650).
-- A decorator that wraps a component not derived from `ComponentVMBase` throws
-  a `TypeError` from `own()`. The error message, which container membership
-  also uses, now names both uses.
 
 ## [3.30.0] — 2026-10-16
 
@@ -635,34 +725,45 @@ this package contains every change listed below for them.
 - Hierarchy child factories now validate their complete snapshot before
   assigning parents, rejecting duplicate, cyclic, or already-parented nodes
   atomically and preserving retryability (HIER-031, ADR-0127).
+
 - Valid factory hydration now clears prewarmed descendant path caches, and
   same-receiver structural re-entry rejects without mutation or messages
   (HIER-031/032, ADR-0127).
+
 - Re-entrant disposal now defers terminal cleanup until the admitted lifecycle
   hook returns, preserving the hook's causal failure (LIFE-015, ADR-0126).
+
 - The published runtime floor is now Node 20.5.0, the first Node 20 release
   with the `Symbol.dispose` protocol used by `BatchUpdateHandle`; CI exercises
   the built artifact on that exact version.
+
 - Lazy aggregate reconstruction now reserves every proposed child from
   validation through disposal, assignment, and parent commit, preventing two
   concurrent aggregates or a re-entrant disposal hook from retaining the same
   slot. A factory that returns any currently owned slot is rejected before
   mutation.
+
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
+
 - Async-resource replacement cleanup can synchronously start a newer reload
   without the superseded completion publishing another state notification.
+
 - Repository DOM tests now use jsdom 29 without the deprecated
   `whatwg-encoding` transitive dependency.
+
 - Composite and group disposal now closes child admission before taking the
   cascade snapshot. Membership transactions now isolate hooks, population,
   replacement rollback, and selection; re-entrant structure changes reject,
   post-construction commits recheck destination disposal, and lifecycle
   compensation failures are surfaced with the initiating error.
+
 - CI and published-consumer verification retain the Node 20 line while adding
   Node 24 LTS and Node 26 Current coverage.
+
 - Packed npm artifacts now include the repository's byte-identical Apache-2.0
   `LICENSE` and `NOTICE` files.
+
 - Token pagination now treats reentrant disposal during page comparison,
   child construction, or reset notification as terminal without committing
   losing state or publishing later notifications.
@@ -670,14 +771,18 @@ this package contains every change listed below for them.
 - `ServicedObservableCollection.splice` now distinguishes an omitted
   `deleteCount` from explicit `undefined`, matching native array removal and
   insertion semantics (ADR-0115).
+
 - `PagedComposition` now rejects non-finite or fractional page sizes and indexes
   before mutation or notification while retaining zero clamping for negative
   integers (COL-016, ADR-0114).
+
 - `FormVM` structural equality now compares binary buffers and views by concrete
   constructor and visible bytes, so `ArrayBuffer`/`DataView` edits are no longer
   suppressed as equal empty-enumerable objects (FORM-003, ADR-0113).
+
 - Common VM options factories now retain each independently supplied service
   through the builder's combined services validation (BLD-006, ADR-0112).
+
 - `ObservableDictionary` now preserves native `Map` equality independently on
   both key axes, so differently typed primitives and distinct object or symbol
   identities cannot collide through string coercion (COL-010, ADR-0111).
@@ -1198,11 +1303,14 @@ Implements `spec-v2.5.0` (ADR-0037).
 
 - `HierarchicalVM.reparentChild` rejects self- and ancestor-reparenting
   with `Error` instead of silently corrupting the tree (HIER-018).
+
 - `NotificationHub.dispose()` — resolves in-flight waiters with `Pending`,
   completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
+
 - Typed-arity `DerivedProperty` factories `fromOne`..`fromFive` plus the
   `fromMany` alias (ADR-0035 §2 DP2 always claimed TS had them; it never
   did — the recorded three-flavor parity decision is now true).
+
 - Idempotent `dispose()` on `DecoratorCommand`,
   `ConfirmationDecoratorCommand`, and `CompositeCommand` (teardown
   symmetry with the C# IDisposable surface; the decorators own no
@@ -1228,8 +1336,8 @@ changes to existing TS APIs.
 
 - **ThemeVM scenario contract** (example apps): the v2.4.0
   `spec-v2.4.0` cycle defines a normative shape for example-app
-  theming (`ThemeModel` + `ThemeVM extends ComponentVMOf<ThemeModel>`
-  + per-framework `ThemeAdapter`) built from the existing core
+  theming (`ThemeModel` + `ThemeVM extends ComponentVMOf<ThemeModel>` +
+  per-framework `ThemeAdapter`) built from the existing core
   primitives (`ComponentVMOf<M>`, `DerivedProperty<TValue>`,
   `RelayCommand`, `MessageHub`). No new core types are introduced;
   the contract is implemented by the React Notes-Showcase flagship
@@ -1295,8 +1403,8 @@ validation parity with TS's existing Children-at-`build()` behaviour.
 - **`HierarchicalVMConstructionContext`** — new context type passed to
   children-factory callbacks for the hierarchical builder.
 - **`withNullServices()`** Wither extension on `ComponentVMBuilder` and
-  friends — chainable convenience that wires `NullMessageHub.INSTANCE`
-  + `NullDispatcher.INSTANCE` in one call, for parity with the C#
+  friends — chainable convenience that wires `NullMessageHub.INSTANCE` and
+  `NullDispatcher.INSTANCE` in one call, for parity with the C#
   `WithNullServices()` extension. See ADR-0035 §SV1.
 - `tests/browser-build/smoke.test.ts` — JSDOM environment smoke test that
   loads the public surface and instantiates a `ComponentVMOf` to catch
@@ -1403,6 +1511,7 @@ search/filter, expand/collapse, modeled-CRUD commands, null-object services,
 opt-in notifications sub-package, and a localization hook.
 
 ### Added
+
 - **Capabilities** (`vmx`): 20 opt-in micro-interfaces —
   `ISelectable`, `IDeselectable`, `ISelectionTogglable`, `IExpandable`,
   `ICollapsible`, `IExpansionTogglable`, `ISearchable`, `IClosable`,
@@ -1433,6 +1542,7 @@ opt-in notifications sub-package, and a localization hook.
 - **Conformance**: 77 new IDs added (total 152).
 
 ### Changed (breaking)
+
 - `ModeledCrudCommands<VM>` is now `ModeledCrudCommands<M, VM>` (phantom
   `M`). Update callsites from `new ModeledCrudCommands<MyVM>({...})` to
   `new ModeledCrudCommands<MyModel, MyVM>({...})`.
@@ -1443,6 +1553,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.2.0] — 2026-05-23
 
 ### Added
+
 - `ConstructionStatusChangedMessage.sender` getter — alias of `senderObject`,
   matching the typed `sender` field on the C# and Python flavors.
 - `scripts/check-version-sync.mjs` enforces `package.json.version` ↔
@@ -1450,10 +1561,12 @@ opt-in notifications sub-package, and a localization hook.
   `prepack` so a release that forgets to update one side fails fast.
 
 ### Fixed
+
 - `scripts/sync-fixtures.mjs` now reports a clear error if `spec/fixtures/`
   is missing rather than failing inside `readdirSync` with an opaque ENOENT.
 
 ### Internal
+
 - JSDoc note on `selectNextCommand` / `selectPreviousCommand` explaining the
   hard-coded `false` predicate semantics on orphan leaves (CVM-005).
 - Module docstring on `version.ts` documenting the manual-sync contract that

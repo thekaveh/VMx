@@ -121,10 +121,10 @@ copying or re-implementing the wrapped VM:
         NullDispatcher::new(),
     );
     let first = ForwardingComponentVm::new(inner)
-        .with_hint_override(|| Some("OVERRIDE".to_string()));
+        .with_hint_override(|| "OVERRIDE".to_string());
     let forwarding = ForwardingComponentVm::wrap(first);
 
-    assert_eq!(forwarding.hint().as_deref(), Some("OVERRIDE"));
+    assert_eq!(forwarding.hint(), "OVERRIDE");
     ```
 
 Swift is the explicit divergence here: `name` and `hint` are stored `let`

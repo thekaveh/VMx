@@ -64,11 +64,10 @@ produce a state change".
 
 Calling an operation when its predicate returns `false` MUST raise
 `StatusTransitionError` (Python / TS / Swift) / `StatusTransitionException` (C#).
-Rust returns an `Err`: `VmxError::InvalidLifecycleTransition` names the state
-and the operation for an illegal call from a live state, but a call from
-`Disposed` returns `VmxError::Disposed` and a call during another transition
-returns `VmxError::ConcurrentOperation`. Those two variants do not name the
-state and operation; this is an open Rust gap against this rule.
+Rust returns an `Err`: every illegal call returns
+`VmxError::InvalidLifecycleTransition`, whose `from` and `operation` fields
+name the state and the operation, also from `Disposed` and during another
+transition (ADR-0203).
 The exception's message MUST include the current state and the attempted
 operation. As of v3 the Swift flavor **throws** a catchable
 `StatusTransitionError` here — the same recoverable contract as the other
@@ -91,8 +90,9 @@ follow the flavor idiom (`OnConstruct` C# / `_on_construct` Python /
 `_onConstruct` TypeScript and Swift). Rust has no subclassing: its component,
 forwarding, composite, group, aggregate, and async-resource VM types expose
 public `on_construct`, `on_destruct`, and `on_dispose` methods that replace the
-hook with a closure returning `VmxResult<()>`. Open Rust gap: `HierarchicalVm`
-and `ModeledCompositeVm` have the lifecycle but no hook methods:
+hook with a closure returning `VmxResult<()>`. `HierarchicalVm`,
+`ModeledCompositeVm`, and `ForwardingCompositeVm` have the same three methods
+(ADR-0203):
 
 - `OnConstruct` — invoked during `construct()` (and the construct phase of
   `reconstruct()`), after the VM enters `Constructing` and before it reaches
@@ -395,20 +395,22 @@ reversed list (`LIFE-019`).
 | Python     | `self._complete_lifecycle_hook_after(self._transition_children(children, construct=…, after=…))` | `RuntimeError`              |
 | TypeScript | `this._transitionChildren(children, construct, after)`                                           | `Error`                     |
 | Swift      | `try _transitionChildren(children, construct: …, after: …)` (`public`)                           | `ChildTransitionError`      |
-| Rust       | `construct_with_children` / `destruct_with_children` / `reconstruct_with_children`               | none (compile time)         |
+| Rust       | `on_construct_children` / `on_destruct_children`, or a one-call `*_with_children` walk           | none (compile time)         |
 
 C#, Python and TypeScript keep the helper protected. Swift makes it `public`
 so that a subclass in another module can call it. Rust has no subclassing: a
-consumer view-model type composes a `ComponentVm` and calls its walk methods,
-which run the component's transition and pass a `ChildTransitions` handle to a
-closure. The handle adds child steps (`transition`) and the `after` step
-(`then`). It borrows the transition, so it cannot be used outside the closure. Two
-Rust limits apply. `construct_with_children` and `destruct_with_children`
-reject a component built with `background(true)` with
-`VmxError::InvalidArgument` (chapter 11 §4). `ComponentVm::reconstruct()` and
-the reconstruct command run only the hooks, because the component does not know
-the consumer's walk; a consumer type routes its reconstruct through
-`reconstruct_with_children`, which covers both phases.
+consumer view-model type composes a `ComponentVm` and gives it a walk closure,
+which the component runs after its hook and passes a `ChildTransitions`
+handle. The handle adds child steps (`transition`) and the `after` step
+(`then`). It borrows the transition, so it cannot be used outside the closure.
+`on_construct_children` and `on_destruct_children` store a walk, so every
+`construct()`, `destruct()`, `reconstruct()` and reconstruct command runs it,
+as the hooks of the other flavors call the helper.
+`construct_with_children`, `destruct_with_children` and
+`reconstruct_with_children` run a walk for one call in place of the stored
+one. A walk runs where the hook runs, so a component built with
+`background(true)` runs it on the background dispatcher (chapter 11 §4,
+ADR-0203).
 
 ## 7. Disposal cascade
 
@@ -513,7 +515,8 @@ inline cascade fails with the error that the same call raises on a `Disposed`
 VM. The call can come from a child or member dispose hook, a subscriber, or
 another thread. The error names `Disposed` and the attempted operation, as in
 §2.1: `StatusTransitionException` in C#, `StatusTransitionError` in Python,
-TypeScript, and Swift, and `VmxError::Disposed` in Rust. The background form
+TypeScript, and Swift, and `VmxError::InvalidLifecycleTransition` from
+`Disposed` in Rust (ADR-0203). The background form
 and the C# async methods deliver it the way they deliver it for a call from
 `Disposed`. The call publishes no status, admits no hook, starts no child work,
 and calls no slot factory. This check runs before the idempotent no-ops of §4,

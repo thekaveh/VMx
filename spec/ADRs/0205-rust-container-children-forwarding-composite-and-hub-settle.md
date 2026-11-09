@@ -15,8 +15,8 @@ Python and Swift meet the rule. Rust `CompositeVm`, `GroupVm` and every
 `AggregateVm` type require `VmNode` children. Rust `ForwardingCompositeVm`
 did not implement `VmNode`, so a container of decorated composites did not
 compile. The decorator also did not forward the selection members, the
-commands, expansion, the lifecycle hooks, `on_current_changed`,
-`background_errors` or the configuration setters.
+commands, expansion, `on_current_changed`, `background_errors` or the
+configuration setters. ADR-0203 added the lifecycle hook methods.
 
 **Nodes that do not forward the settle hook (#1274).** A Rust container waits
 for a background child through `VmNode::when_lifecycle_settled`. The default
@@ -43,10 +43,9 @@ keeps the cross-flavor rules.
 - Equality compares the wrapped identity, as `ForwardingComponentVm` does.
 - The decorator forwards the rest of the `CompositeVm` surface:
   `can_select`, `select`, `can_deselect`, `deselect`, `is_current`, the five
-  commands, the expansion members, `on_construct`, `on_destruct`,
-  `on_dispose`, `on_current_changed`, `background_errors`,
-  `set_current_selector`, `set_auto_construct_on_add` and
-  `set_async_selection`.
+  commands, the expansion members, `on_current_changed`,
+  `background_errors`, `set_current_selector`, `set_auto_construct_on_add`
+  and `set_async_selection`. The lifecycle hook methods come from ADR-0203.
 - The decorator still has no override hooks (chapter 09 §2).
 
 ### 2.2. Hub-observed settle for a node that does not forward the hook

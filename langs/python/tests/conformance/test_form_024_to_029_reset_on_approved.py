@@ -8,7 +8,7 @@ from threading import Event, Thread
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.forms.form_vm import FormVM
 
 
@@ -269,7 +269,7 @@ class _CommitBarrierForm(FormVM[Model]):
     def __setattr__(self, name: str, value: object) -> None:
         if name == "_snapshot" and getattr(self, "pause_commit", False):
             self.commit_reached.set()
-            assert self.release_commit.wait(HANG_GUARD)
+            assert wait_event(self.release_commit)
         super().__setattr__(name, value)
 
 
@@ -283,13 +283,13 @@ def test_form_reset_commit_and_approval_observation_are_atomic() -> None:
     form.pause_commit = True
     approver = Thread(target=lambda: asyncio.run(form.approve_async()), daemon=True)
     approver.start()
-    assert form.commit_reached.wait(HANG_GUARD)
+    assert wait_event(form.commit_reached)
 
     setter = Thread(target=lambda: form.set_model(Model("racing")), daemon=True)
     setter.start()
     form.release_commit.set()
-    approver.join(timeout=HANG_GUARD)
-    setter.join(timeout=HANG_GUARD)
+    join_thread(approver)
+    join_thread(setter)
 
     assert not approver.is_alive()
     assert not setter.is_alive()

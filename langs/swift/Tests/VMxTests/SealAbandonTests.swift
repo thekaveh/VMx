@@ -53,7 +53,7 @@ final class SealAbandonTests: XCTestCase {
                 if message.senderName == "first" && message.status == .disposed {
                     // Hold the disposal's child cascade until the seal resumed.
                     childDisposing.signal()
-                    _ = goDispose.wait(timeout: .now() + 5)
+                    _ = goDispose.wait(timeout: .now() + hangGuard * 2)
                 }
             }
         defer { subscription.cancel() }
@@ -68,7 +68,7 @@ final class SealAbandonTests: XCTestCase {
             guard stage == .sealing, !paused.value else { return }
             paused.value = true
             sealing.signal()
-            _ = goSeal.wait(timeout: .now() + 5)
+            _ = goSeal.wait(timeout: .now() + hangGuard * 2)
         }
 
         // The first child settles on a pump thread; the walk ends there and
@@ -81,7 +81,7 @@ final class SealAbandonTests: XCTestCase {
             }
             pumped.signal()
         }.start()
-        XCTAssertEqual(sealing.wait(timeout: .now() + 5), .success, "\(kind): the seal starts")
+        XCTAssertEqual(sealing.wait(timeout: .now() + hangGuard), .success, "\(kind): the seal starts")
 
         // A disposal from another thread cancels the walk, then holds in its
         // child cascade before the container's own disposal.
@@ -91,16 +91,16 @@ final class SealAbandonTests: XCTestCase {
             disposed.signal()
         }.start()
         XCTAssertEqual(
-            childDisposing.wait(timeout: .now() + 5), .success, "\(kind): the cascade starts"
+            childDisposing.wait(timeout: .now() + hangGuard), .success, "\(kind): the cascade starts"
         )
         // The seal resumes and finds its walk cancelled. The cascade has
         // started, so the seal's commit is dropped and the pump finishes
         // while the cascade is still held.
         goSeal.signal()
-        XCTAssertEqual(pumped.wait(timeout: .now() + 5), .success, "\(kind): the seal finishes")
+        XCTAssertEqual(pumped.wait(timeout: .now() + hangGuard), .success, "\(kind): the seal finishes")
         XCTAssertEqual(root.status, .constructing, "\(kind): the seal commits no status")
         goDispose.signal()
-        XCTAssertEqual(disposed.wait(timeout: .now() + 5), .success, "\(kind): the disposal ends")
+        XCTAssertEqual(disposed.wait(timeout: .now() + hangGuard), .success, "\(kind): the disposal ends")
         XCTAssertEqual(root.status, .disposed, kind)
         return log.value
     }

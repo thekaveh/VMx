@@ -99,12 +99,6 @@ exposes it. Rust is pull-based and does not emit it.
 The keyed serviced collection does name exact types (`spec/21-collections.md`
 §2.10), and there Python uses `ValueError`.
 
-### 2.4. VM-collection `CollectionChanged` sender name
-
-`spec/03-messages.md` says the sender name "typically" equals the VM name. C#,
-Python and TypeScript use the sender's type name. Swift and Rust use the VM
-name.
-
 ### 2.5. Delivery order across subscribers
 
 No rule fixes the order in which several subscribers receive one event. Swift's
@@ -169,8 +163,8 @@ None. ADR-0173 returned the two ignored COMP-026 Rust tests to the suite.
 
 - Rust parity backlog: [Rust parity status](2026-07-16-rust-capability-parity.md),
   §12.4.7, §12.7 and §12.9–§12.12.
-- The remaining Notes Showcase UX policies stay with the owner and are not
-  listed here.
+- ADR-0201 decides the Notes Showcase selection, unsaved-edit, Save and theme
+  policies (#1331).
 
 ## 6. Closed items
 

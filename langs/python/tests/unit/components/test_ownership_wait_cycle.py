@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from tests.wait_graph_seams import wait_until_waiting
 from vmx._wait_for_graph import WAITS
 from vmx.components.base import _hold_ownership_identity, _release_ownership_identity
@@ -81,14 +81,14 @@ class _Worker:
 
         self.thread = threading.Thread(target=run, daemon=True)
         self.thread.start()
-        assert self.started.wait(HANG_GUARD)
+        assert wait_event(self.started)
 
     @property
     def ident(self) -> int:
         return self.thread.ident or 0
 
     def join(self) -> None:
-        self.thread.join(3 * HANG_GUARD)
+        join_thread(self.thread, 3 * HANG_GUARD)
         assert not self.thread.is_alive(), "ownership wait hung"
 
 
@@ -132,13 +132,13 @@ def test_an_ownership_lock_wait_and_a_disposal_wait_do_not_hang(kind: str) -> No
 
     def b_hook() -> None:
         b_entered.set()
-        assert y_entered.wait(HANG_GUARD)
+        assert wait_event(y_entered)
         g2.dispose()
 
     def y_hook() -> None:
         y_entered.set()
-        assert b_entered.wait(HANG_GUARD)
-        assert disposer_known.wait(HANG_GUARD)
+        assert wait_event(b_entered)
+        assert wait_event(disposer_known)
         wait_until_waiting(disposer[0].ident)
         _add(g3, b)
 
@@ -166,11 +166,11 @@ def test_a_contested_ownership_wait_without_a_cycle_still_waits(kind: str) -> No
 
     def hold() -> None:
         hook_entered.set()
-        assert release_hook.wait(2 * HANG_GUARD)
+        assert wait_event(release_hook, 2 * HANG_GUARD)
 
     c = _child("c", hub, hold)
     first = _Worker(lambda: _add(g1, c))
-    assert hook_entered.wait(HANG_GUARD)
+    assert wait_event(hook_entered)
     second_done = threading.Event()
     second = _Worker(lambda: (_add(g2, c), second_done.set()))
     try:

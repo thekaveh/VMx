@@ -91,11 +91,7 @@ private final class Once: @unchecked Sendable {
     }
 }
 
-/// Bound for each approval, so a deadlock fails the test instead of hanging
-/// the run.
-private let approvalTimeout: TimeInterval = 10
-
-/// Thrown when an approval does not return within `approvalTimeout`.
+/// Thrown when an approval does not return within `hangGuard`.
 private struct ApprovalStalled: Error {}
 
 /// The error an approval threw, set once on the approving task.
@@ -125,7 +121,7 @@ final class FormApprovalUpdateQueueTests: XCTestCase {
     }
 
     /// Runs `approveAsync()` on a detached task and waits at most
-    /// `approvalTimeout` for it. A stalled approval throws `ApprovalStalled`
+    /// `hangGuard` for it. A stalled approval throws `ApprovalStalled`
     /// before the test reads the form, whose state lock it may hold; its task
     /// is left behind rather than hanging the run.
     private func approve<Model>(
@@ -144,7 +140,7 @@ final class FormApprovalUpdateQueueTests: XCTestCase {
             }
             returned.fulfill()
         }
-        let waited = await XCTWaiter().fulfillment(of: [returned], timeout: approvalTimeout)
+        let waited = await XCTWaiter().fulfillment(of: [returned], timeout: hangGuard)
         guard waited == .completed else {
             XCTFail("the approval stalled", file: file, line: line)
             throw ApprovalStalled()

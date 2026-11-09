@@ -14,7 +14,7 @@ from reactivex import Observable
 from reactivex.abc import DisposableBase, ObserverBase, SchedulerBase
 from reactivex.disposable import Disposable
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx import (
     AggregateChange,
     AggregateChangeReason,
@@ -97,7 +97,7 @@ class CountedChanges:
 
                 self.background_thread = threading.Thread(target=emit_from_background)
                 self.background_thread.start()
-                assert started.wait(timeout=HANG_GUARD)
+                assert wait_event(started)
                 # Release the GIL so the callback reaches the aggregate gate
                 # while construction/reconciliation still owns it.
                 time.sleep(0.01)
@@ -260,7 +260,7 @@ def test_AGCH_002_setup_race_reconciles_and_later_staging_follows_membership() -
 
     blocked_source.snapshot_override = blocked_snapshot
     blocked_aggregate = aggregate(blocked_source)
-    assert pulse_thread is not None and pulse_thread.join(timeout=HANG_GUARD) is None
+    assert pulse_thread is not None and join_thread(pulse_thread) is None
     assert blocked_raced.changes.subscribe_count == 1
     assert blocked_observed == []
     assert blocked_subscription is not None
@@ -283,7 +283,7 @@ def test_AGCH_002_setup_race_reconciles_and_later_staging_follows_membership() -
     setup_item.changes.emit_from_background_on_subscribe = True
     setup_aggregate = aggregate(setup_source)
     setup_thread = setup_item.changes.background_thread
-    assert setup_thread is not None and setup_thread.join(timeout=HANG_GUARD) is None
+    assert setup_thread is not None and join_thread(setup_thread) is None
     assert setup_observed == []
     assert setup_subscription is not None
     setup_subscription.dispose()
@@ -297,7 +297,7 @@ def test_AGCH_002_setup_race_reconciles_and_later_staging_follows_membership() -
     post_aggregate.observe().subscribe(post_observed.append)
     post_source.add(post_item)
     post_thread = post_item.changes.background_thread
-    assert post_thread is not None and post_thread.join(timeout=HANG_GUARD) is None
+    assert post_thread is not None and join_thread(post_thread) is None
     assert [change.reason for change in post_observed] == [
         AggregateChangeReason.MEMBERSHIP,
         AggregateChangeReason.ITEM,
