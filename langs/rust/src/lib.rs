@@ -80,8 +80,8 @@ pub(crate) use runtime::{
 
 mod components;
 pub use components::{
-    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ReadonlyComponentVm,
-    ReadonlyComponentVmBuilder, ViewModelType,
+    ChildTransitions, ComponentVm, ComponentVmBuilder, ComponentVmOptions, ModelChangedCallback,
+    ReadonlyComponentVm, ReadonlyComponentVmBuilder, ViewModelType,
 };
 
 mod commands;

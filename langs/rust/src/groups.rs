@@ -258,7 +258,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     }
 
     /// Returns the immutable presentation hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.core.hint()
     }
 
@@ -1217,7 +1217,7 @@ impl<T: VmNode, D: Dispatcher> GroupVmBuilder<T, D> {
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
         let vm = GroupVm::with_destruct_order(name, hub, dispatcher, self.destruct_order);
         if let Some(hint) = self.hint {
-            vm.core.set_hint(Some(hint));
+            vm.core.set_hint(hint);
         }
         vm.set_auto_construct_on_add(self.auto_construct_on_add);
         vm.attach_population(children(), false, || {})?;

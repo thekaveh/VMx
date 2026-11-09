@@ -457,6 +457,14 @@ here so audits don't reopen them prematurely:
   likewise build a private `NotificationHub`; `with_hub` takes the shared one.
   Removing the conveniences would break Rust callers and is not scheduled.
   Documented here so audits don't re-flag it as accidental drift.
+- **Rust `HierarchicalVmBuilder` keeps only the hub (ADR-0206).**
+  `HierarchicalVmBuilder::services(hub, dispatcher)` accepts any `Dispatcher`,
+  as the other Rust builders do, but the built hierarchy drops the dispatcher.
+  `HierarchicalVm<M>` has no dispatcher type parameter, and every node uses
+  `NullDispatcher`, because the hierarchy runs no dispatched work and has no
+  background option. C# `HierarchicalVM` passes the builder dispatcher to its
+  base class. No observable behavior differs today. Documented here so audits
+  don't re-flag it as accidental drift (#1268).
 - **Runtime `select_child`/`deselect_child` on a member-but-not-Constructed child.**
   The construct-time `Current(selector)` path is a non-raising validated assignment
   (spec/06 §5.4, ADR-0050). The RUNTIME path is `child.select()` →

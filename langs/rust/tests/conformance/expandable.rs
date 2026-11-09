@@ -1,4 +1,16 @@
-use vmx::{walk_expanded, Command, ExpandableState, Message};
+use std::sync::{Arc, Mutex};
+
+use vmx::{walk_expanded, Command, ExpandableState, Message, ValueSubscription};
+
+/// Records every value the typed expansion stream sends.
+fn record_expansion_changes(state: &ExpandableState) -> (Arc<Mutex<Vec<bool>>>, ValueSubscription) {
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&values);
+    let subscription = state
+        .expansion_changes()
+        .subscribe(move |value| sink.lock().unwrap().push(value));
+    (values, subscription)
+}
 
 use super::expandable_support::ExpandableHierarchy;
 
@@ -23,10 +35,12 @@ fn expandable_state_supports_initially_expanded_construction() {
 fn expand_flips_state_and_emits_once() {
     let state = ExpandableState::new();
     let state_expanded_changed_record = state.expanded_changed().record(1024);
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
 
     state.expand();
 
     assert!(state.is_expanded());
+    assert_eq!(*typed.lock().unwrap(), vec![true]);
     // The emission's payload is the new value, carried as the message name.
     let values = || {
         state_expanded_changed_record
@@ -48,6 +62,11 @@ fn expand_flips_state_and_emits_once() {
         vec!["true".to_string()],
         "repeat expand is a no-op"
     );
+    assert_eq!(
+        *typed.lock().unwrap(),
+        vec![true],
+        "repeat expand sends nothing on the typed stream"
+    );
 }
 
 /// EXP-003 — Collapse flips state back
@@ -56,10 +75,12 @@ fn collapse_flips_state_back() {
     let state = ExpandableState::new_expanded();
     assert!(state.is_expanded());
     let state_expanded_changed_record = state.expanded_changed().record(1024);
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
 
     state.collapse();
 
     assert!(!state.is_expanded());
+    assert_eq!(*typed.lock().unwrap(), vec![false]);
     // The emission's payload is the new value, carried as the message name.
     let values = state_expanded_changed_record
         .messages()
@@ -85,10 +106,20 @@ fn toggle_expansion_alternates_state() {
 }
 
 #[test]
+fn expansion_changes_does_not_replay_the_current_value() {
+    let state = ExpandableState::new_expanded();
+
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
+
+    assert!(typed.lock().unwrap().is_empty());
+}
+
+#[test]
 fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
     let state = ExpandableState::new_expanded();
     let changes = state.expanded_changed();
     let recorder = changes.record(1024);
+    let (typed, _typed_subscription) = record_expansion_changes(&state);
 
     state.dispose();
     state.dispose();
@@ -101,6 +132,12 @@ fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
 
     assert!(state.is_expanded());
     assert!(recorder.messages().is_empty());
+    assert!(typed.lock().unwrap().is_empty());
+    state.expansion_changes().send(false);
+    assert!(
+        typed.lock().unwrap().is_empty(),
+        "the disposed typed stream sends nothing"
+    );
 }
 
 /// EXP-005 — walk_expanded skips descendants of collapsed nodes

@@ -20,6 +20,10 @@ ILocalizer:
     Localize(key: string, args: Iterable<object>) : string    # optional, format with positional args
 ```
 
+Rust has no method overloading, so its `Localizer` trait names the args form
+`localize_with_args(key: &str, args: &[&dyn Display])`. Its default
+implementation ignores `args` and returns `localize(key)` (ADR-0206).
+
 Semantics:
 
 - `Localize(key)` returns a string. Implementations MAY return the localized
@@ -43,9 +47,6 @@ does not inject a localizer, and no VMx component consumes one. An application
 that needs localized user-visible text (notification messages, command labels)
 supplies its own `ILocalizer` to its own viewmodels and resolves the text there.
 `NullLocalizer` is the null-object choice when the application has no localizer.
-
-Open Rust gap: Rust's `Localizer` trait has only `localize(key)`. It has no
-overload that takes positional args.
 
 ## 3. Per-flavor distribution
 

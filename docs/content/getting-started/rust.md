@@ -95,14 +95,14 @@ fn main() -> VmxResult<()> {
         hub.clone(),
         dispatcher,
     )
-    .with_model_hint(|model| Some(model.name.clone()));
+    .with_model_hint(|model| model.name.clone());
 
     user.construct()?;
     assert!(user.is_constructed());
 
     user.set_model(UserModel { name: "Alice Smith".into(), email: "asmith@example.com".into() });
     assert_eq!(user.model().name, "Alice Smith");
-    assert_eq!(user.modeled_hint(), Some("Alice Smith".to_string()));
+    assert_eq!(user.modeled_hint(), "Alice Smith");
     user.dispose()
 }
 ```

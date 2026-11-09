@@ -4,7 +4,7 @@
 
 use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
-    ConstructionStatus, Expandable, Hash, HashMap, HashSet, Message, MessageHub, Mutex,
+    ConstructionStatus, Dispatcher, Expandable, Hash, HashMap, HashSet, Message, MessageHub, Mutex,
     NullDispatcher, ParentHandle, PropertyChangedMessage, PropertyChangedStream, ThreadId,
     TreeNode, TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak,
     HIERARCHY_TOPOLOGY_GATE,
@@ -174,7 +174,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     /// Returns this node's hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.inner.component.hint()
     }
 
@@ -1018,7 +1018,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M
 pub struct HierarchicalVmBuilder<M: Clone + PartialEq + Send + Sync + 'static> {
     model: Option<M>,
     children_factory: Option<HierChildrenFactory<M>>,
-    services: Option<(MessageHub, NullDispatcher)>,
+    hub: Option<MessageHub>,
     hint: Option<String>,
     eager_children: bool,
 }
@@ -1028,7 +1028,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> Default for HierarchicalVmBui
         Self {
             model: None,
             children_factory: None,
-            services: None,
+            hub: None,
             hint: Some(String::new()),
             eager_children: false,
         }
@@ -1056,9 +1056,15 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
         self
     }
 
-    /// Sets the hub and null dispatcher services.
-    pub fn services(mut self, hub: MessageHub, dispatcher: NullDispatcher) -> Self {
-        self.services = Some((hub, dispatcher));
+    /// Sets the required hub and dispatcher services.
+    ///
+    /// It accepts any [`Dispatcher`], as the other builders do. The built
+    /// hierarchy keeps only the hub: it runs no dispatched work and has no
+    /// background option, so this method drops `dispatcher`, and every node
+    /// uses a [`NullDispatcher`] (ADR-0009, ADR-0206).
+    pub fn services<D: Dispatcher>(mut self, hub: MessageHub, dispatcher: D) -> Self {
+        drop(dispatcher);
+        self.hub = Some(hub);
         self
     }
 
@@ -1086,8 +1092,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
         let factory = self.children_factory.ok_or_else(|| {
             VmxError::BuilderValidation("children_factory is required".to_string())
         })?;
-        let (hub, _dispatcher) = self
-            .services
+        let hub = self
+            .hub
             .ok_or_else(|| VmxError::BuilderValidation("services are required".to_string()))?;
         let node = HierarchicalVm::with_children_factory(
             "HierarchicalVm",
@@ -1097,7 +1103,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVmBuilder<M> {
             hub,
         );
         if let Some(hint) = self.hint {
-            node.inner.component.core.set_hint(Some(hint));
+            node.inner.component.core.set_hint(hint);
         }
         Ok(node)
     }

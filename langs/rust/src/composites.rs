@@ -741,7 +741,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     /// Returns the immutable presentation hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.core.hint()
     }
 
@@ -2194,7 +2194,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVmBuilder<T, D> {
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
         let vm = CompositeVm::with_destruct_order(name, hub, dispatcher, self.destruct_order);
         if let Some(hint) = self.hint {
-            vm.core.set_hint(Some(hint));
+            vm.core.set_hint(hint);
         }
         vm.set_auto_construct_on_add(self.auto_construct_on_add);
         vm.set_async_selection(self.async_selection);
@@ -2273,6 +2273,21 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
     /// Returns the modeled composite family discriminator.
     pub fn view_model_type(&self) -> ViewModelType {
         self.inner.view_model_type()
+    }
+
+    /// Returns the stable composite identity.
+    pub fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    /// Returns the immutable composite name.
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    /// Returns the immutable presentation hint.
+    pub fn hint(&self) -> String {
+        self.inner.hint()
     }
 
     /// Creates a modeled composite from model and mapping factories.
@@ -2490,6 +2505,7 @@ pub struct ModeledCompositeVmBuilder<
     D: Dispatcher = NullDispatcher,
 > {
     name: Option<String>,
+    hint: Option<String>,
     hub: Option<MessageHub>,
     dispatcher: Option<D>,
     children_models: Option<ModelFactory<M>>,
@@ -2505,6 +2521,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> Def
     fn default() -> Self {
         Self {
             name: None,
+            hint: Some(String::new()),
             hub: None,
             dispatcher: None,
             children_models: None,
@@ -2522,6 +2539,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
     /// Sets the required composite name.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// Sets the optional presentation hint.
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
         self
     }
 
@@ -2598,6 +2621,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
             child_model_to_child_view_model,
             loaded: Arc::new(Mutex::new(false)),
         };
+        if let Some(hint) = self.hint {
+            vm.inner.core.set_hint(hint);
+        }
         vm.inner.set_async_selection(self.async_selection);
         if let Some(selector) = self.current_selector {
             vm.inner.set_current_selector(move |items| selector(items));

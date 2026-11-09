@@ -406,8 +406,21 @@ class TreeNodeVM extends ComponentVMBase {
 }
 ```
 
-In Rust, the helper reports changes through its `expanded_changed()` hub
-instead of an observable, so the owner subscribes to that hub.
+In Rust, the helper reports each new value on its typed `expansion_changes()`
+stream. The owner subscribes to that stream and keeps the subscription for its
+lifetime:
+
+```rust
+let expansion = ExpandableState::new();
+let owner = ComponentVm::new("tree-node");
+let forwarder_owner = owner.clone();
+let forwarder = expansion
+    .expansion_changes()
+    .subscribe(move |_expanded| forwarder_owner.notify_property_changed("is_expanded"));
+```
+
+The helper also keeps its `expanded_changed()` hub, which the expansion
+commands use as their trigger.
 
 ## 6.5.6. Cross-Language Surface
 

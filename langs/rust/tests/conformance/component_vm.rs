@@ -59,7 +59,7 @@ fn readonly_component_exposes_model_without_setter_surface() {
 
     require_component_traits(&vm);
     assert_eq!(vm.name(), "readonly");
-    assert_eq!(vm.hint(), None);
+    assert_eq!(vm.hint(), "");
     assert_eq!(vm.model(), 7);
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
 
@@ -231,12 +231,12 @@ fn modeled_hint_recomputes_when_model_changes() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
     let vm = ComponentVm::with_model("vm", 7, hub.clone(), NullDispatcher::new())
-        .with_model_hint(|model| Some(format!("hint:{model}")));
+        .with_model_hint(|model| format!("hint:{model}"));
 
     vm.set_model(8);
 
-    assert_eq!(vm.hint(), None);
-    assert_eq!(vm.modeled_hint(), Some("hint:8".to_string()));
+    assert_eq!(vm.hint(), "");
+    assert_eq!(vm.modeled_hint(), "hint:8");
     assert!(recorder.messages().iter().any(
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "modeled_hint")
     ));
@@ -250,7 +250,7 @@ fn modeled_hint_may_read_model_reentrantly() {
         .with_model_hint(move |model| {
             let vm = reentrant_holder.lock().unwrap().clone().unwrap();
             assert_eq!(vm.model(), *model);
-            Some(format!("hint:{model}"))
+            format!("hint:{model}")
         });
     *holder.lock().unwrap() = Some(vm.clone());
     let (completed, completion) = mpsc::channel();
@@ -263,7 +263,7 @@ fn modeled_hint_may_read_model_reentrantly() {
         completion
             .recv_timeout(Duration::from_secs(1))
             .expect("hint callback deadlocked while reading the model"),
-        Some("hint:7".to_string())
+        "hint:7"
     );
 }
 
@@ -274,7 +274,7 @@ fn name_and_hint_are_stable_after_construction() {
         .name("orig")
         .hint("fixed")
         .model(())
-        .model_hint(|_| Some("modeled".to_string()))
+        .model_hint(|_| "modeled".to_string())
         .services(MessageHub::new(), NullDispatcher::new())
         .build()
         .unwrap();
@@ -282,8 +282,8 @@ fn name_and_hint_are_stable_after_construction() {
     vm.construct().unwrap();
 
     assert_eq!(vm.name(), "orig");
-    assert_eq!(vm.hint(), Some("fixed".to_string()));
-    assert_eq!(vm.modeled_hint(), Some("modeled".to_string()));
+    assert_eq!(vm.hint(), "fixed");
+    assert_eq!(vm.modeled_hint(), "modeled");
 }
 
 /// CVM-006 — SelectCommand can_execute reflects selection state
@@ -495,20 +495,22 @@ fn modeled_components_explicitly_republish_the_retained_model() {
     let hinter_calls = Arc::new(AtomicUsize::new(0));
     let hinter_calls_for_vm = hinter_calls.clone();
     let hub = MessageHub::new();
-    let vm = ComponentVm::with_model(
-        "writable",
-        model.clone(),
-        hub.clone(),
-        NullDispatcher::new(),
-    )
-    .with_model_hint(move |value| {
-        hinter_calls_for_vm.fetch_add(1, Ordering::SeqCst);
-        Some(format!("hint:{}", value.value))
-    });
+    let trace = Arc::new(Mutex::new(Vec::new()));
+    let callback_trace = trace.clone();
+    let vm = ComponentVm::<Arc<CountingModel>>::builder()
+        .name("writable")
+        .model(model.clone())
+        .model_hint(move |value| {
+            hinter_calls_for_vm.fetch_add(1, Ordering::SeqCst);
+            format!("hint:{}", value.value)
+        })
+        .on_model_changed(move |_| callback_trace.lock().unwrap().push("on_model_changed"))
+        .services(hub.clone(), NullDispatcher::new())
+        .build()
+        .unwrap();
     let hint_before = vm.modeled_hint();
     let hinter_calls_before = hinter_calls.load(Ordering::SeqCst);
     let equality_calls_before_republish = equality_calls.load(Ordering::SeqCst);
-    let trace = Arc::new(Mutex::new(Vec::new()));
     let hub_trace = trace.clone();
     let vm_id = vm.id();
     let _hub_subscription = hub.subscribe(move |message| {
@@ -533,6 +535,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
         equality_calls_before_republish
     );
     assert_eq!(vm.modeled_hint(), hint_before);
+    // Republish does not run `on_model_changed` (spec/05 §3.3).
     assert_eq!(*trace.lock().unwrap(), vec!["hub:model", "local:model"]);
 
     trace.lock().unwrap().clear();
@@ -547,10 +550,13 @@ fn modeled_components_explicitly_republish_the_retained_model() {
     vm.set_model(replacement.clone());
 
     assert!(Arc::ptr_eq(&vm.model(), &replacement));
-    assert_eq!(vm.modeled_hint().as_deref(), Some("hint:replacement"));
+    assert_eq!(vm.modeled_hint(), "hint:replacement");
     assert!(hinter_calls.load(Ordering::SeqCst) > hinter_calls_before);
     assert!(equality_calls.load(Ordering::SeqCst) > equality_calls_before_republish);
-    assert_eq!(*trace.lock().unwrap(), vec!["hub:model", "local:model"]);
+    assert_eq!(
+        *trace.lock().unwrap(),
+        vec!["hub:model", "local:model", "on_model_changed"]
+    );
 
     let readonly_hub = MessageHub::new();
     let readonly_recorder = readonly_hub.record(1024);
@@ -700,4 +706,158 @@ fn a_disposed_view_model_ignores_expansion() {
     assert!(!vm.is_expanded());
     vm.toggle_expansion();
     assert!(!vm.is_expanded());
+}
+
+/// Every direct constructor leaves `hint()` at the spec's empty-string
+/// default (spec/01 §1.3, spec/10 §4; #1251).
+#[test]
+fn direct_constructors_default_hint_to_empty_string() {
+    let readonly =
+        ReadonlyComponentVm::new("readonly", 1, MessageHub::new(), NullDispatcher::new());
+    let composite = CompositeVm::<ComponentVm>::new("composite");
+    let group = GroupVm::<ComponentVm>::new("group");
+    let hierarchy = HierarchicalVm::new("hierarchy", 1);
+    let resource = AsyncResourceVm::new("resource", |_| Ok(1));
+    let aggregate1 = AggregateVm1::new("aggregate1", ComponentVm::new("a"));
+    let aggregate2 = AggregateVm2::new("aggregate2", ComponentVm::new("a"), ComponentVm::new("b"));
+    let forwarding_component = ForwardingComponentVm::new(ComponentVm::with_model(
+        "forwarded",
+        1,
+        MessageHub::new(),
+        NullDispatcher::new(),
+    ));
+    let forwarding_composite =
+        ForwardingCompositeVm::new(CompositeVm::<ComponentVm>::new("forwarded"));
+
+    assert_eq!(ComponentVm::new("component").hint(), "");
+    assert_eq!(readonly.hint(), "");
+    assert_eq!(composite.hint(), "");
+    assert_eq!(group.hint(), "");
+    assert_eq!(hierarchy.hint(), "");
+    assert_eq!(resource.hint(), "");
+    assert_eq!(aggregate1.hint(), "");
+    assert_eq!(aggregate2.hint(), "");
+    assert_eq!(forwarding_component.hint(), "");
+    assert_eq!(forwarding_composite.hint(), "");
+}
+
+/// A modeled component with no hinter reports the empty-string modeled hint
+/// through the builder and through `with_model` (spec/05 §3.1; #1251).
+#[test]
+fn modeled_hint_defaults_to_empty_string_without_a_hinter() {
+    let built = ComponentVm::<i32>::builder()
+        .name("built")
+        .model(1)
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+    let direct = ComponentVm::with_model("direct", 1, MessageHub::new(), NullDispatcher::new());
+    let readonly =
+        ReadonlyComponentVm::new("readonly", 1, MessageHub::new(), NullDispatcher::new());
+
+    assert_eq!(built.modeled_hint(), "");
+    assert_eq!(direct.modeled_hint(), "");
+    assert_eq!(readonly.modeled_hint(), "");
+    assert_eq!(ForwardingComponentVm::new(direct).modeled_hint(), "");
+}
+
+/// `on_model_changed` receives the new model once, after the hub and local
+/// `model` notifications and the `modeled_hint` notification (spec/05 §3.2;
+/// #1252).
+#[test]
+fn on_model_changed_runs_last_with_the_new_model() {
+    let hub = MessageHub::new();
+    let trace = Arc::new(Mutex::new(Vec::<String>::new()));
+    let callback_trace = trace.clone();
+    let vm = ComponentVm::<i32>::builder()
+        .name("vm")
+        .model(1)
+        .model_hint(|model| format!("hint:{model}"))
+        .on_model_changed(move |model| {
+            callback_trace
+                .lock()
+                .unwrap()
+                .push(format!("on_model_changed:{model}"));
+        })
+        .services(hub.clone(), NullDispatcher::new())
+        .build()
+        .unwrap();
+    let vm_id = vm.id();
+    let hub_trace = trace.clone();
+    let _hub_subscription = hub.subscribe(move |message| {
+        if let Message::PropertyChanged(change) = message {
+            if change.sender_id == vm_id {
+                hub_trace
+                    .lock()
+                    .unwrap()
+                    .push(format!("hub:{}", change.property_name));
+            }
+        }
+    });
+    let local_trace = trace.clone();
+    let _local_subscription = vm
+        .property_changed()
+        .subscribe(move |name| local_trace.lock().unwrap().push(format!("local:{name}")));
+
+    vm.set_model(2);
+
+    assert_eq!(
+        *trace.lock().unwrap(),
+        vec![
+            "hub:model",
+            "local:model",
+            "hub:modeled_hint",
+            "local:modeled_hint",
+            "on_model_changed:2",
+        ]
+    );
+}
+
+/// Equal assignments and assignments after `dispose()` do not run
+/// `on_model_changed` (spec/05 §3.2; #1252).
+#[test]
+fn on_model_changed_skips_equal_and_post_dispose_assignments() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counted = calls.clone();
+    let vm = ComponentVm::<i32>::builder()
+        .name("vm")
+        .model(1)
+        .on_model_changed(move |_| {
+            counted.fetch_add(1, Ordering::SeqCst);
+        })
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+
+    vm.set_model(1);
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "equal assignment");
+
+    vm.dispose().unwrap();
+    vm.set_model(2);
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "assignment after dispose");
+}
+
+/// `ComponentVmOptions::on_model_changed` reaches the created component
+/// (spec/05 §3.2; #1252).
+#[test]
+fn options_on_model_changed_runs_on_model_assignment() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let vm = ComponentVm::create(vmx::ComponentVmOptions {
+        name: Some("vm".to_string()),
+        hint: None,
+        model: Some(1),
+        view_model_type: ViewModelType::Component,
+        background: false,
+        hub: MessageHub::new(),
+        dispatcher: NullDispatcher::new(),
+        on_model_changed: Some(Arc::new(move |model: &i32| {
+            sink.lock().unwrap().push(*model);
+        })),
+    })
+    .unwrap();
+
+    vm.set_model(5);
+
+    assert_eq!(*seen.lock().unwrap(), vec![5]);
 }

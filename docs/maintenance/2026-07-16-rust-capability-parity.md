@@ -109,12 +109,15 @@ filtered projection through the concrete reusable helper.
 
 **Resolved.** `ExpandableState` provides collapsed, explicitly initialized,
 and initially-expanded construction. It implements `Expandable`,
-`Collapsible`, and `ExpansionTogglable`; `dispose` completes the owned hub and
-makes later mutation inert.
+`Collapsible`, and `ExpansionTogglable`. Its typed `expansion_changes()`
+stream sends the new value once per effective change and does not replay the
+current value (spec/05 §8, ADR-0206, #1254). `dispose` completes the owned hub
+and the typed stream and makes later mutation inert.
 
 Evidence: the expandable-support suite covers construction variants,
 capability dispatch, completion, idempotent disposal, and post-dispose no-op
-behavior.
+behavior. EXP-002, EXP-003, `expansion_changes_does_not_replay_the_current_value`
+and the dispose test in `expandable.rs` cover the typed stream.
 
 ### 12.3.7. SearchableState Post-Dispose Read
 

@@ -2958,7 +2958,7 @@ enum MemberPhase {
     /// The members are disposed: a registration disposes its member now.
     Done,
 }
-pub(crate) type ModelHint<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
+pub(crate) type ModelHint<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 
 #[derive(Clone)]
 pub(crate) struct ComponentCore<D: Dispatcher = NullDispatcher> {
@@ -2998,7 +2998,7 @@ impl<D: Dispatcher> WeakComponentCore<D> {
 struct ComponentCoreInner<D: Dispatcher> {
     id: usize,
     name: String,
-    hint: Option<String>,
+    hint: String,
     status: ConstructionStatus,
     transitioning: bool,
     transition_generation: u64,
@@ -3075,7 +3075,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             inner: Arc::new(Mutex::new(ComponentCoreInner {
                 id: next_id(),
                 name: name.into(),
-                hint: None,
+                hint: String::new(),
                 status: ConstructionStatus::Destructed,
                 transitioning: false,
                 transition_generation: 0,
@@ -3159,11 +3159,11 @@ impl<D: Dispatcher> ComponentCore<D> {
         lock(&self.inner).name.clone()
     }
 
-    pub(crate) fn hint(&self) -> Option<String> {
+    pub(crate) fn hint(&self) -> String {
         lock(&self.inner).hint.clone()
     }
 
-    pub(crate) fn set_hint(&self, hint: Option<String>) {
+    pub(crate) fn set_hint(&self, hint: String) {
         lock(&self.inner).hint = hint;
     }
 

@@ -330,7 +330,7 @@ where
     }
 
     /// Returns the immutable static presentation hint.
-    pub fn hint(&self) -> Option<String> {
+    pub fn hint(&self) -> String {
         self.inner.component.hint()
     }
 
