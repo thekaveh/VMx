@@ -1,8 +1,8 @@
-//! Regression tests: user `PartialEq` and `Drop` code never runs while a VMx
-//! mutex is held, so an `eq` or `drop` that reads its owner returns instead of
-//! deadlocking; a retry path taken when `eq` mutates its owner leaves the
-//! correct final state; and deterministic notification clocks saturate
-//! instead of overflowing.
+//! Regression tests: user `PartialEq`, `Hash`, `Clone` and `Drop` code never
+//! runs while a VMx mutex is held, so an `eq`, `hash`, `clone` or `drop` that
+//! reads its owner returns instead of deadlocking; a retry path taken when
+//! `eq` mutates its owner leaves the correct final state; and deterministic
+//! notification clocks saturate instead of overflowing.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
@@ -199,6 +199,209 @@ fn dictionary_eq_may_read_the_dictionary() {
     assert_eq!(removed, Some("uno"));
     assert!(dictionary.keys().is_empty());
     *probe.lock().unwrap() = None;
+}
+
+/// A captured key whose `Hash` and `Eq` both call `probe`, which reads the
+/// keyed collection the key lives in (#1276).
+#[derive(Clone)]
+struct ProbingKey(Probing);
+
+impl PartialEq for ProbingKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for ProbingKey {}
+
+impl std::hash::Hash for ProbingKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let probe = self.0.probe.lock().unwrap().clone();
+        if let Some(probe) = probe {
+            probe();
+        }
+        self.0.id.hash(state);
+    }
+}
+
+type ProbingKeyed = KeyedServicedObservableCollection<ProbingKey, Probing>;
+
+/// A keyed collection of items 1 and 2 whose key `Hash` and `Eq` call
+/// `len()` on the collection.
+fn len_reading_keyed_collection(probe: &Probe) -> ProbingKeyed {
+    let collection: ProbingKeyed =
+        KeyedServicedObservableCollection::new(1, |item: &Probing| Ok(ProbingKey(item.clone())));
+    collection.push(Probing::new(1, probe)).unwrap();
+    collection.push(Probing::new(2, probe)).unwrap();
+    let reader = collection.clone();
+    *probe.lock().unwrap() = Some(Arc::new(move || {
+        let _ = reader.len();
+    }));
+    collection
+}
+
+fn keyed_ids(collection: &ProbingKeyed) -> Vec<u32> {
+    collection.to_vec().iter().map(|item| item.id).collect()
+}
+
+#[test]
+fn keyed_collection_lookup_key_hash_and_eq_may_read_the_collection() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let collection = len_reading_keyed_collection(&probe);
+    let key = |id| ProbingKey(Probing::new(id, &probe));
+    let (found, missing, contained, absent) = within_timeout(
+        "KeyedServicedObservableCollection::get_by_key/contains_key",
+        {
+            let collection = collection.clone();
+            let (two, three, one, four) = (key(2), key(3), key(1), key(4));
+            move || {
+                (
+                    collection.get_by_key(&two).map(|item| item.id),
+                    collection.get_by_key(&three).map(|item| item.id),
+                    collection.contains_key(&one),
+                    collection.contains_key(&four),
+                )
+            }
+        },
+    );
+    *probe.lock().unwrap() = None;
+    assert_eq!(
+        (found, missing, contained, absent),
+        (Some(2), None, true, false)
+    );
+}
+
+#[test]
+fn keyed_collection_write_key_hash_and_eq_may_read_the_collection() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let collection = len_reading_keyed_collection(&probe);
+    let (duplicate, replaced, added, updated, removed, removed_key, removed_at, ids) =
+        within_timeout("KeyedServicedObservableCollection writes", {
+            let collection = collection.clone();
+            let probe = Arc::clone(&probe);
+            move || {
+                let item = |id| Probing::new(id, &probe);
+                collection.push(item(3)).unwrap();
+                let duplicate = collection.push(item(3)).is_err();
+                let replaced = collection.replace(0, item(4)).unwrap().id;
+                let added = collection.upsert(item(5)).unwrap();
+                let updated = collection.upsert(item(5)).unwrap();
+                collection.move_item(0, 3).unwrap();
+                let removed = collection.remove(&item(2));
+                let removed_key = collection
+                    .remove_key(&ProbingKey(item(3)))
+                    .map(|item| item.id);
+                let removed_at = collection.remove_at(0).unwrap().id;
+                let ids = keyed_ids(&collection);
+                (
+                    duplicate,
+                    replaced,
+                    added,
+                    updated,
+                    removed,
+                    removed_key,
+                    removed_at,
+                    ids,
+                )
+            }
+        });
+    *probe.lock().unwrap() = None;
+    assert!(duplicate, "a duplicate key is rejected");
+    assert_eq!(replaced, 1);
+    assert!(added);
+    assert!(!updated);
+    assert!(removed);
+    assert_eq!(removed_key, Some(3));
+    assert_eq!(removed_at, 5);
+    assert_eq!(ids, [4]);
+    // The index still finds the remaining membership after every write.
+    assert_eq!(
+        collection
+            .get_by_key(&ProbingKey(Probing::new(4, &probe)))
+            .map(|item| item.id),
+        Some(4)
+    );
+    assert!(!collection.contains_key(&ProbingKey(Probing::new(1, &probe))));
+}
+
+/// A value whose `Clone` calls `probe`, which reads the dictionary the value
+/// lives in (#1276).
+struct CloneProbing {
+    id: u32,
+    probe: Probe,
+}
+
+impl Clone for CloneProbing {
+    fn clone(&self) -> Self {
+        let probe = self.probe.lock().unwrap().clone();
+        if let Some(probe) = probe {
+            probe();
+        }
+        Self {
+            id: self.id,
+            probe: Arc::clone(&self.probe),
+        }
+    }
+}
+
+#[test]
+fn dictionary_get_value_clone_may_read_the_dictionary() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let dictionary = ObservableDictionary::new(1, MessageHub::new());
+    dictionary.insert(
+        1_u32,
+        CloneProbing {
+            id: 10,
+            probe: Arc::clone(&probe),
+        },
+    );
+    let reader = dictionary.clone();
+    *probe.lock().unwrap() = Some(Arc::new(move || {
+        let _ = reader.keys();
+    }));
+    let value = within_timeout("ObservableDictionary::get", {
+        let dictionary = dictionary.clone();
+        move || dictionary.get(&1).map(|value| value.id)
+    });
+    *probe.lock().unwrap() = None;
+    assert_eq!(value, Some(10));
+}
+
+#[test]
+fn multi_dictionary_get_and_entries_value_clone_may_read_the_dictionary() {
+    let probe: Probe = Arc::new(Mutex::new(None));
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    for (key, id) in [("a", 10), ("b", 20)] {
+        dictionary
+            .add(
+                key,
+                1_u32,
+                CloneProbing {
+                    id,
+                    probe: Arc::clone(&probe),
+                },
+            )
+            .unwrap();
+    }
+    let reader = dictionary.clone();
+    *probe.lock().unwrap() = Some(Arc::new(move || {
+        let _ = reader.count();
+    }));
+    let (value, entries) = within_timeout("ObservableMultiDictionary::get/entries", {
+        let dictionary = dictionary.clone();
+        move || {
+            let value = dictionary.get(&"b", &1).map(|value| value.id);
+            let entries = dictionary
+                .entries()
+                .into_iter()
+                .map(|(key1, key2, value)| (key1, key2, value.id))
+                .collect::<Vec<_>>();
+            (value, entries)
+        }
+    });
+    *probe.lock().unwrap() = None;
+    assert_eq!(value, Some(20));
+    assert_eq!(entries, [("a", 1, 10), ("b", 1, 20)]);
 }
 
 #[test]
@@ -1105,8 +1308,11 @@ fn keyed_collection_remove_panic_discards_the_queued_messages() {
     assert_eq!(*changes.lock().unwrap(), vec![("Add".to_string(), Some(1))]);
 }
 
-/// #1065 — the same when an item's `Drop`, run by `clear()`, pushes and then
-/// panics. The panicked `clear()` publishes nothing for its own change.
+/// #1065, #1295 — an item's `Drop`, run by `clear()`, pushes and then panics.
+/// `clear()` publishes its `Reset` before it drops the items (#1295), so the
+/// `Reset` is the first change, and the push from `Drop` runs after the
+/// admission ends and publishes its own `Add`. No message is left queued, and
+/// another thread can mutate the collection next.
 #[test]
 fn serviced_collection_clear_drop_panic_discards_the_queued_messages() {
     let hook: Probe = Arc::new(Mutex::new(None));
@@ -1126,11 +1332,21 @@ fn serviced_collection_clear_drop_panic_discards_the_queued_messages() {
     *hook.lock().unwrap() = None;
 
     assert!(outcome.is_err());
-    assert!(changes.lock().unwrap().is_empty());
+    assert_eq!(
+        *changes.lock().unwrap(),
+        vec![("Reset".to_string(), None), ("Add".to_string(), Some(0))]
+    );
     assert_eq!(collection.len(), 1);
     within_timeout("ServicedObservableCollection::push after a panic", {
         let (collection, quiet) = (collection.clone(), Arc::clone(&quiet));
         move || collection.push(DropProbing::new(10, &quiet))
     });
-    assert_eq!(*changes.lock().unwrap(), vec![("Add".to_string(), Some(1))]);
+    assert_eq!(
+        *changes.lock().unwrap(),
+        vec![
+            ("Reset".to_string(), None),
+            ("Add".to_string(), Some(0)),
+            ("Add".to_string(), Some(1)),
+        ]
+    );
 }

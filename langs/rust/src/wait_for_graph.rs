@@ -7,11 +7,14 @@
 //! drainer or a borrowed scope; a hub drainer with queued messages that waits
 //! for a borrowed scope; a foreign `dispose()` that waits for an admitted
 //! lifecycle hook; a cross-thread container disposal that waits for a
-//! membership transaction; and a `FormVm` call that waits for another thread's
-//! publication scope on the form. A lifecycle status publication is a hub
-//! send, so it records a hub wait. The wait that would close a cycle is
-//! refused, and the caller takes its refused-wait result instead of blocking
-//! (ADR-0119, ADR-0126, ADR-0153, ADR-0167, ADR-0176).
+//! membership transaction; a `FormVm` call that waits for another thread's
+//! publication scope on the form; a `ValueStream` send or dispose that waits
+//! for another thread to deliver its value; and a `DerivedProperty`
+//! recompute that waits for another thread's recompute gate. A lifecycle
+//! status publication is a hub send, so it records a hub wait. The wait that
+//! would close a cycle is refused, and the caller takes its refused-wait
+//! result instead of blocking (ADR-0119, ADR-0126, ADR-0153, ADR-0167,
+//! ADR-0176, ADR-0209).
 //!
 //! Every resource is named by a typed, address-derived [`Resource`] key, so
 //! keys of different kinds never collide. A thread has at most one edge. An
@@ -47,6 +50,11 @@ pub(crate) enum Resource {
     Hook(usize),
     /// A form's publication scopes (spec/20 §5.5).
     FormPublication(usize),
+    /// One accepted `ValueStream` value or terminal, which the stream's
+    /// drainer delivers (#1298).
+    StreamDelivery(usize),
+    /// A `DerivedProperty`'s recompute gate (#1463).
+    RecomputeGate(usize),
 }
 
 #[derive(Clone, Copy)]
@@ -193,8 +201,8 @@ pub fn container_wait_registered_for_testing(thread: ThreadId) -> bool {
 }
 
 /// Test-only seam: reports whether `thread` has recorded any wait in the
-/// wait-for graph: a message hub, lifecycle hook, container membership or
-/// form publication wait.
+/// wait-for graph: a message hub, lifecycle hook, container membership, form
+/// publication, stream delivery or recompute gate wait.
 /// Production code never calls it. Only the non-default `test-seams`
 /// feature exports it.
 #[cfg(any(test, feature = "test-seams"))]

@@ -24,6 +24,7 @@ mod conformance {
     mod dialogs;
     mod dictionary_key_view_order;
     mod discriminator;
+    mod drop_panic_publication;
     mod drop_reentry;
     mod expandable;
     mod expandable_support;
@@ -49,6 +50,7 @@ mod conformance {
     #[cfg(feature = "test-seams")]
     mod hub_membership_wait_cycle;
     mod inline_dispose_cascade;
+    mod item_clone_reentry;
     mod leaf_hook_disposal;
     mod lifecycle;
     mod localization;
@@ -61,10 +63,14 @@ mod conformance {
     mod owned_resources;
     mod post_dispose_modeled_assignment;
     mod property_change;
+    // Every case here observes the wait-for graph through a test seam.
+    #[cfg(feature = "test-seams")]
+    mod recompute_wait_cycle;
     mod reconstruct_command_parity;
     mod reverse_destruct_order;
     mod search_filter;
     mod selection_transactions;
+    mod stream_wait_cycle;
     mod subscribe_value;
     mod threading;
     mod token_clone_reentry;

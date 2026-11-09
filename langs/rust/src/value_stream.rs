@@ -1,5 +1,7 @@
 //! VMx-owned typed value streams.
 
+use crate::runtime::wait_for_owner;
+use crate::wait_for_graph::{waits, Resource};
 use crate::{
     lock, thread, wait, Arc, AssertUnwindSafe, AtomicBool, BTreeMap, Condvar, Mutex, Ordering,
     ThreadId, VecDeque, Weak,
@@ -39,21 +41,59 @@ struct ValueStreamSubscriber<T> {
 }
 
 #[derive(Default)]
+struct DeliveryState {
+    finished: bool,
+    /// Counts the threads that wait with an edge in the wait-for graph.
+    waiters: usize,
+}
+
+/// The delivery of one accepted value or terminal.
+#[derive(Default)]
 struct DeliveryCompletion {
-    finished: Mutex<bool>,
+    state: Mutex<DeliveryState>,
     ready: Condvar,
 }
 
 impl DeliveryCompletion {
-    fn wait(&self) {
-        let mut finished = lock(&self.finished);
-        while !*finished {
-            finished = wait(&self.ready, finished);
+    fn resource(&self) -> Resource {
+        Resource::StreamDelivery(std::ptr::from_ref(self) as usize)
+    }
+
+    /// Waits until the delivery finishes. With `owner`, the thread that
+    /// drains the stream, the wait is recorded in the wait-for graph
+    /// (spec/03 §4.1, #1298). A wait that would close a cycle is refused:
+    /// it returns at once, and the drainer still delivers the value later.
+    fn wait(&self, owner: Option<ThreadId>) {
+        let mut state = lock(&self.state);
+        while !state.finished {
+            let Some(owner) = owner else {
+                state = wait(&self.ready, state);
+                continue;
+            };
+            let refused;
+            (state, refused) = wait_for_owner(
+                &self.state,
+                &self.ready,
+                state,
+                |state| &mut state.waiters,
+                self.resource(),
+                owner,
+            );
+            if refused {
+                return;
+            }
         }
     }
 
+    /// Marks the delivery finished. The drainer removes the waits on this
+    /// delivery from the graph before it wakes the waiters.
     fn finish(&self) {
-        *lock(&self.finished) = true;
+        let mut state = lock(&self.state);
+        state.finished = true;
+        if state.waiters > 0 {
+            waits().release_waiters(self.resource(), &[]);
+        }
+        drop(state);
         self.ready.notify_all();
     }
 }
@@ -277,7 +317,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     /// it are delivered in the order they passed it.
     pub(crate) fn send_if(&self, value: T, still_current: impl FnOnce() -> bool) {
         let current = thread::current().id();
-        let (completion, should_drain, reentrant, replaced) = {
+        let (completion, should_drain, drainer, replaced) = {
             let mut state = lock(&self.inner);
             if state.disposed || state.dispose_requested || !still_current() {
                 return;
@@ -295,19 +335,19 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                 subscribers,
                 completion: completion.clone(),
             });
-            let reentrant = state.draining_owner == Some(current);
-            let should_drain = state.draining_owner.is_none();
+            let drainer = state.draining_owner;
+            let should_drain = drainer.is_none();
             if should_drain {
                 state.draining_owner = Some(current);
             }
-            (completion, should_drain, reentrant, replaced)
+            (completion, should_drain, drainer, replaced)
         };
         // The replaced value is dropped after the stream lock is released.
         drop(replaced);
         if should_drain {
             self.drain(current);
-        } else if !reentrant && !ValueStreamDrainContext::is_active() {
-            completion.wait();
+        } else if drainer != Some(current) && !ValueStreamDrainContext::is_active() {
+            completion.wait(drainer);
         }
     }
 
@@ -362,13 +402,15 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
         // Subscriber closures may own other subscriptions on this stream;
         // they are dropped after the state lock is released.
         let mut released = Vec::new();
-        let (completion, should_drain, reentrant) = {
+        let (completion, should_drain, drainer) = {
             let mut state = lock(&self.inner);
             if state.disposed {
+                // The drainer marks the stream disposed just before it
+                // finishes the terminal, and runs no user code in between.
                 let completion = state.dispose_completion.clone();
                 drop(state);
                 if let Some(completion) = completion {
-                    completion.wait();
+                    completion.wait(None);
                 }
                 return;
             }
@@ -377,10 +419,10 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                     .dispose_completion
                     .clone()
                     .expect("requested disposal has a completion");
-                let reentrant = state.draining_owner == Some(current);
+                let drainer = state.draining_owner;
                 drop(state);
-                if !reentrant && !ValueStreamDrainContext::is_active() {
-                    completion.wait();
+                if drainer != Some(current) && !ValueStreamDrainContext::is_active() {
+                    completion.wait(drainer);
                 }
                 return;
             }
@@ -393,18 +435,18 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
             state.pending_terminal = Some(PendingTerminal { completions });
             state.dispose_requested = true;
             state.dispose_completion = Some(completion.clone());
-            let reentrant = state.draining_owner == Some(current);
-            let should_drain = state.draining_owner.is_none();
+            let drainer = state.draining_owner;
+            let should_drain = drainer.is_none();
             if should_drain {
                 state.draining_owner = Some(current);
             }
-            (completion, should_drain, reentrant)
+            (completion, should_drain, drainer)
         };
         drop(released);
         if should_drain {
             self.drain(current);
-        } else if !reentrant && !ValueStreamDrainContext::is_active() {
-            completion.wait();
+        } else if drainer != Some(current) && !ValueStreamDrainContext::is_active() {
+            completion.wait(drainer);
         }
     }
 

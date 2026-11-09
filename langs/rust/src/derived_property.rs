@@ -3,30 +3,60 @@
 //! Spec: `spec/15-derived-properties.md`; ADR-0035.
 
 use super::{
-    lock, wait, Arc, AtomicUsize, Condvar, Message, MessageHub, Mutex, Ordering,
-    PropertyChangedMessage, ThreadId, ValueStream, ValueSubscription, VmxError, VmxResult,
+    lock, Arc, AtomicUsize, Condvar, Message, MessageHub, Mutex, Ordering, PropertyChangedMessage,
+    ThreadId, ValueStream, ValueSubscription, VmxError, VmxResult,
 };
+use crate::runtime::wait_for_owner;
+use crate::wait_for_graph::{waits, Resource};
+
+#[derive(Default)]
+struct GateHolder {
+    owner: Option<ThreadId>,
+    depth: usize,
+    /// Counts the threads that wait with an edge in the wait-for graph.
+    waiters: usize,
+}
 
 /// A gate that one thread holds at a time and may re-enter.
 ///
 /// No lock is held while the gate is held, so the holder may run user code:
-/// reads of the value never wait for it.
+/// reads of the value never wait for it. A thread that waits for another
+/// thread's hold records the wait in the wait-for graph (spec/03 §4.1,
+/// #1463).
 #[derive(Default)]
 struct ReentrantGate {
-    holder: Mutex<(Option<ThreadId>, usize)>,
+    holder: Mutex<GateHolder>,
     released: Condvar,
 }
 
 impl ReentrantGate {
-    fn enter(&self) -> ReentrantGateGuard<'_> {
+    fn resource(&self) -> Resource {
+        Resource::RecomputeGate(std::ptr::from_ref(self) as usize)
+    }
+
+    /// Enters the gate, waiting while another thread holds it. Returns
+    /// `None`, without entering, when that wait would close a wait-for
+    /// cycle; the caller then runs without the gate.
+    fn enter(&self) -> Option<ReentrantGateGuard<'_>> {
         let current = std::thread::current().id();
         let mut holder = lock(&self.holder);
-        while holder.0.is_some_and(|owner| owner != current) {
-            holder = wait(&self.released, holder);
+        while let Some(owner) = holder.owner.filter(|owner| *owner != current) {
+            let refused;
+            (holder, refused) = wait_for_owner(
+                &self.holder,
+                &self.released,
+                holder,
+                |holder| &mut holder.waiters,
+                self.resource(),
+                owner,
+            );
+            if refused {
+                return None;
+            }
         }
-        holder.0 = Some(current);
-        holder.1 += 1;
-        ReentrantGateGuard { gate: self }
+        holder.owner = Some(current);
+        holder.depth += 1;
+        Some(ReentrantGateGuard { gate: self })
     }
 }
 
@@ -37,9 +67,13 @@ struct ReentrantGateGuard<'a> {
 impl Drop for ReentrantGateGuard<'_> {
     fn drop(&mut self) {
         let mut holder = lock(&self.gate.holder);
-        holder.1 -= 1;
-        if holder.1 == 0 {
-            holder.0 = None;
+        holder.depth -= 1;
+        if holder.depth == 0 {
+            holder.owner = None;
+            if holder.waiters > 0 {
+                waits().release_waiters(self.gate.resource(), &[]);
+            }
+            drop(holder);
             self.gate.released.notify_all();
         }
     }
@@ -533,10 +567,16 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     /// result does not publish a property-change message.
     ///
     /// Concurrent `recompute` calls run one at a time, so each transform
-    /// receives the result of the previous one. A transform must therefore
-    /// not wait for a `recompute` on another thread, including through a
-    /// source `send` whose delivery on another thread recomputes this
-    /// property. A source update that
+    /// receives the result of the previous one. A call that waits for another
+    /// thread's `recompute` records that wait in the wait-for graph (spec/03
+    /// §4.1, ADR-0209). When the wait would close a cycle through VMx-owned
+    /// resources, for example because the other thread's transform sends on
+    /// a hub whose drainer makes this call, the wait is refused. This call
+    /// then runs its transform at once, without waiting, and its result is
+    /// discarded if the other call commits after its snapshot. A transform
+    /// that blocks on application code, such as a channel, is outside the
+    /// graph: it must not wait for a `recompute` of this property on another
+    /// thread. A source update that
     /// commits while a transform runs wins: the transform's result, computed
     /// from a stale snapshot, is discarded. The same holds for a nested
     /// `recompute` that a transform makes on its own thread. The transform may
@@ -550,6 +590,9 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         F: FnOnce(&T) -> T,
     {
         let committed = {
+            // `None` when the gate wait was refused: this call then runs
+            // without the gate, and the snapshot check below discards its
+            // result if another commit lands first (#1463).
             let _recompute = self.recompute_gate.enter();
             if *lock(&self.disposed) {
                 return;
