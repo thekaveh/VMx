@@ -649,7 +649,10 @@ The child-transition helper is supported API for leaf view-models
 (`LIFE-016`..`LIFE-020`). TypeScript adds the `isTreeStructureChanged`
 predicate. A new `TreeSelection` helper tracks one current node of a hierarchy
 (`HIER-033`..`HIER-040`). Rust `NotificationVm` and `ConfirmationVm` gain
-`dispose()`.
+`dispose()`. A Rust hierarchy node carries consumer node data, and a Rust
+token read holds no lock while `Token::clone` runs. A built Rust `CompositeVm` or
+`GroupVm` runs its children factory on the first construct, and Rust
+containers own their registered members.
 
 v3.30.0 also clarifies concurrent and failure behavior. A cross-thread
 container disposal that would close a wait cycle defers to the transaction
@@ -677,4 +680,5 @@ five flavors where ADR-0121 requires it. It moves the spec release history from
 The 26 new conformance IDs bring the catalog to 451 library IDs plus 5
 scenario IDs. Chapter count stays at 24.
 
-See ADR-0146 through ADR-0180 and the affected behavior chapters.
+See ADR-0146 through ADR-0180, ADR-0184, ADR-0185, ADR-0202, ADR-0204 and
+the affected behavior chapters.
