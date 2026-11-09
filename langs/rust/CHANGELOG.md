@@ -10,6 +10,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-067` conformance tests (#1176, ADR-0177). A hub subscriber of
+  `ObservableMultiDictionary` reads the updated entries, count, `keys1()` and
+  `keys2()` snapshots. The tests cover add, insert, remove and clear. Rust
+  already behaved this way.
 - `COL-066` conformance tests: a panicking local collection subscriber does
   not suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). Rust
   already behaved this way.
@@ -140,6 +144,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVm` call nested in a preparation callback or an `errors_changed`
+  subscriber of `set_model` or `revert` now returns before its notifications
+  (ADR-0180, spec/20 §5.4, #1173). This covers `set_model`, `revert`,
+  `approve()` and the approve command. The outermost update sends them before
+  it returns, with no lock held: error maps first, in commit order, then the
+  other notifications. A nested `approve()` returns `Ok(())` once admitted,
+  and its persister runs after that; a failure goes to `approve_errors`. A
+  nested call no longer commits while another thread holds a publication
+  scope; it takes the refused-wait result. Queued notifications are dropped
+  once the form is disposed.
 - `CompositeVm::replace` now clears the replaced child as `current` before it
   frees the child, as `remove_at` does (#1219). Before, the commit freed the
   child first. Another thread could adopt the freed child into another
@@ -305,12 +319,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
   scope. When the wait would close a cycle, the revalidation joins the
   publisher's queue and replays there. The validator itself is registered at
   once.
-- `TokenPagedComposition`: a load that finds a terminal token when it starts now
-  fetches nothing (#1161, ADR-0169). A refresh or another load could commit a
-  terminal token after the load command admitted the run. The load then
-  refetched page 1 and appended it again, and `has_more()` stayed true. The load
-  now changes nothing and does not supersede an in-flight refresh. The ad hoc
-  `load_more(loader)` call is unchanged.
 - A `FormVm` approval started from another approval's settlement notification
   now runs its approval subscribers with model edits applied at once (#1160).
   Before, the outer approval's pre-publication window stayed active, so those

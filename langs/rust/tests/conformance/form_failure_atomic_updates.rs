@@ -15,7 +15,7 @@ use std::fmt;
 use std::panic::{catch_unwind, panic_any, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -520,13 +520,16 @@ fn deny_with_a_panicking_snapshotter_keeps_the_edit() {
 fn a_nested_assignment_from_a_validator_wins() {
     let slot = Slot::new();
     let armed = Arc::new(AtomicBool::new(true));
+    let returned: Arc<OnceLock<Box<dyn Fn() + Send + Sync>>> = Arc::new(OnceLock::new());
     let form = builder(1)
         .validator("value", {
             let slot = slot.clone();
             let armed = Arc::clone(&armed);
+            let returned = Arc::clone(&returned);
             move |model: &i32| {
                 if *model == 10 && armed.swap(false, Ordering::SeqCst) {
                     slot.form().set_model(20);
+                    (returned.get().expect("the trace is attached"))();
                 }
                 (*model > 15).then(|| "too large".to_string())
             }
@@ -535,12 +538,20 @@ fn a_nested_assignment_from_a_validator_wins() {
         .unwrap();
     slot.fill(&form);
     let trace = Trace::observe(&form);
+    assert!(returned
+        .set(Box::new(trace.marker("nested returned")))
+        .is_ok());
 
     form.set_model(10);
 
-    // Only the nested assignment commits and publishes; the outer one,
-    // whose validators finished after that commit, publishes nothing.
-    assert_eq!(trace.take(), ["errors", "can_execute", "model 20"]);
+    // Only the nested assignment commits. It returns before its
+    // notifications, which the outer update sends (ADR-0180). The outer
+    // assignment, whose validators finished after that commit, publishes
+    // nothing of its own.
+    assert_eq!(
+        trace.take(),
+        ["nested returned", "errors", "can_execute", "model 20"]
+    );
     assert_eq!(
         state(&form),
         FormState {
@@ -559,9 +570,9 @@ fn a_nested_assignment_from_a_validator_wins() {
     assert!(form.is_valid());
 }
 
-/// FORM-037 — a deny, approval, or reset committed from a validator also wins over the interrupted assignment
+/// FORM-037 — a deny from a validator wins over the interrupted assignment, and a nested approval races it
 #[test]
-fn a_deny_or_approval_committed_from_a_validator_wins() {
+fn a_nested_deny_wins_and_a_nested_approval_races_the_assignment() {
     for case in ["deny", "approve", "reset"] {
         let slot = Slot::new();
         let armed = Arc::new(AtomicBool::new(false));
@@ -603,21 +614,25 @@ fn a_deny_or_approval_committed_from_a_validator_wins() {
 
         form.set_model(10);
 
-        let (events, model, persists): (&[&str], i32, &[i32]) = match case {
-            "deny" => (&["reverted", "model 1"], 1, &[]),
-            // Admission and settlement each raise one change (FORM-032).
-            "approve" => (&["can_execute", "can_execute"], 2, &[2]),
-            _ => (&["can_execute", "can_execute"], 200, &[2]),
+        // A nested approval persists after the outer assignment commits and
+        // notifies, so it races that assignment as an edit during
+        // persistence (spec/20 §5.3 and §5.4, ADR-0180). Admission and
+        // settlement each raise one change (FORM-032). A reset is
+        // authoritative over the edit.
+        let (events, model, snapshot, persists): (&[&str], i32, i32, &[i32]) = match case {
+            "deny" => (&["reverted", "model 1"], 1, 1, &[]),
+            "approve" => (&["can_execute", "model 10", "can_execute"], 10, 2, &[2]),
+            _ => (&["can_execute", "model 10", "can_execute"], 200, 200, &[2]),
         };
         assert_eq!(trace.take(), events, "{case}");
         assert_eq!(form.model(), model, "{case}");
-        assert_eq!(form.snapshot(), model, "{case}");
-        assert!(!form.is_dirty(), "{case}");
+        assert_eq!(form.snapshot(), snapshot, "{case}");
+        assert_eq!(form.is_dirty(), model != snapshot, "{case}");
         assert_eq!(*persisted.lock().unwrap(), persists, "{case}");
 
-        form.set_model(10);
-        assert_eq!(trace.take(), ["model 10"], "{case}");
-        assert_eq!(form.model(), 10, "{case}");
+        form.set_model(11);
+        assert_eq!(trace.take(), ["model 11"], "{case}");
+        assert_eq!(form.model(), 11, "{case}");
     }
 }
 

@@ -386,8 +386,9 @@ accept an optional `DestructOrder(ChildOrder)` (spec v3.30, ADR-0161):
   `reconstruct()`, and the `dispose()` cascade walk the children in reverse
   child order, last child first. The composite still sets `Current = null`
   before it destructs a child. The walk waits for each background child before
-  it starts the next one. Every child is disposed before the composite
-  publishes `Disposed` (`LIFE-013`).
+  it starts the next one. For a dispose that is not foreign, every child is
+  disposed before the composite publishes `Disposed` (`LIFE-013`). A foreign
+  dispose publishes `Disposed` first (chapter 02 §7).
 
 The option does not change `construct()`. The rollback of a failed
 population or a failed `Add`, `Insert` or `Replace` keeps its own order, newest

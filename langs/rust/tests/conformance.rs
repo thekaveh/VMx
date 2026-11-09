@@ -22,6 +22,7 @@ mod conformance {
     mod container_hook_disposal;
     mod derived_properties;
     mod dialogs;
+    mod dictionary_key_view_order;
     mod discriminator;
     mod drop_reentry;
     mod expandable;
@@ -32,6 +33,7 @@ mod conformance {
     mod form_approval_update_queue;
     mod form_failure_atomic_updates;
     mod form_model_hub_publication;
+    mod form_nested_update_notifications;
     mod form_publication_wait_cycle;
     mod form_reader_consistency;
     mod form_unscoped_delivery;

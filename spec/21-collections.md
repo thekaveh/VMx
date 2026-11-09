@@ -703,11 +703,32 @@ mutations:
 Consumers can bind to `Keys1` or `Keys2` independently to build category-view
 or identifier-view UIs without walking the full dictionary.
 
+`Add`, `Remove`, `Clear`, and an indexer or `set` call that inserts a new key
+pair change the dictionary in this order (ADR-0177):
+
+1. The entries and `Count` change.
+1. Each key view that changes notifies its own subscribers. A view changes only
+   when a distinct key first appears or last disappears.
+1. The dictionary raises its own events, then sends the hub message (§4.6).
+
+The order of the `Keys1` and `Keys2` notifications is not specified. A handler
+on one key view reads the updated entries, the updated `Count`, and its own
+updated view. It must not rely on the state of the other view. A handler on a
+dictionary event, and a hub subscriber, read both views updated for that
+mutation. A value replacement at an existing key pair changes no key view.
+
+If a key-view handler changes the dictionary, the nested mutation follows the
+same order. The outer mutation then completes its remaining steps. No single
+global order of nested and outer events is required. During a nested mutation,
+a view can still lack the change of the outer mutation. The outer change shows
+in that view when the outer mutation completes.
+
 Open Rust gap: Rust `ObservableMultiDictionary` requires a `MessageHub` at
 construction. `keys1()` and `keys2()` return `Vec` snapshots, not live
 `ObservableList` views. The type has no local collection-changed event, no
 indexer, and no `TryGetValue`; `get` returns `Option<V>`, and mutations are
-observable only through the hub.
+observable only through the hub. Each snapshot reads the current entries, so a
+hub subscriber reads both key snapshots in their updated state.
 
 ### 4.3 No cascading insertion
 
@@ -764,7 +785,8 @@ cleared). This divergence between flavors is catalogued in ADR-0009.
 
 ### 4.8 Conformance
 
-`COL-010` through `COL-015`, `COL-022`, and `COL-066` in `12-conformance.md`.
+`COL-010` through `COL-015`, `COL-022`, `COL-066`, and `COL-067` in
+`12-conformance.md`.
 
 ## 5. Paging: `PagedComposition<TVM>`
 
@@ -1045,11 +1067,11 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-066` and `AGCH-001` through `AGCH-010` in
+`COL-001` through `COL-067` and `AGCH-001` through `AGCH-010` in
 `12-conformance.md`. Applicable ADRs:
 ADR-0024, ADR-0096, ADR-0097, and ADR-0171 (§2), ADR-0026 and ADR-0089 (§3),
-ADR-0025 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085 (shared Move
-semantics), and ADR-0098 (§9).
+ADR-0025 and ADR-0177 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085
+(shared Move semantics), and ADR-0098 (§9).
 
 `DISP-006` provides cross-cutting repeated-dispose coverage for the public
 collection, paging, batch, aggregate, and projection helpers that expose

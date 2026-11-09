@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `COL-067` conformance tests (#1176, ADR-0177). An `ObservableDictionary`
+  mutation changes the entries and `size` first. Then it updates each key view
+  that changes, emits the dictionary events and sends the hub message. The
+  order of the two key-view notifications is not specified. TypeScript already
+  behaved this way.
 - `COL-066` conformance tests: a failing local collection subscriber does not
   suppress the hub `CollectionChangedMessage` (#1051, ADR-0171). TypeScript
   already behaved this way.
@@ -95,6 +100,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A `FormVM` call nested in a preparation callback or an `errorsChanged`
+  observer of `setModel` or deny now returns before its notifications
+  (ADR-0180, spec/20 §5.4, #1173). This covers `setModel`, deny,
+  `approveAsync` and `approveCommand.execute()`. The outermost update sends
+  them before it returns: error maps first, in commit order, then the other
+  notifications. A nested approval calls its persister after that. Queued
+  notifications are dropped once the form is disposed.
 - `setAt` keeps the replaced child owned until the commit (#1219). The
   commit now frees the child and clears `current` in one step. Before,
   `setAt` freed the child first and cleared `current` only at the commit. A
@@ -186,23 +198,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     parent, the destination admits it after the old parent's detach commit,
     as in every flavor (`COMP-006`). During the old parent's commit
     callbacks, the destination no longer offers the child for selection.
-- `FormVM` now queues every `setModel` and deny made during an approval's
-  post-persist commit and settlement, and replays them after `onApproved`
-  (#1168, #1050, ADR-0174, FORM-039, FORM-040). The queue now opens when the
-  commit starts, so it covers calls from `resetOnApproved`, the snapshotter
-  and the validators. Before, such a call committed and published at once, and
-  the reset then overwrote it. A deny from a settlement observer is queued like
-  `setModel`, so `onApproved` observers no longer see a reverted model. A
-  queued call runs its validators, equality and snapshotter when it is called.
-  A failure throws to the caller and queues nothing, and an equal candidate is
-  still queued. Before, a queued candidate was not prepared. Its failure
-  surfaced after `onApproved`, failed the settled approval and dropped the
-  later queued edits. Each queued call now replays as a new call. A failing
-  replay no longer stops the later ones. The first replay failure reaches the
-  `approveAsync` awaiter, or `approveErrors` once on the command path, after
-  the last replay. A failed reset commit still wins over it. Calls queued
-  before a failed reset commit replay before that failure is routed. Each
-  queued call runs its validators once more, at call time.
 - A background VM that waits on a child now rolls back and clears its in-flight
   guard when that wait fails (#1053). The wait can fail in a deferred
   `_transitionChildren` walk, a member hook, a `CompositeVM` selector or a
