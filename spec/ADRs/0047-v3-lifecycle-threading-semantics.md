@@ -1,7 +1,6 @@
 # ADR 0047 — v3 lifecycle/threading semantics: atomic transitions, foreground-marshalling, and transactional hook-failure rollback
 
-**Status:** Accepted (2026-06-28; §2.5 child order amended by ADR-0161; C# error
-routing superseded by ADR-0109; clarified by ADR-0116, ADR-0117)
+**Status:** Accepted (2026-06-28; §2.5 child order amended by ADR-0161; C# error routing superseded by ADR-0109; clarified by ADR-0116, ADR-0117)
 **Spec version:** 3.0.0
 
 ## 1. Context
