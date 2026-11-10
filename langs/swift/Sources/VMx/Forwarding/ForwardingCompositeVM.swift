@@ -47,13 +47,10 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
         _ownershipParent ?? _ownershipIdentity._transferOwnershipParent
     }
 
-    override func _ownershipParentDidChange() {
-        let identity = _ownershipIdentity
-        if _ownershipParent != nil {
-            identity._forwardingOwner = self
-        } else if identity._forwardingOwner === self {
-            identity._forwardingOwner = nil
-        }
+    override func _ownershipParentDidChange(to newParent: OwnershipParentVM?) {
+        // Runs under this decorator's link lock and takes only the wrapped
+        // identity's (#1546).
+        _ownershipIdentity._updateForwardingOwner(newParent != nil ? self : nil, decorator: self)
     }
 
     // ── Identity / kind ─────────────────────────────────────────────────

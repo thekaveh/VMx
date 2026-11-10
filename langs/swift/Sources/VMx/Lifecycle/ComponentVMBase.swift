@@ -954,14 +954,85 @@ open class ComponentVMBase {
     /// publishes each committed record in full.
     private let lifecycleLock = NSRecursiveLock()
 
-    /// Parent backpointer — set by `CompositeVM` / `GroupVM` when this VM
-    /// is added as a child. `internal` so containers in the module can
-    /// flip it.
-    weak var _parent: ParentVM?
-    weak var _ownershipParent: OwnershipParentVM? {
-        didSet { _ownershipParentDidChange() }
+    /// Guards the parent link: `_parent`, `_ownershipParent` and
+    /// `_forwardingOwner` (#1546). A container writes the link under its own
+    /// locks, and this VM reads it under its lifecycle lock or under no lock,
+    /// so only this lock orders the accesses. It is a leaf lock: no callback
+    /// runs, no strong reference is released, and no other lock is taken
+    /// while it is held, except one step inward to the wrapped identity's
+    /// link lock in `_ownershipParentDidChange(to:)`. That step always goes
+    /// from a forwarding decorator to its innermost wrapped VM, which takes no
+    /// further link lock, so the order is acyclic. A wait for it is never
+    /// recorded in the wait-for graph (spec/03 §4.1), because it can close no
+    /// cycle.
+    private let parentLinkLock = NSLock()
+    private weak var parentStorage: ParentVM?
+    private weak var ownershipParentStorage: OwnershipParentVM?
+    private weak var forwardingOwnerStorage: ComponentVMBase?
+    /// The identities of the two links above. A check compares these, so it
+    /// loads, and later releases, no strong reference under the lock.
+    private var ownershipParentID: ObjectIdentifier?
+    private var forwardingOwnerID: ObjectIdentifier?
+
+    /// Parent backpointer — set by `CompositeVM` / `GroupVM` / the aggregates
+    /// through `_linkParent(_:)` when this VM is added as a child, and cleared
+    /// through `_unlinkParent()`. Each read returns a strong reference that
+    /// the caller releases after the lock.
+    var _parent: ParentVM? { parentLinkLock.withLock { parentStorage } }
+    var _ownershipParent: OwnershipParentVM? {
+        parentLinkLock.withLock { ownershipParentStorage }
     }
-    weak var _forwardingOwner: ComponentVMBase?
+    var _forwardingOwner: ComponentVMBase? {
+        parentLinkLock.withLock { forwardingOwnerStorage }
+    }
+
+    /// Makes `parent` both the selection parent and the ownership parent, as
+    /// one step under the link lock.
+    func _linkParent(_ parent: ParentVM & OwnershipParentVM) {
+        parentLinkLock.withLock {
+            parentStorage = parent
+            ownershipParentStorage = parent
+            ownershipParentID = ObjectIdentifier(parent)
+            _ownershipParentDidChange(to: parent)
+        }
+    }
+
+    /// Clears both parent links, as one step under the link lock.
+    func _unlinkParent() {
+        parentLinkLock.withLock { _clearParentLinkLocked() }
+    }
+
+    /// Clears both parent links when `owner` is the ownership parent, with
+    /// the check and the clear as one step under the link lock.
+    func _unlinkParent(ifOwnedBy owner: OwnershipParentVM) {
+        let id = ObjectIdentifier(owner)
+        parentLinkLock.withLock {
+            if ownershipParentID == id { _clearParentLinkLocked() }
+        }
+    }
+
+    private func _clearParentLinkLocked() {
+        parentStorage = nil
+        ownershipParentStorage = nil
+        ownershipParentID = nil
+        _ownershipParentDidChange(to: nil)
+    }
+
+    /// Sets `_forwardingOwner` when `owner` is non-nil; clears it when it is
+    /// nil and `decorator` is the current owner. Takes only this VM's link
+    /// lock.
+    func _updateForwardingOwner(_ owner: ComponentVMBase?, decorator: ComponentVMBase) {
+        let decoratorID = ObjectIdentifier(decorator)
+        parentLinkLock.withLock {
+            if let owner {
+                forwardingOwnerStorage = owner
+                forwardingOwnerID = ObjectIdentifier(owner)
+            } else if forwardingOwnerID == decoratorID {
+                forwardingOwnerStorage = nil
+                forwardingOwnerID = nil
+            }
+        }
+    }
 
     var _ownershipIdentity: ComponentVMBase { self }
 
@@ -973,7 +1044,10 @@ open class ComponentVMBase {
         return nil
     }
 
-    func _ownershipParentDidChange() {}
+    /// Runs under `parentLinkLock` after each ownership-parent change, with
+    /// the new value. An override must not read this VM's link, and may take
+    /// only the wrapped identity's link lock.
+    func _ownershipParentDidChange(to newParent: OwnershipParentVM?) {}
     fileprivate let ownershipGate = NSRecursiveLock()
     // The calling thread's recursive holds of `ownershipGate`; guarded by it.
     fileprivate var ownershipGateHolds = 0

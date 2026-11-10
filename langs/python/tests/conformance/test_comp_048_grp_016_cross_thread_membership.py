@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from tests.liveness import HANG_GUARD
+from tests.liveness import HANG_GUARD, join_thread, wait_event
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
@@ -46,7 +46,7 @@ class _Hold:
         self.armed = False
         self.opened.set()
         # Outlives the main thread's positive waits, so a regression fails there.
-        self.release.wait(3 * HANG_GUARD)
+        wait_event(self.release, 3 * HANG_GUARD)
 
     def start(self, add: Callable[[], None]) -> None:
         def run() -> None:
@@ -57,12 +57,12 @@ class _Hold:
 
         self.thread = threading.Thread(target=run, daemon=True)
         self.thread.start()
-        assert self.opened.wait(HANG_GUARD), "the add holds its transaction"
+        assert wait_event(self.opened, HANG_GUARD), "the add holds its transaction"
 
     def finish(self) -> None:
         self.release.set()
         assert self.thread is not None
-        self.thread.join(HANG_GUARD)
+        join_thread(self.thread, HANG_GUARD)
         assert not self.thread.is_alive(), "the held add completes"
         assert self.errors == []
 
@@ -118,7 +118,7 @@ def _refused_in_another_thread(calls: list[tuple[str, Callable[[], None]]]) -> l
 
     other = threading.Thread(target=run, daemon=True)
     other.start()
-    other.join(HANG_GUARD)
+    join_thread(other, HANG_GUARD)
     assert not other.is_alive(), "no refused call waits for the open transaction"
     return failures
 
