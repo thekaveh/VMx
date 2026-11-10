@@ -4,11 +4,12 @@
 
 use super::{
     begin_membership_transaction, begin_ownership_claim, finish_with_first_error,
-    finish_with_first_failure, lock, retain_first_error, retain_first_failure, Arc, AtomicBool,
-    ComponentCore, ConstructionStatus, Dispatcher, FirstFailure, HashSet, LifecycleOperation,
-    MembershipDisposeDisposition, MembershipTransactionControl, MessageHub, Mutex, NullDispatcher,
-    OnceLock, Ordering, OwnershipClaim, ParentHandle, ParentRegistration, PropertyChangedStream,
-    RelayCommand, TreeNode, TreeNodeRef, ViewModelType, VmNode, VmxError, VmxResult,
+    finish_with_first_failure, lock, ownership_claim_active, retain_first_error,
+    retain_first_failure, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher,
+    FirstFailure, HashSet, LifecycleOperation, MembershipDisposeDisposition,
+    MembershipTransactionControl, MessageHub, Mutex, NullDispatcher, OnceLock, Ordering,
+    OwnershipClaim, ParentHandle, ParentRegistration, PropertyChangedStream, RelayCommand,
+    TreeNode, TreeNodeRef, ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -109,6 +110,128 @@ fn validate_fixed_aggregate_candidate<T: VmNode>(
     result?;
     claims.push(claim);
     Ok(())
+}
+
+/// A fresh lazy-slot candidate that a refused population may dispose.
+struct PopulationCandidate {
+    id: usize,
+    has_parent: Box<dyn Fn() -> bool>,
+    dispose: Box<dyn FnOnce()>,
+}
+
+impl PopulationCandidate {
+    fn new<T: VmNode>(child: &T) -> Self {
+        let probe = child.clone();
+        let target = child.clone();
+        Self {
+            id: child.id(),
+            has_parent: Box::new(move || {
+                probe.parent_handle().is_some() || probe.parent_id().is_some()
+            }),
+            // Best-effort: the population's own failure propagates.
+            dispose: Box::new(move || {
+                let _ = target.dispose();
+            }),
+        }
+    }
+}
+
+/// The ownership preflight of one fixed-slot population (spec/08 §2, §4).
+///
+/// It checks every candidate in slot order and keeps the first refusal. A
+/// refused population disposes the fresh lazy-slot candidates that nobody
+/// owns (ADR-0224, #1324). An eager slot keeps its existing value, so its
+/// value is never a fresh candidate.
+struct FixedPopulationPreflight<'a> {
+    owner: &'a ParentHandle,
+    ids: HashSet<usize>,
+    claims: Vec<OwnershipClaim>,
+    fresh: Vec<PopulationCandidate>,
+    refusal: Option<VmxError>,
+}
+
+impl<'a> FixedPopulationPreflight<'a> {
+    fn new(owner: &'a ParentHandle) -> Self {
+        Self {
+            owner,
+            ids: HashSet::new(),
+            claims: Vec::new(),
+            fresh: Vec::new(),
+            refusal: None,
+        }
+    }
+
+    fn check<T: VmNode>(&mut self, child: &T, lazy: bool) {
+        if lazy {
+            self.fresh.push(PopulationCandidate::new(child));
+        }
+        if self.refusal.is_none() {
+            if let Err(error) = validate_fixed_aggregate_candidate(
+                child,
+                &mut self.ids,
+                self.owner,
+                lazy,
+                &mut self.claims,
+            ) {
+                self.refusal = Some(error);
+            }
+        }
+    }
+
+    /// Returns the admitted identities and the held claims, or disposes the
+    /// unowned fresh candidates and returns the refusal.
+    fn finish(self) -> VmxResult<(HashSet<usize>, Vec<OwnershipClaim>)> {
+        let Some(refusal) = self.refusal else {
+            return Ok((self.ids, self.claims));
+        };
+        // Release this population's own claims first, so that the cleanup
+        // reads only the claims of other transactions.
+        drop(self.claims);
+        dispose_unowned_candidates(self.owner, self.fresh);
+        Err(refusal)
+    }
+}
+
+/// Disposes the candidates of a refused population that nobody owns
+/// (spec/08 §2, ADR-0224). A candidate that has a parent, that another
+/// ownership transaction holds, or that is an owner on the ancestor chain of
+/// `owner` belongs to someone else and is skipped. Each canonical identity is
+/// disposed once.
+///
+/// The cleanup is best-effort. Its checks take no lock across the disposal,
+/// so another thread that starts to claim a candidate after the checks can
+/// still lose it to this cleanup. A factory's fresh output is normally
+/// reachable only by the refused population, so the window is narrow.
+fn dispose_unowned_candidates(owner: &ParentHandle, candidates: Vec<PopulationCandidate>) {
+    let mut seen = HashSet::new();
+    for candidate in candidates {
+        if !seen.insert(candidate.id)
+            || (candidate.has_parent)()
+            || ownership_claim_active(candidate.id)
+            || owns_on_chain(owner, candidate.id)
+        {
+            continue;
+        }
+        (candidate.dispose)();
+    }
+}
+
+fn owns_on_chain(owner: &ParentHandle, candidate_id: usize) -> bool {
+    let mut cursor = Some(owner.clone());
+    let mut visited = HashSet::new();
+    while let Some(parent) = cursor {
+        let Some(parent_id) = parent.id() else {
+            return false;
+        };
+        if parent_id == candidate_id {
+            return true;
+        }
+        if !visited.insert(parent_id) {
+            return false;
+        }
+        cursor = parent.parent();
+    }
+    false
 }
 
 type AggregateFactory<T> = Arc<dyn Fn() -> T + Send + Sync>;
@@ -475,16 +598,10 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
             .transition_with(LifecycleOperation::Construct, || {
                 self.ownership.with_transaction(|| {
                     let next1 = self.component1.next()?;
-                    let mut ids = HashSet::new();
-                    let mut claims = Vec::new();
                     let parent = self.ownership.handle();
-                    validate_fixed_aggregate_candidate(
-                        &next1,
-                        &mut ids,
-                        &parent,
-                        self.component1.is_lazy(),
-                        &mut claims,
-                    )?;
+                    let mut preflight = FixedPopulationPreflight::new(&parent);
+                    preflight.check(&next1, self.component1.is_lazy());
+                    let (ids, claims) = preflight.finish()?;
                     let mut first_error = None;
                     let mut replacement_committed = true;
                     if self.component1.is_lazy() {
@@ -831,22 +948,10 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
                     let next1 = self.component1.next()?;
                     let next2 = self.component2.next()?;
                     let parent = self.ownership.handle();
-                    let mut ids = HashSet::new();
-                    let mut claims = Vec::new();
-                    validate_fixed_aggregate_candidate(
-                        &next1,
-                        &mut ids,
-                        &parent,
-                        self.component1.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next2,
-                        &mut ids,
-                        &parent,
-                        self.component2.is_lazy(),
-                        &mut claims,
-                    )?;
+                    let mut preflight = FixedPopulationPreflight::new(&parent);
+                    preflight.check(&next1, self.component1.is_lazy());
+                    preflight.check(&next2, self.component2.is_lazy());
+                    let (ids, claims) = preflight.finish()?;
                     let mut first_error = None;
                     let mut replacement_committed = true;
                     if self.component1.is_lazy() {
@@ -1173,29 +1278,11 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
                     let next2 = self.component2.next()?;
                     let next3 = self.component3.next()?;
                     let parent = self.ownership.handle();
-                    let mut ids = HashSet::new();
-                    let mut claims = Vec::new();
-                    validate_fixed_aggregate_candidate(
-                        &next1,
-                        &mut ids,
-                        &parent,
-                        self.component1.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next2,
-                        &mut ids,
-                        &parent,
-                        self.component2.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next3,
-                        &mut ids,
-                        &parent,
-                        self.component3.is_lazy(),
-                        &mut claims,
-                    )?;
+                    let mut preflight = FixedPopulationPreflight::new(&parent);
+                    preflight.check(&next1, self.component1.is_lazy());
+                    preflight.check(&next2, self.component2.is_lazy());
+                    preflight.check(&next3, self.component3.is_lazy());
+                    let (ids, claims) = preflight.finish()?;
                     let mut first_error = None;
                     let mut replacement_committed = true;
                     if self.component1.is_lazy() {
@@ -1502,36 +1589,12 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
                     let next3 = self.component3.next()?;
                     let next4 = self.component4.next()?;
                     let parent = self.ownership.handle();
-                    let mut ids = HashSet::new();
-                    let mut claims = Vec::new();
-                    validate_fixed_aggregate_candidate(
-                        &next1,
-                        &mut ids,
-                        &parent,
-                        self.component1.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next2,
-                        &mut ids,
-                        &parent,
-                        self.component2.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next3,
-                        &mut ids,
-                        &parent,
-                        self.component3.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next4,
-                        &mut ids,
-                        &parent,
-                        self.component4.is_lazy(),
-                        &mut claims,
-                    )?;
+                    let mut preflight = FixedPopulationPreflight::new(&parent);
+                    preflight.check(&next1, self.component1.is_lazy());
+                    preflight.check(&next2, self.component2.is_lazy());
+                    preflight.check(&next3, self.component3.is_lazy());
+                    preflight.check(&next4, self.component4.is_lazy());
+                    let (ids, claims) = preflight.finish()?;
                     let mut first_error = None;
                     let mut replacement_committed = true;
                     if self.component1.is_lazy() {
@@ -1878,43 +1941,13 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
                     let next4 = self.component4.next()?;
                     let next5 = self.component5.next()?;
                     let parent = self.ownership.handle();
-                    let mut ids = HashSet::new();
-                    let mut claims = Vec::new();
-                    validate_fixed_aggregate_candidate(
-                        &next1,
-                        &mut ids,
-                        &parent,
-                        self.component1.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next2,
-                        &mut ids,
-                        &parent,
-                        self.component2.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next3,
-                        &mut ids,
-                        &parent,
-                        self.component3.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next4,
-                        &mut ids,
-                        &parent,
-                        self.component4.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next5,
-                        &mut ids,
-                        &parent,
-                        self.component5.is_lazy(),
-                        &mut claims,
-                    )?;
+                    let mut preflight = FixedPopulationPreflight::new(&parent);
+                    preflight.check(&next1, self.component1.is_lazy());
+                    preflight.check(&next2, self.component2.is_lazy());
+                    preflight.check(&next3, self.component3.is_lazy());
+                    preflight.check(&next4, self.component4.is_lazy());
+                    preflight.check(&next5, self.component5.is_lazy());
+                    let (ids, claims) = preflight.finish()?;
                     let mut first_error = None;
                     let mut replacement_committed = true;
                     if self.component1.is_lazy() {
@@ -2300,50 +2333,14 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
                     let next5 = self.component5.next()?;
                     let next6 = self.component6.next()?;
                     let parent = self.ownership.handle();
-                    let mut ids = HashSet::new();
-                    let mut claims = Vec::new();
-                    validate_fixed_aggregate_candidate(
-                        &next1,
-                        &mut ids,
-                        &parent,
-                        self.component1.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next2,
-                        &mut ids,
-                        &parent,
-                        self.component2.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next3,
-                        &mut ids,
-                        &parent,
-                        self.component3.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next4,
-                        &mut ids,
-                        &parent,
-                        self.component4.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next5,
-                        &mut ids,
-                        &parent,
-                        self.component5.is_lazy(),
-                        &mut claims,
-                    )?;
-                    validate_fixed_aggregate_candidate(
-                        &next6,
-                        &mut ids,
-                        &parent,
-                        self.component6.is_lazy(),
-                        &mut claims,
-                    )?;
+                    let mut preflight = FixedPopulationPreflight::new(&parent);
+                    preflight.check(&next1, self.component1.is_lazy());
+                    preflight.check(&next2, self.component2.is_lazy());
+                    preflight.check(&next3, self.component3.is_lazy());
+                    preflight.check(&next4, self.component4.is_lazy());
+                    preflight.check(&next5, self.component5.is_lazy());
+                    preflight.check(&next6, self.component6.is_lazy());
+                    let (ids, claims) = preflight.finish()?;
                     let mut first_error = None;
                     let mut replacement_committed = true;
                     if self.component1.is_lazy() {
