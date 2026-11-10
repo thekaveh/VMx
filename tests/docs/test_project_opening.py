@@ -72,20 +72,26 @@ PUBLISHED_PACKAGES = {
     "TypeScript": ("@thekaveh/vmx", "npm"),
     "React adapter": ("@thekaveh/vmx-react", "npm"),
 }
+_SOURCE_LINE = re.compile(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)")
 _PUBLISHED_VERSION = re.compile(r"`([^`]+)` ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\b")
 
 
-def _availability_rows(markdown: str, heading: re.Pattern[str]) -> dict[str, str]:
-    """Return the Public package cell of each Availability table row, by flavor."""
+def _availability_cells(markdown: str, heading: re.Pattern[str], column: int) -> dict[str, str]:
+    """Return one cell of each Availability table row, by flavor."""
     availability = _section(markdown, heading)
     return {
-        cells[0]: cells[1]
+        cells[0]: cells[column] if len(cells) > column else ""
         for line in availability.splitlines()
         if line.startswith("| ")
         and (cells := [cell.strip() for cell in line.strip("|").split("|")])[0]
         not in {"Flavor", ""}
         and not set(cells[0]) <= {"-"}
     }
+
+
+def _availability_rows(markdown: str, heading: re.Pattern[str]) -> dict[str, str]:
+    """Return the Public package cell of each Availability table row, by flavor."""
+    return _availability_cells(markdown, heading, 1)
 
 
 def _published_version(cell: str) -> tuple[str, str] | None:
@@ -105,6 +111,17 @@ def availability_mismatches(readme: str, site: str) -> list[str]:
         if expected is None or actual != expected:
             mismatches.append(
                 f"{flavor} row: README.md names {expected}, docs/content/index.md names {actual}"
+            )
+    # W12: the Source line column is copied too, so both pages must name the
+    # same bare version for every flavor.
+    readme_sources = _availability_cells(readme, AVAILABILITY_PAGES["README.md"], 2)
+    site_sources = _availability_cells(site, AVAILABILITY_PAGES["docs/content/index.md"], 2)
+    for flavor, expected_source in readme_sources.items():
+        actual_source = site_sources.get(flavor)
+        if not _SOURCE_LINE.fullmatch(expected_source) or actual_source != expected_source:
+            mismatches.append(
+                f"{flavor} source line: README.md names {expected_source!r}, "
+                f"docs/content/index.md names {actual_source!r}"
             )
     return mismatches
 
@@ -156,6 +173,17 @@ def test_availability_check_names_a_differing_typescript_row() -> None:
     assert availability_mismatches(readme, site) == [
         "TypeScript row: README.md names ('@thekaveh/vmx', '3.31.0'), "
         "docs/content/index.md names ('@thekaveh/vmx', '3.30.0')"
+    ]
+
+
+def test_availability_check_names_a_differing_source_line() -> None:
+    readme = _synthetic_availability("## 2. Availability", "3.31.0")
+    site = _synthetic_availability("## 1.1. Availability", "3.31.0").replace(
+        "| Not yet published to crates.io | 0.36.0 |", "| Not yet published to crates.io | 0.37.0 |"
+    )
+
+    assert availability_mismatches(readme, site) == [
+        "Rust source line: README.md names '0.36.0', docs/content/index.md names '0.37.0'"
     ]
 
 

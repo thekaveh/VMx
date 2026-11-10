@@ -4,7 +4,7 @@ This file provides guidance to coding agents that work with code in this reposit
 
 ## 1. Architecture
 
-VMx is **one language-neutral specification with five idiomatic flavors**. All five are catalog-complete for the library conformance IDs in `spec/12-conformance.md`. C#, Python, TypeScript, and Swift are member-aligned. Rust's remaining recorded difference, §12.7, is described in `docs/maintenance/2026-07-16-rust-capability-parity.md`; ADR-0120 (sender identity) and ADR-0202 (`HierarchicalVm` node data) are its retained idioms. Naming remains idiomatic (PascalCase C#, snake_case Python and Rust methods, camelCase TypeScript and Swift — codified in `spec/ADRs/0006-idiomatic-api-per-language.md`).
+VMx is **one language-neutral specification with five idiomatic flavors**. All five are catalog-complete for the library conformance IDs in `spec/12-conformance.md`. C#, Python, TypeScript, and Swift are member-aligned. Rust's recorded differences and open items are listed in the disposition of the parity ledger, `docs/maintenance/2026-07-16-rust-capability-parity.md` §12.6; ADR-0120 (sender identity) and ADR-0202 (`HierarchicalVm` node data) are its retained idioms. Naming remains idiomatic (PascalCase C#, snake_case Python and Rust methods, camelCase TypeScript and Swift — codified in `spec/ADRs/0006-idiomatic-api-per-language.md`).
 
 - **`spec/` is the source of truth.** 24 numbered markdown chapters (`00-overview.md` … `23-async-resource-vm.md`), the ADRs indexed in `spec/ADRs/README.md`, four JSON fixtures, supporting schemas, current version in `spec/VERSION` (3.30.0). Behavior changes start here.
 - **`spec/fixtures/*.json` are consumed by all flavors** for lifecycle, message-ordering, command-truthtable, and derived-property validation. Python tracks `lifecycle-transitions.json` under `langs/python/src/vmx/lifecycle/_data/` for runtime loading, and `tools/check-python-fixture-sync.py` keeps it byte-identical to the spec fixture; Rust tracks the same runtime fixture under `langs/rust/src/fixtures/` so the published crate is self-contained, and `tools/check-rust-fixture-sync.py` keeps that copy byte-identical. The other fixtures are conformance-test inputs. TypeScript copies all fixtures via `npm run sync-fixtures` (auto-run by `prebuild`, `pretest`, `pretypecheck`, `pretypecheck:tests`, and `prepack`). C# embeds `lifecycle-transitions.json` for runtime and copies all fixtures into conformance test output. Swift ships all four JSON resources under `langs/swift/Sources/VMx/Resources`, including `LifecycleTransitionTable.swift` loading `lifecycle-transitions.json` from `Bundle.module`. When editing a fixture, ensure every flavor still loads the relevant runtime/test resource.
@@ -33,90 +33,14 @@ keys consumed by tools, tests, and review checklists.
 
 ## 3. Build / test / lint commands
 
-### 3.1 Python (`langs/python`)
-```bash
-cd langs/python
-uv sync --locked --all-extras              # once per new worktree, before any test
-uv run python -m pytest                    # full suite
-uv run python -m pytest tests/conformance  # conformance only
-uv run python -m pytest -k LIFE_005        # a single conformance ID
-uv run ruff check
-uv run ruff format --check
-uv run mypy --strict src/vmx               # must be strict-clean
-```
+`CONTRIBUTING.md` §2 is the source for the commands of each flavor, the React adapter (§2.7), the cross-cutting conformance and example checks (§2.6), and the public-API baselines (§2.8). CI runs the same commands. These notes add the setup details that the commands depend on:
 
-### 3.2 C# (`langs/csharp`)
-```bash
-cd langs/csharp
-dotnet restore VMx.sln --locked-mode
-dotnet build VMx.sln -c Release
-dotnet test                                # VMx.Tests, VMx.Conformance.Tests and VMx.Consumer.Tests
-dotnet test --filter "Conformance=LIFE-005"
-dotnet format --verify-no-changes
-```
-Central package versions live in `Directory.Packages.props`; common project settings in `Directory.Build.props` (`TreatWarningsAsErrors=true`, `Nullable=enable`).
-
-### 3.3 TypeScript (`langs/typescript`)
-```bash
-cd langs/typescript
-npm ci
-npm run sync-fixtures   # copies spec/fixtures/*.json → src/fixtures/ (required after spec fixture edits)
-npm run typecheck
-npm run typecheck:tests
-npm run lint
-npm run build           # tsup, dual ESM + CJS
-npm test                # vitest run
-npx vitest run -t "LIFE-005"   # single conformance ID
-```
-Published VMx supports Node ≥ 20.5.0. Repository tests require Node 20.19+, 22.13+,
-or 24+ (jsdom 29 development-tool floor).
-
-### 3.4 Swift (`langs/swift`)
-```bash
-cd langs/swift
-swift build             # compiles on CommandLineTools
-swift test              # requires full Xcode (XCTest); CI runs it on macos-15
-```
-If `swift test` reports the Xcode license is not accepted, run `sudo xcodebuild -license accept` once.
-
-### 3.5 Rust (`langs/rust`)
-```bash
-cd langs/rust
-cargo fmt --check
-cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked --all-features
-cargo test --locked                        # default features: test seams compiled out
-RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
-CARGO_TARGET_DIR=target/package-verify cargo package --locked  # own target dir, see below
-python3 ../../tools/check-rust-package.py  # crate holds exactly the tracked files
-```
-`cargo package` verifies the crate by building the packaged copy in the target
-directory's `package/` folder. In a shared target directory, that build leaves
-a stale `vmx-rs` library. Later integration-test builds there, such as
-`cargo test --test conformance`, link it and ignore edits to `src/`. The gate
-therefore runs `cargo package` in its own `CARGO_TARGET_DIR`. If a target
-directory has already run `cargo package`, run `cargo clean -p vmx-rs` in it
-once.
-
-### 3.6 Conformance coverage tool
-```bash
-# Report-only across flavors
-python3 tools/check-conformance-coverage.py
-
-# CI mode (matches the conformance workflow)
-uv --project langs/python run python tools/check-conformance-coverage.py \
-    --require csharp --require python --require typescript --require swift --require rust
-
-# The tool's own unit tests (the sync installs the test and tools extras)
-uv --project langs/python sync --locked --all-extras
-uv --project langs/python run python -m pytest tools/tests/
-```
-Use `python -m pytest`, not a bare `pytest` command: without the `test` extra in
-`langs/python/.venv`, a bare `pytest` command can run an outside `pytest` from `PATH`.
-Running ruff on `tools/` requires the project config: `--config langs/python/pyproject.toml`.
-
-### 3.7 Pre-commit
-`pre-commit install` once. Hooks: ruff (Python only), mdformat (spec/, docs/, `langs/*/CHANGELOG.md` and `packages/react/CHANGELOG.md`), `dotnet format --verify-no-changes` (C# only), eslint (TypeScript only), whitespace/EOL hygiene. mdformat is pinned to 0.7.x (1.0 is incompatible with `mdformat-gfm`).
+- **Python environment.** Each new worktree has its own `langs/python/.venv`. In `langs/python`, set `UV_PYTHON` and run `uv sync --locked --all-extras` once before the first test (§2.2). Run `uv run python -m pytest`, never a bare `pytest`: before the sync, a bare `pytest` can run an outside `pytest` from `PATH` that imports `vmx` from another checkout.
+- **One conformance ID.** `uv run python -m pytest -k LIFE_005` (Python), `dotnet test VMx.sln -c Release --filter "Conformance=LIFE-005"` (C#), `npx vitest run -t "LIFE-005"` (TypeScript).
+- **Tool tests.** `uv --project langs/python run python -m pytest tools/tests/` after the sync. Run ruff on `tools/` with `--config langs/python/pyproject.toml`.
+- **Swift.** `swift test` needs full Xcode (XCTest). If it reports that the Xcode license is not accepted, run `sudo xcodebuild -license accept` once. Do not chain a member access onto a dictionary lookup, as in `dict[key]?.field`; CI rejects every `]?.` (§2.4).
+- **Rust packaging.** Run `cargo package` in its own `CARGO_TARGET_DIR`, as §2.5 shows. In a shared target directory it leaves a stale `vmx-rs` library that later test builds link. If that has happened, run `cargo clean -p vmx-rs` there once.
+- **Pre-commit.** Run `pre-commit install` once. The hooks are ruff (Python), mdformat (`spec/`, `docs/`, `langs/*/CHANGELOG.md` and `packages/react/CHANGELOG.md`), `dotnet format --verify-no-changes` (C#), eslint (TypeScript), and whitespace/EOL hygiene. mdformat is pinned to 0.7.x, because 1.0 is incompatible with `mdformat-gfm`.
 
 ## 4. When changing behavior
 
@@ -124,5 +48,6 @@ Running ruff on `tools/` requires the project config: `--config langs/python/pyp
 2. Add an ADR in `spec/ADRs/` describing the decision (numbered NNNN-kebab-title.md) and a row in `spec/ADRs/README.md`.
 3. If the change is normative, add an ID to `spec/12-conformance.md`, an entry in the source chapter's `## Conformance` section, and a stub/marker in **all five** catalog-complete conformance suites (C#, Python, TypeScript, Swift, Rust).
 4. Implement in every flavor that ships the area. Keep the public surface idiomatic per ADR-0006 and the normative concepts aligned; new flavor differences require explicit spec/ADR support. Hub `PropertyChangedMessage` names follow the flavor idiom (`"IsValid"` / `"is_valid"` / `"isValid"`); the collections `"Count"` channel is a spec-literal exception.
-5. If touching `spec/fixtures/`, re-run TS `npm run sync-fixtures` and verify Python, Rust, C#, and Swift still load the file where applicable (Python/Rust tracked runtime copies, C# embedded/copy paths, and Swift package resources are configured for these exact filenames).
-6. Bump `spec/VERSION` and each flavor's package version per the SemVer policy in README §6.1. Update `compatibility-matrix.md` and each flavor's `CHANGELOG.md` (bracketed Keep-a-Changelog headings). Do not copy ADR or conformance-ID counts into other files; `spec/ADRs/README.md` and the `### XXX-NNN` headings in `spec/12-conformance.md` are the only sources for them (CONTRIBUTING §3.2).
+5. Update the public-API baseline of every flavor whose public surface changes, in the same PR (`CONTRIBUTING.md` §2.8). The C#, Python, and TypeScript checks fail on any API difference that the baseline does not record.
+6. If touching `spec/fixtures/`, re-run TS `npm run sync-fixtures` and verify Python, Rust, C#, and Swift still load the file where applicable (Python/Rust tracked runtime copies, C# embedded/copy paths, and Swift package resources are configured for these exact filenames).
+7. Bump `spec/VERSION` and each flavor's package version per the SemVer policy in README §6.1. Update `compatibility-matrix.md` and each flavor's `CHANGELOG.md` (bracketed Keep-a-Changelog headings). Do not copy ADR or conformance-ID counts into other files; `spec/ADRs/README.md` and the `### XXX-NNN` headings in `spec/12-conformance.md` are the only sources for them (CONTRIBUTING §3.2).

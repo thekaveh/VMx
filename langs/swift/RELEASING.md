@@ -106,6 +106,13 @@ the publication-claims invariant in
 [CONTRIBUTING §4.3](../../CONTRIBUTING.md#43-release-invariants) through a
 second feature-to-develop-to-main PR pair.
 
+In the same follow-up PR, move the Swift public-API baseline to the release
+([CONTRIBUTING §2.8](../../CONTRIBUTING.md#28-public-api-baselines)):
+
+1. Set `langs/swift/api/baseline-revision` to the full SHA of the release
+   commit.
+2. Remove every line from `langs/swift/api/breakage-allowlist.txt`.
+
 ## 5. Failure Modes
 
 - **Either tag exists:** stop. Never move, delete, or reuse it as a different

@@ -11,15 +11,17 @@ and documentation updates. This runbook adds only the adapter steps.
 
 ## 1. Environment and trusted publisher
 
-The protected `npm-react` environment is restricted to `react-v*` tags. The npm
-trusted publisher is pending until a trusted publish succeeds. Register it with
-the shared fields, environment `npm-react`, and "Allow npm publish" ticked. The
-bootstrap procedure is in git history at [commit `0c88386e`, §1](https://github.com/thekaveh/VMx/blob/0c88386eb3fffbe1d0620178bfd391745bd5db4e/packages/react/RELEASING.md#L7-L27).
+The protected `npm-react` environment is restricted to `react-v*` tags.
+Register the npm trusted publisher with the shared fields, environment
+`npm-react`, and "Allow npm publish" ticked. The bootstrap procedure is in git
+history at [commit `0c88386e`, §1](https://github.com/thekaveh/VMx/blob/0c88386eb3fffbe1d0620178bfd391745bd5db4e/packages/react/RELEASING.md#L7-L27).
 
-The first trusted publish, tag `react-v0.1.2`, failed with `E404`. That error
-means npm found no matching trusted publisher
-([#653](https://github.com/thekaveh/VMx/issues/653)). Nothing was published
-under 0.1.2.
+Until a trusted publish succeeds, confirm the trusted publisher on npmjs.com
+before each tag. Without a matching publisher, npm rejects the publish with
+`E404` ([#653](https://github.com/thekaveh/VMx/issues/653)), and nothing is
+published under that tag. The
+[compatibility matrix](../../compatibility-matrix.md) records the published
+adapter versions.
 
 ## 2. Release gates
 
@@ -49,7 +51,9 @@ the tarball's name and version against the tag, and publishes that tarball.
    (`CONTRIBUTING.md` §4.3).
 2. Run the package, React 18/19, packed-consumer, showcase, security, and docs
    gates from a clean checkout.
-3. Confirm `react-v<X.Y.Z>` and the npm version do not exist.
+3. Confirm `react-v<X.Y.Z>` and the npm version do not exist. On the verified
+   main commit, run
+   `python3 tools/check-version-consistency.py --release-tag react-v<X.Y.Z>`.
 4. Create the annotated `react-v<X.Y.Z>` tag on the verified main commit and
    push it.
 5. Approve the protected environment and monitor publication, provenance,
@@ -58,25 +62,12 @@ the tarball's name and version against the tag, and publishes that tarball.
 If npm accepts a broken version, fix forward with a patch; never move or reuse
 the tag/version.
 
-## 4. Release 0.1.3 after the failed 0.1.2
+If a release fails before npm accepts the package, the tag still stays
+immutable. Do not rerun that tag's workflow: a rerun uses the `release.yml` of
+the tag commit, so it cannot pick up a fix. Ship the fix as the next patch
+version with a new tag.
 
-The `react-v0.1.2` tag is immutable, so the fixes it carried ship as 0.1.3. A
-rerun of the failed 0.1.2 job cannot publish: it uses the tag's own
-`release.yml`, whose full `npm audit` now fails on dev-only advisories. Leave
-`react-v0.1.2` where it is, and do not rerun its workflow.
-
-1. On npmjs.com, register the trusted publisher for `@thekaveh/vmx-react` as
-   section 1 describes.
-2. Promote `develop` to `main` with the 0.1.3 version and changelog section,
-   after a release-prep PR dates the 0.1.3 heading as section 3 step 1
-   describes.
-3. On that main commit, run
-   `python3 tools/check-version-consistency.py --release-tag react-v0.1.3`.
-4. Follow section 3 from step 3 with tag `react-v0.1.3`.
-5. After npm serves 0.1.3, record it in the compatibility matrix and docs
-   ([#1039](https://github.com/thekaveh/VMx/issues/1039)).
-
-## 5. Recover missing GitHub Release metadata
+## 4. Recover missing GitHub Release metadata
 
 The release notes are the changelog body between the exact `## [X.Y.Z]`
 heading and the next level-two heading. The helper

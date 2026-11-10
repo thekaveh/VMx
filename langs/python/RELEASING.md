@@ -59,7 +59,7 @@ python3 -c "import tomllib; d=tomllib.load(open('langs/python/pyproject.toml','r
     done
 ```
 
-Anything not 200 must be fixed before tagging — either point at a real URL or drop the entry from `[project.urls]` entirely. Safe defaults when no dedicated docs site exists: `Documentation = "https://github.com/thekaveh/VMx#readme"` (anchor renders the README) or any `https://github.com/thekaveh/VMx/tree/main/…` folder URL.
+Anything not 200 must be fixed before tagging — either point at a real URL or drop the entry from `[project.urls]` entirely.
 
 Apply the same check to npm `package.json` `homepage`/`bugs`/`repository`, NuGet `<PackageProjectUrl>`/`<RepositoryUrl>`, and SwiftPM Index entries.
 
@@ -74,12 +74,12 @@ Until the manifest is reconciled, release through
 
 1. Land Conventional-Commit-style PRs on `develop` (`feat: …`, `fix: …`, `docs: …`, etc.), then promote `develop` to `main` through a separate PR.
 2. `release-please` opens a "chore(main): release python X.Y.Z" PR — review the version bump in `langs/python/src/vmx/__about__.py` and the matching `langs/python/CHANGELOG.md` entry.
-3. If the spec version also bumped, update `__min_spec_version__` in the same PR (release-please does not auto-bump that — see the comment in `__about__.py`).
+3. If `spec/VERSION` changed, update `__min_spec_version__` to equal it in the same PR. release-please does not update it (§6).
 4. Merge the release PR. release-please creates no tag, so push the annotated
    `python-v<X.Y.Z>` tag on the merge commit as in
    [§2.2](#22-manual-tag-release-when-release-please-is-paused).
 5. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> — the publish pipeline fires on the tag.
-6. The `python-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy". Approve within 30 days: GitHub then fails the pending deployment, and the tag cannot be reused.
+6. The `python-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy". Approve within 30 days. After 30 days, GitHub fails the pending deployment, and the tag cannot be reused.
 7. Before upload, `python-build` installs the exact wheel from `dist/` into
    a fresh environment and runs the version/lifecycle smoke test. A failure
    stops before the irreversible PyPI action. `python-publish` uploads only
@@ -133,10 +133,9 @@ The same six publish-pipeline jobs run.
 The `release-please` workflow pauses while the source version and
 `.release-please-manifest.json` disagree. The manifest records the last version
 that the release pipeline tagged; never advance it merely to silence the guard.
-The manifest holds 3.23.1, the last tag. That release never reached PyPI,
-because nobody approved its `pypi-python` deployment, so PyPI's latest is
-3.23.0. After the manual release and public-install verification
-succeed:
+The last tagged version can differ from the latest PyPI release; the
+compatibility matrix records both. After the manual release and public-install
+verification succeed:
 
 1. Confirm PyPI and the GitHub release both report the exact source version.
 2. Change `.release-please-manifest.json` to that verified published version in
@@ -222,4 +221,4 @@ Python releases use `python-v<X.Y.Z>`. The release invariants list the other pre
 
 ## 6. Spec compatibility
 
-`__min_spec_version__` in `langs/python/src/vmx/__about__.py` declares the minimum `spec/VERSION` this package implements. `tools/check-version-consistency.py` enforces that `__min_spec_version__` equals `spec/VERSION`; it runs in the conformance workflow on every PR and in the release workflow's `release-metadata` preflight. release-please leaves `__min_spec_version__` untouched; bump it manually in the release PR review if a spec major bumps in the same window.
+`__min_spec_version__` in `langs/python/src/vmx/__about__.py` declares the minimum `spec/VERSION` this package implements. `tools/check-version-consistency.py` enforces that `__min_spec_version__` equals `spec/VERSION`; it runs in the conformance workflow on every PR and in the release workflow's `release-metadata` preflight. release-please leaves `__min_spec_version__` untouched, so update it manually whenever `spec/VERSION` changes.

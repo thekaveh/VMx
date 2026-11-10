@@ -64,8 +64,9 @@ fallback after this migration.
 1. Correct the files that ship inside the package before the tag.
    crates.io keeps the README and CHANGELOG of each version, and a published
    version cannot be replaced. `langs/rust/README.md` is the crates.io page: it
-   must give the crates.io dependency, name the spec version without a tag
-   reference, and state the current library conformance ID count. The
+   must give the crates.io dependency and name the spec version without a tag
+   reference. It states that the crate covers every library conformance ID in
+   `spec/12-conformance.md`, without a number (`CONTRIBUTING.md` §3.2). The
    `langs/rust/CHANGELOG.md` release section must describe the published
    package.
 
