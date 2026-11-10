@@ -6,9 +6,9 @@
 import Foundation
 
 open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
-    private lazy var aggregateParent = AggregateParent(owner: self) { [unowned self] in
-        self.childComponents
-    }
+    /// Set once in `init`, before the aggregate is shared, so threads never
+    /// race to create it (a `lazy var` could create two, #1546).
+    private var aggregateParent: AggregateParent!
     private let factory1: () -> C1
     public private(set) var component1: C1?
 
@@ -19,6 +19,9 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
     ) {
         self.factory1 = factory1
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
+        aggregateParent = AggregateParent(owner: self) { [unowned self] in
+            self.childComponents
+        }
     }
 
     open override var type: ViewModelType { .aggregate }

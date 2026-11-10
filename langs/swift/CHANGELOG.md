@@ -204,6 +204,15 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
 
 ### Fixed
 
+- A child's parent link no longer has a data race (#1546). A container wrote
+  `_parent` and `_ownershipParent` under its own locks, while the child read
+  them from `dispose()` under its lifecycle lock and from its selection API
+  under no lock. Thread Sanitizer reported the race for a group add rollback
+  and a concurrent `dispose()`. Now a leaf lock on each VM guards both links
+  and `_forwardingOwner`, and a container sets, checks and clears the two links
+  as one step. `GroupVM` and `AggregateVM1` to `AggregateVM6` now create their
+  internal parent object in `init`, so two threads can no longer create two.
+
 - A container walk that waited for a background child or for a late add now
   continues on the container's own foreground dispatcher (ADR-0218, spec/02
   §6, #1326). Before, later sibling starts, the `Current` change and consumer
