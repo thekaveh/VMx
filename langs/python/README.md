@@ -16,14 +16,24 @@ passes. Supports Python 3.10–3.14.
 
 ## 2. Install
 
-Releases are published to PyPI from `python-v*` tags on `main`. The source
-tree currently implements v3.30.0; pin a version when reproducing released
-behavior.
+Releases are published to PyPI from `python-v*` tags on `main`. PyPI serves
+`vmx` 3.23.0, which implements spec 3.23.x. This source tree is the unpublished
+3.30.0 line. Some APIs in this README, for example `DelayedTask` and
+`TreeSelection`, are not in 3.23.0.
 
 ```bash
 pip install vmx
 # or
 uv add vmx
+```
+
+To use the source line, install a VMx checkout cloned beside your project in
+editable mode:
+
+```bash
+uv add --editable ../VMx/langs/python
+# or
+pip install -e ../VMx/langs/python
 ```
 
 ## 3. Quick start
@@ -104,18 +114,13 @@ hub.dispose()
 >   `null_message_hub_of(MyMessage)` factory (imported from `vmx.services`) for
 >   a narrower message type.
 
-The C# and TypeScript flavors mirror this shape: see
-[C# Quick start](https://github.com/thekaveh/VMx/blob/main/langs/csharp/README.md#3-quick-start) and
-[TypeScript Quick start](https://github.com/thekaveh/VMx/blob/main/langs/typescript/README.md#3-quick-start) — only the
-identifier casing differs.
-
 See [Getting Started with VMx — Python](https://github.com/thekaveh/VMx/blob/main/docs/content/getting-started/python.md)
 for the full walkthrough.
 
 ### 3.1 Cross-language naming
 
-The concepts are identical across the five flavors; identifier casing follows
-each language idiom (ADR-0006). See the
+The concepts and the quick-start shape are identical across the five flavors.
+Identifier casing follows each language idiom (ADR-0006). See the
 [cross-language naming table](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/cross-language-naming.md).
 
 ## 4. API surface
@@ -223,14 +228,8 @@ The opt-in `vmx.notifications` subpackage adds:
 Implements every library conformance ID; THEME scenario IDs live in the
 example apps. See [`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blob/main/spec/12-conformance.md).
 [`tests/conformance/README.md`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/conformance/README.md)
-documents the test-layout conventions.
-
-Run the suite from this directory:
-
-```bash
-uv sync --locked --all-extras
-uv run python -m pytest
-```
+documents the test-layout conventions. `uv run python -m pytest` in §7 runs
+the conformance suite with the unit tests.
 
 ## 7. Development
 

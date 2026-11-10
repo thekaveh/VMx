@@ -63,9 +63,13 @@ fallback after this migration.
 
 1. Correct the files that ship inside the package before the tag.
    crates.io keeps the README and CHANGELOG of each version, and a published
-   version cannot be replaced. `langs/rust/README.md` is the crates.io page: it
-   must give the crates.io dependency, name the spec version without a tag
-   reference, and state the current library conformance ID count. The
+   version cannot be replaced. `langs/rust/README.md` is the crates.io page.
+   Until the first release, it says that the crate is not on crates.io and
+   gives only the git and path dependencies. In the release-prep PR, remove
+   that status sentence and make the crates.io dependency
+   (`vmx-rs = "X.Y.Z"`) the first install form. The README must also name the
+   spec version without a tag reference. It must state that the tests cover
+   every library conformance ID, without a count (`CONTRIBUTING.md` §3.2). The
    `langs/rust/CHANGELOG.md` release section must describe the published
    package.
 
