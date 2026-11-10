@@ -39,8 +39,9 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   `fromSources` still trap; the ADR-0009 section "Swift traps that remain"
   lists the remaining Swift traps.
 - `NotificationVM` and `ConfirmationVM` accept any `NotificationScheduler`,
-  so an app can drive them in real time (#1347, spec/16 §6). The new public
-  protocol refines the Combine `Scheduler` with `seconds(from:to:)`. VMx
+  so an app can drive them in real time (#1347, ADR-0225, spec/16 §6). The
+  new public protocol refines the Combine `Scheduler` with `seconds(from:to:)`.
+  VMx
   conforms `VirtualTimeScheduler`, `DispatchQueue`, `RunLoop` and
   `OperationQueue`. The lifespan and decay-tick timers run on the injected
   scheduler, and the VMs have no lock, so pass a serial scheduler on the
@@ -198,8 +199,8 @@ the 3.25.0 to 3.31.0 sections of `langs/swift/CHANGELOG.md`.
   overrides `init(notification:hub:scheduler:lifespan:tickInterval:)` with a
   `VirtualTimeScheduler` parameter. Such an override no longer compiles, and it
   must be declared generic over `NotificationScheduler`. Callers that only
-  construct the VMs are not affected. An ADR for #1347 still has to record this
-  decision and its version consequence.
+  construct the VMs are not affected. ADR-0225 records this decision and its
+  version consequence: the change ships in this major release.
 
 ### Fixed
 
