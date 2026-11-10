@@ -574,49 +574,27 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 
 ## 11. Conformance
 
-`CMD-001` through `CMD-021` and `CMDD-001` through `CMDD-019` in
-`12-conformance.md` cover:
+Chapter 12 §6 holds the `CMD` IDs, §18 the `CMDD` IDs, and §30 the `DISP` IDs.
+The table maps each ID to the rules of this chapter, and chapter 12 states the
+behavior of each ID.
 
-- `Execute` invokes the configured task
-- `CanExecute` returns `true` with no predicate, and the predicate result otherwise
-- trigger emissions fire `CanExecuteChanged`
-- parameterized variant passes the parameter through
-- null task is a no-op (no exception)
-- `Execute` is a no-op when the predicate returns `false`
-- table-driven configurations from `fixtures/command-truthtable.json`
-- `CMD-008..CMD-011` — each fluent method produces an equivalent object graph
-- `CMD-012` — `AsyncRelayCommand.Cancel()` cancels an in-flight async task; the
-  command returns to a non-executing state (`IsExecuting == false`,
-  `CanExecute == true`); no exception surfaces by default (§10, ADR-0056)
-- `CMD-013` — disposed relay commands become inert (`CanExecute == false`;
-  `Execute` is a no-op) (§5, ADR-0068)
-- `CMD-014..CMD-019` — imperative re-evaluation notifications are exact,
-  additive with triggers and async state changes, safe after disposal, and
-  available on synchronous, parameterized, and async relay commands (§4.3,
-  ADR-0086)
-- `CMD-020` — a fire-and-forget `AsyncRelayCommand` fault reaches `errors`
-  after the completion `CanExecuteChanged`, so an `errors` subscriber reads
-  `IsExecuting == false` (§10.4, ADR-0195)
-- `CMD-021` — a failing `CanExecuteChanged` handler stops neither the other
-  handlers nor an operator-built trigger (§4, ADR-0191)
-- `CMDD-010` — `ConfirmationDecoratorCommand` surfaces a rejecting `confirm`
-  delegate or a throwing inner command on its `errors` channel instead of
-  swallowing it (§8.3.1, ADR-0049)
-- `CMDD-011..CMDD-013` — disposed composite, decorator, and confirmation
-  wrappers are inert; disposal during execution or a pending confirmation admits
-  no later inner work while an admitted pre/post pair stays balanced (§8.4,
-  ADR-0134)
-- `CMDD-014..CMDD-017` — an awaited confirmation with an asynchronous inner
-  command completes when the inner operation completes and invokes it once;
-  failures reach exactly one channel on each path; the inner keeps its own
-  admission and cancellation; nested wrappers are awaited, and disposal neither
-  cancels nor owns the inner (§8.3.2, ADR-0145)
-- `CMDD-018` — the fire-and-forget `Execute()` never invokes the inner command
-  inside its own call, also when `confirm()` is already complete (§8.3.1,
-  ADR-0195)
-- `CMDD-019` — disposing a live wrapper notifies the wrapper's own
-  `CanExecuteChanged` subscribers exactly once and the inner command's
-  subscribers never (§8.4, ADR-0222)
-
-`DISP-002` additionally disposes an in-flight async command twice and pins one
-cancellation, one terminal teardown, and inert later execution (ADR-0084).
+| IDs                                | Rules                                                                 |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `CMD-001`..`CMD-003`               | §1 command contract, §2 predicate semantics                           |
+| `CMD-004`                          | §4 triggers                                                           |
+| `CMD-005`                          | §5 `RelayCommand<T>`                                                  |
+| `CMD-006`                          | §3 task semantics                                                     |
+| `CMD-007`                          | §7 fixture (`fixtures/command-truthtable.json`)                       |
+| `CMD-008`..`CMD-011`               | §9 fluent composition                                                 |
+| `CMD-012`                          | §10 async command cancellation (ADR-0056)                             |
+| `CMD-013`                          | §5 relay command disposal (ADR-0068)                                  |
+| `CMD-014`..`CMD-019`               | §4.3 imperative re-evaluation (ADR-0086)                              |
+| `CMD-020`                          | §10.4 task faults (ADR-0195)                                          |
+| `CMD-021`                          | §4 failing `CanExecuteChanged` handlers (ADR-0191)                    |
+| `CMDD-001`..`CMDD-003`             | §8.1 `CompositeCommand`                                               |
+| `CMDD-004`..`CMDD-006`             | §8.2 `DecoratorCommand`                                               |
+| `CMDD-007`..`CMDD-009`             | §8.3 `ConfirmationDecoratorCommand`                                   |
+| `CMDD-010`, `CMDD-018`             | §8.3.1 async gating and the `errors` channel (ADR-0049, ADR-0195)     |
+| `CMDD-011`..`CMDD-013`, `CMDD-019` | §8.4 wrapper disposal (ADR-0134, ADR-0222)                            |
+| `CMDD-014`..`CMDD-017`             | §8.3.2 asynchronous inner commands (ADR-0145)                         |
+| `DISP-002`                         | §5 and §10 repeated disposal of an in-flight async command (ADR-0084) |

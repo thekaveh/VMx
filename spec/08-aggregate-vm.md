@@ -138,25 +138,18 @@ prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 
 ## 8. Conformance
 
-`AGG-001` through `AGG-007` in `12-conformance.md` cover:
+Chapter 12 §10 holds the `AGG` IDs, and §30 holds the `DISP` IDs. The table
+maps each ID to the rules of this chapter, and chapter 12 states the behavior
+of each ID.
 
-- arity-1 component factory invoked on construct
-- arity-2 both components reach Constructed
-- arity-5 all five components reach Constructed before parent (arity-6
-  follows the same pattern)
-- ComponentN property change fires on construct
-- destruction waits for all children
-- arity-6 construction and destruction ordering
-- transactional reconstruction under preflight failure, cleanup failure, and
-  terminal disposal
+| IDs                  | Rules                                      |
+| -------------------- | ------------------------------------------ |
+| `AGG-001`..`AGG-004` | §1 members, §2 construction                |
+| `AGG-005`            | §3 destruction                             |
+| `AGG-006`            | §2 construction, §3 destruction (ADR-0034) |
+| `AGG-007`            | §4 reconstruction transactions (ADR-0125)  |
+| `DISP-001`           | §5 repeated aggregate disposal             |
 
-`DISP-001` additionally requires repeated aggregate disposal to produce one
-observable terminal transition per slot and for the aggregate itself.
-
-`AGG-007` composes the factory, slot-publication, and complete-cleanup rules into
-one explicit reconstruction scenario. Focused aggregate regression tests in
-all five flavors cover factory preflight rollback, candidate commit, and
-concurrent terminal abort. Throwing/result-based flavors additionally cover
-first-error propagation; Swift's disposal surface is intentionally nonthrowing.
-Swift slot factories (`() -> C`) cannot throw, so the factory-failure branch of
-§4 does not occur in Swift; preflight failures behave as in the other flavors.
+Swift slot factories (`() -> C`) cannot throw, so the factory-failure branch
+of §4 does not occur in Swift. In Swift, `AGG-007` exercises the preflight
+failure, which behaves as in the other flavors.

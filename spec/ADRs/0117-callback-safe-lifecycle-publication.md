@@ -1,6 +1,6 @@
 # ADR 0117 — Separate lifecycle admission from callback delivery
 
-**Status:** Accepted (2026-07-18; extended by ADR-0126)
+**Status:** Accepted (2026-07-18; extended by ADR-0126; clarified by ADR-0172)
 **Spec version:** clarified in 3.22.0
 **Clarifies:** [ADR-0047](0047-v3-lifecycle-threading-semantics.md)
 

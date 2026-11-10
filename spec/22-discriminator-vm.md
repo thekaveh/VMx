@@ -34,9 +34,9 @@ DiscriminatorVM<TKey>:
 Per-flavor names follow ADR-0006 (`active_key` / `activeKey`,
 `set_active_key` / `setActiveKey`, etc.).
 
-Open Rust gap: Rust `active_changed()` returns a `MessageHub` whose messages
-carry no key. Rust consumers that need the new key subscribe to
-`active_key_changes()`, a typed `ValueStream<K>`.
+In Rust, `active_changed()` returns a `MessageHub` whose messages carry no
+key. Rust consumers that need the new key subscribe to `active_key_changes()`,
+a typed `ValueStream<K>`.
 
 ## 3. Semantics
 
@@ -61,15 +61,12 @@ tables externally and ask `IsActive(routeKey)` when projecting behavior.
 
 ## 4. Conformance
 
-- `DISC-001` — initial active key and `IsActive`.
-- `DISC-002` — changing the active key emits one change.
-- `DISC-003` — setting the same key is a no-op.
-- `DISC-004` — opening a modal activates the modal key.
-- `DISC-005` — closing a modal restores the prior key.
-- `DISC-006` — nested modal precedence restores in LIFO order.
-- `DISC-007` — modal depth tracks frames and disposal releases them.
-- `DISC-008` — explicit clear drains without changing the active key.
-- `DISC-009` — a non-modal set abandons history, including for the active key.
+Chapter 12 §28 holds the `DISC` IDs. The table maps each ID to the rules of
+this chapter, and chapter 12 states the behavior of each ID.
 
-Repeated disposal follows the framework-wide invariant in `01-concepts.md`
-§4: the change stream completes at most once and later mutations remain no-ops.
+| IDs                    | Rules        |
+| ---------------------- | ------------ |
+| `DISC-001`..`DISC-009` | §3 semantics |
+
+Repeated disposal follows the invariant in chapter 01 §4: the change stream
+completes at most once, and later mutations remain no-ops.

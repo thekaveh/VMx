@@ -1,6 +1,6 @@
 # ADR 0173 — Selection commits without a membership transaction
 
-- **Status:** Accepted (extended by 0188 and 0189)
+- **Status:** Accepted (extended by ADR-0188, ADR-0189, ADR-0217)
 - **Date:** 2026-11-07
 - **Spec version:** 3.30.0 (clarification of chapter 06 §3, §3.1, §3.2, §4.2,
   §4.3 and §5)

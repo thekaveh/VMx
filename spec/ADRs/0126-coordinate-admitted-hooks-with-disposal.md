@@ -1,6 +1,7 @@
 # ADR 0126 — Coordinate admitted hooks with disposal
 
-**Status:** Accepted (2026-07-22; Extended by ADR-0200)
+**Status:** Accepted (2026-07-22; Extended by ADR-0200; clarified by ADR-0172,
+ADR-0179)
 **Spec version:** clarified in 3.22.0
 **Extends:** [ADR-0117](0117-callback-safe-lifecycle-publication.md)
 

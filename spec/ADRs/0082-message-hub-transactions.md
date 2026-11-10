@@ -1,6 +1,6 @@
 # ADR 0082 — Lossless message-hub transactions and iterative delivery
 
-**Status:** Accepted (2026-07-10)
+**Status:** Accepted (2026-07-10; clarified by ADR-0119)
 **Spec version:** introduced in 3.2.0
 
 ## 1. Context

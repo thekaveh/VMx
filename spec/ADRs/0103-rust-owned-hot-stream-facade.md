@@ -1,6 +1,7 @@
 # ADR 0103 — Use the VMx-owned Rust hot-stream facade directly
 
-**Status:** Accepted (2026-07-13)
+**Status:** Accepted (2026-07-13; clarified by ADR-0137, ADR-0138, ADR-0140,
+ADR-0141)
 **Spec version:** 3.20.0 (implementation-record correction; no API or behavior change)
 **Related:** ADR-0002, ADR-0036, ADR-0080, ADR-0081, ADR-0101
 

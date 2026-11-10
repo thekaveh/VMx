@@ -1,6 +1,7 @@
 # ADR 0162 — Supported child-transition helper and depth-first member disposal
 
-- **Status:** Accepted (the Rust walk limits in §2.1 are lifted by ADR-0203)
+- **Status:** Accepted (the Rust walk limits in §2.1 are lifted by ADR-0203;
+  clarified by ADR-0179)
 - **Date:** 2026-10-27
 - **Spec version:** 3.30.0 (additive)
 

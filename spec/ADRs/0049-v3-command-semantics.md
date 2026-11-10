@@ -1,6 +1,6 @@
 # ADR 0049 — v3 command semantics: confirmation-decorator error channel and CRUD can-execute reactivity
 
-**Status:** Accepted (2026-06-28)
+**Status:** Accepted (2026-06-28; clarified by ADR-0137)
 **Spec version:** 3.0.0
 
 ## 1. Context

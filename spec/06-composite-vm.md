@@ -132,10 +132,48 @@ holds and delegates to.
 
 ### 3.2 Initial `Current` selection and change callback (spec v2.6.0)
 
-`CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
+`CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two
+optional declarative hooks for `Current`. Without a selector, construct selects
+nothing. When both hooks are present, each selector assignment that changes
+`Current` calls the callback exactly once.
 
-- `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked during every construct phase of the composite, including the construct phase of `reconstruct()`, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The selector receives the composite's membership when it runs, so it sees a late child (§5.1). Its pick goes through the assignment below, so a pick that is not an admitted member is a no-op (ADR-0218, `COMP-053`). Destruct first sets `Current` to `null` (§5), which reports `null` to `OnCurrentChanged`, so each construct selects again. To restore the previous selection, record only the non-null values that `OnCurrentChanged` receives and return the last one from the selector; if that child is no longer contained, the assignment is the no-op described below (ADR-0158). The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
-- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the current-publication lease and completes after publication without deadlocking selection (§4.3). The shared cross-composite coordinator protects validation and the committed state update only; hub publication and consumer callbacks execute after it is released.
+**`Current(selector)`** — `selector: Iterable<VM> -> VM | None`.
+
+- **Timing.** The composite calls the selector during every construct phase,
+  including the construct phase of `reconstruct()`. The call comes **after**
+  all children have transitioned to `Constructed` and **before** the composite
+  reaches `Constructed`.
+- **Input.** The selector receives the composite's membership when it runs, so
+  it sees a late child (§5.1).
+- **Assignment.** The composite assigns `Current` to the return value through
+  an internal **non-raising validated assignment**. It does NOT use the guarded
+  `select_component` path, which raises on a non-child (§3.1, `COMP-009`).
+  ADR-0050 corrects ADR-0042 §5.1, which called this assignment "the
+  `SelectComponent` path".
+- **Result.** A contained child gets the normal `Current` transition:
+  `PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3. For
+  `null` or a value that is not an admitted member, the assignment is a
+  **silent no-op**. `Current` keeps its prior value (initially `null`), and no
+  notification fires (ADR-0218, `COMP-053`).
+- **Selection after reconstruct.** Destruct first sets `Current` to `null`
+  (§5) and reports `null` to `OnCurrentChanged`, so each construct selects
+  again. To restore the previous selection, record only the non-null values
+  that `OnCurrentChanged` receives, and return the last one from the selector.
+  If that child is no longer contained, the assignment is the no-op above
+  (ADR-0158).
+
+**`OnCurrentChanged(callback)`** — `callback: (VM | None) -> void`.
+
+- The composite calls the callback synchronously after every `Current`
+  transition, **after** the state is updated and the hub publishes
+  `PropertyChangedMessage("Current")`. The callback receives the new `Current`
+  value, which may be `null`.
+- Re-entrant disposal from the callback is deferred through the
+  current-publication lease. It completes after publication without
+  deadlocking selection (§4.3).
+- The shared cross-composite coordinator protects only validation and the
+  committed state update. Hub publication and consumer callbacks run after the
+  coordinator is released.
 
 The construct walk's assignment uses committed membership and never waits
 (ADR-0165, ADR-0173). Every flavor follows these rules:
@@ -160,10 +198,6 @@ The construct walk's assignment uses committed membership and never waits
   composite reaches `Constructed` with the selected child already current.
 
 The other selection paths commit in the same way (§4.3).
-
-Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, each selector assignment that changes `Current` triggers the callback exactly once.
-
-Conformance: `COMP-025` (selector runs on every construct), `COMP-026` (`OnCurrentChanged` callback fires on `Current` change).
 
 ## 4. Collection change notification
 
@@ -246,23 +280,28 @@ any deferred disposal cascade begins only after the callback returns.
 A membership change never waits for another thread's membership transaction
 (spec v3.30, ADR-0187). The membership changes are `Add`, `Insert`, index
 replacement, population, the detach of a child that moves out of the
-container, `Remove`, `RemoveAt` and `Clear`. While any thread holds the
-container's transaction, each of them MUST fail before mutation, on the owner
-thread and on any other thread. Membership, parent links, `Current` and the
-event stream stay unchanged. When the old parent refuses a detach, the add
-that moves the child fails and rolls back like any failed transfer. A refusal
-uses the "membership transaction in progress" error of a re-entrant change:
-C# `InvalidOperationException`, Python `RuntimeError`, TypeScript `Error`,
-Swift `ContainerOwnershipError.attachmentFailed`, and Rust
-`VmxError::OwnershipTransactionInProgress`. Swift `remove(_:)` returns
-`false`. Swift `add(_:)` cannot throw: a refused call fails a debug
-assertion, and a release build returns with no change. Swift `insert(_:at:)`,
-`replace(at:with:)`, `removeAt(_:)` and `clear()` cannot throw, so a refused
-call returns with no change. A Swift caller that must see the refusal uses
-`addResult`, `insertResult` or `replaceResult`. Rust `clear()` returns
-`VmxResult<()>` and reports the refusal. Only disposal waits for another thread's transaction, as the
-disposal paragraph below says. Selection follows §4.3, and a wait for a
-child's ownership gate follows chapter 03 §4.1 (`COMP-048`).
+container, `Remove`, `RemoveAt` and `Clear`.
+
+While any thread holds the container's transaction, each of them MUST fail
+before mutation, on the owner thread and on any other thread. Membership,
+parent links, `Current` and the event stream stay unchanged. When the old
+parent refuses a detach, the add that moves the child fails and rolls back
+like any failed transfer. A refusal uses the "membership transaction in
+progress" error of a re-entrant change:
+
+- **Errors.** C# `InvalidOperationException`, Python `RuntimeError`,
+  TypeScript `Error`, Swift `ContainerOwnershipError.attachmentFailed`, and
+  Rust `VmxError::OwnershipTransactionInProgress`.
+- **Swift calls that cannot throw.** Swift `remove(_:)` returns `false`.
+  Swift `add(_:)` fails a debug assertion, and a release build returns with no
+  change. Swift `insert(_:at:)`, `replace(at:with:)`, `removeAt(_:)` and
+  `clear()` return with no change. A Swift caller that must see the refusal
+  uses `addResult`, `insertResult` or `replaceResult`.
+- **Rust `clear()`.** It returns `VmxResult<()>` and reports the refusal.
+
+Only disposal waits for another thread's transaction, as the disposal
+paragraph below says. Selection follows §4.3, and a wait for a child's
+ownership gate follows chapter 03 §4.1 (`COMP-048`).
 
 If any step after preflight fails, both memberships, `Parent`, `Current`, child
 current flags, lazy/builder population state, and the event stream MUST equal
@@ -294,12 +333,15 @@ background hook of that child goes (chapter 02 §2.5). In Rust that is the
 child's `background_errors()` stream. A child that settles anywhere else, or
 that has a parent by then, is left alone (ADR-0218, `COMP-054`). The rollback
 clears the child's parent before it compensates the child.
-Add, insert, replacement, and factory or bulk population MUST recheck destination
-viability after successful construction hooks; destination disposal at that
-point rejects admission and performs the same exact rollback. Replacement
-rollback identifies the candidate by identity, restores the displaced child
-before deferred disposal can take a terminal snapshot, and MUST NOT mutate an
-unrelated member merely because the original index changed (ADR-0118).
+
+Add, insert, replacement, and factory or bulk population MUST recheck
+destination viability after successful construction hooks. Destination
+disposal at that point rejects admission and performs the same exact rollback.
+Replacement rollback identifies the candidate by identity. It restores the
+displaced child before deferred disposal can take a terminal snapshot, and it
+MUST NOT mutate an unrelated member merely because the original index changed
+(ADR-0118).
+
 The selection rules of §4.3 keep `Current` out of the rollback: the owner
 thread cannot select before the commit, and no thread can select a staged
 child. A selection that another thread commits on an admitted child during the
@@ -344,14 +386,17 @@ the wrapped component (ADR-0123).
 
 ### 4.3 Selection during membership transactions (spec v3.30)
 
-The selection paths are the `Current` setter, `select_component`,
-`deselect_component`, the child `Select` and `Deselect` paths, the
-`AsyncSelection(true)` setter and its delivery, the construct walk's
-assignment (§3.2), the destruct clear (§5), the clear that a detach commits
-and the clear that a child's dispose commits (rule 9). The selection calls
-are the setter, synchronous or asynchronous, `select_component`,
-`deselect_component` and the child `Select` and `Deselect` paths. Every flavor follows these rules (ADR-0165, ADR-0173, ADR-0188,
-ADR-0189):
+The selection calls are the `Current` setter, synchronous or asynchronous,
+`select_component`, `deselect_component` and the child `Select` and `Deselect`
+paths. The selection paths are the selection calls plus these commits:
+
+- the delivery of an `AsyncSelection(true)` setter;
+- the construct walk's assignment (§3.2);
+- the destruct clear (§5);
+- the clear that a detach commits, and the clear that a child's dispose
+  commits (rule 9).
+
+Every flavor follows these rules (ADR-0165, ADR-0173, ADR-0188, ADR-0189):
 
 1. **No transaction.** No selection path opens, joins or waits for a membership
    transaction, on any thread. It validates and commits `Current` and the
@@ -588,7 +633,7 @@ The helper takes:
 - An `update_current` action (a callable taking the current VM).
 - A `delete_current` action (a callable taking the current VM).
 - Optional `confirm_update` / `confirm_delete` async delegates that gate
-  execution via `ConfirmationDecoratorCommand` (see chapter 04 §Decorators).
+  execution via `ConfirmationDecoratorCommand` (see chapter 04 §8.3).
 - An optional `current_changed` trigger (`Observable<Unit>`) — typically the
   owning composite's current-child-changed stream — that raises the
   Update/Delete `CanExecuteChanged` when the selection changes, so consumers
@@ -673,11 +718,15 @@ Behavior:
   re-reads `Items`, applies the current `SearchTerm`, and emits one filtered
   snapshot. The signal payload is ignored.
 
-The debounce runs on an injected scheduler (chapter 11 §6). Rust maps the
-pushed output to one `Custom("filtered")` message on the `filtered_changed()`
-hub, and consumers pull the projection with `filtered()`. Rust sets the
-debounce with `with_debounce(Duration)` and the scheduler with
+The debounce runs on an injected scheduler (chapter 11 §6). Swift
+`SearchableState` takes only a `DispatchQueue`, so a Swift test cannot drive
+its debounce with `VirtualTimeScheduler` (ADR-0219).
+
+Rust maps the pushed output to one `Custom("filtered")` message on the
+`filtered_changed()` hub, and consumers pull the projection with `filtered()`.
+Rust sets the debounce with `with_debounce(Duration)` and the scheduler with
 `with_scheduler(scheduler)`; the defaults are 1 second and `SystemScheduler`.
+
 A zero debounce sends the message before `set_search_term` returns, as the C#,
 Python and TypeScript helpers skip the debounce for zero. A `search()` call
 sends its message at once and does not cancel a pending term delivery
@@ -791,102 +840,29 @@ forces a recompute when external score state changes.
 
 ## 10. Conformance
 
-`COMP-001` through `COMP-013`, `COMP-014` through `COMP-018`, (the
-modeled-CRUD additions documented later) `COMP-019` through `COMP-024`, and
-the builder hooks `COMP-025` and `COMP-026` (see below), plus filtered/scored
-view IDs `COMP-028` through `COMP-037`, plus source-reactivity IDs `SRCH-001`
-through `SRCH-008` and the failure ID `SRCH-009`, in
-`12-conformance.md` cover:
+Chapter 12 §8 and §20 hold the `COMP` and `SRCH` IDs, and §30 holds the `DISP`
+IDs. The table maps each ID to the rules of this chapter, and chapter 12 states
+the behavior of each ID.
 
-- collection-change events on add/remove
-- `Current` setter behavior (legal/illegal values)
-- async selection dispatch (`AsyncSelection(true)` via `IDispatcher.Foreground`)
-- `select_component` / `deselect_component` / `can_select_component` predicates
-- construction wait-for-all-children
-- destruction unsets `Current` before destructing children
-- modeled variant maps model factory output to children
-- `can_select_component` returns false for non-children
-- `Current` setter raises on non-child assignment
-- `IsCurrent` change on the previously-Current child dispatches on the foreground scheduler
-- `deselect_component` raises when the argument is not `Current`
-- (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the composite is `Constructed`
-- (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
-- filtered visible projections and visible-domain current
-- scored filtering with stable score ordering
-- optional source-change refresh, independent debounce timing, termination,
-  batching transparency, and subscription-only ownership
-- no term debounce and no filtered emission from construction (`SRCH-008`,
-  ADR-0198)
-
-Hub publication of collection changes (chapter 01 §1.4, ADR-0142) is covered by:
-
-- `COMP-042` — each effective local event is followed by one hub
-  `CollectionChangedMessage` sent by the composite, with the same action and
-  positions.
-- `COMP-043` — a batch publishes nothing inside its scope and one `Reset` on
-  outermost completion; an empty batch publishes nothing.
-- `COMP-044` — a transfer publishes the old `Remove` before the new `Add`;
-  failed preflight, rollback, and same-index moves publish nothing.
-- `COMP-045` — hub transactions defer the messages in order, a disposed
-  composite publishes nothing, and a forwarding wrapper adds no publication.
-- `COMP-049` — a composite or group whose disposal a local subscriber or an
-  `OnCurrentChanged` callback requests sends no hub message for that change,
-  whether the disposal runs at once or is deferred (ADR-0190).
-
-The `Disposed`-child, `Destructing` and child-`select()` rules of §3, §3.1,
-§4.3 and §5 are covered by:
-
-- `COMP-050` — disposing the current child clears `Current` once. The
-  child's `IsCurrent` becomes false with no child message, and the child is
-  not selectable. The composite's own dispose cascade does not clear.
-- `COMP-051` — a non-null selection while the composite is `Destructing`
-  changes nothing and raises nothing; a null clear commits.
-- `COMP-052` — a refused child `select()` or `deselect()` changes nothing and
-  raises nothing.
-
-The `DestructOrder` option introduced in §5 is covered by:
-
-- `COMP-046` — `Reverse` destructs and disposes the children last child first,
-  and construct is the same with and without the option.
-
-The construct-walk membership rules of §5.1 are covered by:
-
-- `COMP-047` — a child removed before the walk reaches it, or while the walk
-  waits on it, does not roll the composite back, whether it is a snapshot or a
-  late child, and the walk does not construct a snapshot child removed before
-  it.
-
-The cross-thread membership rule of §4.2 is covered by:
-
-- `COMP-048` — while another thread holds the composite's membership
-  transaction, an add, a population and a removal fail at once and change
-  nothing.
-
-The builder hooks introduced in §3.2 are covered by:
-
-- `COMP-025` — `Current(selector)` builder hook drives selection during every construct.
-- `COMP-026` — `OnCurrentChanged(callback)` fires synchronously after each `Current` change.
-- `COMP-053` — the selector receives the live membership, so it can pick a
-  late child.
-
-The `Parent` back-reference wiring (declared in `01-concepts.md` §1.3 and
-`05-component-vm.md` §6.1) is covered by:
-
-- `COMP-027` — `Add` sets a child's `Parent` (the child becomes selectable and
-  `select()` delegates through it); `Remove` clears it (the child is no longer
-  selectable and `select()` becomes a no-op).
-- `COMP-038` — adding to a new mutable parent removes the same identity from its
-  previous parent without changing child lifecycle state.
-- `COMP-039` — duplicate and self/ancestor-cycle attempts fail before mutation.
-- `COMP-040` — failed attachment or auto-construction isolates and restores both
-  containers, the parent link, index, and selection state; failed lifecycle
-  compensation is surfaced rather than hidden, and the reported failure gives
-  access to the original failure and to the first compensation failure.
-- `COMP-054` — a failed add, insert or replacement that started a background
-  child returns it to `Destructed` with no parent once its construct settles.
-- `COMP-041` — successful transfer publishes old removal before new addition;
-  failed transfer publishes neither.
-
-Cross-cutting `DISP-001` covers repeated parent cascades, and `DISP-006`
-covers idempotent batch/projection disposal without changing this chapter's
-ownership rules.
+| IDs                                            | Rules                                                                                           |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `COMP-001`, `COMP-002`                         | §4 collection change notification                                                               |
+| `COMP-003`, `COMP-008`, `COMP-009`, `COMP-011` | §3 `Current` contract, §3.1 `select_component` / `deselect_component`                           |
+| `COMP-004`, `COMP-005`                         | §5 children construction orchestration                                                          |
+| `COMP-006`, `COMP-010`                         | §3 `IsCurrent` changes and `AsyncSelection(true)`                                               |
+| `COMP-007`                                     | §6 modeled variant                                                                              |
+| `COMP-012`, `COMP-047`                         | §5.1 add after `Constructed` and the construct walk (ADR-0186)                                  |
+| `COMP-013`                                     | §4.1 batch updates                                                                              |
+| `COMP-014`..`COMP-018`                         | §8 search / filter (ADR-0014)                                                                   |
+| `COMP-019`..`COMP-024`                         | §7 modeled CRUD commands (ADR-0016)                                                             |
+| `COMP-025`, `COMP-026`, `COMP-053`             | §3.2 builder hooks (ADR-0042, ADR-0218)                                                         |
+| `COMP-027`                                     | chapter 01 §1.3 and chapter 05 §6.1 `Parent` back-reference                                     |
+| `COMP-028`..`COMP-037`                         | §9 filtered composite views                                                                     |
+| `COMP-038`..`COMP-041`, `COMP-048`, `COMP-054` | §4.2 atomic child ownership transfer (ADR-0187, ADR-0218)                                       |
+| `COMP-042`..`COMP-045`                         | §4 hub publication (chapter 01 §1.4, ADR-0142)                                                  |
+| `COMP-046`                                     | §5 `DestructOrder` (ADR-0161)                                                                   |
+| `COMP-049`                                     | §4 disposal during publication (ADR-0190)                                                       |
+| `COMP-050`..`COMP-052`                         | §3, §3.1, §4.3 and §5 `Disposed` child, `Destructing` and child `select()` (ADR-0188, ADR-0189) |
+| `SRCH-001`..`SRCH-008`                         | §8, §8.1 and §8.2 source changes, timing and ownership (ADR-0198)                               |
+| `SRCH-009`                                     | §8.2 failing predicate or subscriber (ADR-0191)                                                 |
+| `DISP-001`, `DISP-006`                         | chapter 01 §4 repeated cascades and batch or projection disposal                                |
